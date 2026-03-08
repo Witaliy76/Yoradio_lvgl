@@ -10,6 +10,7 @@
 test/
 SPECTRUM*.md
 docs/
+!docs/
 *.7z
 old/
 panel_vendor_files/
