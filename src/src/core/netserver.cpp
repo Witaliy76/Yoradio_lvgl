@@ -518,6 +518,8 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
         bool valb = static_cast<bool>(atoi(val));
         config.saveValue(&config.store.invertdisplay, valb);
         display.invert();
+        // TEMPORARY DEBUG: use invert-display control to toggle INFO mode for LVGL testing. Remove when proper INFO entry/exit exists.
+        display.putRequest(NEWMODE, display.mode() == INFO ? PLAYER : INFO);
         return;
       }
       if (strcmp(cmd, "numplaylist") == 0) {

@@ -33,6 +33,9 @@ void taskHandler();
 // Stage 2: минимальный видимый тестовый оверлей для проверки рендеринга
 void createTestOverlay();
 
+// INFO v1: refresh value labels from runtime data. Call only when INFO is active; throttle to ~1 Hz.
+void refreshInfoScreen();
+
 // Stage 3.2: backend selection stub (no behavior change yet).
 // Stage 3.2: заглушка выбора backend'а (без изменения поведения).
 enum class UiBackend {

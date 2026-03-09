@@ -18,6 +18,7 @@
 #endif
 
 #ifndef DUMMYDISPLAY
+  #include "../lvgl_ui/lvgl_ui.h"
   void loopDspTask(void * pvParameters);
 
 class Display {
@@ -70,6 +71,7 @@ class Display {
     Ticker _returnTicker;
     uint8_t _bootStep;
     bool _suspendFlush;
+    lvgl_ui::UiBackend _activeBackend = lvgl_ui::UiBackend::LegacyCanvas;  // Stage 4.1: metadata only
     void _time(bool redraw = false);
     void _apScreen();
     void _swichMode(displayMode_e newmode);

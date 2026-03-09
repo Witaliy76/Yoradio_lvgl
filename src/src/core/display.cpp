@@ -519,8 +519,12 @@ void Display::_swichMode(displayMode_e newmode) {
     _drawPlaylist();
   }
 
-  // Stage 3.2: notify LVGL layer about mode change and preferred backend.
-  lvgl_ui::onModeChanged(newmode, lvgl_ui::getPreferredBackend(newmode));
+  // Stage 4.1: store active backend for current mode (metadata only; no hot-path change).
+  lvgl_ui::UiBackend backend = lvgl_ui::getPreferredBackend(newmode);
+  // При переходе INFO -> PLAYER очистка и отрисовка уже выполнены в setPage(pages[PG_PLAYER])
+  // выше; повторный clearDsp() здесь затирал бы нарисованное (баг исправлен).
+  _activeBackend = backend;
+  lvgl_ui::onModeChanged(newmode, backend);
 }
 
 void Display::resetQueue(){
@@ -740,8 +744,17 @@ void Display::loop() {
     DisplayEvent evt = { request.type, &request, _mode };
     lvgl_ui::onDisplayEvent(evt);
   }
-  _pager.loop();
-  lvgl_ui::taskHandler();
+  // INFO v1: throttled refresh of INFO screen data (only when INFO active, max 1/s).
+  if (_mode == INFO && _activeBackend == lvgl_ui::UiBackend::Lvgl) {
+    static uint32_t lastInfoRefresh = 0;
+    if (millis() - lastInfoRefresh >= 1000) {
+      lvgl_ui::refreshInfoScreen();
+      lastInfoRefresh = millis();
+    }
+  }
+  // Stage 2 order: legacy pager first. LVGL только в режиме INFO — иначе затирает boot и плейер.
+  if (_activeBackend == lvgl_ui::UiBackend::LegacyCanvas) _pager.loop();
+  if (_activeBackend == lvgl_ui::UiBackend::Lvgl) lvgl_ui::taskHandler();
   // Dirty-based flush: flush только если был реальный рендеринг и прошло >=16мс
   if(!_suspendFlush){
     static uint32_t lastFlushMs = 0;
