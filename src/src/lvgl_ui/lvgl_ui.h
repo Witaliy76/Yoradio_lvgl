@@ -1,6 +1,8 @@
 #ifndef LVGL_UI_H
 #define LVGL_UI_H
 
+#include <stdint.h>
+
 // LVGL UI subsystem stub (Stage 0)
 // Заглушка UI подсистемы LVGL (Stage 0)
 
@@ -9,6 +11,26 @@ namespace lvgl_ui {
 // Stage 0: compile-time check that LVGL is linked
 // Stage 0: проверка на этапе компиляции, что LVGL подключён
 bool isCompiled();
+
+// Stage 2: init LVGL runtime (lv_init()). No display driver / screens.
+// Stage 2: инициализация рантайма LVGL без драйвера дисплея и экранов
+void initRuntime();
+
+// Stage 2: init LVGL tick source (esp_timer + lv_tick_inc()).
+// Stage 2: инициализация источника тиков LVGL (esp_timer + lv_tick_inc())
+void initTick();
+
+// Stage 2: register LVGL display driver that renders into Arduino_Canvas.
+// Stage 2: регистрация LVGL-дисплея, рисующего в Arduino_Canvas
+void initDisplayDriver(uint16_t hor_res, uint16_t ver_res);
+
+// Stage 2: run LVGL timers inside Display::loop() / DspTask context.
+// Stage 2: запуск таймеров LVGL внутри Display::loop() / контекста DspTask
+void taskHandler();
+
+// Stage 2: minimal visible test overlay (one label) to validate rendering.
+// Stage 2: минимальный видимый тестовый оверлей для проверки рендеринга
+void createTestOverlay();
 
 }
 

@@ -53,7 +53,9 @@
 #define LV_DISP_DEF_REFR_PERIOD 20
 #define LV_INDEV_DEF_READ_PERIOD 20
 
-#define LV_TICK_CUSTOM 1
+// Stage 2: use explicit esp_timer + lv_tick_inc() instead of millis() expression.
+// Stage 2: используем явный esp_timer + lv_tick_inc(), а не выражение на основе millis()
+#define LV_TICK_CUSTOM 0
 #if LV_TICK_CUSTOM
     #define LV_TICK_CUSTOM_INCLUDE "Arduino.h"
     #define LV_TICK_CUSTOM_SYS_TIME_EXPR (millis())

@@ -7,6 +7,7 @@
 #include "network.h"
 #include "../displays/tools/GFX_Canvas_screen.h"
 #include "../core/spidog.h"
+#include "../lvgl_ui/lvgl_ui.h"
 extern Arduino_Canvas* gfx;
 
 // Глобальный флаг "кадр грязный" для dirty-based flush
@@ -61,6 +62,17 @@ void loopDspTask(void * pvParameters){
   while(true){
     if(displayQueue==NULL) break;
     display.loop();
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2) && defined(LVGL_DEBUG_STACK)
+    // Optional one-time watermark print for DspTask stack.
+    // Необязательный однократный вывод watermark стека DspTask.
+    static bool s_printed = false;
+    if (!s_printed) {
+      UBaseType_t watermark = uxTaskGetStackHighWaterMark(nullptr);
+      Serial.print("[LVGL] DspTask stack high watermark: ");
+      Serial.println(watermark);
+      s_printed = true;
+    }
+#endif
     vTaskDelay(DSP_TASK_DELAY);
   }
   vTaskDelete( NULL );
@@ -98,7 +110,12 @@ void Display::init() {
     Serial.println("[Display] Failed to initialize display!");
     return;
   }
-  
+
+  lvgl_ui::initRuntime();
+  lvgl_ui::initTick();
+  lvgl_ui::initDisplayDriver(dsp.width(), dsp.height());
+  lvgl_ui::createTestOverlay();
+
   // Создаем очередь для дисплея
   displayQueue = xQueueCreate(5, sizeof(requestParams_t));
   if (!displayQueue) {
@@ -719,6 +736,7 @@ void Display::loop() {
       }
   }
   _pager.loop();
+  lvgl_ui::taskHandler();
   // Dirty-based flush: flush только если был реальный рендеринг и прошло >=16мс
   if(!_suspendFlush){
     static uint32_t lastFlushMs = 0;
