@@ -2,6 +2,7 @@
 #define LVGL_UI_H
 
 #include <stdint.h>
+#include "../core/common.h"
 
 // LVGL UI subsystem stub (Stage 0)
 // Заглушка UI подсистемы LVGL (Stage 0)
@@ -16,7 +17,7 @@ bool isCompiled();
 // Stage 2: инициализация рантайма LVGL без драйвера дисплея и экранов
 void initRuntime();
 
-// Stage 2: init LVGL tick source (esp_timer + lv_tick_inc()).
+// Stage 2: init LVGL tick source (esp_timer + lv_tick_inc.).
 // Stage 2: инициализация источника тиков LVGL (esp_timer + lv_tick_inc())
 void initTick();
 
@@ -31,6 +32,16 @@ void taskHandler();
 // Stage 2: minimal visible test overlay (one label) to validate rendering.
 // Stage 2: минимальный видимый тестовый оверлей для проверки рендеринга
 void createTestOverlay();
+
+// Stage 3.2: backend selection stub (no behavior change yet).
+// Stage 3.2: заглушка выбора backend'а (без изменения поведения).
+enum class UiBackend {
+    LegacyCanvas,
+    Lvgl
+};
+
+UiBackend getPreferredBackend(displayMode_e mode);
+void onModeChanged(displayMode_e mode, UiBackend backend);
 
 }
 

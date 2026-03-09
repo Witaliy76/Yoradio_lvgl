@@ -8,6 +8,7 @@
 #include "../displays/tools/GFX_Canvas_screen.h"
 #include "../core/spidog.h"
 #include "../lvgl_ui/lvgl_ui.h"
+#include "../lvgl_ui/lv_ui_events.h"
 extern Arduino_Canvas* gfx;
 
 // Глобальный флаг "кадр грязный" для dirty-based flush
@@ -517,7 +518,9 @@ void Display::_swichMode(displayMode_e newmode) {
     currentPlItem = config.lastStation();
     _drawPlaylist();
   }
-  
+
+  // Stage 3.2: notify LVGL layer about mode change and preferred backend.
+  lvgl_ui::onModeChanged(newmode, lvgl_ui::getPreferredBackend(newmode));
 }
 
 void Display::resetQueue(){
@@ -734,6 +737,8 @@ void Display::loop() {
         }
         default: break;
       }
+    DisplayEvent evt = { request.type, &request, _mode };
+    lvgl_ui::onDisplayEvent(evt);
   }
   _pager.loop();
   lvgl_ui::taskHandler();

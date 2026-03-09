@@ -1,4 +1,6 @@
 #include "lvgl_ui.h"
+#include "lv_ui_events.h"
+#include "profiles/lv_profile_select.h"
 
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
 #include "lvgl.h"
@@ -155,4 +157,21 @@ void lvgl_ui::createTestOverlay() {
 
     s_created = true;
 #endif
+}
+
+// Stage 3.1: stub — forward display events to LVGL layer; no behavior yet.
+void lvgl_ui::onDisplayEvent(const DisplayEvent& evt) {
+    (void)evt;
+}
+
+// Stage 3.2: backend selection stub — always LegacyCanvas for now.
+lvgl_ui::UiBackend lvgl_ui::getPreferredBackend(displayMode_e mode) {
+    (void)mode;
+    return UiBackend::LegacyCanvas;
+}
+
+// Stage 3.2: mode-change hook stub — no behavior yet.
+void lvgl_ui::onModeChanged(displayMode_e mode, UiBackend backend) {
+    (void)mode;
+    (void)backend;
 }
