@@ -47,6 +47,9 @@ class Display {
     void setContrast();
     void printPLitem(uint8_t pos, const char* item, bool uppercase);
     void setAIInterpretation(const String& text);  // AI interpretation widget / Виджет AI интерпретации
+    // Stage 5.5a: lets DspCore skip legacy CPU widget when PLAYER is LVGL-owned.
+    // Stage 5.5a: для DspCore — не рисовать legacy CPU, если PLAYER на LVGL.
+    lvgl_ui::UiBackend activeBackend() const { return _activeBackend; }
   private:
     ScrollWidget _meta, _title1, _plcurrent;
     ScrollWidget *_weather;
@@ -89,6 +92,9 @@ class Display {
     void _setRSSI(int rssi);
     void _deactivateAllMeters();
     void _applyPendingAI();  // Apply pending AI interpretation when returning to PG_PLAYER
+    // LVGL full-screen modes: turn off legacy pager widgets (footer/heapbar) so Canvas is LVGL-only.
+    // Полноэкранный LVGL: гасим legacy pager (footer/heapbar), иначе остаётся «призрак» на canvas.
+    void _deactivateLegacyPagerForLvgl();
   public:
     Page* getActivePage() const { return _pager.getActivePage(); } // Получить активную страницу для доступа из DspCore
 };

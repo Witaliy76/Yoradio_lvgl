@@ -6,173 +6,30 @@
 #include "lvgl.h"
 #include "esp_timer.h"
 #include "Arduino.h"
-#include "WiFi.h"
-#include "Esp.h"
-#include "../core/network.h"
-#include "../core/options.h"
+#include "lv_page_chain.h"
+#include "screens/scr_info.h"
+#include "screens/scr_main.h"
 #include "../displays/tools/GFX_Canvas_screen.h"
+
+using namespace lvgl_ui;
 
 // External canvas instance from display subsystem / Внешний экземпляр canvas из подсистемы дисплея
 extern Arduino_Canvas* gfx;
 
-#define INFO_REFRESH_SET(lbl, str) do { if ((lbl)) lv_label_set_text((lbl), (str)); } while(0)
-
-// Stage 4.2/4.4b: INFO screen (internal; loaded when mode == INFO).
-static lv_obj_t* s_info_screen = nullptr;
-// Stage 4.3: default screen; restored when leaving INFO.
+// Stage 4.3: empty default screen — restored when leaving LVGL-owned modes.
+// Stage 4.3: пустой экран по умолчанию — восстанавливается при выходе из режимов LVGL.
 static lv_obj_t* s_default_screen = nullptr;
 
-// Patch 4.4b: VALUE labels for future runtime updates (placeholders only for now).
-// NETWORK
-static lv_obj_t* s_val_ssid    = nullptr;
-static lv_obj_t* s_val_ip      = nullptr;
-static lv_obj_t* s_val_rssi    = nullptr;
-static lv_obj_t* s_val_status  = nullptr;
-// SYSTEM
-static lv_obj_t* s_val_firmware = nullptr;
-static lv_obj_t* s_val_uptime   = nullptr;
-static lv_obj_t* s_val_heap     = nullptr;
-static lv_obj_t* s_val_psram   = nullptr;
-static lv_obj_t* s_val_cpu_freq = nullptr;
-static lv_obj_t* s_val_chip     = nullptr;
-static lv_obj_t* s_val_build   = nullptr;
+static PageChain s_page_chain;
+static LvglInfoPage s_info_page;
+static LvglMainScreen s_main_screen;
 
-// 480x480 layout constants (readable, conservative spacing).
-static const int32_t INFO_MARGIN_LEFT = 24;
-static const int32_t INFO_VALUE_X     = 180;
-static const int32_t INFO_ROW_H       = 26;
-static const int32_t INFO_SECTION_GAP = 20;
-
-static lv_obj_t* addRow(lv_obj_t* parent, int32_t y, const char* name, const char* value, lv_obj_t** outVal) {
-    lv_obj_t* lblName = lv_label_create(parent);
-    if (lblName) {
-        lv_label_set_text(lblName, name);
-        lv_obj_set_pos(lblName, INFO_MARGIN_LEFT, y);
-    }
-    lv_obj_t* lblVal = lv_label_create(parent);
-    if (lblVal) {
-        lv_label_set_text(lblVal, value);
-        lv_obj_set_pos(lblVal, INFO_VALUE_X, y);
-        if (outVal) *outVal = lblVal;
-    }
-    return lblVal;
-}
-
-static void ensureInfoScreen() {
-    if (s_info_screen) return;
-
-    s_info_screen = lv_obj_create(NULL);
-    if (!s_info_screen) return;
-
-    int32_t y = 16;
-
-    // Title
-    lv_obj_t* title = lv_label_create(s_info_screen);
-    if (title) {
-        lv_label_set_text(title, "INFO");
-        lv_obj_set_pos(title, INFO_MARGIN_LEFT, y);
-    }
-    y += INFO_ROW_H + INFO_SECTION_GAP;
-
-    // --- NETWORK ---
-    lv_obj_t* secNet = lv_label_create(s_info_screen);
-    if (secNet) {
-        lv_label_set_text(secNet, "NETWORK");
-        lv_obj_set_pos(secNet, INFO_MARGIN_LEFT, y);
-    }
-    y += INFO_ROW_H;
-
-    addRow(s_info_screen, y, "SSID:",    "--", &s_val_ssid);   y += INFO_ROW_H;
-    addRow(s_info_screen, y, "IP:",      "--", &s_val_ip);     y += INFO_ROW_H;
-    addRow(s_info_screen, y, "RSSI:",    "--", &s_val_rssi);   y += INFO_ROW_H;
-    addRow(s_info_screen, y, "Status:",  "--", &s_val_status); y += INFO_ROW_H;
-
-    y += INFO_SECTION_GAP;
-
-    // --- SYSTEM ---
-    lv_obj_t* secSys = lv_label_create(s_info_screen);
-    if (secSys) {
-        lv_label_set_text(secSys, "SYSTEM");
-        lv_obj_set_pos(secSys, INFO_MARGIN_LEFT, y);
-    }
-    y += INFO_ROW_H;
-
-    addRow(s_info_screen, y, "Firmware:",  "--", &s_val_firmware); y += INFO_ROW_H;
-    addRow(s_info_screen, y, "Uptime:",    "--", &s_val_uptime);   y += INFO_ROW_H;
-    addRow(s_info_screen, y, "Free heap:", "--", &s_val_heap);    y += INFO_ROW_H;
-    addRow(s_info_screen, y, "Free PSRAM:", "--", &s_val_psram);  y += INFO_ROW_H;
-    addRow(s_info_screen, y, "CPU freq:",  "--", &s_val_cpu_freq); y += INFO_ROW_H;
-    addRow(s_info_screen, y, "Chip:",     "--", &s_val_chip);     y += INFO_ROW_H;
-    addRow(s_info_screen, y, "Build:",     "--", &s_val_build);    y += INFO_ROW_H;
-}
-
-// Populate INFO value labels from runtime data. Throttled; call only when INFO is active.
-static void refreshInfoScreenImpl() {
-    if (!s_val_ssid) return;  // Screen not built yet
-
-    static char buf[64];
-
-    // NETWORK
-    if (WiFi.status() == WL_CONNECTED) {
-        INFO_REFRESH_SET(s_val_ssid, WiFi.SSID().c_str());
-        INFO_REFRESH_SET(s_val_ip,   WiFi.localIP().toString().c_str());
-        snprintf(buf, sizeof(buf), "%d dBm", WiFi.RSSI());
-        INFO_REFRESH_SET(s_val_rssi, buf);
-    } else {
-        INFO_REFRESH_SET(s_val_ssid, "--");
-        INFO_REFRESH_SET(s_val_ip,   "--");
-        INFO_REFRESH_SET(s_val_rssi, "--");
-    }
-
-    switch (network.status) {
-        case CONNECTED: INFO_REFRESH_SET(s_val_status, "Connected"); break;
-        case SOFT_AP:   INFO_REFRESH_SET(s_val_status, "Soft AP");   break;
-        case FAILED:    INFO_REFRESH_SET(s_val_status, "Failed");   break;
-        case SDREADY:   INFO_REFRESH_SET(s_val_status, "SD Ready");  break;
-        default:        INFO_REFRESH_SET(s_val_status, "--");       break;
-    }
-
-    // SYSTEM
-    INFO_REFRESH_SET(s_val_firmware, YOVERSION);
-
-    uint32_t sec = (uint32_t)(millis() / 1000u);
-    uint32_t h = sec / 3600u;
-    uint32_t m = (sec % 3600u) / 60u;
-    uint32_t s = sec % 60u;
-    snprintf(buf, sizeof(buf), "%02lu:%02lu:%02lu", (unsigned long)h, (unsigned long)m, (unsigned long)s);
-    INFO_REFRESH_SET(s_val_uptime, buf);
-
-    uint32_t heap = ESP.getFreeHeap();
-    if (heap >= 1024u * 1024u)
-        snprintf(buf, sizeof(buf), "%lu MB", (unsigned long)(heap / (1024u * 1024u)));
-    else
-        snprintf(buf, sizeof(buf), "%lu KB", (unsigned long)(heap / 1024u));
-    INFO_REFRESH_SET(s_val_heap, buf);
-
-    size_t psram = ESP.getFreePsram();
-    if (psram > 0) {
-        if (psram >= 1024u * 1024u)
-            snprintf(buf, sizeof(buf), "%lu MB", (unsigned long)(psram / (1024u * 1024u)));
-        else
-            snprintf(buf, sizeof(buf), "%lu KB", (unsigned long)(psram / 1024u));
-        INFO_REFRESH_SET(s_val_psram, buf);
-    } else {
-        INFO_REFRESH_SET(s_val_psram, "--");
-    }
-
-    snprintf(buf, sizeof(buf), "%u MHz", (unsigned)ESP.getCpuFreqMHz());
-    INFO_REFRESH_SET(s_val_cpu_freq, buf);
-
-    snprintf(buf, sizeof(buf), "%s rev.%d", ESP.getChipModel(), ESP.getChipRevision());
-    INFO_REFRESH_SET(s_val_chip, buf);
-
-    INFO_REFRESH_SET(s_val_build, YOVERSION);
-}
-
-void lvgl_ui::refreshInfoScreen() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-    refreshInfoScreenImpl();
-#endif
+static void ensurePageChainRegistered() {
+    static bool s_registered = false;
+    if (s_registered) return;
+    s_page_chain.registerPage(PageChain::INFO_INDEX, &s_info_page);
+    s_page_chain.registerPage(PageChain::MAIN_INDEX, &s_main_screen);
+    s_registered = true;
 }
 
 // Lightweight LVGL tick callback: only lv_tick_inc()
@@ -222,6 +79,18 @@ static void lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t 
 
 #endif
 
+void lvgl_ui::refreshInfoScreen() {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    s_info_page.update();
+#endif
+}
+
+void lvgl_ui::refreshMainScreen() {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    s_main_screen.update();
+#endif
+}
+
 // Stage 0: stub — confirms LVGL library is compiled into the build
 // Stage 0: заглушка — подтверждает, что библиотека LVGL скомпилирована в сборку
 
@@ -268,9 +137,10 @@ void lvgl_ui::initDisplayDriver(uint16_t hor_res, uint16_t ver_res) {
     if (s_disp) return;
     if (hor_res == 0 || ver_res == 0) return;
 
-    // Small strip buffer in PSRAM: width x LINES
-    // Небольшой полосовый буфер в PSRAM: ширина x LINES
-    const uint16_t buf_lines = 40;
+    // Small strip buffer in PSRAM: width x buf_lines (from active LVGL profile).
+    // Полосовой буфер в PSRAM: ширина x buf_lines (из активного профиля LVGL).
+    uint16_t buf_lines = LV_ACTIVE_PROFILE.buf_lines;
+    if (buf_lines == 0) buf_lines = 40;
     uint32_t lines = buf_lines;
     if (lines > ver_res) lines = ver_res;
 
@@ -301,6 +171,7 @@ void lvgl_ui::initDisplayDriver(uint16_t hor_res, uint16_t ver_res) {
 
 void lvgl_ui::taskHandler() {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    s_page_chain.tick();
     lv_timer_handler();
 #endif
 }
@@ -318,6 +189,8 @@ void lvgl_ui::createTestOverlay() {
 
     if (!s_default_screen) s_default_screen = scr;
 
+    ensurePageChainRegistered();
+
     s_created = true;
 #endif
 }
@@ -327,19 +200,22 @@ void lvgl_ui::onDisplayEvent(const DisplayEvent& evt) {
     (void)evt;
 }
 
-// Stage 4.3: INFO is the first mode owned by LVGL; all others remain LegacyCanvas.
+// Stage 5.5: INFO and PLAYER are LVGL-owned; all others remain LegacyCanvas.
+// Stage 5.5: INFO и PLAYER принадлежат LVGL; остальные — LegacyCanvas.
 lvgl_ui::UiBackend lvgl_ui::getPreferredBackend(displayMode_e mode) {
-    if (mode == INFO) return UiBackend::Lvgl;
+    if (mode == INFO || mode == PLAYER) return UiBackend::Lvgl;
     return UiBackend::LegacyCanvas;
 }
 
-// Stage 4.3: mode-change hook — activate INFO LVGL screen when INFO is Lvgl-owned; restore default when LegacyCanvas.
+// Stage 5.5: mode-change hook — route INFO and PLAYER to LVGL PageChain; restore default for LegacyCanvas.
+// Stage 5.5: хук смены режима — INFO и PLAYER в PageChain LVGL; остальные — legacy default screen.
 void lvgl_ui::onModeChanged(displayMode_e mode, UiBackend backend) {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-    if (mode == INFO && backend == UiBackend::Lvgl) {
-        ensureInfoScreen();
-        if (s_info_screen) lv_scr_load(s_info_screen);
-    } else if (backend == UiBackend::LegacyCanvas) {
+    if (backend == UiBackend::Lvgl) {
+        ensurePageChainRegistered();
+        if (mode == INFO)   s_page_chain.goTo(PageChain::INFO_INDEX);
+        if (mode == PLAYER) s_page_chain.goTo(PageChain::MAIN_INDEX);
+    } else {
         if (s_default_screen) lv_scr_load(s_default_screen);
     }
 #else

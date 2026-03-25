@@ -36,6 +36,10 @@ void createTestOverlay();
 // INFO v1: refresh value labels from runtime data. Call only when INFO is active; throttle to ~1 Hz.
 void refreshInfoScreen();
 
+// Stage 5.5: refresh Main screen labels. Call only when PLAYER is active + Lvgl backend; throttle ~1 Hz.
+// Stage 5.5: обновление label'ов Main. Только при PLAYER + Lvgl backend; ≤1 Гц.
+void refreshMainScreen();
+
 // Stage 3.2: backend selection stub (no behavior change yet).
 // Stage 3.2: заглушка выбора backend'а (без изменения поведения).
 enum class UiBackend {

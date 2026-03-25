@@ -486,26 +486,29 @@ void DspCore::loop(bool force) {
 #endif
     
 #ifdef CPU_LOAD
-    // Обновляем каждую секунду
-    if (millis() - lastCpuUpdate >= 1000) {
-        uint32_t cpuUsage = _calculateCpuUsage();
-        
-        // Обновляем виджет только если значение изменилось
-        if (cpuUsage != lastValue || force) {
-            char buf[20];
-            snprintf(buf, sizeof(buf), "CPU: %d%%", cpuUsage);
-            cpuWidget.setText(buf);
-            lastValue = cpuUsage;
-            
-            // Принудительно обновляем виджет
-            if (force) {
-                cpuWidget.setActive(true);
+    extern Display display;
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    const bool cpu_on_legacy_player =
+        (display.mode() == PLAYER) && (display.activeBackend() == lvgl_ui::UiBackend::LegacyCanvas);
+#else
+    const bool cpu_on_legacy_player = (display.mode() == PLAYER);
+#endif
+    if (cpu_on_legacy_player) {
+        if (millis() - lastCpuUpdate >= 1000) {
+            uint32_t cpuUsage = _calculateCpuUsage();
+
+            if (cpuUsage != lastValue || force) {
+                char buf[20];
+                snprintf(buf, sizeof(buf), "CPU: %d%%", cpuUsage);
+                cpuWidget.setText(buf);
+                lastValue = cpuUsage;
+
+                if (force) {
+                    cpuWidget.setActive(true);
+                }
             }
+            lastCpuUpdate = millis();
         }
-        lastCpuUpdate = millis();
-    }
-    // Проверяем, находимся ли мы на странице плеера
-    if (display.mode() == PLAYER) {
         cpuWidget.setActive(true);
     } else {
         cpuWidget.setActive(false);

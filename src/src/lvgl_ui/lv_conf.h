@@ -85,18 +85,23 @@
 #define LV_USE_GPU_SDL 0
 
 /*--- Logging ---*/
-#define LV_USE_LOG 0
+// LV_LOG_PRINTF: use stdio printf → on ESP32 Arduino this typically matches USB/UART Serial monitor.
+// Без LV_LOG_PRINTF=1 и без lv_log_register_print_cb() LVGL не печатает логи вообще.
+// Stage 5.5b: WARN + no TRACE — UART printf from layout/object traces overloaded the system (WDT / garbled serial).
+// Stage 5.5b: WARN без TRACE — printf в UART на каждый layout грузил систему (WDT, каша в Serial).
+// For deep LVGL debugging temporarily set INFO and individual LV_LOG_TRACE_* to 1.
+#define LV_USE_LOG 1
 #if LV_USE_LOG
     #define LV_LOG_LEVEL LV_LOG_LEVEL_WARN
-    #define LV_LOG_PRINTF 0
-    #define LV_LOG_TRACE_MEM 1
-    #define LV_LOG_TRACE_TIMER 1
-    #define LV_LOG_TRACE_INDEV 1
-    #define LV_LOG_TRACE_DISP_REFR 1
-    #define LV_LOG_TRACE_EVENT 1
-    #define LV_LOG_TRACE_OBJ_CREATE 1
-    #define LV_LOG_TRACE_LAYOUT 1
-    #define LV_LOG_TRACE_ANIM 1
+    #define LV_LOG_PRINTF 1
+    #define LV_LOG_TRACE_MEM 0
+    #define LV_LOG_TRACE_TIMER 0
+    #define LV_LOG_TRACE_INDEV 0
+    #define LV_LOG_TRACE_DISP_REFR 0
+    #define LV_LOG_TRACE_EVENT 0
+    #define LV_LOG_TRACE_OBJ_CREATE 0
+    #define LV_LOG_TRACE_LAYOUT 0
+    #define LV_LOG_TRACE_ANIM 0
 #endif
 
 /*--- Asserts ---*/
@@ -135,6 +140,15 @@
  *  FONT USAGE
  *==================*/
 
+/* Stage 5.1: generated Cyrillic-capable Montserrat (see fonts/*.c, lv_font_conv).
+ * Stage 5.1: сгенерированный Montserrat с кириллицей (fonts/*.c, lv_font_conv). */
+#define LV_FONT_YORA_MONTSERRAT_12_CYR 1
+#define LV_FONT_YORA_MONTSERRAT_14_CYR 1
+#define LV_FONT_YORA_MONTSERRAT_16_CYR 1
+#define LV_FONT_YORA_MONTSERRAT_22_CYR 1
+#define LV_FONT_YORA_MONTSERRAT_40_CYR 1
+#define LV_FONT_YORA_MONTSERRAT_48_CYR 1
+
 #define LV_FONT_MONTSERRAT_14 1
 #define LV_FONT_MONTSERRAT_8  0
 #define LV_FONT_MONTSERRAT_10 0
@@ -162,11 +176,19 @@
 #define LV_FONT_SIMSUN_16_CJK 0
 #define LV_FONT_UNSCII_8 0
 #define LV_FONT_UNSCII_16 0
-#define LV_FONT_CUSTOM_DECLARE
+#define LV_FONT_CUSTOM_DECLARE                                                                 \
+    extern const lv_font_t lv_font_yora_montserrat_12_cyr;                                      \
+    extern const lv_font_t lv_font_yora_montserrat_14_cyr;                                      \
+    extern const lv_font_t lv_font_yora_montserrat_16_cyr;                                      \
+    extern const lv_font_t lv_font_yora_montserrat_22_cyr;                                      \
+    extern const lv_font_t lv_font_yora_montserrat_40_cyr;                                      \
+    extern const lv_font_t lv_font_yora_montserrat_48_cyr;
 
 #define LV_FONT_DEFAULT &lv_font_montserrat_14
 #define LV_FONT_FMT_TXT_LARGE 0
-#define LV_USE_FONT_COMPRESSED 0
+/* Stage 5.1: lv_font_conv defaults to RLE-compressed bitmaps; must match generated fonts.
+ * Stage 5.1: lv_font_conv по умолчанию даёт RLE — без этого LVGL предупреждает и ломает отрисовку. */
+#define LV_USE_FONT_COMPRESSED 1
 #define LV_USE_FONT_SUBPX 0
 #if LV_USE_FONT_SUBPX
     #define LV_FONT_SUBPX_BGR 0

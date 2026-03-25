@@ -192,6 +192,19 @@ void Display::_bootScreen(){
   Serial.println("[Display] Boot screen created, flush enabled for animation");
 }
 
+void Display::_deactivateLegacyPagerForLvgl() {
+  // Same audioinfo policy as legacy _start() — was skipped on Lvgl path.
+  // Та же политика audioinfo, что в legacy _start() (на ветке Lvgl не вызывалась).
+  if (_heapbar) {
+    _heapbar->lock(!config.store.audioinfo);
+  }
+  for (unsigned i = 0; i < 4; ++i) {
+    if (pages[i]) {
+      pages[i]->setActive(false);
+    }
+  }
+}
+
 void Display::_buildPager(){
   Serial.println("[DEBUG] _buildPager() called");
   Serial.print("[DEBUG] usespectrum: ");
@@ -389,6 +402,20 @@ void Display::_start() {
   _buildPager();
   _mode = PLAYER;
   config.setTitle(const_PlReady);
+
+  // Stage 5.5 guard: if PLAYER backend is LVGL, skip legacy player page setup.
+  // Guard 5.5: если backend PLAYER = LVGL, пропускаем legacy подготовку страницы плейера.
+  lvgl_ui::UiBackend startBackend = lvgl_ui::getPreferredBackend(PLAYER);
+  if (startBackend == lvgl_ui::UiBackend::Lvgl) {
+    _activeBackend = startBackend;
+    lvgl_ui::onModeChanged(PLAYER, startBackend);
+    _deactivateLegacyPagerForLvgl();
+    _bootStep = 2;
+    _suspendFlush = false;
+    pm.on_display_player();
+    return;
+  }
+
   // Perform deferred AI widget clear if needed (after widgets are initialized)
   // Выполнить отложенную очистку AI виджета если нужно (после инициализации виджетов)
   extern void aiPerformDeferredClearIfNeeded();
@@ -455,34 +482,40 @@ void Display::_swichMode(displayMode_e newmode) {
   _mode = newmode;
   dsp.setScrollId(NULL);
   if (newmode == PLAYER) {
-    if(player.isRunning())
-      _clock.moveTo(clockMove);
-    else
-      _clock.moveBack();
-    #ifdef DSP_LCD
-      dsp.clearDsp();
-    #endif
+    // Common state resets (needed for both legacy and LVGL backends).
+    // Общий сброс состояния (нужен для обоих backend'ов).
     numOfNextStation = 0;
     _returnTicker.detach();
-    #ifdef META_MOVE
-      _meta.moveBack();
-    #endif
-    _meta.setAlign(metaConf.widget.align);
-    _nums.setText("");
     config.isScreensaver = false;
-    _pager.setPage( pages[PG_PLAYER]);
-    // Принудительно перерисовываем фон мета ПОСЛЕ переключения страницы (чтобы не затерся clearDsp)
-    if (_metabackground) {
-      _metabackground->setActive(true, true); // true, true означает очистку и перерисовку
+
+    // Stage 5.5 guard: LVGL Main screen — skip legacy PLAYER page setup.
+    // Guard 5.5: LVGL Main — пропускаем legacy подготовку страницы плейера.
+    if (lvgl_ui::getPreferredBackend(PLAYER) == lvgl_ui::UiBackend::Lvgl) {
+      pm.on_display_player();
+      // backend + onModeChanged handled at end of _swichMode (common tail).
+    } else {
+      if(player.isRunning())
+        _clock.moveTo(clockMove);
+      else
+        _clock.moveBack();
+      #ifdef DSP_LCD
+        dsp.clearDsp();
+      #endif
+      #ifdef META_MOVE
+        _meta.moveBack();
+      #endif
+      _meta.setAlign(metaConf.widget.align);
+      _nums.setText("");
+      _pager.setPage( pages[PG_PLAYER]);
+      if (_metabackground) {
+        _metabackground->setActive(true, true);
+      }
+      _meta.setText(config.station.name);
+      config.setDspOn(config.store.dspon, false);
+      pm.on_display_player();
+      _applyPendingAI();
+      _layoutChange(player.isRunning());
     }
-    // Устанавливаем текст META ПОСЛЕ перерисовки фона, чтобы текст рисовался поверх фона
-    _meta.setText(config.station.name);
-    config.setDspOn(config.store.dspon, false);
-    pm.on_display_player();
-    // Применяем pending AI интерпретацию при возврате на страницу плейера
-    _applyPendingAI();
-    // Восстанавливаем правильное состояние виджетов при возврате на страницу плейера
-    _layoutChange(player.isRunning());
   }
   if (newmode == SCREENSAVER || newmode == SCREENBLANK) {
     config.isScreensaver = true;
@@ -525,6 +558,9 @@ void Display::_swichMode(displayMode_e newmode) {
   // выше; повторный clearDsp() здесь затирал бы нарисованное (баг исправлен).
   _activeBackend = backend;
   lvgl_ui::onModeChanged(newmode, backend);
+  if (backend == lvgl_ui::UiBackend::Lvgl) {
+    _deactivateLegacyPagerForLvgl();
+  }
 }
 
 void Display::resetQueue(){
@@ -744,12 +780,22 @@ void Display::loop() {
     DisplayEvent evt = { request.type, &request, _mode };
     lvgl_ui::onDisplayEvent(evt);
   }
-  // INFO v1: throttled refresh of INFO screen data (only when INFO active, max 1/s).
-  if (_mode == INFO && _activeBackend == lvgl_ui::UiBackend::Lvgl) {
-    static uint32_t lastInfoRefresh = 0;
-    if (millis() - lastInfoRefresh >= 1000) {
-      lvgl_ui::refreshInfoScreen();
-      lastInfoRefresh = millis();
+  // Throttled refresh of LVGL screens (~1 Hz); pattern symmetric for INFO and Main.
+  // Throttled обновление LVGL экранов (~1 Гц); симметричный паттерн для INFO и Main.
+  if (_activeBackend == lvgl_ui::UiBackend::Lvgl) {
+    if (_mode == INFO) {
+      static uint32_t lastInfoRefresh = 0;
+      if (millis() - lastInfoRefresh >= 1000) {
+        lvgl_ui::refreshInfoScreen();
+        lastInfoRefresh = millis();
+      }
+    }
+    if (_mode == PLAYER) {
+      static uint32_t lastMainRefresh = 0;
+      if (millis() - lastMainRefresh >= 1000) {
+        lvgl_ui::refreshMainScreen();
+        lastMainRefresh = millis();
+      }
     }
   }
   // Stage 2 order: legacy pager first. LVGL только в режиме INFO — иначе затирает boot и плейер.
