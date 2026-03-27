@@ -595,10 +595,13 @@ void DspCore::loop(bool force) {
 #endif
     
 #ifdef CPU_LOAD
+    // Legacy Canvas CPU: legacy PLAYER only; accepted hotfix — hide during LVGL Boot (same as ST7701).
+    // CPU на Canvas: только legacy PLAYER; hotfix — гасим на LVGL Boot.
     extern Display display;
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     const bool cpu_on_legacy_player =
-        (display.mode() == PLAYER) && (display.activeBackend() == lvgl_ui::UiBackend::LegacyCanvas);
+        (display.mode() == PLAYER) && (display.activeBackend() == lvgl_ui::UiBackend::LegacyCanvas) &&
+        !lvgl_ui::isLvglBootActive();
 #else
     const bool cpu_on_legacy_player = (display.mode() == PLAYER);
 #endif

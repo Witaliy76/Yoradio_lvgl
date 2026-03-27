@@ -29,7 +29,7 @@ class Pager{
     void begin();
     void loop();
     Page& addPage(Page* page, bool setNow = false);
-    bool removePage(Page* page);
+    bool removePage(Page* page, bool clear_display = true);
     void setPage(Page* page, bool black=false);
     Page* getActivePage() const; // Получить активную страницу
   private:

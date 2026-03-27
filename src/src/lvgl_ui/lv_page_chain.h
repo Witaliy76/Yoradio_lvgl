@@ -41,6 +41,9 @@ public:
     void dismissTemporary();
 
     void showBoot(ILvglScreen* scr);
+    // Tear down Boot special mode only; does not load Main — onModeChanged/goTo does (Stage 5.4).
+    // Снимает только Boot; Main не грузит — дальше onModeChanged/goTo (этап 5.4).
+    void dismissBoot();
     // Wi-Fi setup: full-screen RebootRequired; no back-nav, exit = reboot (Stage 7+ UI).
     // Wi-Fi: полноэкранный RebootRequired; без назад, выход = перезагрузка (UI в Stage 7+).
     void showRebootRequired(ILvglScreen* scr);

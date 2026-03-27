@@ -26,6 +26,22 @@ Nextion nextion;
 
 #ifndef DUMMYDISPLAY
 //============================================================================================================================
+
+namespace {
+// Set when either legacy or LVGL boot UI was created (prevents duplicate boot in Display::init tail).
+// Установлено при создании legacy или LVGL boot (не дублировать boot в хвосте Display::init).
+bool s_any_boot_ui_shown = false;
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+// Pager::removePage() default calls dsp.clearDsp() — full Canvas fill; LVGL draws into the same buffer.
+// Skipping clear avoids theme-colored wipe over LVGL Boot/Main during DSP_START / AP handoff.
+// removePage по умолчанию вызывает dsp.clearDsp() — полная заливка Canvas; LVGL рисует в тот же буфер.
+// Без clear не затираем LVGL Boot/Main цветом темы при DSP_START / переходе в AP.
+static bool lvgl_player_uses_same_canvas() {
+  return lvgl_ui::getPreferredBackend(PLAYER) == lvgl_ui::UiBackend::Lvgl;
+}
+#endif
+} // namespace
+
 DspCore dsp;
 
 Page *pages[] = { new Page(), new Page(), new Page(), new Page() };
@@ -35,7 +51,13 @@ Page *pages[] = { new Page(), new Page(), new Page(), new Page() };
 #endif
 
 #ifndef CORE_STACK_SIZE
-  #define CORE_STACK_SIZE  1024*3
+  // LVGL path needs larger DspTask stack (fonts/layout/events + logging overhead).
+  // Для ветки LVGL нужен больший стек DspTask (шрифты/layout/events + накладные логи).
+  #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    #define CORE_STACK_SIZE  (1024*6)
+  #else
+    #define CORE_STACK_SIZE  (1024*3)
+  #endif
 #endif
 #ifndef DSP_TASK_DELAY
   #define DSP_TASK_DELAY  pdMS_TO_TICKS(5)
@@ -170,13 +192,12 @@ void Display::_bootScreen(){
     delay(1000);
   }
   
-  // Защита от повторного вызова
-  static bool bootScreenCreated = false;
-  if(bootScreenCreated) {
+  // Защита от повторного вызова / Idempotent boot UI
+  if (s_any_boot_ui_shown) {
     Serial.println("[Display] _bootScreen already created, skipping");
     return;
   }
-  bootScreenCreated = true;
+  s_any_boot_ui_shown = true;
   
   Serial.println("[Display] Creating boot screen");
   _boot = new Page();
@@ -340,7 +361,11 @@ void Display::_apScreen() {
   _suspendFlush = false;  // Разрешаем обновления экрана в AP режиме / Enable screen updates in AP mode
   Serial.println("[Display] _apScreen() called");
   Serial.printf("[Display] _suspendFlush = %s\n", _suspendFlush ? "true" : "false");
-  if(_boot) _pager.removePage(_boot);
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+  if (_boot) _pager.removePage(_boot, !lvgl_player_uses_same_canvas());
+#else
+  if (_boot) _pager.removePage(_boot);
+#endif
   #ifndef DSP_LCD
     _boot = new Page();
     #if DSP_MODEL!=DSP_NOKIA5110
@@ -380,11 +405,18 @@ void Display::_apScreen() {
 void Display::_start() {
   Serial.println("[Display] _start() called");
   Serial.printf("[Display] network.status = %d\n", network.status);
-  if(_boot) _pager.removePage(_boot);
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+  if (_boot) _pager.removePage(_boot, !lvgl_player_uses_same_canvas());
+#else
+  if (_boot) _pager.removePage(_boot);
+#endif
   #ifdef USE_NEXTION
     nextion.wake();
   #endif
   if (network.status != CONNECTED && network.status != SDREADY) {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    lvgl_ui::dismissBootForApLegacyHandoff(); // blank LVGL screen; AP uses legacy pager / пустой LVGL, AP на legacy
+#endif
     _suspendFlush = false; // разрешаем flush в AP режиме / enable flush in AP mode
     Serial.println("[Display] Going to AP mode");
     _apScreen();
@@ -407,6 +439,12 @@ void Display::_start() {
   // Guard 5.5: если backend PLAYER = LVGL, пропускаем legacy подготовку страницы плейера.
   lvgl_ui::UiBackend startBackend = lvgl_ui::getPreferredBackend(PLAYER);
   if (startBackend == lvgl_ui::UiBackend::Lvgl) {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    // Defer dismiss + Main until min Boot dwell (logo + indeterminate bar); completed in loop().
+    // Откладываем переход на Main до мин. времени Boot; завершение в loop().
+    _lvgl_player_handoff_pending = true;
+    return;
+#else
     _activeBackend = startBackend;
     lvgl_ui::onModeChanged(PLAYER, startBackend);
     _deactivateLegacyPagerForLvgl();
@@ -414,6 +452,7 @@ void Display::_start() {
     _suspendFlush = false;
     pm.on_display_player();
     return;
+#endif
   }
 
   // Perform deferred AI widget clear if needed (after widgets are initialized)
@@ -448,6 +487,20 @@ void Display::_start() {
   _suspendFlush = false; // разрешаем flush после полной подготовки
   pm.on_display_player();
 }
+
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+void Display::_tryCompleteLvglPlayerHandoff() {
+  if (!_lvgl_player_handoff_pending) return;
+  if (!lvgl_ui::dismissBootForMainHandoffWhenDue()) return;
+  _lvgl_player_handoff_pending = false;
+  _activeBackend = lvgl_ui::getPreferredBackend(PLAYER);
+  lvgl_ui::onModeChanged(PLAYER, _activeBackend);
+  _deactivateLegacyPagerForLvgl();
+  _bootStep = 2;
+  _suspendFlush = false;
+  pm.on_display_player();
+}
+#endif
 
 void Display::_showDialog(const char *title){
   dsp.setScrollId(NULL);
@@ -686,11 +739,27 @@ void Display::_layoutChange(bool played){
   #define DSP_QUEUE_TICKS pdMS_TO_TICKS(10)
 #endif
 void Display::loop() {
+  // Stage 5.4 polish: latch Wi-Fi connected status on LVGL Boot screen.
+  // Этап 5.4: при реальном подключении Wi-Fi зафиксировать статус на Boot (до перехода на Main).
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+  static bool s_lvgl_boot_connected_latched = false;
+#endif
   if(_bootStep==0) {
     _pager.begin();
-    _bootScreen();
-    // Не выходим сразу - нужно вызвать _pager.loop() для рендеринга виджетов
-    // Don't return immediately - need to call _pager.loop() for widget rendering
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    // Stage 5.4: LVGL Boot from DspTask only (preflight); legacy boot if LVGL display missing.
+    // Этап 5.4: LVGL Boot только из DspTask; legacy boot если дисплей LVGL не поднялся.
+    if (lvgl_ui::tryPresentLvglBootOnFirstDspLoop()) {
+      s_any_boot_ui_shown = true;
+      _bootStep = 1;
+      _suspendFlush = false;
+    } else
+#endif
+    {
+      _bootScreen();
+    }
+    // Не выходим сразу — нужен рендер (pager или LVGL taskHandler ниже).
+    // Don't return immediately — rendering happens in _pager.loop() or lvgl taskHandler below.
   }
   // Разрешаем loop при bootStep==1 для анимации / Allow loop at bootStep==1 for animation
   if(displayQueue==NULL && _bootStep!=1) return;
@@ -746,7 +815,33 @@ void Display::loop() {
           break;
         }
         case BOOTSTRING: {
-          if(_bootstring) _bootstring->setText(config.ssids[request.payload].ssid, bootstrFmt);
+          bool lvgl_boot_active_now = false;
+          bool block_legacy_boot_canvas = false;
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+          lvgl_boot_active_now = lvgl_ui::isLvglBootActive();
+          block_legacy_boot_canvas =
+              lvgl_boot_active_now ||
+              _lvgl_player_handoff_pending ||
+              (_activeBackend == lvgl_ui::UiBackend::Lvgl);
+#endif
+          // Legacy boot text writes directly to Canvas (gfxFillRect in TextWidget::setText).
+          // During LVGL Boot this causes visible black wipe artifacts, so skip legacy writes.
+          // Legacy-текст Boot пишет прямо в Canvas (gfxFillRect в TextWidget::setText).
+          // Во время LVGL Boot это даёт чёрные «протирки», поэтому legacy-ветку пропускаем.
+          if (!block_legacy_boot_canvas && _bootstring) {
+            _bootstring->setText(config.ssids[request.payload].ssid, bootstrFmt);
+          }
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+          if (lvgl_boot_active_now) {
+            // Once we show "Connected...", keep it stable until handoff.
+            // После "Connected..." статус держим стабильным до перехода на Main.
+            if (s_lvgl_boot_connected_latched) break;
+            char line[96];
+            snprintf(line, sizeof(line), bootstrFmt, config.ssids[request.payload].ssid);
+            lvgl_ui::bootScreenSetStatusUtf8(line);
+            lvgl_ui::bootScreenNotifyBootSignal();
+          }
+#endif
           /*#ifdef USE_NEXTION
             char buf[50];
             snprintf(buf, 50, bootstrFmt, config.ssids[request.payload].ssid);
@@ -755,7 +850,28 @@ void Display::loop() {
           break;
         }
         case WAITFORSD: {
-          if(_bootstring) _bootstring->setText(const_waitForSD);
+          bool lvgl_boot_active_now = false;
+          bool block_legacy_boot_canvas = false;
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+          lvgl_boot_active_now = lvgl_ui::isLvglBootActive();
+          block_legacy_boot_canvas =
+              lvgl_boot_active_now ||
+              _lvgl_player_handoff_pending ||
+              (_activeBackend == lvgl_ui::UiBackend::Lvgl);
+#endif
+          if (!block_legacy_boot_canvas && _bootstring) {
+            _bootstring->setText(const_waitForSD);
+          }
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+          if (lvgl_boot_active_now) {
+            if (s_lvgl_boot_connected_latched) break;
+            char line[64];
+            strncpy_P(line, const_waitForSD, sizeof(line) - 1);
+            line[sizeof(line) - 1] = '\0';
+            lvgl_ui::bootScreenSetStatusUtf8(line);
+            lvgl_ui::bootScreenNotifyBootSignal();
+          }
+#endif
           break;
         }
         case SDFILEINDEX: {
@@ -780,6 +896,22 @@ void Display::loop() {
     DisplayEvent evt = { request.type, &request, _mode };
     lvgl_ui::onDisplayEvent(evt);
   }
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+  _tryCompleteLvglPlayerHandoff();
+#endif
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+  if (lvgl_ui::isLvglBootActive()) {
+    if (!s_lvgl_boot_connected_latched && WiFi.status() == WL_CONNECTED) {
+      const String ssid = WiFi.SSID();
+      char line[96];
+      snprintf(line, sizeof(line), "Connected to %s", ssid.length() ? ssid.c_str() : "WiFi");
+      lvgl_ui::bootScreenSetStatusUtf8(line);
+      s_lvgl_boot_connected_latched = true;
+    }
+  } else {
+    s_lvgl_boot_connected_latched = false;
+  }
+#endif
   // Throttled refresh of LVGL screens (~1 Hz); pattern symmetric for INFO and Main.
   // Throttled обновление LVGL экранов (~1 Гц); симметричный паттерн для INFO и Main.
   if (_activeBackend == lvgl_ui::UiBackend::Lvgl) {
@@ -798,9 +930,11 @@ void Display::loop() {
       }
     }
   }
-  // Stage 2 order: legacy pager first. LVGL только в режиме INFO — иначе затирает boot и плейер.
-  if (_activeBackend == lvgl_ui::UiBackend::LegacyCanvas) _pager.loop();
-  if (_activeBackend == lvgl_ui::UiBackend::Lvgl) lvgl_ui::taskHandler();
+  // Stage 2 + 5.4: legacy pager unless LVGL owns mode or LVGL Boot is active.
+  // Этап 2 + 5.4: legacy pager, кроме режимов LVGL и активного LVGL Boot.
+  const bool lvgl_boot_active = lvgl_ui::isLvglBootActive();
+  if (_activeBackend == lvgl_ui::UiBackend::LegacyCanvas && !lvgl_boot_active) _pager.loop();
+  if (_activeBackend == lvgl_ui::UiBackend::Lvgl || lvgl_boot_active) lvgl_ui::taskHandler();
   // Dirty-based flush: flush только если был реальный рендеринг и прошло >=16мс
   if(!_suspendFlush){
     static uint32_t lastFlushMs = 0;

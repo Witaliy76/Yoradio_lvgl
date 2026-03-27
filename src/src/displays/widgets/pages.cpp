@@ -21,9 +21,13 @@ Page& Pager::addPage(Page* page, bool setNow){
   return *page;
 }
 
-bool Pager::removePage(Page* page){
+bool Pager::removePage(Page* page, bool clear_display){
   page->setActive(false);
-  dsp.clearDsp();
+  // clearDsp() fills the whole Arduino_Canvas; skip when LVGL owns the same buffer (Boot/Main handoff).
+  // clearDsp() заливает весь Arduino_Canvas; не вызываем, если LVGL рисует в тот же буфер (Boot/Main).
+  if (clear_display) {
+    dsp.clearDsp();
+  }
   return _pages.remove(page);
 }
 

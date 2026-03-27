@@ -75,6 +75,10 @@ class Display {
     uint8_t _bootStep;
     bool _suspendFlush;
     lvgl_ui::UiBackend _activeBackend = lvgl_ui::UiBackend::LegacyCanvas;  // Stage 4.1: metadata only
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    bool _lvgl_player_handoff_pending = false;
+    void _tryCompleteLvglPlayerHandoff();
+#endif
     void _time(bool redraw = false);
     void _apScreen();
     void _swichMode(displayMode_e newmode);

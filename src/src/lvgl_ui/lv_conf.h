@@ -87,12 +87,12 @@
 /*--- Logging ---*/
 // LV_LOG_PRINTF: use stdio printf → on ESP32 Arduino this typically matches USB/UART Serial monitor.
 // Без LV_LOG_PRINTF=1 и без lv_log_register_print_cb() LVGL не печатает логи вообще.
-// Stage 5.5b: WARN + no TRACE — UART printf from layout/object traces overloaded the system (WDT / garbled serial).
-// Stage 5.5b: WARN без TRACE — printf в UART на каждый layout грузил систему (WDT, каша в Serial).
-// For deep LVGL debugging temporarily set INFO and individual LV_LOG_TRACE_* to 1.
+// Runtime default: WARN to reduce ISR/UART pressure and DspTask stack load.
+// Рабочий уровень: WARN (меньше нагрузки на UART/ISR и стек DspTask).
+// Keep all LV_LOG_TRACE_* = 0 (TRACE can still WDT / flood UART).
 #define LV_USE_LOG 1
 #if LV_USE_LOG
-    #define LV_LOG_LEVEL LV_LOG_LEVEL_WARN
+    #define LV_LOG_LEVEL LV_LOG_LEVEL_INFO
     #define LV_LOG_PRINTF 1
     #define LV_LOG_TRACE_MEM 0
     #define LV_LOG_TRACE_TIMER 0

@@ -10,10 +10,20 @@ namespace lvgl_ui {
 namespace {
 
 constexpr uint32_t kPageAnimMs = 300;
+// Boot → Main only (dismissBoot); other transitions keep kPageAnimMs.
+// Только Boot → Main (dismissBoot); остальные переходы — kPageAnimMs.
+constexpr uint32_t kBootHandoffFadeMs = 600;
 
 void loadScreenAnim(lv_obj_t* scr, lv_scr_load_anim_t anim, uint32_t time_ms) {
     if (!scr) return;
     lv_scr_load_anim(scr, anim, time_ms, 0, false);
+}
+
+void loadScreenAnimAutoDel(lv_obj_t* scr, lv_scr_load_anim_t anim, uint32_t time_ms) {
+    if (!scr) return;
+    // auto_del=true: LVGL deletes the previous active screen after the transition.
+    // auto_del=true: LVGL удаляет предыдущий активный экран после перехода.
+    lv_scr_load_anim(scr, anim, time_ms, 0, true);
 }
 
 } // namespace
@@ -125,7 +135,8 @@ void PageChain::goTo(int index) {
 void PageChain::showTemporary(ILvglScreen* scr, uint32_t timeout_ms) {
     if (!scr || navigationBlocked()) return;
 
-    ILvglScreen* cur = _pages[_currentIndex];
+    ILvglScreen* cur = nullptr;
+    if (_currentIndex >= 0 && _currentIndex < PAGE_COUNT) cur = _pages[_currentIndex];
     if (cur) cur->exit();
 
     _tempScreen = scr;
@@ -141,24 +152,29 @@ void PageChain::showTemporary(ILvglScreen* scr, uint32_t timeout_ms) {
 void PageChain::dismissTemporary() {
     if (_special != SpecialMode::Temporary || !_tempScreen) return;
 
-    _tempScreen->exit();
-    _tempScreen->destroy();
-    _tempScreen = nullptr;
-    _special = SpecialMode::None;
-
+    // Must load a valid screen BEFORE deleting the active temp screen.
+    // LVGL warns / may crash if lv_scr_act() is deleted then lv_scr_load_anim runs.
+    // Сначала переключаемся на Main, иначе удаление активного экрана ломает анимацию перехода.
     ILvglScreen* main = _pages[MAIN_INDEX];
     if (!main) return;
 
     main->create();
     main->enter();
+    lv_obj_t* mainScr = main->screen();
+    if (mainScr) lv_scr_load(mainScr);
     _currentIndex = MAIN_INDEX;
-    loadScreenAnim(main->screen(), LV_SCR_LOAD_ANIM_MOVE_TOP, kPageAnimMs);
+
+    _tempScreen->exit();
+    _tempScreen->destroy();
+    _tempScreen = nullptr;
+    _special = SpecialMode::None;
 }
 
 void PageChain::showBoot(ILvglScreen* scr) {
     if (!scr || navigationBlocked()) return;
 
-    ILvglScreen* cur = _pages[_currentIndex];
+    ILvglScreen* cur = nullptr;
+    if (_currentIndex >= 0 && _currentIndex < PAGE_COUNT) cur = _pages[_currentIndex];
     if (cur) cur->exit();
 
     _bootScreen = scr;
@@ -169,10 +185,35 @@ void PageChain::showBoot(ILvglScreen* scr) {
     loadScreenAnim(scr->screen(), LV_SCR_LOAD_ANIM_FADE_IN, kPageAnimMs);
 }
 
+void PageChain::dismissBoot() {
+    if (_special != SpecialMode::Boot || !_bootScreen) return;
+
+    ILvglScreen* main = _pages[MAIN_INDEX];
+    if (!main) return;
+
+    main->create();
+    main->enter();
+    lv_obj_t* mainScr = main->screen();
+    // Fade handoff restored: full-frame LVGL refresh fixed stripe tearing; FADE_ON should be safe again.
+    // Вернули fade: полноэкранный refresh LVGL убрал полосы; FADE_ON снова безопасен для handoff.
+    // auto_del deletes Boot screen after the transition; destroy() stops shuttle anim (no stale pointers).
+    // auto_del удаляет Boot после перехода; destroy() гасит анимацию shuttle (без висячих указателей).
+    if (mainScr) loadScreenAnimAutoDel(mainScr, LV_SCR_LOAD_ANIM_FADE_ON, kBootHandoffFadeMs);
+    _currentIndex = MAIN_INDEX;
+
+    _bootScreen->exit();
+    // Must stop boot animation callback immediately to avoid stale-pointer access during fade handoff.
+    // Нужно сразу остановить callback анимации Boot, чтобы не словить stale-pointer во время fade handoff.
+    _bootScreen->destroy();
+    _bootScreen = nullptr;
+    _special = SpecialMode::None;
+}
+
 void PageChain::showRebootRequired(ILvglScreen* scr) {
     if (!scr || navigationBlocked()) return;
 
-    ILvglScreen* cur = _pages[_currentIndex];
+    ILvglScreen* cur = nullptr;
+    if (_currentIndex >= 0 && _currentIndex < PAGE_COUNT) cur = _pages[_currentIndex];
     if (cur) cur->exit();
 
     _rebootScreen = scr;

@@ -50,6 +50,21 @@ enum class UiBackend {
 UiBackend getPreferredBackend(displayMode_e mode);
 void onModeChanged(displayMode_e mode, UiBackend backend);
 
+// Stage 5.4: LVGL Boot (DspTask only). / Boot LVGL только из DspTask.
+bool isLvglBootActive();
+// First DspTask loop: show Boot if LVGL display registered; else caller uses legacy boot.
+// Первый цикл DspTask: Boot при зарегистрированном дисплее LVGL; иначе legacy boot.
+bool tryPresentLvglBootOnFirstDspLoop();
+// Drop Boot special mode before Main (PageChain goTo) or AP legacy handoff.
+// Снять Boot перед Main или перед legacy AP.
+void dismissBootForMainHandoff();
+// Main path: dismiss only after min time on screen (non-blocking; see Display::_tryCompleteLvglPlayerHandoff).
+// Main: снять Boot не раньше min времени на экране (без блокировки DspTask).
+bool dismissBootForMainHandoffWhenDue();
+void dismissBootForApLegacyHandoff();
+void bootScreenSetStatusUtf8(const char* text);
+void bootScreenNotifyBootSignal();
+
 }
 
 #endif

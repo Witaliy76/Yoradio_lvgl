@@ -561,12 +561,14 @@ void DspCore::loop(bool force) {
 #endif
     
 #ifdef CPU_LOAD
-    // LVGL Main (Stage 5.5): mode is still PLAYER but canvas player page is not shown — hide CPU widget.
-    // LVGL Main: режим PLAYER, но legacy-страница не активна — гасим CPU-виджет.
+    // Legacy Canvas CPU widget: show only on legacy PLAYER (Stage 5.5).
+    // Accepted hotfix: also hide while LVGL Boot is active (_mode defaults to PLAYER, backend still Legacy).
+    // Виджет CPU: только legacy PLAYER. Hotfix: гасим на LVGL Boot.
     extern Display display;
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     const bool cpu_on_legacy_player =
-        (display.mode() == PLAYER) && (display.activeBackend() == lvgl_ui::UiBackend::LegacyCanvas);
+        (display.mode() == PLAYER) && (display.activeBackend() == lvgl_ui::UiBackend::LegacyCanvas) &&
+        !lvgl_ui::isLvglBootActive();
 #else
     const bool cpu_on_legacy_player = (display.mode() == PLAYER);
 #endif

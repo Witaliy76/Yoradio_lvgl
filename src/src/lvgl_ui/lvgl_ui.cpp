@@ -9,6 +9,7 @@
 #include "lv_page_chain.h"
 #include "screens/scr_info.h"
 #include "screens/scr_main.h"
+#include "screens/scr_boot.h"
 #include "../displays/tools/GFX_Canvas_screen.h"
 
 using namespace lvgl_ui;
@@ -23,6 +24,14 @@ static lv_obj_t* s_default_screen = nullptr;
 static PageChain s_page_chain;
 static LvglInfoPage s_info_page;
 static LvglMainScreen s_main_screen;
+static LvglBootScreen s_boot_screen;
+
+// True while Boot special mode is shown (Stage 5.4). / Пока виден Boot (этап 5.4).
+static bool s_lvgl_boot_active = false;
+// millis() when LVGL Boot was shown — min dwell before Main handoff (legacy boot had ~3s logo dwell).
+// Время показа Boot — минимум на экране до перехода на Main (как ~3s лого в legacy).
+static uint32_t s_lvgl_boot_shown_ms = 0;
+static constexpr uint32_t kLvglBootMinVisibleMs = 3000;
 
 static void ensurePageChainRegistered() {
     static bool s_registered = false;
@@ -137,14 +146,13 @@ void lvgl_ui::initDisplayDriver(uint16_t hor_res, uint16_t ver_res) {
     if (s_disp) return;
     if (hor_res == 0 || ver_res == 0) return;
 
-    // Small strip buffer in PSRAM: width x buf_lines (from active LVGL profile).
-    // Полосовой буфер в PSRAM: ширина x buf_lines (из активного профиля LVGL).
-    uint16_t buf_lines = LV_ACTIVE_PROFILE.buf_lines;
-    if (buf_lines == 0) buf_lines = 40;
-    uint32_t lines = buf_lines;
-    if (lines > ver_res) lines = ver_res;
-
-    uint32_t px_count = static_cast<uint32_t>(hor_res) * lines;
+    // Full-frame draw buffer + full_refresh: partial stripes on a shared Arduino_Canvas caused
+    // visible “black rectangles” / tearing during Boot→Main and label updates (strip flush ≠ full screen).
+    // Полный кадр + full_refresh: полосовой flush на общем Canvas давал чёрные прямоугольники/рвань при Boot→Main.
+    // Matches PROJECT_RULES_LVGL: single full-frame buffer in PSRAM (strip mode was an optimization only).
+    // Соответствует правилам: один полноразмерный буфер в PSRAM (полосы — только как оптимизация).
+    const uint32_t lines = ver_res;
+    const uint32_t px_count = static_cast<uint32_t>(hor_res) * lines;
     s_disp_buf1 = static_cast<lv_color_t*>(ps_malloc(px_count * sizeof(lv_color_t)));
     if (!s_disp_buf1) {
         // If allocation fails, skip driver registration to keep system stable.
@@ -160,6 +168,7 @@ void lvgl_ui::initDisplayDriver(uint16_t hor_res, uint16_t ver_res) {
     s_disp_drv.ver_res = ver_res;
     s_disp_drv.flush_cb = lvgl_flush_cb;
     s_disp_drv.draw_buf = &s_disp_draw_buf;
+    s_disp_drv.full_refresh = 1;
 
     s_disp = lv_disp_drv_register(&s_disp_drv);
     if (!s_disp) {
@@ -214,12 +223,83 @@ void lvgl_ui::onModeChanged(displayMode_e mode, UiBackend backend) {
     if (backend == UiBackend::Lvgl) {
         ensurePageChainRegistered();
         if (mode == INFO)   s_page_chain.goTo(PageChain::INFO_INDEX);
-        if (mode == PLAYER) s_page_chain.goTo(PageChain::MAIN_INDEX);
+        if (mode == PLAYER) {
+            // Always goTo(Main): legacy VOL/STATIONS load s_default_screen while PageChain index stays MAIN.
+            // Всегда goTo(Main): legacy VOL/STATIONS делают lv_scr_load(s_default_screen), индекс цепочки остаётся MAIN.
+            // PageChain::goTo no-ops when lv_scr_act() already is Main (boot handoff safe).
+            // PageChain::goTo сам выходит, если активный экран уже Main — двойной handoff с Boot не страшен.
+            s_page_chain.goTo(PageChain::MAIN_INDEX);
+        }
     } else {
         if (s_default_screen) lv_scr_load(s_default_screen);
     }
 #else
     (void)mode;
     (void)backend;
+#endif
+}
+
+bool lvgl_ui::isLvglBootActive() {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    return s_lvgl_boot_active;
+#else
+    return false;
+#endif
+}
+
+bool lvgl_ui::tryPresentLvglBootOnFirstDspLoop() {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    if (!lv_disp_get_default()) return false;
+    ensurePageChainRegistered();
+    s_page_chain.showBoot(&s_boot_screen);
+    s_lvgl_boot_active = true;
+    s_lvgl_boot_shown_ms = millis();
+    return true;
+#else
+    return false;
+#endif
+}
+
+void lvgl_ui::dismissBootForMainHandoff() {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    if (!s_lvgl_boot_active) return;
+    s_page_chain.dismissBoot();
+    s_lvgl_boot_active = false;
+#endif
+}
+
+bool lvgl_ui::dismissBootForMainHandoffWhenDue() {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    if (!s_lvgl_boot_active) return true;
+    if ((uint32_t)(millis() - s_lvgl_boot_shown_ms) < kLvglBootMinVisibleMs) return false;
+    s_page_chain.dismissBoot();
+    s_lvgl_boot_active = false;
+    return true;
+#else
+    return true;
+#endif
+}
+
+void lvgl_ui::dismissBootForApLegacyHandoff() {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    if (s_lvgl_boot_active) {
+        s_page_chain.dismissBoot();
+        s_lvgl_boot_active = false;
+    }
+    if (s_default_screen) lv_scr_load(s_default_screen);
+#endif
+}
+
+void lvgl_ui::bootScreenSetStatusUtf8(const char* text) {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    if (s_lvgl_boot_active) s_boot_screen.setStatusUtf8(text);
+#else
+    (void)text;
+#endif
+}
+
+void lvgl_ui::bootScreenNotifyBootSignal() {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    if (s_lvgl_boot_active) s_boot_screen.onBootSignal();
 #endif
 }
