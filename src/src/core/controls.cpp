@@ -162,7 +162,16 @@ void loopControls() {
   irLoop();
 #endif
 #if (TS_MODEL!=TS_MODEL_UNDEFINED) && (DSP_MODEL!=DSP_DUMMY)
-  if (network.status == CONNECTED || network.status==SDREADY) touchscreen.loop();
+  if (network.status == CONNECTED || network.status == SDREADY) {
+    bool lvglOwnsTouch = false;
+#if !defined(DUMMYDISPLAY) && YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    lvglOwnsTouch =
+        (display.activeBackend() == lvgl_ui::UiBackend::Lvgl) || lvgl_ui::isLvglBootActive();
+#endif
+    if (!lvglOwnsTouch) {
+      touchscreen.loop();
+    }
+  }
 #endif
 }
 #if ENC_BTNL!=255 || ENC2_BTNL!=255

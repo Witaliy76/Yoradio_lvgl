@@ -1,4 +1,5 @@
 #include "lvgl_ui.h"
+#include "lv_touch_indev.h"
 #include "lv_ui_events.h"
 #include "profiles/lv_profile_select.h"
 
@@ -175,6 +176,7 @@ void lvgl_ui::initDisplayDriver(uint16_t hor_res, uint16_t ver_res) {
         Serial.println("[LVGL] lv_disp_drv_register failed, LVGL display disabled");
         return;
     }
+    initTouchIndev();
 #endif
 }
 

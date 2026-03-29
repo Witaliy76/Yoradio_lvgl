@@ -793,6 +793,74 @@ void TouchScreen::init() {
     #if TS_MODEL==TS_MODEL_AXS15231B
         ts.setResolution(_width, _height);
     #endif
+    _hwReady = true;
+}
+
+bool TouchScreen::readPointerForLvgl(uint16_t* outX, uint16_t* outY) {
+    if (!outX || !outY || !_hwReady) {
+        return false;
+    }
+
+#if TS_MODEL==TS_MODEL_GT911
+    ts.read();
+#elif TS_MODEL==TS_MODEL_AXS15231B
+    ts.read();
+#endif
+
+    if (!_istouched()) {
+        return false;
+    }
+
+    uint16_t touchX = 0;
+    uint16_t touchY = 0;
+
+#if TS_MODEL==TS_MODEL_XPT2046
+    {
+        TSPoint p = ts.getPoint();
+        touchX = static_cast<uint16_t>(map(p.x, TS_X_MIN, TS_X_MAX, 0, _width));
+        touchY = static_cast<uint16_t>(map(p.y, TS_Y_MIN, TS_Y_MAX, 0, _height));
+    }
+#elif TS_MODEL==TS_MODEL_GT911
+    {
+        TSPoint p = ts.points[0];
+        if (!_filterGT911Coordinates(p.x, p.y)) {
+            return false;
+        }
+        touchX = p.y;
+        touchY = p.x;
+        if (touchX >= _width) {
+            touchX = _width - 1;
+        }
+        if (touchY >= _height) {
+            touchY = _height - 1;
+        }
+    }
+#elif TS_MODEL==TS_MODEL_CST826
+    {
+        TSPoint p = ts.getPoint(0);
+        if (p.event != PRESS && p.event != TOUCHING) {
+            return false;
+        }
+        touchX = static_cast<uint16_t>(map(p.x, 0, 4095, 0, _width));
+        touchY = static_cast<uint16_t>(map(p.y, 0, 4095, 0, _height));
+        if (touchX >= _width) {
+            touchX = _width - 1;
+        }
+        if (touchY >= _height) {
+            touchY = _height - 1;
+        }
+    }
+#elif TS_MODEL==TS_MODEL_AXS15231B
+    {
+        TSPoint p = ts.points[0];
+        touchX = p.x;
+        touchY = p.y;
+    }
+#endif
+
+    *outX = touchX;
+    *outY = touchY;
+    return true;
 }
 
 void TouchScreen::flip() {

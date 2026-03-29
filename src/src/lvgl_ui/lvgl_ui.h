@@ -25,6 +25,10 @@ void initTick();
 // Stage 2: регистрация LVGL-дисплея, рисующего в Arduino_Canvas
 void initDisplayDriver(uint16_t hor_res, uint16_t ver_res);
 
+// Stage 5.2: register pointer indev after display driver (read_cb on DspTask only).
+// Этап 5.2: pointer indev после дисплея (read_cb только на DspTask).
+void initTouchIndev();
+
 // Stage 2: run LVGL timers inside Display::loop() / DspTask context.
 // Stage 2: запуск таймеров LVGL внутри Display::loop() / контекста DspTask
 void taskHandler();
