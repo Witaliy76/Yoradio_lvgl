@@ -915,7 +915,9 @@ void Display::loop() {
   // Throttled refresh of LVGL screens (~1 Hz); pattern symmetric for INFO and Main.
   // Throttled обновление LVGL экранов (~1 Гц); симметричный паттерн для INFO и Main.
   if (_activeBackend == lvgl_ui::UiBackend::Lvgl) {
-    if (_mode == INFO) {
+    // INFO labels: classic path _mode==INFO, or carousel on Info while still PLAYER (Stage 5.3 swipe).
+    // Подписи INFO: обычный INFO или карусель на Info при mode PLAYER (свайп 5.3).
+    if (_mode == INFO || lvgl_ui::isLvglCarouselOnInfoSlot()) {
       static uint32_t lastInfoRefresh = 0;
       if (millis() - lastInfoRefresh >= 1000) {
         lvgl_ui::refreshInfoScreen();

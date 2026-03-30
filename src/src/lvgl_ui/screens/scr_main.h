@@ -37,6 +37,10 @@ private:
 
     // Auxiliary / status bar / Нижний вспомогательный блок
     lv_obj_t* _lbl_volume = nullptr;
+
+    // Stage 5.3: central tap target for play/pause (transparent; not full-screen).
+    // Этап 5.3: зона тапа play/pause (прозрачная, не на весь экран).
+    lv_obj_t* _hit_play = nullptr;
 };
 
 } // namespace lvgl_ui

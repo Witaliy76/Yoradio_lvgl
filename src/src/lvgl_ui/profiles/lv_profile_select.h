@@ -24,6 +24,7 @@ static constexpr LvglDisplayProfile LV_ACTIVE_PROFILE{
     false,
     false,
     false,
+    false,
     40u,
     true,
     nullptr,

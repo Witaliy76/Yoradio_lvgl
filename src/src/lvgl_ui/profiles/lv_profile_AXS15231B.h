@@ -17,6 +17,7 @@ static const LvglDisplayProfile LvglProfile_AXS15231B{
     false,
     false,
     false,
+    false,
     40u,
     true,
     reinterpret_cast<const void*>(&lv_font_yora_montserrat_12_cyr),

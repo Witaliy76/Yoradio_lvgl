@@ -24,6 +24,7 @@
 #include "WiFi.h"
 #include "Esp.h"
 #include "../profiles/lv_profile_select.h"
+#include "lvgl_ui.h"
 #include "../../core/network.h"
 #include "../../core/options.h"
 
@@ -126,6 +127,10 @@ void LvglInfoPage::create() {
     addInfoRow(_screen, y, "Chip:", "--", &_val_chip);
     y += rowH;
     addInfoRow(_screen, y, "Build:", "--", &_val_build);
+
+    // Stage 5.3: horizontal carousel gestures on page root (not used on Boot).
+    // Этап 5.3: жесты карусели на корне страницы (Boot не подключаем).
+    installCarouselGesturesOnPageRoot(_screen);
 }
 
 void LvglInfoPage::enter() {

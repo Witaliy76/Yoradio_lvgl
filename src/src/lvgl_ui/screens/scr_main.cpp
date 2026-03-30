@@ -23,9 +23,22 @@
 #include <cstring>
 #include "WiFi.h"
 #include "../profiles/lv_profile_select.h"
+#include "lvgl_ui.h"
 #include "../../core/config.h"
+#include "../../core/display.h"
+#include "../../core/player.h"
 
 namespace lvgl_ui {
+
+// Stage 5.3: LVGL tap → player.toggle() only when PLAYER (intentionally not full onBtnClick parity).
+// Этап 5.3: тап → player.toggle() только в PLAYER (без полной семантики onBtnClick).
+static void main_play_hit_cb(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (display.mode() != PLAYER) return;
+    player.toggle();
+    notifyPageChainActivity();
+}
+
 
 // Set label text only if different from current (reduces invalidations / layout work).
 // Меняем текст только если отличается — меньше инвалидаций и работы layout.
@@ -114,6 +127,21 @@ void LvglMainScreen::create() {
         lv_obj_set_style_text_color(_lbl_volume, lv_color_make(0x80, 0x80, 0x80), LV_PART_MAIN);
     }
 
+    installCarouselGesturesOnPageRoot(_screen);
+
+    _hit_play = lv_obj_create(_screen);
+    if (_hit_play) {
+        const int32_t hitW = static_cast<int32_t>(W) - pad * 6;
+        const int32_t hitH = static_cast<int32_t>(H) / 3;
+        lv_obj_set_size(_hit_play, hitW, hitH);
+        lv_obj_align(_hit_play, LV_ALIGN_CENTER, 0, 0);
+        lv_obj_set_style_bg_opa(_hit_play, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_border_width(_hit_play, 0, LV_PART_MAIN);
+        lv_obj_add_flag(_hit_play, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(_hit_play, LV_OBJ_FLAG_GESTURE_BUBBLE);
+        lv_obj_add_event_cb(_hit_play, main_play_hit_cb, LV_EVENT_CLICKED, nullptr);
+    }
+
     // No lv_obj_update_layout here: first lv_scr_load / lv_timer_handler will layout; avoids extra pass during boot + anim.
     // Без lv_obj_update_layout: первый load/timer сделает layout; лишний проход при старте + анимации не нужен.
 }
@@ -175,6 +203,7 @@ void LvglMainScreen::destroy() {
     _lbl_station_num = _lbl_bitrate = _lbl_rssi = nullptr;
     _lbl_station_name = _lbl_title = nullptr;
     _lbl_volume = nullptr;
+    _hit_play = nullptr;
 }
 
 lv_obj_t* LvglMainScreen::screen() {

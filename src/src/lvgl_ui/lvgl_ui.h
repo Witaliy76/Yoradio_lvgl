@@ -4,6 +4,13 @@
 #include <stdint.h>
 #include "../core/common.h"
 
+#ifdef __cplusplus
+extern "C" {
+struct _lv_obj_t;
+typedef struct _lv_obj_t lv_obj_t;
+}
+#endif
+
 // LVGL UI subsystem stub (Stage 0)
 // Заглушка UI подсистемы LVGL (Stage 0)
 
@@ -68,6 +75,17 @@ bool dismissBootForMainHandoffWhenDue();
 void dismissBootForApLegacyHandoff();
 void bootScreenSetStatusUtf8(const char* text);
 void bootScreenNotifyBootSignal();
+
+// Stage 5.3: horizontal carousel — LV_EVENT_GESTURE on page root (not Boot). DspTask only.
+// Этап 5.3: карусель — жест на корне страницы (не Boot), только DspTask.
+void installCarouselGesturesOnPageRoot(lv_obj_t* screen_root);
+// Stage 5.3: screensaver prep — hook from tap/gesture; body stays empty until 5.6.
+// Этап 5.3: задел под screensaver; вызов из тапа/жеста, реализация позже.
+void notifyPageChainActivity();
+
+// True when LVGL carousel shows Info slot (index 0), even if display.mode() is still PLAYER (swipe path).
+// Карусель на слоте Info, хотя mode может оставаться PLAYER — путь свайпом.
+bool isLvglCarouselOnInfoSlot();
 
 }
 

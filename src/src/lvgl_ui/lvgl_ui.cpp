@@ -10,6 +10,7 @@
 #include "lv_page_chain.h"
 #include "screens/scr_info.h"
 #include "screens/scr_main.h"
+#include "screens/scr_stub.h"
 #include "screens/scr_boot.h"
 #include "../displays/tools/GFX_Canvas_screen.h"
 
@@ -25,7 +26,46 @@ static lv_obj_t* s_default_screen = nullptr;
 static PageChain s_page_chain;
 static LvglInfoPage s_info_page;
 static LvglMainScreen s_main_screen;
+static LvglStubPage s_stub_visual("Visual");
+static LvglStubPage s_stub_station("Station");
+static LvglStubPage s_stub_weather("Weather");
+static LvglStubPage s_stub_settings("Settings");
 static LvglBootScreen s_boot_screen;
+
+namespace {
+
+// Horizontal carousel: direction mapping from LVGL indev; invert per board via LV_ACTIVE_PROFILE.
+// Горизонтальная карусель: маппинг из indev; инверсия задаётся профилем платы (touch_swap_horizontal_carousel).
+static void map_horizontal_gesture_to_carousel(lv_dir_t dir) {
+    const bool swap = LV_ACTIVE_PROFILE.touch_swap_horizontal_carousel;
+    if (dir == LV_DIR_LEFT) {
+        if (swap) {
+            s_page_chain.swipeRight();
+        } else {
+            s_page_chain.swipeLeft();
+        }
+        return;
+    }
+    if (dir == LV_DIR_RIGHT) {
+        if (swap) {
+            s_page_chain.swipeLeft();
+        } else {
+            s_page_chain.swipeRight();
+        }
+    }
+}
+
+static void carousel_gesture_event_cb(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_GESTURE) return;
+    lv_indev_t* indev = lv_indev_get_act();
+    if (!indev) return;
+    const lv_dir_t dir = lv_indev_get_gesture_dir(indev);
+    if (dir != LV_DIR_LEFT && dir != LV_DIR_RIGHT) return;
+    s_page_chain.onActivity();
+    map_horizontal_gesture_to_carousel(dir);
+}
+
+} // namespace
 
 // True while Boot special mode is shown (Stage 5.4). / Пока виден Boot (этап 5.4).
 static bool s_lvgl_boot_active = false;
@@ -39,6 +79,10 @@ static void ensurePageChainRegistered() {
     if (s_registered) return;
     s_page_chain.registerPage(PageChain::INFO_INDEX, &s_info_page);
     s_page_chain.registerPage(PageChain::MAIN_INDEX, &s_main_screen);
+    s_page_chain.registerPage(2, &s_stub_visual);
+    s_page_chain.registerPage(3, &s_stub_station);
+    s_page_chain.registerPage(4, &s_stub_weather);
+    s_page_chain.registerPage(5, &s_stub_settings);
     s_registered = true;
 }
 
@@ -303,5 +347,29 @@ void lvgl_ui::bootScreenSetStatusUtf8(const char* text) {
 void lvgl_ui::bootScreenNotifyBootSignal() {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     if (s_lvgl_boot_active) s_boot_screen.onBootSignal();
+#endif
+}
+
+void lvgl_ui::installCarouselGesturesOnPageRoot(lv_obj_t* screen_root) {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    if (!screen_root) return;
+    lv_obj_add_flag(screen_root, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(screen_root, carousel_gesture_event_cb, LV_EVENT_GESTURE, nullptr);
+#else
+    (void)screen_root;
+#endif
+}
+
+void lvgl_ui::notifyPageChainActivity() {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    s_page_chain.onActivity();
+#endif
+}
+
+bool lvgl_ui::isLvglCarouselOnInfoSlot() {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    return s_page_chain.currentIndex() == PageChain::INFO_INDEX;
+#else
+    return false;
 #endif
 }
