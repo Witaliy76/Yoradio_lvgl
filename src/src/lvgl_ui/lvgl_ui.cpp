@@ -1,4 +1,5 @@
 #include "lvgl_ui.h"
+#include "lv_overlay.h"
 #include "lv_touch_indev.h"
 #include "lv_ui_events.h"
 #include "profiles/lv_profile_select.h"
@@ -255,28 +256,40 @@ void lvgl_ui::onDisplayEvent(const DisplayEvent& evt) {
     (void)evt;
 }
 
-// Stage 5.5: INFO and PLAYER are LVGL-owned; all others remain LegacyCanvas.
-// Stage 5.5: INFO и PLAYER принадлежат LVGL; остальные — LegacyCanvas.
+// Stage 5.5 + 5.7: LVGL owns INFO, PLAYER, LOST, UPDATING, VOL overlays/inline (not SLEEPING).
+// Stage 5.5 + 5.7: LVGL — INFO, PLAYER, LOST, UPDATING, VOL; SLEEPING остаётся LegacyCanvas.
 lvgl_ui::UiBackend lvgl_ui::getPreferredBackend(displayMode_e mode) {
-    if (mode == INFO || mode == PLAYER) return UiBackend::Lvgl;
+    if (mode == INFO || mode == PLAYER || mode == LOST || mode == UPDATING || mode == VOL) {
+        return UiBackend::Lvgl;
+    }
     return UiBackend::LegacyCanvas;
 }
 
-// Stage 5.5: mode-change hook — route INFO and PLAYER to LVGL PageChain; restore default for LegacyCanvas.
-// Stage 5.5: хук смены режима — INFO и PLAYER в PageChain LVGL; остальные — legacy default screen.
+// Stage 5.5 / 5.7: PageChain + overlays on mode change; hide overlays when leaving Lvgl backend.
+// Stage 5.5 / 5.7: PageChain + оверлеи при смене режима; снять оверлеи при уходе с Lvgl.
 void lvgl_ui::onModeChanged(displayMode_e mode, UiBackend backend) {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     if (backend == UiBackend::Lvgl) {
         ensurePageChainRegistered();
-        if (mode == INFO)   s_page_chain.goTo(PageChain::INFO_INDEX);
-        if (mode == PLAYER) {
-            // Always goTo(Main): legacy VOL/STATIONS load s_default_screen while PageChain index stays MAIN.
-            // Всегда goTo(Main): legacy VOL/STATIONS делают lv_scr_load(s_default_screen), индекс цепочки остаётся MAIN.
-            // PageChain::goTo no-ops when lv_scr_act() already is Main (boot handoff safe).
-            // PageChain::goTo сам выходит, если активный экран уже Main — двойной handoff с Boot не страшен.
+        if (mode == INFO) {
+            overlayHideAll();
+            s_page_chain.goTo(PageChain::INFO_INDEX);
+        } else if (mode == PLAYER) {
+            overlayHideAll();
+            // Defensive: return to Main clears any LOST/UPDATING modal / PLAYER → Main, снять модалки.
             s_page_chain.goTo(PageChain::MAIN_INDEX);
+            refreshMainScreen();
+        } else if (mode == LOST) {
+            overlayShowLost();
+        } else if (mode == UPDATING) {
+            overlayShowUpdating();
+        } else if (mode == VOL) {
+            overlayHideAll();
+            s_page_chain.goTo(PageChain::MAIN_INDEX);
+            refreshMainScreen();
         }
     } else {
+        overlayHideAll();
         if (s_default_screen) lv_scr_load(s_default_screen);
     }
 #else
@@ -309,6 +322,7 @@ bool lvgl_ui::tryPresentLvglBootOnFirstDspLoop() {
 void lvgl_ui::dismissBootForMainHandoff() {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     if (!s_lvgl_boot_active) return;
+    overlayHideAll();
     s_page_chain.dismissBoot();
     s_lvgl_boot_active = false;
 #endif
@@ -318,6 +332,7 @@ bool lvgl_ui::dismissBootForMainHandoffWhenDue() {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     if (!s_lvgl_boot_active) return true;
     if ((uint32_t)(millis() - s_lvgl_boot_shown_ms) < kLvglBootMinVisibleMs) return false;
+    overlayHideAll();
     s_page_chain.dismissBoot();
     s_lvgl_boot_active = false;
     return true;
@@ -328,6 +343,7 @@ bool lvgl_ui::dismissBootForMainHandoffWhenDue() {
 
 void lvgl_ui::dismissBootForApLegacyHandoff() {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    overlayHideAll();
     if (s_lvgl_boot_active) {
         s_page_chain.dismissBoot();
         s_lvgl_boot_active = false;

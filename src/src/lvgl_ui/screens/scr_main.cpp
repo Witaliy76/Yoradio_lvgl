@@ -117,7 +117,9 @@ void LvglMainScreen::create() {
         lv_obj_set_style_text_color(_lbl_title, lv_color_make(0xCC, 0xCC, 0xCC), LV_PART_MAIN);
     }
 
-    const int32_t auxY = H - pad - 20;
+    // Bottom volume zone: label row + thin bar (Stage 5.7 inline VOL).
+    // Нижняя зона громкости: строка label + узкий bar (5.7 inline VOL).
+    const int32_t auxY = H - pad - 36;
 
     _lbl_volume = lv_label_create(_screen);
     if (_lbl_volume) {
@@ -125,6 +127,22 @@ void LvglMainScreen::create() {
         lv_obj_set_pos(_lbl_volume, pad, auxY);
         main_set_font(_lbl_volume, LV_ACTIVE_PROFILE.font_small);
         lv_obj_set_style_text_color(_lbl_volume, lv_color_make(0x80, 0x80, 0x80), LV_PART_MAIN);
+    }
+
+    _bar_volume = lv_bar_create(_screen);
+    if (_bar_volume) {
+        lv_bar_set_range(_bar_volume, 0, 254);
+        lv_bar_set_value(_bar_volume, static_cast<int32_t>(config.store.volume), LV_ANIM_OFF);
+        const int32_t barW = static_cast<int32_t>(W) - pad * 2;
+        lv_obj_set_size(_bar_volume, barW, 8);
+        lv_obj_set_pos(_bar_volume, pad, auxY + 18);
+        lv_obj_set_style_radius(_bar_volume, 4, LV_PART_MAIN);
+        lv_obj_set_style_radius(_bar_volume, 4, LV_PART_INDICATOR);
+        lv_obj_set_style_bg_color(_bar_volume, lv_color_make(0x28, 0x28, 0x28), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(_bar_volume, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(_bar_volume, lv_color_make(0xE7, 0xD3, 0x2A), LV_PART_INDICATOR);
+        lv_obj_set_style_bg_opa(_bar_volume, LV_OPA_COVER, LV_PART_INDICATOR);
+        lv_obj_clear_flag(_bar_volume, LV_OBJ_FLAG_CLICKABLE);
     }
 
     installCarouselGesturesOnPageRoot(_screen);
@@ -193,6 +211,19 @@ void LvglMainScreen::update() {
 
     snprintf(buf, sizeof(buf), "Vol: %d", config.store.volume);
     main_set_text_if_changed(_lbl_volume, buf);
+
+    if (_bar_volume) {
+        lv_bar_set_value(_bar_volume, static_cast<int32_t>(config.store.volume), LV_ANIM_OFF);
+    }
+
+    // VOL mode: slightly brighter label — inline UX, not a separate page / не отдельная страница
+    if (_lbl_volume) {
+        const bool volMode = (display.mode() == VOL);
+        lv_obj_set_style_text_color(
+            _lbl_volume,
+            volMode ? lv_color_white() : lv_color_make(0x80, 0x80, 0x80),
+            LV_PART_MAIN);
+    }
 }
 
 void LvglMainScreen::destroy() {
@@ -203,6 +234,7 @@ void LvglMainScreen::destroy() {
     _lbl_station_num = _lbl_bitrate = _lbl_rssi = nullptr;
     _lbl_station_name = _lbl_title = nullptr;
     _lbl_volume = nullptr;
+    _bar_volume = nullptr;
     _hit_play = nullptr;
 }
 

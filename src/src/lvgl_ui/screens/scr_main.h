@@ -37,6 +37,9 @@ private:
 
     // Auxiliary / status bar / Нижний вспомогательный блок
     lv_obj_t* _lbl_volume = nullptr;
+    // Stage 5.7: narrow volume bar (0–254) — same zone as label, not a layout redesign.
+    // Этап 5.7: узкий bar громкости (0–254) — та же зона, без смены макета.
+    lv_obj_t* _bar_volume = nullptr;
 
     // Stage 5.3: central tap target for play/pause (transparent; not full-screen).
     // Этап 5.3: зона тапа play/pause (прозрачная, не на весь экран).

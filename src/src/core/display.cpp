@@ -583,17 +583,31 @@ void Display::_swichMode(displayMode_e newmode) {
     config.isScreensaver = false;
   }
   if (newmode == VOL) {
-    #ifndef HIDE_VOLPAGE
-      #ifndef HIDE_IP
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    const bool lvgl_vol = (lvgl_ui::getPreferredBackend(VOL) == lvgl_ui::UiBackend::Lvgl);
+#else
+    const bool lvgl_vol = false;
+#endif
+    if (!lvgl_vol) {
+#ifndef HIDE_VOLPAGE
+#ifndef HIDE_IP
         _showDialog(const_DlgVolume);
-      #else
+#else
         _showDialog(WiFi.localIP().toString().c_str());
-      #endif
-    #endif
-    _nums.setText(config.store.volume, numtxtFmt);
+#endif
+#endif
+      _nums.setText(config.store.volume, numtxtFmt);
+    }
   }
-  if (newmode == LOST)      _showDialog(const_DlgLost);
-  if (newmode == UPDATING)  _showDialog(const_DlgUpdate);
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+  const bool lvgl_lost = (lvgl_ui::getPreferredBackend(LOST) == lvgl_ui::UiBackend::Lvgl);
+  const bool lvgl_upd  = (lvgl_ui::getPreferredBackend(UPDATING) == lvgl_ui::UiBackend::Lvgl);
+#else
+  const bool lvgl_lost = false;
+  const bool lvgl_upd  = false;
+#endif
+  if (newmode == LOST && !lvgl_lost)      _showDialog(const_DlgLost);
+  if (newmode == UPDATING && !lvgl_upd)  _showDialog(const_DlgUpdate);
   if (newmode == SLEEPING)  _showDialog("SLEEPING");
   if (newmode == SDCHANGE)  _showDialog(const_waitForSD);
   if (newmode == INFO || newmode == SETTINGS || newmode == TIMEZONE || newmode == WIFI) _showDialog(const_DlgNextion);
@@ -782,7 +796,15 @@ void Display::loop() {
         case NEWSTATION: _station(); break;
         case NEXTSTATION: _drawNextStationNum(request.payload); break;
         case DRAWPLAYLIST: _drawPlaylist(); break;
-        case DRAWVOL: _volume(); break;
+        case DRAWVOL:
+          _volume();
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+          if (_activeBackend == lvgl_ui::UiBackend::Lvgl &&
+              (_mode == PLAYER || _mode == VOL)) {
+            lvgl_ui::refreshMainScreen();
+          }
+#endif
+          break;
         case DBITRATE: {
             char buf[20]; 
             snprintf(buf, 20, bitrateFmt, config.station.bitrate); 
@@ -924,7 +946,7 @@ void Display::loop() {
         lastInfoRefresh = millis();
       }
     }
-    if (_mode == PLAYER) {
+    if (_mode == PLAYER || _mode == VOL) {
       static uint32_t lastMainRefresh = 0;
       if (millis() - lastMainRefresh >= 1000) {
         lvgl_ui::refreshMainScreen();
