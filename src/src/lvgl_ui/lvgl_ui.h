@@ -59,7 +59,9 @@ enum class UiBackend {
 };
 
 UiBackend getPreferredBackend(displayMode_e mode);
-void onModeChanged(displayMode_e mode, UiBackend backend);
+// prev_mode: mode before transition (Display::_swichMode); used to preserve PageChain when leaving saver/blank.
+// prev_mode — режим до перехода; нужен чтобы не сбрасывать карусель при выходе из saver/blank.
+void onModeChanged(displayMode_e mode, UiBackend backend, displayMode_e prev_mode);
 
 // Stage 5.4: LVGL Boot (DspTask only). / Boot LVGL только из DspTask.
 bool isLvglBootActive();

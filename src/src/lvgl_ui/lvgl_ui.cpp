@@ -1,5 +1,6 @@
 #include "lvgl_ui.h"
 #include "lv_overlay.h"
+#include "lv_screensaver.h"
 #include "lv_touch_indev.h"
 #include "lv_ui_events.h"
 #include "profiles/lv_profile_select.h"
@@ -14,6 +15,8 @@
 #include "screens/scr_stub.h"
 #include "screens/scr_boot.h"
 #include "../displays/tools/GFX_Canvas_screen.h"
+#include "../core/config.h"
+#include "../core/display.h"
 
 using namespace lvgl_ui;
 
@@ -58,6 +61,11 @@ static void map_horizontal_gesture_to_carousel(lv_dir_t dir) {
 
 static void carousel_gesture_event_cb(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_GESTURE) return;
+    // SCREENSAVER / SCREENBLANK: horizontal wake + carousel suppressed — lv_touch_read_cb handles wake first.
+    // Saver/blank: горизонтальный жест не ведёт в карусель; пробуждение — в lv_touch_read_cb.
+    if (display.mode() == SCREENBLANK || display.mode() == SCREENSAVER) {
+        return;
+    }
     lv_indev_t* indev = lv_indev_get_act();
     if (!indev) return;
     const lv_dir_t dir = lv_indev_get_gesture_dir(indev);
@@ -132,16 +140,25 @@ static void lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t 
     lv_disp_flush_ready(drv);
 }
 
+// Periodic page refresh policy: no Main/Info/stub updates under saver or blank (any carousel slot).
+// Политика периодического refresh: не трогать Main/Info/стабы в saver или blank (любой слот карусели).
+static bool lvgl_page_refresh_allowed() {
+    const displayMode_e m = display.mode();
+    return m != SCREENBLANK && m != SCREENSAVER;
+}
+
 #endif
 
 void lvgl_ui::refreshInfoScreen() {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    if (!lvgl_page_refresh_allowed()) return;
     s_info_page.update();
 #endif
 }
 
 void lvgl_ui::refreshMainScreen() {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    if (!lvgl_page_refresh_allowed()) return;
     s_main_screen.update();
 #endif
 }
@@ -256,27 +273,42 @@ void lvgl_ui::onDisplayEvent(const DisplayEvent& evt) {
     (void)evt;
 }
 
-// Stage 5.5 + 5.7: LVGL owns INFO, PLAYER, LOST, UPDATING, VOL overlays/inline (not SLEEPING).
-// Stage 5.5 + 5.7: LVGL — INFO, PLAYER, LOST, UPDATING, VOL; SLEEPING остаётся LegacyCanvas.
+// Stage 5.5 + 5.7 + 5.6: LVGL owns INFO, PLAYER, LOST, UPDATING, VOL, SCREENSAVER overlay, SCREENBLANK coord.
+// Stage 5.5 + 5.7 + 5.6: LVGL — INFO, PLAYER, LOST, UPDATING, VOL, оверлей SCREENSAVER, коорд. SCREENBLANK.
 lvgl_ui::UiBackend lvgl_ui::getPreferredBackend(displayMode_e mode) {
-    if (mode == INFO || mode == PLAYER || mode == LOST || mode == UPDATING || mode == VOL) {
+    if (mode == INFO || mode == PLAYER || mode == LOST || mode == UPDATING || mode == VOL ||
+        mode == SCREENSAVER || mode == SCREENBLANK) {
         return UiBackend::Lvgl;
     }
     return UiBackend::LegacyCanvas;
 }
 
-// Stage 5.5 / 5.7: PageChain + overlays on mode change; hide overlays when leaving Lvgl backend.
-// Stage 5.5 / 5.7: PageChain + оверлеи при смене режима; снять оверлеи при уходе с Lvgl.
-void lvgl_ui::onModeChanged(displayMode_e mode, UiBackend backend) {
+// Stage 5.5 / 5.7 / 5.6: PageChain + overlays; SCREENSAVER/BLANK without killing PageChain on wake.
+// Stage 5.5 / 5.7 / 5.6: PageChain + оверлеи; SCREENSAVER/BLANK без сброса карусели при пробуждении.
+void lvgl_ui::onModeChanged(displayMode_e mode, UiBackend backend, displayMode_e prev_mode) {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     if (backend == UiBackend::Lvgl) {
         ensurePageChainRegistered();
+        if (mode == SCREENSAVER) {
+            overlayHideAll();
+            screensaverShow();
+            return;
+        }
+        if (mode == SCREENBLANK) {
+            screensaverHide();
+            overlayHideAll();
+            return;
+        }
         if (mode == INFO) {
             overlayHideAll();
             s_page_chain.goTo(PageChain::INFO_INDEX);
         } else if (mode == PLAYER) {
+            if (prev_mode == SCREENSAVER || prev_mode == SCREENBLANK) {
+                overlayHideAll();
+                refreshMainScreen();
+                return;
+            }
             overlayHideAll();
-            // Defensive: return to Main clears any LOST/UPDATING modal / PLAYER → Main, снять модалки.
             s_page_chain.goTo(PageChain::MAIN_INDEX);
             refreshMainScreen();
         } else if (mode == LOST) {
@@ -295,6 +327,7 @@ void lvgl_ui::onModeChanged(displayMode_e mode, UiBackend backend) {
 #else
     (void)mode;
     (void)backend;
+    (void)prev_mode;
 #endif
 }
 

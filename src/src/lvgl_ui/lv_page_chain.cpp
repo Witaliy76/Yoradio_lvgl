@@ -4,6 +4,8 @@
 
 #include "lvgl.h"
 #include "Arduino.h"
+#include "../core/config.h"
+#include "../core/options.h"
 
 namespace lvgl_ui {
 
@@ -243,8 +245,10 @@ void PageChain::tick() {
 }
 
 void PageChain::onActivity() {
-    // Reserved for screensaver idle tracking (Stage 5).
-    // Зарезервировано под учёт простоя screensaver (этап 5).
+    // Stage 5.6: bridge LVGL activity → legacy idle counters (single source of truth in network.ticks).
+    // Этап 5.6: мост активности LVGL → legacy-счётчики простоя (единый источник в network.ticks).
+    config.screensaverTicks = SCREENSAVERSTARTUPDELAY;
+    config.screensaverPlayingTicks = SCREENSAVERSTARTUPDELAY;
 }
 
 } // namespace lvgl_ui

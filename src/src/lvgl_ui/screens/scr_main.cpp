@@ -34,6 +34,8 @@ namespace lvgl_ui {
 // Этап 5.3: тап → player.toggle() только в PLAYER (без полной семантики onBtnClick).
 static void main_play_hit_cb(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    // SCREENSAVER / SCREENBLANK wake: lv_touch_read_cb only (Stage 5.6).
+    // Пробуждение saver/blank: только lv_touch_read_cb (этап 5.6).
     if (display.mode() != PLAYER) return;
     player.toggle();
     notifyPageChainActivity();

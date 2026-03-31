@@ -2,6 +2,7 @@
 // Этап 5.7: оверлеи LOST / UPDATING — централизованно на lv_layer_top().
 
 #include "lv_overlay.h"
+#include "lv_screensaver.h"
 
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
 
@@ -40,6 +41,7 @@ static void destroy_if_present(lv_obj_t** p) {
 } // namespace
 
 void overlayHideAll() {
+    screensaverHide();
     destroy_if_present(&s_lost_root);
     destroy_if_present(&s_update_root);
 }

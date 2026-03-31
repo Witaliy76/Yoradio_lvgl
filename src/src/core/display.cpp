@@ -8,6 +8,7 @@
 #include "../displays/tools/GFX_Canvas_screen.h"
 #include "../core/spidog.h"
 #include "../lvgl_ui/lvgl_ui.h"
+#include "../lvgl_ui/lv_screensaver.h"
 #include "../lvgl_ui/lv_ui_events.h"
 extern Arduino_Canvas* gfx;
 
@@ -446,7 +447,7 @@ void Display::_start() {
     return;
 #else
     _activeBackend = startBackend;
-    lvgl_ui::onModeChanged(PLAYER, startBackend);
+    lvgl_ui::onModeChanged(PLAYER, startBackend, PLAYER);
     _deactivateLegacyPagerForLvgl();
     _bootStep = 2;
     _suspendFlush = false;
@@ -494,7 +495,7 @@ void Display::_tryCompleteLvglPlayerHandoff() {
   if (!lvgl_ui::dismissBootForMainHandoffWhenDue()) return;
   _lvgl_player_handoff_pending = false;
   _activeBackend = lvgl_ui::getPreferredBackend(PLAYER);
-  lvgl_ui::onModeChanged(PLAYER, _activeBackend);
+  lvgl_ui::onModeChanged(PLAYER, _activeBackend, PLAYER);
   _deactivateLegacyPagerForLvgl();
   _bootStep = 2;
   _suspendFlush = false;
@@ -527,11 +528,15 @@ void Display::_swichMode(displayMode_e newmode) {
     nextion.putRequest({NEWMODE, newmode});
   #endif
   if (newmode == _mode || (network.status != CONNECTED && network.status != SDREADY)) return;
-  
+
+  // Previous mode for lvgl_ui::onModeChanged (carousel preservation when leaving saver/blank).
+  // Предыдущий режим для onModeChanged (сохранение карусели при выходе из saver/blank).
+  const displayMode_e prev_mode = _mode;
+
   // Сбрасываем флаги смены режимов
   _isStationsChanging = false;
   _isVolumeChanging = false;
-  
+
   _mode = newmode;
   dsp.setScrollId(NULL);
   if (newmode == PLAYER) {
@@ -545,6 +550,13 @@ void Display::_swichMode(displayMode_e newmode) {
     // Guard 5.5: LVGL Main — пропускаем legacy подготовку страницы плейера.
     if (lvgl_ui::getPreferredBackend(PLAYER) == lvgl_ui::UiBackend::Lvgl) {
       pm.on_display_player();
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+      // SCREENBLANK called setDspOn(false); legacy PLAYER path always runs setDspOn(dspon) — LVGL path skipped it.
+      // SCREENBLANK гасит панель; у legacy PLAYER есть setDspOn — у LVGL Main его не было → wakeup не вызывался.
+      if (prev_mode == SCREENBLANK) {
+        config.setDspOn(config.store.dspon, false);
+      }
+#endif
       // backend + onModeChanged handled at end of _swichMode (common tail).
     } else {
       if(player.isRunning())
@@ -570,14 +582,28 @@ void Display::_swichMode(displayMode_e newmode) {
       _layoutChange(player.isRunning());
     }
   }
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+  const bool lvgl_screensaver_path =
+      (newmode == SCREENSAVER || newmode == SCREENBLANK) &&
+      (lvgl_ui::getPreferredBackend(newmode) == lvgl_ui::UiBackend::Lvgl);
+#else
+  const bool lvgl_screensaver_path = false;
+#endif
+  // Stage 5.6: LVGL uses overlay, not legacy PG_SCREENSAVER page / LVGL — оверлей, не legacy-страница.
   if (newmode == SCREENSAVER || newmode == SCREENBLANK) {
     config.isScreensaver = true;
-    _pager.setPage( pages[PG_SCREENSAVER]);
+    if (!lvgl_screensaver_path) {
+      _pager.setPage(pages[PG_SCREENSAVER]);
+    }
     if (newmode == SCREENBLANK) {
-      dsp.clearClock();
+      // Legacy clearClock() gfxFillRects the shared Arduino_Canvas — wipes top ~250px over LVGL. Skip for LVGL UI.
+      // Legacy clearClock() заливает общий Canvas — стирает верх ~250px поверх LVGL. Для LVGL UI не вызывать.
+      if (!lvgl_screensaver_path) {
+        dsp.clearClock();
+      }
       config.setDspOn(false, false);
     }
-  }else{
+  } else {
     config.screensaverTicks=SCREENSAVERSTARTUPDELAY;
     config.screensaverPlayingTicks=SCREENSAVERSTARTUPDELAY;
     config.isScreensaver = false;
@@ -624,7 +650,7 @@ void Display::_swichMode(displayMode_e newmode) {
   // При переходе INFO -> PLAYER очистка и отрисовка уже выполнены в setPage(pages[PG_PLAYER])
   // выше; повторный clearDsp() здесь затирал бы нарисованное (баг исправлен).
   _activeBackend = backend;
-  lvgl_ui::onModeChanged(newmode, backend);
+  lvgl_ui::onModeChanged(newmode, backend, prev_mode);
   if (backend == lvgl_ui::UiBackend::Lvgl) {
     _deactivateLegacyPagerForLvgl();
   }
@@ -785,8 +811,16 @@ void Display::loop() {
     if(pm_result)
       switch (request.type){
         case NEWMODE: _swichMode((displayMode_e)request.payload); break;
-        case CLOCK: 
-          if(_mode==PLAYER || _mode==SCREENSAVER) _time(); 
+        case CLOCK:
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+          if (_mode == SCREENSAVER && _activeBackend == lvgl_ui::UiBackend::Lvgl) {
+            lvgl_ui::screensaverRefreshClock();
+            break;
+          }
+#endif
+          if (_mode == PLAYER || _mode == SCREENSAVER) {
+            _time();
+          }
           /*#ifdef USE_NEXTION
             if(_mode==TIMEZONE) nextion.localTime(network.timeinfo);
             if(_mode==INFO)     nextion.rssi();
@@ -936,7 +970,9 @@ void Display::loop() {
 #endif
   // Throttled refresh of LVGL screens (~1 Hz); pattern symmetric for INFO and Main.
   // Throttled обновление LVGL экранов (~1 Гц); симметричный паттерн для INFO и Main.
-  if (_activeBackend == lvgl_ui::UiBackend::Lvgl) {
+  // SCREENBLANK/SCREENSAVER: do not refresh underlying pages (carousel Info still reports Info slot during blank).
+  // SCREENBLANK/SCREENSAVER: не обновлять страницы под оверлеем (на blank карусель всё ещё на Info).
+  if (_activeBackend == lvgl_ui::UiBackend::Lvgl && _mode != SCREENBLANK && _mode != SCREENSAVER) {
     // INFO labels: classic path _mode==INFO, or carousel on Info while still PLAYER (Stage 5.3 swipe).
     // Подписи INFO: обычный INFO или карусель на Info при mode PLAYER (свайп 5.3).
     if (_mode == INFO || lvgl_ui::isLvglCarouselOnInfoSlot()) {
@@ -1094,12 +1130,20 @@ bool Display::deepsleep(){
 #if defined(LCD_I2C) || defined(DSP_OLED) || BRIGHTNESS_PIN!=255
   dsp.sleep();
   return true;
-#endif
+#elif DSP_MODEL == DSP_ST7701 || DSP_MODEL == DSP_UEDX48480021 || DSP_MODEL == DSP_AXS15231B
+  // RGB panels: myoptions often sets BRIGHTNESS_PIN 255; backlight is gated in dsp.sleep() (e.g. ST7701_BL).
+  // RGB: в myoptions часто BRIGHTNESS_PIN 255; подсветка гасится в dsp.sleep() (напр. ST7701_BL).
+  dsp.sleep();
+  return true;
+#else
   return false;
+#endif
 }
 
 void Display::wakeup(){
 #if defined(LCD_I2C) || defined(DSP_OLED) || BRIGHTNESS_PIN!=255
+  dsp.wake();
+#elif DSP_MODEL == DSP_ST7701 || DSP_MODEL == DSP_UEDX48480021 || DSP_MODEL == DSP_AXS15231B
   dsp.wake();
 #endif
 }
