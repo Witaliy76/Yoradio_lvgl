@@ -12,6 +12,7 @@
 #include "lvgl.h"
 #include "lvgl_ui.h"
 #include "../profiles/lv_profile_select.h"
+#include "../theme/lv_theme_yoradio.h"
 
 namespace lvgl_ui {
 
@@ -27,13 +28,14 @@ void LvglStubPage::create() {
     _screen = lv_obj_create(nullptr);
     if (!_screen) return;
 
-    lv_obj_set_style_bg_color(_screen, lv_color_black(), LV_PART_MAIN);
+    const YoRadioPalette& pal = yoradio_palette();
+    lv_obj_set_style_bg_color(_screen, pal.device_background, LV_PART_MAIN);
     lv_obj_add_flag(_screen, LV_OBJ_FLAG_CLICKABLE);
 
     _lbl = lv_label_create(_screen);
     if (_lbl) {
         lv_label_set_text(_lbl, _titleUtf8);
-        lv_obj_set_style_text_color(_lbl, lv_color_white(), LV_PART_MAIN);
+        lv_obj_set_style_text_color(_lbl, pal.text_primary, LV_PART_MAIN);
         if (LV_ACTIVE_PROFILE.font_large) {
             lv_obj_set_style_text_font(_lbl, static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_large), LV_PART_MAIN);
         }

@@ -23,6 +23,7 @@
 #include <cstring>
 #include "WiFi.h"
 #include "../profiles/lv_profile_select.h"
+#include "../theme/lv_theme_yoradio.h"
 #include "lvgl_ui.h"
 #include "../../core/config.h"
 #include "../../core/display.h"
@@ -69,7 +70,9 @@ void LvglMainScreen::create() {
 
     _screen = lv_obj_create(nullptr);
     if (!_screen) return;
-    lv_obj_set_style_bg_color(_screen, lv_color_black(), LV_PART_MAIN);
+
+    const YoRadioPalette& pal = yoradio_palette();
+    lv_obj_set_style_bg_color(_screen, pal.device_background, LV_PART_MAIN);
 
     const int32_t techY = pad;
 
@@ -78,7 +81,7 @@ void LvglMainScreen::create() {
         lv_label_set_text(_lbl_station_num, "#--");
         lv_obj_set_pos(_lbl_station_num, pad, techY);
         main_set_font(_lbl_station_num, LV_ACTIVE_PROFILE.font_small);
-        lv_obj_set_style_text_color(_lbl_station_num, lv_color_white(), LV_PART_MAIN);
+        lv_obj_set_style_text_color(_lbl_station_num, pal.status_line_text, LV_PART_MAIN);
     }
 
     _lbl_bitrate = lv_label_create(_screen);
@@ -86,7 +89,7 @@ void LvglMainScreen::create() {
         lv_label_set_text(_lbl_bitrate, "--- kbps");
         lv_obj_set_pos(_lbl_bitrate, W / 2 - 40, techY);
         main_set_font(_lbl_bitrate, LV_ACTIVE_PROFILE.font_small);
-        lv_obj_set_style_text_color(_lbl_bitrate, lv_color_white(), LV_PART_MAIN);
+        lv_obj_set_style_text_color(_lbl_bitrate, pal.status_line_text, LV_PART_MAIN);
     }
 
     _lbl_rssi = lv_label_create(_screen);
@@ -94,7 +97,7 @@ void LvglMainScreen::create() {
         lv_label_set_text(_lbl_rssi, "-- dBm");
         lv_obj_align(_lbl_rssi, LV_ALIGN_TOP_RIGHT, -pad, techY);
         main_set_font(_lbl_rssi, LV_ACTIVE_PROFILE.font_small);
-        lv_obj_set_style_text_color(_lbl_rssi, lv_color_white(), LV_PART_MAIN);
+        lv_obj_set_style_text_color(_lbl_rssi, pal.status_line_text, LV_PART_MAIN);
     }
 
     _lbl_station_name = lv_label_create(_screen);
@@ -105,7 +108,7 @@ void LvglMainScreen::create() {
         lv_obj_align(_lbl_station_name, LV_ALIGN_CENTER, 0, -30);
         lv_obj_set_style_text_align(_lbl_station_name, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
         main_set_font(_lbl_station_name, LV_ACTIVE_PROFILE.font_large);
-        lv_obj_set_style_text_color(_lbl_station_name, lv_color_white(), LV_PART_MAIN);
+        lv_obj_set_style_text_color(_lbl_station_name, pal.station_name_text, LV_PART_MAIN);
     }
 
     _lbl_title = lv_label_create(_screen);
@@ -116,7 +119,7 @@ void LvglMainScreen::create() {
         lv_obj_align(_lbl_title, LV_ALIGN_CENTER, 0, 20);
         lv_obj_set_style_text_align(_lbl_title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
         main_set_font(_lbl_title, LV_ACTIVE_PROFILE.font_normal);
-        lv_obj_set_style_text_color(_lbl_title, lv_color_make(0xCC, 0xCC, 0xCC), LV_PART_MAIN);
+        lv_obj_set_style_text_color(_lbl_title, pal.track_text, LV_PART_MAIN);
     }
 
     // Bottom volume zone: label row + thin bar (Stage 5.7 inline VOL).
@@ -128,7 +131,7 @@ void LvglMainScreen::create() {
         lv_label_set_text(_lbl_volume, "Vol: --");
         lv_obj_set_pos(_lbl_volume, pad, auxY);
         main_set_font(_lbl_volume, LV_ACTIVE_PROFILE.font_small);
-        lv_obj_set_style_text_color(_lbl_volume, lv_color_make(0x80, 0x80, 0x80), LV_PART_MAIN);
+        lv_obj_set_style_text_color(_lbl_volume, pal.text_secondary, LV_PART_MAIN);
     }
 
     _bar_volume = lv_bar_create(_screen);
@@ -140,9 +143,9 @@ void LvglMainScreen::create() {
         lv_obj_set_pos(_bar_volume, pad, auxY + 18);
         lv_obj_set_style_radius(_bar_volume, 4, LV_PART_MAIN);
         lv_obj_set_style_radius(_bar_volume, 4, LV_PART_INDICATOR);
-        lv_obj_set_style_bg_color(_bar_volume, lv_color_make(0x28, 0x28, 0x28), LV_PART_MAIN);
+        lv_obj_set_style_bg_color(_bar_volume, pal.volume_bar_track, LV_PART_MAIN);
         lv_obj_set_style_bg_opa(_bar_volume, LV_OPA_COVER, LV_PART_MAIN);
-        lv_obj_set_style_bg_color(_bar_volume, lv_color_make(0xE7, 0xD3, 0x2A), LV_PART_INDICATOR);
+        lv_obj_set_style_bg_color(_bar_volume, pal.volume_bar_fill, LV_PART_INDICATOR);
         lv_obj_set_style_bg_opa(_bar_volume, LV_OPA_COVER, LV_PART_INDICATOR);
         lv_obj_clear_flag(_bar_volume, LV_OBJ_FLAG_CLICKABLE);
     }
@@ -220,10 +223,11 @@ void LvglMainScreen::update() {
 
     // VOL mode: slightly brighter label — inline UX, not a separate page / не отдельная страница
     if (_lbl_volume) {
+        const YoRadioPalette& pal = yoradio_palette();
         const bool volMode = (display.mode() == VOL);
         lv_obj_set_style_text_color(
             _lbl_volume,
-            volMode ? lv_color_white() : lv_color_make(0x80, 0x80, 0x80),
+            volMode ? pal.text_primary : pal.text_secondary,
             LV_PART_MAIN);
     }
 }

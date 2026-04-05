@@ -24,6 +24,7 @@
 #include "WiFi.h"
 #include "Esp.h"
 #include "../profiles/lv_profile_select.h"
+#include "../theme/lv_theme_yoradio.h"
 #include "lvgl_ui.h"
 #include "../../core/network.h"
 #include "../../core/options.h"
@@ -41,7 +42,8 @@ static void info_set_font(lv_obj_t* obj, const void* font_slot) {
 
 // One row: left caption + right value column (fixed x); used for dense INFO layout.
 // Строка: подпись слева + значение справа (фикс. X); плотная вёрстка INFO.
-static lv_obj_t* addInfoRow(lv_obj_t* parent, int32_t y, const char* name, const char* value, lv_obj_t** outVal) {
+static lv_obj_t* addInfoRow(lv_obj_t* parent, int32_t y, const char* name, const char* value, lv_obj_t** outVal,
+                            const YoRadioPalette& pal) {
     const int32_t marginLeft = static_cast<int32_t>(LV_ACTIVE_PROFILE.frame_padding) * 3;
     const int32_t valueX = 180;
 
@@ -50,12 +52,14 @@ static lv_obj_t* addInfoRow(lv_obj_t* parent, int32_t y, const char* name, const
         lv_label_set_text(lblName, name);
         lv_obj_set_pos(lblName, marginLeft, y);
         info_set_font(lblName, LV_ACTIVE_PROFILE.font_normal);
+        lv_obj_set_style_text_color(lblName, pal.text_secondary, LV_PART_MAIN);
     }
     lv_obj_t* lblVal = lv_label_create(parent);
     if (lblVal) {
         lv_label_set_text(lblVal, value);
         lv_obj_set_pos(lblVal, valueX, y);
         info_set_font(lblVal, LV_ACTIVE_PROFILE.font_normal);
+        lv_obj_set_style_text_color(lblVal, pal.text_primary, LV_PART_MAIN);
         if (outVal) *outVal = lblVal;
     }
     return lblVal;
@@ -77,6 +81,9 @@ void LvglInfoPage::create() {
     _screen = lv_obj_create(nullptr);
     if (!_screen) return;
 
+    const YoRadioPalette& pal = yoradio_palette();
+    lv_obj_set_style_bg_color(_screen, pal.device_background, LV_PART_MAIN);
+
     int32_t y = 16;
 
     // Title: English short label + large tier font / Заголовок короткий EN + крупный шрифт профиля.
@@ -85,6 +92,7 @@ void LvglInfoPage::create() {
         lv_label_set_text(title, "INFO");
         lv_obj_set_pos(title, marginLeft, y);
         info_set_font(title, LV_ACTIVE_PROFILE.font_large);
+        lv_obj_set_style_text_color(title, pal.text_primary, LV_PART_MAIN);
     }
     y += rowH + sectionGap;
 
@@ -94,16 +102,17 @@ void LvglInfoPage::create() {
         lv_label_set_text(secNet, "СЕТЬ"); // UTF-8 smoke + NETWORK / проверка UTF-8 + «сеть»
         lv_obj_set_pos(secNet, marginLeft, y);
         info_set_font(secNet, LV_ACTIVE_PROFILE.font_header);
+        lv_obj_set_style_text_color(secNet, pal.text_secondary, LV_PART_MAIN);
     }
     y += rowH;
 
-    addInfoRow(_screen, y, "SSID:", "--", &_val_ssid);
+    addInfoRow(_screen, y, "SSID:", "--", &_val_ssid, pal);
     y += rowH;
-    addInfoRow(_screen, y, "IP:", "--", &_val_ip);
+    addInfoRow(_screen, y, "IP:", "--", &_val_ip, pal);
     y += rowH;
-    addInfoRow(_screen, y, "RSSI:", "--", &_val_rssi);
+    addInfoRow(_screen, y, "RSSI:", "--", &_val_rssi, pal);
     y += rowH;
-    addInfoRow(_screen, y, "Статус:", "--", &_val_status);
+    addInfoRow(_screen, y, "Статус:", "--", &_val_status, pal);
     y += sectionGap;
 
     lv_obj_t* secSys = lv_label_create(_screen);
@@ -111,22 +120,23 @@ void LvglInfoPage::create() {
         lv_label_set_text(secSys, "СИСТЕМА");
         lv_obj_set_pos(secSys, marginLeft, y);
         info_set_font(secSys, LV_ACTIVE_PROFILE.font_header);
+        lv_obj_set_style_text_color(secSys, pal.text_secondary, LV_PART_MAIN);
     }
     y += rowH;
 
-    addInfoRow(_screen, y, "Прошивка:", "--", &_val_firmware);
+    addInfoRow(_screen, y, "Прошивка:", "--", &_val_firmware, pal);
     y += rowH;
-    addInfoRow(_screen, y, "Uptime:", "--", &_val_uptime);
+    addInfoRow(_screen, y, "Uptime:", "--", &_val_uptime, pal);
     y += rowH;
-    addInfoRow(_screen, y, "Free heap:", "--", &_val_heap);
+    addInfoRow(_screen, y, "Free heap:", "--", &_val_heap, pal);
     y += rowH;
-    addInfoRow(_screen, y, "Free PSRAM:", "--", &_val_psram);
+    addInfoRow(_screen, y, "Free PSRAM:", "--", &_val_psram, pal);
     y += rowH;
-    addInfoRow(_screen, y, "CPU freq:", "--", &_val_cpu_freq);
+    addInfoRow(_screen, y, "CPU freq:", "--", &_val_cpu_freq, pal);
     y += rowH;
-    addInfoRow(_screen, y, "Chip:", "--", &_val_chip);
+    addInfoRow(_screen, y, "Chip:", "--", &_val_chip, pal);
     y += rowH;
-    addInfoRow(_screen, y, "Build:", "--", &_val_build);
+    addInfoRow(_screen, y, "Build:", "--", &_val_build, pal);
 
     // Stage 5.3: horizontal carousel gestures on page root (not used on Boot).
     // Этап 5.3: жесты карусели на корне страницы (Boot не подключаем).

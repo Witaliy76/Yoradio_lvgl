@@ -4,6 +4,7 @@
 #include "lv_touch_indev.h"
 #include "lv_ui_events.h"
 #include "profiles/lv_profile_select.h"
+#include "theme/lv_theme_yoradio.h"
 
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
 #include "lvgl.h"
@@ -238,6 +239,9 @@ void lvgl_ui::initDisplayDriver(uint16_t hor_res, uint16_t ver_res) {
         Serial.println("[LVGL] lv_disp_drv_register failed, LVGL display disabled");
         return;
     }
+    // Stage 6.6A: LVGL base theme + YoRadio palette — single init point after valid display.
+    // Этап 6.6A: базовая тема LVGL + палитра YoRadio — одна точка после валидного дисплея.
+    yoradio_theme_init(s_disp);
     initTouchIndev();
 #endif
 }

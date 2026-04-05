@@ -7,6 +7,7 @@
 
 #include "lvgl.h"
 #include "profiles/lv_profile_select.h"
+#include "theme/lv_theme_yoradio.h"
 #include "../core/network.h"
 #include "../core/config.h"
 #include "../core/options.h"
@@ -77,9 +78,11 @@ void screensaverShow() {
     s_ss_root = lv_obj_create(top);
     if (!s_ss_root) return;
 
+    const YoRadioPalette& pal = yoradio_palette();
+
     lv_obj_set_size(s_ss_root, hor, ver);
     lv_obj_align(s_ss_root, LV_ALIGN_TOP_LEFT, 0, 0);
-    lv_obj_set_style_bg_color(s_ss_root, lv_color_black(), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_ss_root, pal.screensaver_background, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_ss_root, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(s_ss_root, 0, LV_PART_MAIN);
     lv_obj_clear_flag(s_ss_root, LV_OBJ_FLAG_SCROLLABLE);
@@ -89,7 +92,7 @@ void screensaverShow() {
 
     s_ss_lbl = lv_label_create(s_ss_root);
     if (s_ss_lbl) {
-        lv_obj_set_style_text_color(s_ss_lbl, lv_color_white(), LV_PART_MAIN);
+        lv_obj_set_style_text_color(s_ss_lbl, pal.screensaver_clock_text, LV_PART_MAIN);
         apply_clock_font(s_ss_lbl);
         lv_obj_set_style_text_align(s_ss_lbl, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
         lv_label_set_long_mode(s_ss_lbl, LV_LABEL_LONG_CLIP);

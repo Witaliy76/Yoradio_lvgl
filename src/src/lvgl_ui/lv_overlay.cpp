@@ -8,6 +8,7 @@
 
 #include "lvgl.h"
 #include "profiles/lv_profile_select.h"
+#include "theme/lv_theme_yoradio.h"
 #include "../displays/tools/l10n.h"
 
 namespace lvgl_ui {
@@ -61,9 +62,11 @@ void overlayShowLost() {
     s_lost_root = lv_obj_create(top);
     if (!s_lost_root) return;
 
+    const YoRadioPalette& pal = yoradio_palette();
+
     lv_obj_set_size(s_lost_root, hor, ver);
     lv_obj_align(s_lost_root, LV_ALIGN_TOP_LEFT, 0, 0);
-    lv_obj_set_style_bg_color(s_lost_root, lv_color_black(), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_lost_root, pal.overlay_scrim, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_lost_root, LV_OPA_70, LV_PART_MAIN);
     lv_obj_set_style_border_width(s_lost_root, 0, LV_PART_MAIN);
     lv_obj_clear_flag(s_lost_root, LV_OBJ_FLAG_SCROLLABLE);
@@ -77,7 +80,7 @@ void overlayShowLost() {
         lv_label_set_text(lbl, line);
         lv_label_set_long_mode(lbl, LV_LABEL_LONG_WRAP);
         lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-        lv_obj_set_style_text_color(lbl, lv_color_white(), LV_PART_MAIN);
+        lv_obj_set_style_text_color(lbl, pal.overlay_title_text, LV_PART_MAIN);
         apply_overlay_title_font(lbl);
         lv_obj_center(lbl);
     }
@@ -98,9 +101,11 @@ void overlayShowUpdating() {
     s_update_root = lv_obj_create(top);
     if (!s_update_root) return;
 
+    const YoRadioPalette& pal = yoradio_palette();
+
     lv_obj_set_size(s_update_root, hor, ver);
     lv_obj_align(s_update_root, LV_ALIGN_TOP_LEFT, 0, 0);
-    lv_obj_set_style_bg_color(s_update_root, lv_color_black(), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(s_update_root, pal.overlay_scrim, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_update_root, LV_OPA_80, LV_PART_MAIN);
     lv_obj_set_style_border_width(s_update_root, 0, LV_PART_MAIN);
     lv_obj_clear_flag(s_update_root, LV_OBJ_FLAG_SCROLLABLE);
@@ -114,7 +119,7 @@ void overlayShowUpdating() {
         lv_label_set_text(lbl, line);
         lv_label_set_long_mode(lbl, LV_LABEL_LONG_WRAP);
         lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-        lv_obj_set_style_text_color(lbl, lv_color_white(), LV_PART_MAIN);
+        lv_obj_set_style_text_color(lbl, pal.overlay_title_text, LV_PART_MAIN);
         apply_overlay_title_font(lbl);
         lv_obj_center(lbl);
     }

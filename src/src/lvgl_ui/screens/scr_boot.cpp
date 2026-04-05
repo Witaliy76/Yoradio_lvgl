@@ -16,6 +16,7 @@
 #include "Arduino.h"
 #include <cstring>
 #include "../profiles/lv_profile_select.h"
+#include "../theme/lv_theme_yoradio.h"
 #include "../assets/bootlogo_assets.h"
 
 namespace lvgl_ui {
@@ -220,7 +221,11 @@ void LvglBootScreen::create() {
     _screen = lv_obj_create(nullptr);
     if (!_screen) return;
 
-    lv_obj_set_style_bg_color(_screen, lv_color_black(), LV_PART_MAIN);
+    // Stage 6.6C: themed bg + status only — track/shuttle/glow/progress stay local (accepted chrome).
+    // Этап 6.6C: только фон и статус из темы; дорожка/бегунок/glow/прогресс — локально (принятый chrome).
+    const YoRadioPalette& pal = yoradio_palette();
+
+    lv_obj_set_style_bg_color(_screen, pal.boot_background, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(_screen, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_clear_flag(_screen, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scrollbar_mode(_screen, LV_SCROLLBAR_MODE_OFF);
@@ -275,7 +280,7 @@ void LvglBootScreen::create() {
         lv_label_set_long_mode(_lbl_status, LV_LABEL_LONG_DOT);
         lv_obj_set_scrollbar_mode(_lbl_status, LV_SCROLLBAR_MODE_OFF);
         lv_obj_set_style_text_align(_lbl_status, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-        lv_obj_set_style_text_color(_lbl_status, lv_color_make(0xd6, 0xd9, 0xdf), LV_PART_MAIN);
+        lv_obj_set_style_text_color(_lbl_status, pal.boot_status_text, LV_PART_MAIN);
         boot_set_font(_lbl_status, LV_ACTIVE_PROFILE.font_header);
     }
 
