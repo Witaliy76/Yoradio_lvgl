@@ -88,11 +88,11 @@
 // LV_LOG_PRINTF: use stdio printf → on ESP32 Arduino this typically matches USB/UART Serial monitor.
 // Без LV_LOG_PRINTF=1 и без lv_log_register_print_cb() LVGL не печатает логи вообще.
 // Runtime default: WARN to reduce ISR/UART pressure and DspTask stack load.
-// Рабочий уровень: WARN (меньше нагрузки на UART/ISR и стек DspTask).
+// Рабочий уровень: WARN (в отличие от INFO, меньше нагрузки на UART/ISR и стек DspTask).
 // Keep all LV_LOG_TRACE_* = 0 (TRACE can still WDT / flood UART).
 #define LV_USE_LOG 1
 #if LV_USE_LOG
-    #define LV_LOG_LEVEL LV_LOG_LEVEL_INFO
+    #define LV_LOG_LEVEL LV_LOG_LEVEL_WARN
     #define LV_LOG_PRINTF 1
     #define LV_LOG_TRACE_MEM 0
     #define LV_LOG_TRACE_TIMER 0
@@ -145,9 +145,23 @@
 #define LV_FONT_YORA_MONTSERRAT_12_CYR 1
 #define LV_FONT_YORA_MONTSERRAT_14_CYR 1
 #define LV_FONT_YORA_MONTSERRAT_16_CYR 1
+#define LV_FONT_YORA_MONTSERRAT_18_CYR 1
+#define LV_FONT_YORA_MONTSERRAT_20_CYR 1
 #define LV_FONT_YORA_MONTSERRAT_22_CYR 1
+#define LV_FONT_YORA_MONTSERRAT_28_CYR 1
+#define LV_FONT_YORA_MONTSERRAT_32_CYR 1
 #define LV_FONT_YORA_MONTSERRAT_40_CYR 1
 #define LV_FONT_YORA_MONTSERRAT_48_CYR 1
+/* Tabler subset: Main status Wi-Fi glyphs (fonts/lv_font_yora_status_icons_18|20|22.c). */
+#define LV_FONT_YORA_STATUS_ICONS_18 1
+#define LV_FONT_YORA_STATUS_ICONS_20 1
+#define LV_FONT_YORA_STATUS_ICONS_22 1
+/* Tabler subset: Main weather mini OWM glyphs (fonts/lv_font_yora_weather_icons_18|20|22|24|28.c). */
+#define LV_FONT_YORA_WEATHER_ICONS_18 1
+#define LV_FONT_YORA_WEATHER_ICONS_20 1
+#define LV_FONT_YORA_WEATHER_ICONS_22 1
+#define LV_FONT_YORA_WEATHER_ICONS_24 1
+#define LV_FONT_YORA_WEATHER_ICONS_28 1
 
 #define LV_FONT_MONTSERRAT_14 1
 #define LV_FONT_MONTSERRAT_8  0
@@ -180,9 +194,21 @@
     extern const lv_font_t lv_font_yora_montserrat_12_cyr;                                      \
     extern const lv_font_t lv_font_yora_montserrat_14_cyr;                                      \
     extern const lv_font_t lv_font_yora_montserrat_16_cyr;                                      \
+    extern const lv_font_t lv_font_yora_montserrat_18_cyr;                                      \
+    extern const lv_font_t lv_font_yora_montserrat_20_cyr;                                      \
     extern const lv_font_t lv_font_yora_montserrat_22_cyr;                                      \
+    extern const lv_font_t lv_font_yora_montserrat_28_cyr;                                      \
+    extern const lv_font_t lv_font_yora_montserrat_32_cyr;                                      \
     extern const lv_font_t lv_font_yora_montserrat_40_cyr;                                      \
-    extern const lv_font_t lv_font_yora_montserrat_48_cyr;
+    extern const lv_font_t lv_font_yora_montserrat_48_cyr;                                      \
+    extern const lv_font_t lv_font_yora_status_icons_18;                                      \
+    extern const lv_font_t lv_font_yora_status_icons_20;                                      \
+    extern const lv_font_t lv_font_yora_status_icons_22;                                      \
+    extern const lv_font_t lv_font_yora_weather_icons_18;                                      \
+    extern const lv_font_t lv_font_yora_weather_icons_20;                                      \
+    extern const lv_font_t lv_font_yora_weather_icons_22;                                      \
+    extern const lv_font_t lv_font_yora_weather_icons_24;                                      \
+    extern const lv_font_t lv_font_yora_weather_icons_28;
 
 #define LV_FONT_DEFAULT &lv_font_montserrat_14
 #define LV_FONT_FMT_TXT_LARGE 0

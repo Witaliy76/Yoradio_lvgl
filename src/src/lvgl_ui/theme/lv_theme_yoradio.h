@@ -43,6 +43,8 @@ struct YoRadioPalette {
     // §4.2 Main / player pages
     lv_color_t status_line_text;
     lv_color_t status_line_meta;
+    lv_color_t status_weather_icon;  // status-line weather glyph (glance), not bottom bar
+    lv_color_t status_weather_temp;  // status-line weather °C (glance), not bottom bar
     lv_color_t status_line_bg;
     lv_color_t clock_text;
     lv_color_t live_indicator_text;
@@ -52,6 +54,7 @@ struct YoRadioPalette {
     lv_color_t meta_row_text;
     lv_color_t volume_bar_track;
     lv_color_t volume_bar_fill;
+    lv_color_t buffer_meter_fill;  // lower divider buffer meter fill (not accent_soft / not volume fill)
     lv_color_t bottom_weather_text;
     lv_color_t bottom_ai_text;
 
