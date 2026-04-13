@@ -39,24 +39,16 @@ static LvglBootScreen s_boot_screen;
 
 namespace {
 
-// Horizontal carousel: direction mapping from LVGL indev; invert per board via LV_ACTIVE_PROFILE.
-// Горизонтальная карусель: маппинг из indev; инверсия задаётся профилем платы (touch_swap_horizontal_carousel).
+// Horizontal carousel: direct mapping from LVGL gesture dir.
+// X normalization is now in lv_touch_read_cb — no per-board swap needed here.
+// Горизонтальная карусель: прямой маппинг из gesture dir (нормализация X теперь в lv_touch_read_cb).
 static void map_horizontal_gesture_to_carousel(lv_dir_t dir) {
-    const bool swap = LV_ACTIVE_PROFILE.touch_swap_horizontal_carousel;
     if (dir == LV_DIR_LEFT) {
-        if (swap) {
-            s_page_chain.swipeRight();
-        } else {
-            s_page_chain.swipeLeft();
-        }
+        s_page_chain.swipeLeft();
         return;
     }
     if (dir == LV_DIR_RIGHT) {
-        if (swap) {
-            s_page_chain.swipeLeft();
-        } else {
-            s_page_chain.swipeRight();
-        }
+        s_page_chain.swipeRight();
     }
 }
 

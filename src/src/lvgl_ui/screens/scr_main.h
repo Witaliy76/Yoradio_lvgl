@@ -17,8 +17,8 @@
 
 namespace lvgl_ui {
 
-// Main player screen — station / track / artist hierarchy, meta row, volume (Stage 6.1B+).
-// Главный экран: иерархия текста, meta, громкость.
+// Main player screen — station / track / artist; meta row in lower stack (6.1E-c+); volume (6.1D+).
+// Главный экран: текст; meta в нижнем stack; громкость.
 class LvglMainScreen final : public ILvglScreen {
 public:
     ScreenType screenType() const override;
@@ -35,7 +35,7 @@ private:
     // Top status strip: Wi‑Fi + weather glance + clock (experimental). / Верх: Wi‑Fi, погода, часы.
     wgt_status_line::Instance _status_line{};
 
-    // Meta row: preset index + bitrate (token meta_row_text) / # пресета и битрейт
+    // Meta row (below control band): preset # + bitrate / Meta под полосой кнопок
     lv_obj_t* _lbl_station_num = nullptr;
     lv_obj_t* _lbl_bitrate = nullptr;
 
@@ -44,12 +44,21 @@ private:
     lv_obj_t* _lbl_track = nullptr;
     lv_obj_t* _lbl_artist = nullptr;
 
+    // Center transport: play/stop label — glyph synced from player.status() in update() / Глиф play↔stop из статуса плеера.
+    lv_obj_t* _lbl_transport_play_stop = nullptr;
+
     // Bottom: volume row + lower divider/meter + AI line (6.1D) / Низ: громкость, нижний divider/meter, AI
     lv_obj_t* _lbl_volume = nullptr;
     lv_obj_t* _bar_volume = nullptr;
     // Invisible touch zone over volume bar — wider hit area for finger (6.1D-b).
     // Невидимая touch-зона над volume bar — шире для пальца (6.1D-b).
     lv_obj_t* _vol_touch_zone = nullptr;
+    // Below volume strip: absorbs gestures so horizontal swipe does not reach carousel (6.1D-b guard).
+    // Под полосой громкости: гасит жесты — свайп не уходит в карусель.
+    lv_obj_t* _vol_gesture_guard = nullptr;
+    // Covers bottom gap between zone_bottom and _screen bottom (e.g. if coords leave 1px); absorbs gestures.
+    // Закрывает зазор между низом zone_bottom и низом экрана — жест не на голом _screen.
+    lv_obj_t* _screen_bottom_carousel_guard = nullptr;
     // Temporary floating label showing volume value during drag/tap (6.1D-b).
     // Временный label с числом громкости во время drag/tap (6.1D-b).
     lv_obj_t* _lbl_vol_popup = nullptr;
@@ -57,12 +66,6 @@ private:
     // Нижний разделитель, превращающийся в meter буфера при audioinfo == true.
     lv_obj_t* _bar_buffer = nullptr;
     lv_obj_t* _lbl_ai_line = nullptr;
-
-    // Transparent tap target; LV_OBJ_FLAG_FLOATING so flex layout ignores it / Прозрачная зона тапа play
-    lv_obj_t* _hit_play = nullptr;
-
-    // 6.1D-b: volume touch state
-    bool _vol_touch_active = false;
 };
 
 } // namespace lvgl_ui

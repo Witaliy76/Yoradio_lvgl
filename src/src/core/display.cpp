@@ -716,6 +716,15 @@ void Display::setAIInterpretation(const String& text) {
   _aiPending = false;  // Clear pending flag after applying
 }
 
+void Display::copyAIInterpretationForLvgl(char* buf, size_t cap) const {
+    if (!buf || cap == 0) return;
+    if (!config.store.ai_enabled) {
+        buf[0] = '\0';
+        return;
+    }
+    strlcpy(buf, _aiPendingText, cap);
+}
+
 void Display::putRequest(displayRequestType_e type, int payload){
   if(displayQueue==NULL) return;
   requestParams_t request;
@@ -743,6 +752,11 @@ void Display::putRequest(displayRequestType_e type, int payload){
 }
 
 void Display::_layoutChange(bool played){
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+  // Guard: when PLAYER runs on LVGL, legacy widget moves/clears touch the shared Canvas and wipe the screen.
+  // Гвард: при PLAYER на LVGL, legacy moveBack/setActive стирают общий Canvas — пропускаем.
+  if (lvgl_player_uses_same_canvas()) return;
+#endif
   if(config.store.vumeter){
     // Очистим состояние: отключим оба перед переключением
     if(_spectrumwidget) _spectrumwidget->setActive(false, true);

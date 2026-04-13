@@ -47,6 +47,9 @@ class Display {
     void setContrast();
     void printPLitem(uint8_t pos, const char* item, bool uppercase);
     void setAIInterpretation(const String& text);  // AI interpretation widget / Виджет AI интерпретации
+    // Stage 6.1C: read-only snapshot for LVGL Main AI line (DspTask); no AI logic change.
+    // 6.1C: снимок строки для LVGL Main — только чтение, логика AI не трогается.
+    void copyAIInterpretationForLvgl(char* buf, size_t cap) const;
     // Stage 5.5a: lets DspCore skip legacy CPU widget when PLAYER is LVGL-owned.
     // Stage 5.5a: для DspCore — не рисовать legacy CPU, если PLAYER на LVGL.
     lvgl_ui::UiBackend activeBackend() const { return _activeBackend; }
@@ -129,6 +132,9 @@ class Display {
     void wakeup(){}
     void printPLitem(uint8_t pos, const char* item, bool uppercase){}
     void setAIInterpretation(const String& text){}  // AI interpretation widget / Виджет AI интерпретации
+    void copyAIInterpretationForLvgl(char* buf, size_t cap) const {
+        if (buf && cap) buf[0] = '\0';
+    }
 };
 
 #endif

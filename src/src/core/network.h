@@ -23,6 +23,11 @@ class MyNetwork {
     Ticker ctimer;
     char *weatherBuf;
     bool trueWeather;
+    // Stage 6.1C: compact Main glance (OWM code + °C) — filled in getWeather(); not full weatherBuf.
+    // 6.1C: компактный glance на Main — код OWM + °C; не полная строка погоды.
+    char weatherOwmIcon[8]{};
+    float weatherLastTempC{0.f};
+    bool weatherGlanceValid{false};
   public:
     MyNetwork() {};
     void begin();

@@ -548,6 +548,9 @@ bool getWeather(char *wstr) {
   
   Serial.printf("##WEATHER###: descr.: %s, temp.: %+.1f*C (feels like %+.0f*C) \007 press.: %d mm \007 hum.: %s%% \007 wind %s %.0f%s m/s (st. %s)\n", desc, tempf, tempfl, pressi, hum, wind[wind_deg], wind_speed, gust, stanc);
 //  Serial.printf("##WEATHER###: description: %s, temp:%+.1f C, pressure:%dmmHg, humidity:%s%%\n", desc, tempf, pressi, hum);
+  strlcpy(network.weatherOwmIcon, icon, sizeof(network.weatherOwmIcon));
+  network.weatherLastTempC = tempf;
+  network.weatherGlanceValid = true;
   #ifdef WEATHER_FMT_SHORT
   sprintf(wstr, weatherFmt, tempf, pressi, hum);
   #else

@@ -11,6 +11,8 @@
 #include "../core/config.h"
 #endif
 
+#include "profiles/lv_profile_select.h"
+
 // Pointer indev for LVGL; read_cb runs from lv_timer_handler() on DspTask (Core 0).
 // Pointer indev; read_cb из lv_timer_handler() на DspTask.
 static lv_indev_drv_t s_touch_indev_drv;
@@ -65,6 +67,12 @@ static void lv_touch_read_cb(lv_indev_drv_t* drv, lv_indev_data_t* data) {
     uint16_t x = 0;
     uint16_t y = 0;
     if (touchscreen.readPointerForLvgl(&x, &y)) {
+        // Root X normalization: GT911/4848S040 delivers mirrored X after axis swap in readPointerForLvgl.
+        // Fix here so every LVGL consumer (hit-test, gestures, sliders) gets correct coordinates.
+        // Нормализация X: GT911 после swap осей даёт зеркальный X — исправляем в единой точке для LVGL.
+        if (LV_ACTIVE_PROFILE.touch_swap_horizontal_carousel) {
+            x = LV_ACTIVE_PROFILE.width - 1 - x;
+        }
         touch_wake_saver_or_blank_if_needed(x, y, true);
         data->point.x = static_cast<lv_coord_t>(x);
         data->point.y = static_cast<lv_coord_t>(y);

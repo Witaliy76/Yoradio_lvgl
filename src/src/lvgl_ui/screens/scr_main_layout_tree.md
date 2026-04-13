@@ -14,11 +14,13 @@
 1. `wgt_status_line.root`  
 2. `status_divider`  
 3. `spacer_top` (flex grow)  
-4. `cont_mid`  
+4. `cont_mid` (text stack only — 6.1E-c)  
 5. `spacer_bottom` (flex grow)  
 6. `zone_visual` (1 px placeholder)  
-7. `zone_bottom`  
-8. `_hit_play` — created last, **`LV_OBJ_FLAG_FLOATING`** (not a flex row; sits above center for tap)
+7. `zone_bottom_sym_spacer` (symmetry, height may be set after layout)  
+8. `zone_bottom`
+
+Floating overlays (not flex children of `_screen` in the same sense): `_lbl_vol_popup`; `_vol_touch_zone` / `_vol_gesture_guard` inside `zone_bottom`; `_screen_bottom_carousel_guard` if needed.
 
 ---
 
@@ -36,21 +38,29 @@ _screen
 ├── status_divider
 ├── spacer_top
 ├── cont_mid
-│   ├── cont_text
-│   │   ├── _lbl_station_name
-│   │   ├── _lbl_track
-│   │   └── _lbl_artist
-│   └── row_meta
-│       ├── _lbl_station_num
-│       └── _lbl_bitrate
+│   └── cont_text
+│       ├── _lbl_station_name
+│       ├── _lbl_track
+│       └── _lbl_artist
 ├── spacer_bottom
 ├── zone_visual
+├── zone_bottom_sym_spacer
 ├── zone_bottom
+│   ├── control_band
+│   │   ├── transport_group (prev / play / next — lv_btn skeleton)
+│   │   └── utility_group (list / settings)
+│   ├── row_meta_stream
+│   │   ├── _lbl_station_num
+│   │   └── _lbl_bitrate
 │   ├── col_vol
 │   │   ├── _lbl_volume
 │   │   └── _bar_volume
-│   └── _lbl_ai_line
-└── _hit_play   (FLOATING — вне flex-потока, поверх для тапа)
+│   ├── _bar_buffer (heap / divider line)
+│   ├── _lbl_ai_line
+│   ├── _vol_touch_zone (FLOATING)
+│   └── _vol_gesture_guard (FLOATING)
+├── _screen_bottom_carousel_guard (FLOATING, if gap)
+└── _lbl_vol_popup (FLOATING)
 ```
 
 ---
@@ -68,6 +78,7 @@ flowchart TB
     CM[cont_mid]
     SB[spacer_bottom]
     ZV[zone_visual]
+    ZSS[zone_bottom_sym_spacer]
     ZB[zone_bottom]
   end
 
@@ -85,7 +96,6 @@ flowchart TB
 
   subgraph cm["cont_mid"]
     CT[cont_text]
-    RM[row_meta]
   end
 
   subgraph ct["cont_text"]
@@ -94,14 +104,22 @@ flowchart TB
     AR[_lbl_artist]
   end
 
-  subgraph rmeta["row_meta"]
-    NUM[_lbl_station_num]
-    BR[_lbl_bitrate]
+  subgraph zb["zone_bottom"]
+    CB[control_band]
+    RMS[row_meta_stream]
+    CV[col_vol]
+    BUF[_bar_buffer]
+    AI[_lbl_ai_line]
   end
 
-  subgraph zb["zone_bottom"]
-    CV[col_vol]
-    AI[_lbl_ai_line]
+  subgraph cb["control_band"]
+    TG[transport_group]
+    UG[utility_group]
+  end
+
+  subgraph rms["row_meta_stream"]
+    NUM[_lbl_station_num]
+    BR[_lbl_bitrate]
   end
 
   subgraph cv["col_vol"]
@@ -116,14 +134,18 @@ flowchart TB
   CWX --> WG
   CWX --> WT
   CM --> CT
-  CM --> RM
   CT --> SN
   CT --> TR
   CT --> AR
-  RM --> NUM
-  RM --> BR
+  ZB --> CB
+  ZB --> RMS
   ZB --> CV
+  ZB --> BUF
   ZB --> AI
+  CB --> TG
+  CB --> UG
+  RMS --> NUM
+  RMS --> BR
   CV --> VOL
   CV --> BAR
 ```

@@ -162,6 +162,12 @@
 #define LV_FONT_YORA_WEATHER_ICONS_22 1
 #define LV_FONT_YORA_WEATHER_ICONS_24 1
 #define LV_FONT_YORA_WEATHER_ICONS_28 1
+/* Tabler subset: Main control band icons (fonts/lv_font_yora_control_icons_18|20|22|24|26.c). Stage 6.1E-b. */
+#define LV_FONT_YORA_CONTROL_ICONS_18 1
+#define LV_FONT_YORA_CONTROL_ICONS_20 1
+#define LV_FONT_YORA_CONTROL_ICONS_22 1
+#define LV_FONT_YORA_CONTROL_ICONS_24 1
+#define LV_FONT_YORA_CONTROL_ICONS_26 1
 
 #define LV_FONT_MONTSERRAT_14 1
 #define LV_FONT_MONTSERRAT_8  0
@@ -208,7 +214,12 @@
     extern const lv_font_t lv_font_yora_weather_icons_20;                                      \
     extern const lv_font_t lv_font_yora_weather_icons_22;                                      \
     extern const lv_font_t lv_font_yora_weather_icons_24;                                      \
-    extern const lv_font_t lv_font_yora_weather_icons_28;
+    extern const lv_font_t lv_font_yora_weather_icons_28;                                      \
+    extern const lv_font_t lv_font_yora_control_icons_18;                                      \
+    extern const lv_font_t lv_font_yora_control_icons_20;                                      \
+    extern const lv_font_t lv_font_yora_control_icons_22;                                      \
+    extern const lv_font_t lv_font_yora_control_icons_24;                                      \
+    extern const lv_font_t lv_font_yora_control_icons_26;
 
 #define LV_FONT_DEFAULT &lv_font_montserrat_14
 #define LV_FONT_FMT_TXT_LARGE 0

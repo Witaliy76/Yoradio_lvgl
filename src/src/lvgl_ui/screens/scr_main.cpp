@@ -2,9 +2,11 @@
  * scr_main.cpp — LvglMainScreen: layout + bindings for Main (LVGL).
  *
  * Layout (flex column on _screen, top → bottom):
- *   wgt_status_line → divider → spacer_top (flex 1) → cont_mid → spacer_bottom (flex 1)
- *   → zone_visual (1px) → zone_bottom: [col_vol: label+bar+touch_zone] → [_bar_buffer: lower divider/meter] → AI line
- *   → (hit_play floating), (_lbl_vol_popup floating).
+ *   wgt_status_line → divider → spacer_top (flex 1) → cont_mid (text only) → spacer_bottom (flex 1)
+ *   → zone_visual (1px) → zone_bottom: control_band → row_meta_stream → col_vol → heapbar → AI;
+ *   FLOATING: vol_touch_zone, vol_gesture_guard,
+ *   screen_bottom_carousel_guard (dead strip / padding — no carousel to touch bottom)
+ *   → (_lbl_vol_popup floating).
  * 6.1D-a / a2: volume capsule + inset rim; lower 1px divider/meter; stable AI slot (min_height).
  * 6.1D-b: real touch slider interaction — tap-to-position + drag-to-adjust; temporary numeric popup.
  * 6.1D-a / a2: громкость + ободок groove; нижний divider 1px; слот AI с min_height.
@@ -37,6 +39,7 @@
 #include "../theme/lv_theme_yoradio.h"
 #include "../wifi_signal_map.h"
 #include "../weather_owm_glyph.h"
+#include "../control_glyph_utf8.h"
 #include "lvgl_ui.h"
 #include "../../core/config.h"
 #include "../../core/display.h"
@@ -59,12 +62,28 @@ char* split_inplace_at(char* str, const char* sep) {
 
 } // namespace
 
-// Stage 5.3: tap → player.toggle() in PLAYER only; gestures wake screensaver via touch indev, not here.
-// Этап 5.3: тап — toggle только в режиме PLAYER.
-static void main_play_hit_cb(lv_event_t* e) {
+// Transport: only visible control_band buttons (no hidden center hit-zone). PLAYER-only; prev/next match hardware side-button guards.
+// Транспорт: только видимые кнопки (без скрытой зоны тапа). Только PLAYER; prev/next — как у боковых кнопок (double-click).
+static void main_transport_toggle_cb(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     if (display.mode() != PLAYER) return;
     player.toggle();
+    notifyPageChainActivity();
+}
+
+static void main_transport_prev_cb(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (display.mode() != PLAYER) return;
+    if (network.status != CONNECTED && network.status != SDREADY) return;
+    player.prev();
+    notifyPageChainActivity();
+}
+
+static void main_transport_next_cb(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (display.mode() != PLAYER) return;
+    if (network.status != CONNECTED && network.status != SDREADY) return;
+    player.next();
     notifyPageChainActivity();
 }
 
@@ -96,15 +115,14 @@ static int32_t vol_from_touch_x(lv_obj_t* bar, lv_coord_t touch_x) {
     return (rel_x * 254) / content_w;
 }
 
-// Floating touch strip: pad above bar + bar + zone_bottom row gap + heapbar + small overlap (heapbar not clickable).
-// Плавающая полоса тача: над баром + бар + зазор + heapbar + лёгкое перекрытие heapbar.
-static constexpr lv_coord_t kVolTouchPadTop      = 14;
-static constexpr lv_coord_t kVolTouchBarH        = 16;
-static constexpr lv_coord_t kVolTouchGapToHeap  = 6;  // zone_bottom pad_row / отступ между col_vol и heapbar
-static constexpr lv_coord_t kVolTouchHeapH       = 1;
-static constexpr lv_coord_t kVolTouchOverlapHeap = 4;
-static constexpr lv_coord_t kVolTouchStripH =
-    kVolTouchPadTop + kVolTouchBarH + kVolTouchGapToHeap + kVolTouchHeapH + kVolTouchOverlapHeap;
+// Touch strip: only semantic margins — geometry from lv_obj_get_coords(_bar_volume/_bar_buffer) after layout.
+// Полоса тача: только product-margins; геометрия из реальных bounds после layout.
+static constexpr lv_coord_t kVolTouchPadAbove    = 14;
+static constexpr lv_coord_t kVolTouchOverlapBelow = 4;
+
+// While user drags slider, skip syncing lv_bar from config in update() — config lags behind PR_VOL.
+// Пока трогаем слайдер — не перезаписывать бар из config (иначе гонка с асинхронным PR_VOL).
+static bool s_vol_touch_active = false;
 
 // Throttle: send PR_VOL to audio queue at most once per kVolThrottleMs.
 // Bar visual updates instantly; hardware command is rate-limited to avoid queue flood.
@@ -155,16 +173,17 @@ static void vol_touch_cb(lv_event_t* e) {
         int32_t rel_x = p.x - content_x;
         if (rel_x < 0) rel_x = 0;
         if (rel_x > content_w) rel_x = content_w;
-        if (LV_ACTIVE_PROFILE.touch_swap_horizontal_carousel) {
-            rel_x = content_w - rel_x;
-        }
+        // X normalization now lives in lv_touch_read_cb — no per-widget workaround needed.
+        // Нормализация X теперь в lv_touch_read_cb — локальный workaround больше не нужен.
         int32_t new_vol = (rel_x * 254) / content_w;
         if (new_vol < 0) new_vol = 0;
         if (new_vol > 254) new_vol = 254;
 
-        // Visual: always instant — no throttle for UI feedback.
+        s_vol_touch_active = true;
+
+        // Visual: always instant — no throttle for UI feedback. Config/audio only via player.setVol → PR_VOL.
+        // Визуал сразу; config — только через player.setVol (без прямой записи в config.store).
         lv_bar_set_value(bar, new_vol, LV_ANIM_OFF);
-        config.store.volume = static_cast<uint8_t>(new_vol);
 
         // Hardware: throttled to avoid flooding playerQueue.
         // Аппаратная громкость: троттлинг, чтобы не забить очередь audio task.
@@ -189,6 +208,7 @@ static void vol_touch_cb(lv_event_t* e) {
         // Flush last pending value so final finger position is always applied.
         // Отправить последнее значение — финальная позиция пальца всегда применяется.
         vol_flush_pending();
+        s_vol_touch_active = false;
         if (popup) {
             lv_obj_add_flag(popup, LV_OBJ_FLAG_HIDDEN);
         }
@@ -238,6 +258,38 @@ static void main_set_font(lv_obj_t* obj, const void* font_slot) {
     lv_obj_set_style_text_font(obj, static_cast<const lv_font_t*>(font_slot), LV_PART_MAIN);
 }
 
+// 6.1E control button: icon inside lv_btn with min hit area; blocks gesture bubble.
+// Кнопка управления: иконка в lv_btn с минимальной зоной касания; без всплытия жеста.
+static lv_obj_t* main_create_control_icon_btn(
+    lv_obj_t* parent,
+    const char* utf8_glyph,
+    const lv_font_t* icon_font,
+    lv_color_t fg,
+    lv_coord_t pad_inner,
+    lv_coord_t min_side) {
+    lv_obj_t* btn = lv_btn_create(parent);
+    if (!btn) return nullptr;
+    lv_obj_remove_style_all(btn);
+    lv_obj_set_style_bg_opa(btn, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(btn, lv_color_white(), static_cast<lv_style_selector_t>(LV_PART_MAIN) | LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(btn, LV_OPA_10, static_cast<lv_style_selector_t>(LV_PART_MAIN) | LV_STATE_PRESSED);
+    lv_obj_set_style_radius(btn, 14, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(btn, pad_inner, LV_PART_MAIN);
+    lv_obj_set_style_min_width(btn, min_side, LV_PART_MAIN);
+    lv_obj_set_style_min_height(btn, min_side, LV_PART_MAIN);
+    lv_obj_set_style_border_width(btn, 0, LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(btn, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(btn, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_t* lbl = lv_label_create(btn);
+    if (lbl) {
+        lv_label_set_text(lbl, utf8_glyph);
+        lv_obj_set_style_text_font(lbl, icon_font, LV_PART_MAIN);
+        lv_obj_set_style_text_color(lbl, fg, LV_PART_MAIN);
+        lv_obj_center(lbl);
+    }
+    return btn;
+}
+
 ScreenType LvglMainScreen::screenType() const {
     return ScreenType::Page;
 }
@@ -245,7 +297,7 @@ ScreenType LvglMainScreen::screenType() const {
 void LvglMainScreen::create() {
     if (_screen) return;
 
-    // --- Build _screen tree (order = flex order); _hit_play last + FLOATING for z-order / tap above flex. ---
+    // --- Build _screen tree (flex order); floating overlays added where needed (volume popup, touch zones). ---
     const uint16_t W = LV_ACTIVE_PROFILE.width;
     const uint16_t H = LV_ACTIVE_PROFILE.height;
     const int32_t pad = static_cast<int32_t>(LV_ACTIVE_PROFILE.frame_padding);
@@ -255,6 +307,9 @@ void LvglMainScreen::create() {
 
     const YoRadioPalette& pal = yoradio_palette();
     lv_obj_set_style_bg_color(_screen, pal.device_background, LV_PART_MAIN);
+    // Uniform frame padding. Any Y-gap below zone_bottom (e.g. bottom pad strip) is covered by
+    // _screen_bottom_carousel_guard — transparent gesture sink, so we do not need pad_bottom=0.
+    // Рамка со всех сторон; зазор под контентом перекрывает прозрачный перехватчик жеста — pad_bottom не обнуляем.
     lv_obj_set_style_pad_all(_screen, pad, LV_PART_MAIN);
     lv_obj_set_style_pad_row(_screen, 4, LV_PART_MAIN);
     lv_obj_set_flex_flow(_screen, LV_FLEX_FLOW_COLUMN);
@@ -293,8 +348,8 @@ void LvglMainScreen::create() {
         lv_obj_clear_flag(spacer_top, LV_OBJ_FLAG_SCROLLABLE);
     }
 
-    // cont_mid: primary text + meta row (not under wgt_status_line — quiet meta layer).
-    // cont_mid: основной текст и meta-строка ниже блока названия/трека.
+    // cont_mid: primary text stack only — meta row moved to zone_bottom (6.1E-c).
+    // cont_mid: только стек текста — meta перенесена в нижний stack.
     lv_obj_t* cont_mid = lv_obj_create(_screen);
     if (cont_mid) {
         lv_obj_set_width(cont_mid, LV_PCT(100));
@@ -370,42 +425,6 @@ void LvglMainScreen::create() {
                 lv_obj_add_flag(_lbl_artist, LV_OBJ_FLAG_HIDDEN);
             }
         }
-
-        lv_obj_t* row_meta = lv_obj_create(cont_mid);
-        if (row_meta) {
-            lv_obj_set_width(row_meta, LV_PCT(100));
-            lv_obj_set_height(row_meta, LV_SIZE_CONTENT);
-            lv_obj_set_flex_flow(row_meta, LV_FLEX_FLOW_ROW);
-            lv_obj_set_flex_align(
-                row_meta,
-                LV_FLEX_ALIGN_SPACE_BETWEEN,
-                LV_FLEX_ALIGN_CENTER,
-                LV_FLEX_ALIGN_CENTER);
-            lv_obj_set_style_bg_opa(row_meta, LV_OPA_TRANSP, LV_PART_MAIN);
-            lv_obj_set_style_border_width(row_meta, 0, LV_PART_MAIN);
-            lv_obj_set_style_pad_all(row_meta, 0, LV_PART_MAIN);
-            lv_obj_clear_flag(row_meta, LV_OBJ_FLAG_SCROLLABLE);
-
-            _lbl_station_num = lv_label_create(row_meta);
-            if (_lbl_station_num) {
-                lv_label_set_text(_lbl_station_num, "#--");
-                lv_label_set_long_mode(_lbl_station_num, LV_LABEL_LONG_CLIP);
-                // Meta experiment: 14 px max — quiet vs center stack.
-                // Meta: 14 px — тихо относительно центра.
-                main_set_font(_lbl_station_num, reinterpret_cast<const void*>(&lv_font_yora_montserrat_14_cyr));
-                // Quieter technical layer: foundation text_meta (dimmer than meta_row_text on Dark).
-                // Тихий слой: text_meta приглушённее, чем центральный стек.
-                lv_obj_set_style_text_color(_lbl_station_num, pal.text_meta, LV_PART_MAIN);
-            }
-
-            _lbl_bitrate = lv_label_create(row_meta);
-            if (_lbl_bitrate) {
-                lv_label_set_text(_lbl_bitrate, "--- kbps");
-                lv_label_set_long_mode(_lbl_bitrate, LV_LABEL_LONG_CLIP);
-                main_set_font(_lbl_bitrate, reinterpret_cast<const void*>(&lv_font_yora_montserrat_14_cyr));
-                lv_obj_set_style_text_color(_lbl_bitrate, pal.text_meta, LV_PART_MAIN);
-            }
-        }
     }
 
     lv_obj_t* spacer_bottom = lv_obj_create(_screen);
@@ -429,6 +448,18 @@ void LvglMainScreen::create() {
         lv_obj_clear_flag(zone_visual, LV_OBJ_FLAG_SCROLLABLE);
     }
 
+    // Invisible flex row: height set after layout so heapbar bottom matches screen bottom inset (divider symmetry).
+    // Невидимая строка flex: высота задаётся после layout — симметрия divider’ов (LVGL 8 без margin на объекте).
+    lv_obj_t* zone_bottom_sym_spacer = lv_obj_create(_screen);
+    if (zone_bottom_sym_spacer) {
+        lv_obj_set_width(zone_bottom_sym_spacer, LV_PCT(100));
+        lv_obj_set_height(zone_bottom_sym_spacer, 0);
+        lv_obj_set_flex_grow(zone_bottom_sym_spacer, 0);
+        lv_obj_set_style_bg_opa(zone_bottom_sym_spacer, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_border_width(zone_bottom_sym_spacer, 0, LV_PART_MAIN);
+        lv_obj_clear_flag(zone_bottom_sym_spacer, LV_OBJ_FLAG_SCROLLABLE);
+    }
+
     // Bottom: full-width volume column; weather glance moved to wgt_status_line (experiment).
     // Низ: громкость на всю ширину; погода в верхней полосе.
     lv_obj_t* zone_bottom = lv_obj_create(_screen);
@@ -441,6 +472,170 @@ void LvglMainScreen::create() {
         lv_obj_set_style_bg_opa(zone_bottom, LV_OPA_TRANSP, LV_PART_MAIN);
         lv_obj_set_style_border_width(zone_bottom, 0, LV_PART_MAIN);
         lv_obj_clear_flag(zone_bottom, LV_OBJ_FLAG_SCROLLABLE);
+
+        // 6.1E: icon ladder — 480-wide: 26/22; narrow (320): 24/18. Transport buttons wired; utility still inactive.
+        // Лестница иконок; транспорт с колбэками; utility без действий.
+        const lv_font_t* f_ctrl_transport =
+            (W <= 320u) ? &lv_font_yora_control_icons_24 : &lv_font_yora_control_icons_26;
+        const lv_font_t* f_ctrl_utility =
+            (W <= 320u) ? &lv_font_yora_control_icons_18 : &lv_font_yora_control_icons_22;
+        const lv_coord_t pad_tr  = (W <= 320u) ? static_cast<lv_coord_t>(10) : static_cast<lv_coord_t>(12);
+        const lv_coord_t pad_ut  = (W <= 320u) ? static_cast<lv_coord_t>(8)  : static_cast<lv_coord_t>(10);
+        const lv_coord_t min_tr  = 48;
+        const lv_coord_t min_ut  = 40;
+
+        // Control band: three-part row = spacer_left + transport_group + utility_group.
+        // Left spacer mirrors utility width → transport triad is truly screen-centered.
+        // Полка: три части = левый спейсер (зеркало utility) + transport + utility.
+        lv_obj_t* control_band = lv_obj_create(zone_bottom);
+        if (control_band) {
+            lv_obj_set_width(control_band, LV_PCT(100));
+            lv_obj_set_height(control_band, LV_SIZE_CONTENT);
+            lv_obj_set_flex_flow(control_band, LV_FLEX_FLOW_ROW);
+            lv_obj_set_flex_align(
+                control_band,
+                LV_FLEX_ALIGN_START,
+                LV_FLEX_ALIGN_CENTER,
+                LV_FLEX_ALIGN_CENTER);
+            lv_obj_set_style_pad_ver(control_band, 6, LV_PART_MAIN);
+            lv_obj_set_style_pad_hor(control_band, 4, LV_PART_MAIN);
+            lv_obj_set_style_pad_column(control_band, 0, LV_PART_MAIN);
+            // Shelf underlay: white at low opacity reads on dark TFT better than near-black at higher opa.
+            // Полка: белая с низкой прозрачностью читаемее на тёмном TFT, чем почти чёрная при большей opa.
+            lv_obj_set_style_bg_color(control_band, lv_color_white(), LV_PART_MAIN);
+            lv_obj_set_style_bg_opa(control_band, LV_OPA_10, LV_PART_MAIN);
+            lv_obj_set_style_radius(control_band, 14, LV_PART_MAIN);
+            lv_obj_set_style_border_width(control_band, 0, LV_PART_MAIN);
+            lv_obj_clear_flag(control_band, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_clear_flag(control_band, LV_OBJ_FLAG_GESTURE_BUBBLE);
+
+            // Left balancing spacer — fixed width set after utility_group is built.
+            // Левый балансирующий спейсер — ширина задаётся после создания utility_group.
+            lv_obj_t* spacer_left = lv_obj_create(control_band);
+            if (spacer_left) {
+                lv_obj_set_height(spacer_left, 1);
+                lv_obj_set_style_bg_opa(spacer_left, LV_OPA_TRANSP, LV_PART_MAIN);
+                lv_obj_set_style_border_width(spacer_left, 0, LV_PART_MAIN);
+                lv_obj_set_style_pad_all(spacer_left, 0, LV_PART_MAIN);
+                lv_obj_clear_flag(spacer_left, LV_OBJ_FLAG_SCROLLABLE);
+            }
+
+            lv_obj_t* transport_group = lv_obj_create(control_band);
+            if (transport_group) {
+                lv_obj_set_height(transport_group, LV_SIZE_CONTENT);
+                lv_obj_set_flex_flow(transport_group, LV_FLEX_FLOW_ROW);
+                lv_obj_set_flex_align(
+                    transport_group,
+                    LV_FLEX_ALIGN_CENTER,
+                    LV_FLEX_ALIGN_CENTER,
+                    LV_FLEX_ALIGN_CENTER);
+                lv_obj_set_flex_grow(transport_group, 1);
+                lv_obj_set_style_pad_column(transport_group, 8, LV_PART_MAIN);
+                lv_obj_set_style_pad_all(transport_group, 0, LV_PART_MAIN);
+                lv_obj_set_style_bg_opa(transport_group, LV_OPA_TRANSP, LV_PART_MAIN);
+                lv_obj_set_style_border_width(transport_group, 0, LV_PART_MAIN);
+                lv_obj_clear_flag(transport_group, LV_OBJ_FLAG_SCROLLABLE);
+                lv_obj_clear_flag(transport_group, LV_OBJ_FLAG_GESTURE_BUBBLE);
+
+                lv_obj_t* btn_prev = main_create_control_icon_btn(
+                    transport_group,
+                    control_glyph_utf8_player_skip_back(),
+                    f_ctrl_transport, pal.text_primary,
+                    pad_tr, min_tr);
+                if (btn_prev) {
+                    lv_obj_add_event_cb(btn_prev, main_transport_prev_cb, LV_EVENT_CLICKED, nullptr);
+                }
+                lv_obj_t* btn_play = main_create_control_icon_btn(
+                    transport_group,
+                    control_glyph_utf8_player_play(),
+                    f_ctrl_transport, pal.text_primary,
+                    pad_tr, min_tr);
+                if (btn_play) {
+                    lv_obj_add_event_cb(btn_play, main_transport_toggle_cb, LV_EVENT_CLICKED, nullptr);
+                    // First child is the icon label — update glyph in update() when playback state changes.
+                    // Первый ребёнок — label иконки; текст меняем в update() при смене PLAYING/STOPPED.
+                    _lbl_transport_play_stop = lv_obj_get_child(btn_play, 0);
+                }
+                lv_obj_t* btn_next = main_create_control_icon_btn(
+                    transport_group,
+                    control_glyph_utf8_player_skip_forward(),
+                    f_ctrl_transport, pal.text_primary,
+                    pad_tr, min_tr);
+                if (btn_next) {
+                    lv_obj_add_event_cb(btn_next, main_transport_next_cb, LV_EVENT_CLICKED, nullptr);
+                }
+            }
+
+            lv_obj_t* utility_group = lv_obj_create(control_band);
+            if (utility_group) {
+                lv_obj_set_height(utility_group, LV_SIZE_CONTENT);
+                lv_obj_set_flex_flow(utility_group, LV_FLEX_FLOW_ROW);
+                lv_obj_set_flex_align(
+                    utility_group,
+                    LV_FLEX_ALIGN_END,
+                    LV_FLEX_ALIGN_CENTER,
+                    LV_FLEX_ALIGN_CENTER);
+                lv_obj_set_style_pad_column(utility_group, 6, LV_PART_MAIN);
+                lv_obj_set_style_pad_all(utility_group, 0, LV_PART_MAIN);
+                lv_obj_set_style_bg_opa(utility_group, LV_OPA_TRANSP, LV_PART_MAIN);
+                lv_obj_set_style_border_width(utility_group, 0, LV_PART_MAIN);
+                lv_obj_clear_flag(utility_group, LV_OBJ_FLAG_SCROLLABLE);
+                lv_obj_clear_flag(utility_group, LV_OBJ_FLAG_GESTURE_BUBBLE);
+
+                (void)main_create_control_icon_btn(
+                    utility_group,
+                    control_glyph_utf8_list(),
+                    f_ctrl_utility, pal.text_secondary,
+                    pad_ut, min_ut);
+                (void)main_create_control_icon_btn(
+                    utility_group,
+                    control_glyph_utf8_settings(),
+                    f_ctrl_utility, pal.text_secondary,
+                    pad_ut, min_ut);
+            }
+
+            // Set left spacer width = utility group actual width → true transport centering.
+            // Ширина спейсера = ширина utility → транспорт по центру.
+            if (spacer_left && utility_group) {
+                lv_obj_update_layout(control_band);
+                lv_obj_set_width(spacer_left, lv_obj_get_width(utility_group));
+            }
+        }
+
+        // row_meta_stream: centered compact tech strip (temporary — final content TBD).
+        // Центрированная компактная мета-полоска (временно — финальный контент позже).
+        lv_obj_t* row_meta_stream = lv_obj_create(zone_bottom);
+        if (row_meta_stream) {
+            lv_obj_set_width(row_meta_stream, LV_PCT(100));
+            lv_obj_set_height(row_meta_stream, LV_SIZE_CONTENT);
+            lv_obj_set_flex_flow(row_meta_stream, LV_FLEX_FLOW_ROW);
+            lv_obj_set_flex_align(
+                row_meta_stream,
+                LV_FLEX_ALIGN_CENTER,
+                LV_FLEX_ALIGN_CENTER,
+                LV_FLEX_ALIGN_CENTER);
+            lv_obj_set_style_pad_column(row_meta_stream, 12, LV_PART_MAIN);
+            lv_obj_set_style_bg_opa(row_meta_stream, LV_OPA_TRANSP, LV_PART_MAIN);
+            lv_obj_set_style_border_width(row_meta_stream, 0, LV_PART_MAIN);
+            lv_obj_set_style_pad_all(row_meta_stream, 0, LV_PART_MAIN);
+            lv_obj_clear_flag(row_meta_stream, LV_OBJ_FLAG_SCROLLABLE);
+
+            _lbl_station_num = lv_label_create(row_meta_stream);
+            if (_lbl_station_num) {
+                lv_label_set_text(_lbl_station_num, "#--");
+                lv_label_set_long_mode(_lbl_station_num, LV_LABEL_LONG_CLIP);
+                main_set_font(_lbl_station_num, reinterpret_cast<const void*>(&lv_font_yora_montserrat_14_cyr));
+                lv_obj_set_style_text_color(_lbl_station_num, pal.text_meta, LV_PART_MAIN);
+            }
+
+            _lbl_bitrate = lv_label_create(row_meta_stream);
+            if (_lbl_bitrate) {
+                lv_label_set_text(_lbl_bitrate, "--- kbps");
+                lv_label_set_long_mode(_lbl_bitrate, LV_LABEL_LONG_CLIP);
+                main_set_font(_lbl_bitrate, reinterpret_cast<const void*>(&lv_font_yora_montserrat_14_cyr));
+                lv_obj_set_style_text_color(_lbl_bitrate, pal.text_meta, LV_PART_MAIN);
+            }
+        }
 
         lv_obj_t* col_vol = lv_obj_create(zone_bottom);
         if (col_vol) {
@@ -550,53 +745,135 @@ void LvglMainScreen::create() {
             lv_label_set_long_mode(_lbl_ai_line, LV_LABEL_LONG_SCROLL_CIRCULAR);
             lv_obj_set_width(_lbl_ai_line, LV_PCT(100));
             lv_obj_set_style_text_align(_lbl_ai_line, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-            main_set_font(_lbl_ai_line, reinterpret_cast<const void*>(&lv_font_yora_montserrat_14_cyr));
+            const lv_font_t* const f_ai = reinterpret_cast<const lv_font_t*>(&lv_font_yora_montserrat_14_cyr);
+            main_set_font(_lbl_ai_line, reinterpret_cast<const void*>(f_ai));
             lv_obj_set_style_text_color(_lbl_ai_line, pal.bottom_ai_text, LV_PART_MAIN);
-            // Reserve one line height so lower zone does not collapse when AI text is empty (6.1D-a2).
-            // Резерв высоты строки — нижняя зона не схлопывается без текста AI (6.1D-a2).
-            lv_obj_set_style_min_height(_lbl_ai_line, 20, LV_PART_MAIN);
+            // One line from font metrics — slot stability only; lower divider position is NOT from this (symmetry pass).
+            // Одна строка по метрикам шрифта — слот не схлопывается; нижний divider задаётся симметрией, не 20 px.
+            lv_obj_set_style_min_height(_lbl_ai_line, static_cast<lv_coord_t>(lv_font_get_line_height(f_ai)), LV_PART_MAIN);
+            // Swipe must not bubble to _screen — carousel listens on page root (5.3).
+            // Свайп по строке AI не должен всплывать на экран с обработчиком карусели.
+            lv_obj_clear_flag(_lbl_ai_line, LV_OBJ_FLAG_GESTURE_BUBBLE);
         }
 
-        // 6.1D-b: Volume touch strip — FLOATING on zone_bottom (not in flex): no extra gap to heapbar.
-        // Align to _bar_volume: pad above bar → through heapbar line (slight overlap; heapbar not interactive).
-        // Тач-полоса поверх разметки: не раздвигает flex; можно заехать на heapbar.
-        if (zone_bottom && _bar_volume) {
-            _vol_touch_zone = lv_obj_create(zone_bottom);
-            if (_vol_touch_zone) {
-                lv_obj_add_flag(_vol_touch_zone, LV_OBJ_FLAG_FLOATING);
-                lv_obj_set_width(_vol_touch_zone, LV_PCT(100));
-                lv_obj_set_height(_vol_touch_zone, kVolTouchStripH);
-                lv_obj_set_style_bg_opa(_vol_touch_zone, LV_OPA_TRANSP, LV_PART_MAIN);
-                lv_obj_set_style_border_width(_vol_touch_zone, 0, LV_PART_MAIN);
-                lv_obj_add_flag(_vol_touch_zone, LV_OBJ_FLAG_CLICKABLE);
-                lv_obj_clear_flag(_vol_touch_zone, LV_OBJ_FLAG_GESTURE_BUBBLE);
-                lv_obj_set_user_data(_vol_touch_zone, _bar_volume);
-                lv_obj_align_to(_vol_touch_zone, _bar_volume, LV_ALIGN_TOP_LEFT, 0, -kVolTouchPadTop);
-                lv_obj_add_event_cb(_vol_touch_zone, vol_touch_cb, LV_EVENT_PRESSED, this);
-                lv_obj_add_event_cb(_vol_touch_zone, vol_touch_cb, LV_EVENT_PRESSING, this);
-                lv_obj_add_event_cb(_vol_touch_zone, vol_touch_cb, LV_EVENT_RELEASED, this);
-                lv_obj_add_event_cb(_vol_touch_zone, vol_touch_cb, LV_EVENT_PRESS_LOST, this);
+        // Vertical divider contract: screen.y2 - heapbar.y2 == status_divider.y1 - screen.y1 (real coords after layout).
+        // Push zone_bottom down via zone_bottom_sym_spacer, or shrink spacer_bottom when delta < 0 (no lv_obj margin API).
+        // Симметрия по краям экрана: тот же inset; flex только сверху вниз — спейсер/сжатие нижнего flex-spacer.
+        if (_screen && status_divider && zone_bottom && _bar_buffer && zone_bottom_sym_spacer) {
+            lv_obj_update_layout(_screen);
+            lv_area_t scr{};
+            lv_area_t top_div{};
+            lv_area_t heap{};
+            lv_obj_get_coords(_screen, &scr);
+            lv_obj_get_coords(status_divider, &top_div);
+            lv_obj_get_coords(_bar_buffer, &heap);
+            const lv_coord_t inset_top = top_div.y1 - scr.y1;
+            const lv_coord_t target_heap_y2 = scr.y2 - inset_top;
+            const lv_coord_t delta = target_heap_y2 - heap.y2;
+            if (delta > 0) {
+                lv_obj_set_height(zone_bottom_sym_spacer, delta);
+            } else if (delta < 0 && spacer_bottom) {
+                lv_obj_set_flex_grow(spacer_bottom, 0);
+                lv_coord_t sh = lv_obj_get_height(spacer_bottom);
+                lv_coord_t nh = sh + delta;
+                if (nh < 0) nh = 0;
+                lv_obj_set_height(spacer_bottom, nh);
+            }
+            lv_obj_update_layout(_screen);
+        }
+
+        // 6.1D-b: Volume touch strip — FLOATING; size/position from real bounds of bar + heapbar (no layout dup constants).
+        // Тач-полоса: FLOATING; размер из coords бар+heapbar после lv_obj_update_layout.
+        if (zone_bottom && _bar_volume && _bar_buffer) {
+            lv_obj_update_layout(zone_bottom);
+            lv_area_t bar_coords{};
+            lv_area_t buf_coords{};
+            lv_area_t zone_coords{};
+            lv_obj_get_coords(_bar_volume, &bar_coords);
+            lv_obj_get_coords(_bar_buffer, &buf_coords);
+            lv_obj_get_coords(zone_bottom, &zone_coords);
+            const lv_coord_t top_rel =
+                (bar_coords.y1 - kVolTouchPadAbove) - zone_coords.y1;
+            const lv_coord_t bottom_rel =
+                (buf_coords.y2 + kVolTouchOverlapBelow) - zone_coords.y1;
+            const lv_coord_t strip_h = bottom_rel - top_rel;
+
+            if (strip_h > 0) {
+                _vol_touch_zone = lv_obj_create(zone_bottom);
+                if (_vol_touch_zone) {
+                    lv_obj_add_flag(_vol_touch_zone, LV_OBJ_FLAG_FLOATING);
+                    lv_obj_set_width(_vol_touch_zone, LV_PCT(100));
+                    lv_obj_set_height(_vol_touch_zone, strip_h);
+                    lv_obj_set_pos(_vol_touch_zone, 0, top_rel);
+                    lv_obj_set_style_bg_opa(_vol_touch_zone, LV_OPA_TRANSP, LV_PART_MAIN);
+                    lv_obj_set_style_border_width(_vol_touch_zone, 0, LV_PART_MAIN);
+                    lv_obj_add_flag(_vol_touch_zone, LV_OBJ_FLAG_CLICKABLE);
+                    lv_obj_clear_flag(_vol_touch_zone, LV_OBJ_FLAG_GESTURE_BUBBLE);
+                    lv_obj_set_user_data(_vol_touch_zone, _bar_volume);
+                    lv_obj_add_event_cb(_vol_touch_zone, vol_touch_cb, LV_EVENT_PRESSED, this);
+                    lv_obj_add_event_cb(_vol_touch_zone, vol_touch_cb, LV_EVENT_PRESSING, this);
+                    lv_obj_add_event_cb(_vol_touch_zone, vol_touch_cb, LV_EVENT_RELEASED, this);
+                    lv_obj_add_event_cb(_vol_touch_zone, vol_touch_cb, LV_EVENT_PRESS_LOST, this);
+                    lv_obj_move_foreground(_vol_touch_zone);
+                }
+            }
+
+            // Below volume touch strip: full-width guard — no volume logic; blocks gesture → carousel on _screen.
+            // Под полосой громкости: только поглощение жеста (geometry from touch_zone + zone_bottom coords).
+            lv_obj_update_layout(zone_bottom);
+            if (zone_bottom && _vol_touch_zone) {
+                lv_area_t tz_coords{};
+                lv_area_t zb_coords{};
+                lv_obj_get_coords(_vol_touch_zone, &tz_coords);
+                lv_obj_get_coords(zone_bottom, &zb_coords);
+                const lv_coord_t guard_y_rel = (tz_coords.y2 + 1) - zb_coords.y1;
+                const lv_coord_t guard_h     = zb_coords.y2 - tz_coords.y2;
+                if (guard_h > 0) {
+                    _vol_gesture_guard = lv_obj_create(zone_bottom);
+                    if (_vol_gesture_guard) {
+                        lv_obj_add_flag(_vol_gesture_guard, LV_OBJ_FLAG_FLOATING);
+                        lv_obj_set_width(_vol_gesture_guard, LV_PCT(100));
+                        lv_obj_set_height(_vol_gesture_guard, guard_h);
+                        lv_obj_set_pos(_vol_gesture_guard, 0, guard_y_rel);
+                        lv_obj_set_style_bg_opa(_vol_gesture_guard, LV_OPA_TRANSP, LV_PART_MAIN);
+                        lv_obj_set_style_border_width(_vol_gesture_guard, 0, LV_PART_MAIN);
+                        lv_obj_add_flag(_vol_gesture_guard, LV_OBJ_FLAG_CLICKABLE);
+                        lv_obj_clear_flag(_vol_gesture_guard, LV_OBJ_FLAG_GESTURE_BUBBLE);
+                        // Ensure guard is above flex children (e.g. AI label) for hit-testing.
+                        // Поверх flex-детей — иначе жест уходит в лейбл и всплывает на экран.
+                        lv_obj_move_foreground(_vol_gesture_guard);
+                    }
+                }
+            }
+        }
+
+        // Bridge any remaining Y-gap below zone_bottom to _screen bottom (absolute coords; includes ex- padding strip).
+        // Закрываем остаток по Y до низа экрана — иначе жест снова попадает на _screen.
+        if (_screen && zone_bottom) {
+            lv_obj_update_layout(_screen);
+            lv_area_t scr_a{};
+            lv_area_t zb_a{};
+            lv_obj_get_coords(_screen, &scr_a);
+            lv_obj_get_coords(zone_bottom, &zb_a);
+            const lv_coord_t gap_px = scr_a.y2 - zb_a.y2;
+            if (gap_px > 0) {
+                _screen_bottom_carousel_guard = lv_obj_create(_screen);
+                if (_screen_bottom_carousel_guard) {
+                    lv_obj_add_flag(_screen_bottom_carousel_guard, LV_OBJ_FLAG_FLOATING);
+                    lv_obj_set_width(_screen_bottom_carousel_guard, LV_PCT(100));
+                    lv_obj_align_to(_screen_bottom_carousel_guard, zone_bottom, LV_ALIGN_OUT_BOTTOM_MID, 0, 0);
+                    lv_obj_set_height(_screen_bottom_carousel_guard, gap_px);
+                    lv_obj_set_style_bg_opa(_screen_bottom_carousel_guard, LV_OPA_TRANSP, LV_PART_MAIN);
+                    lv_obj_set_style_border_width(_screen_bottom_carousel_guard, 0, LV_PART_MAIN);
+                    lv_obj_add_flag(_screen_bottom_carousel_guard, LV_OBJ_FLAG_CLICKABLE);
+                    lv_obj_clear_flag(_screen_bottom_carousel_guard, LV_OBJ_FLAG_GESTURE_BUBBLE);
+                    lv_obj_move_foreground(_screen_bottom_carousel_guard);
+                }
             }
         }
     }
 
     installCarouselGesturesOnPageRoot(_screen);
-
-    // Centered hit box; FLOATING excludes it from parent flex so layout matches 5.x semantics.
-    // Плавающая зона тапа — flex не двигает её; размер как в прежних этапах.
-    _hit_play = lv_obj_create(_screen);
-    if (_hit_play) {
-        const int32_t hitW = static_cast<int32_t>(W) - pad * 6;
-        const int32_t hitH = static_cast<int32_t>(H) / 3;
-        lv_obj_set_size(_hit_play, hitW, hitH);
-        lv_obj_align(_hit_play, LV_ALIGN_CENTER, 0, 0);
-        lv_obj_add_flag(_hit_play, LV_OBJ_FLAG_FLOATING);
-        lv_obj_set_style_bg_opa(_hit_play, LV_OPA_TRANSP, LV_PART_MAIN);
-        lv_obj_set_style_border_width(_hit_play, 0, LV_PART_MAIN);
-        lv_obj_add_flag(_hit_play, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_flag(_hit_play, LV_OBJ_FLAG_GESTURE_BUBBLE);
-        lv_obj_add_event_cb(_hit_play, main_play_hit_cb, LV_EVENT_CLICKED, nullptr);
-    }
 }
 
 void LvglMainScreen::enter() {
@@ -652,6 +929,14 @@ void LvglMainScreen::update() {
     }
     main_set_text_if_changed(_lbl_bitrate, buf);
 
+    // Play/stop button: show stop while playing, play while stopped (same semantics as player.toggle()).
+    // Кнопка воспроизведения: при PLAYING — иконка stop, при STOPPED — play (как у toggle).
+    if (_lbl_transport_play_stop) {
+        const char* play_stop_glyph =
+            (player.status() == PLAYING) ? control_glyph_utf8_player_stop() : control_glyph_utf8_player_play();
+        main_set_text_if_changed(_lbl_transport_play_stop, play_stop_glyph);
+    }
+
     // Wi-Fi icon: Tabler subset glyphs; RSSI sampled at most every 3s when connected.
     // Иконка Wi‑Fi; RSSI не чаще 3 с при подключении.
     static uint32_t s_last_rssi_ms = 0;
@@ -691,7 +976,9 @@ void LvglMainScreen::update() {
     snprintf(buf, sizeof(buf), "Vol: %d", config.store.volume);
     main_set_text_if_changed(_lbl_volume, buf);
 
-    if (_bar_volume) {
+    // Sync bar from config when volume was changed elsewhere (encoder, WebUI); not during touch drag.
+    // Синхронизация бара из config, если громкость менялась не слайдером; во время drag — только lv_bar в callback.
+    if (_bar_volume && !s_vol_touch_active) {
         lv_bar_set_value(_bar_volume, static_cast<int32_t>(config.store.volume), LV_ANIM_OFF);
     }
 
@@ -780,14 +1067,16 @@ void LvglMainScreen::destroy() {
     _status_line = {};
     _lbl_station_num = _lbl_bitrate = nullptr;
     _lbl_station_name = _lbl_track = _lbl_artist = nullptr;
+    _lbl_transport_play_stop = nullptr;
     _lbl_volume = nullptr;
     _bar_volume = nullptr;
     _vol_touch_zone = nullptr;
+    _vol_gesture_guard = nullptr;
+    _screen_bottom_carousel_guard = nullptr;
     _lbl_vol_popup = nullptr;
     _bar_buffer = nullptr;
     _lbl_ai_line = nullptr;
-    _hit_play = nullptr;
-    _vol_touch_active = false;
+    s_vol_touch_active = false; // matches static used by vol_touch_cb / тот же флаг, что в callback
 }
 
 lv_obj_t* LvglMainScreen::screen() {
