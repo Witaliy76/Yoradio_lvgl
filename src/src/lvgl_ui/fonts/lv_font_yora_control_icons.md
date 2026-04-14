@@ -10,6 +10,7 @@
 | `lv_font_yora_control_icons_22.c` | 22 px | `lv_font_yora_control_icons_22` |
 | `lv_font_yora_control_icons_24.c` | 24 px | `lv_font_yora_control_icons_24` |
 | `lv_font_yora_control_icons_26.c` | 26 px | `lv_font_yora_control_icons_26` |
+| `lv_font_yora_control_icons_28.c` | 28 px | `lv_font_yora_control_icons_28` |
 
 Same Unicode codepoints in all sizes; only rasterization size differs.
 
@@ -45,7 +46,7 @@ Same as Wi‑Fi subset: `lv_font_conv` may fail on stock Tabler TTF (*Coverage f
 
 ---
 
-## Generate one LVGL font (repeat for 18 / 20 / 22 / 24 / 26)
+## Generate one LVGL font (repeat for 18 / 20 / 22 / 24 / 26 / 28)
 
 Prerequisites: Node.js (`npx`), `tabler-stripped.ttf` in the working directory.
 
@@ -61,7 +62,7 @@ npx --yes lv_font_conv@1.5.2 ^
   --lv-include lvgl.h
 ```
 
-- **`--size`:** `18`, `20`, `22`, `24`, or `26`.
+- **`--size`:** `18`, `20`, `22`, `24`, `26`, or `28`.
 - **`--no-compress`:** matches project `LV_USE_FONT_COMPRESSED` + generated bitmaps (same as status icons).
 - **`-o`:** output path must match the size in the filename.
 
@@ -69,7 +70,7 @@ npx --yes lv_font_conv@1.5.2 ^
 
 ## Wiring in the project
 
-1. **`lv_conf.h`:** `LV_FONT_YORA_CONTROL_ICONS_18` / `_20` / `_22` / `_24` / `_26` = `1`; add `extern` in `LV_FONT_CUSTOM_DECLARE`.
+1. **`lv_conf.h`:** `LV_FONT_YORA_CONTROL_ICONS_18` / `_20` / `_22` / `_24` / `_26` / `_28` = `1`; add `extern` in `LV_FONT_CUSTOM_DECLARE`.
 2. **`lv_fonts.h`:** `extern const lv_font_t lv_font_yora_control_icons_*;`
 
 ---

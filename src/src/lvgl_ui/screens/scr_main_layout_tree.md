@@ -46,9 +46,12 @@ _screen
 ├── zone_visual
 ├── zone_bottom_sym_spacer
 ├── zone_bottom
-│   ├── control_band
-│   │   ├── transport_group (prev / play / next — lv_btn skeleton)
-│   │   └── utility_group (list / settings)
+│   ├── control_band (shared shelf underlay; flex row)
+│   │   ├── spacer_left (width = utility_group — centers transport triad on screen)
+│   │   ├── transport_group (LV_OBJ_FLAG_OVERFLOW_VISIBLE; pad_hor inset)
+│   │   │   └── prev / play-stop / next — lv_btn + transport callbacks; play/stop label synced from player.status()
+│   │   └── utility_group (LV_OBJ_FLAG_OVERFLOW_VISIBLE; tight pad_column list↔settings)
+│   │       └── list / settings — lv_btn, text_secondary; routing out of scope until wired
 │   ├── row_meta_stream
 │   │   ├── _lbl_station_num
 │   │   └── _lbl_bitrate
@@ -113,6 +116,7 @@ flowchart TB
   end
 
   subgraph cb["control_band"]
+    SLB[spacer_left]
     TG[transport_group]
     UG[utility_group]
   end
@@ -142,6 +146,7 @@ flowchart TB
   ZB --> CV
   ZB --> BUF
   ZB --> AI
+  CB --> SLB
   CB --> TG
   CB --> UG
   RMS --> NUM
@@ -153,6 +158,9 @@ flowchart TB
 ---
 
 ## Notes / Заметки
+
+- **Control band (Stage 6.1E+):** Three flex children: `spacer_left` (width set after layout to match `utility_group`) + `transport_group` + `utility_group`. Transport uses Tabler control icon fonts (profile-dependent sizes, incl. 28px on wide); utility uses smaller glyph with large hit target. No floating `_hit_play` — transport taps only on visible buttons.  
+  **Полоса управления:** три flex-ребёнка: балансирующий `spacer_left` + транспорт + utility. Иконки Tabler; скрытой зоны тапа по центру нет.
 
 - **Theme padding:** Base `lv_obj` containers may inherit LVGL default `card` padding; Main zeroes explicit `pad_all` where needed — see comments in `scr_main.cpp` and `wgt_status_line.cpp`.  
   **Паддинг темы:** у базового `lv_obj` может быть `card` padding; на Main явно обнуляем `pad_all` там, где нужно — см. комментарии в `scr_main.cpp` и `wgt_status_line.cpp`.

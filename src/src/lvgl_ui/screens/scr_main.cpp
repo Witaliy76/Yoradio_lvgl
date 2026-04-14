@@ -60,6 +60,10 @@ char* split_inplace_at(char* str, const char* sep) {
     return p + strlen(sep);
 }
 
+// Pressed-state opa: transport more readable; utility calmer (secondary) / читаемее на транспорте, utility тише.
+constexpr lv_opa_t k_ctrl_pressed_opa_transport = LV_OPA_20;
+constexpr lv_opa_t k_ctrl_pressed_opa_utility   = static_cast<lv_opa_t>(36); // ~14% vs ~20% transport
+
 } // namespace
 
 // Transport: only visible control_band buttons (no hidden center hit-zone). PLAYER-only; prev/next match hardware side-button guards.
@@ -260,20 +264,24 @@ static void main_set_font(lv_obj_t* obj, const void* font_slot) {
 
 // 6.1E control button: icon inside lv_btn with min hit area; blocks gesture bubble.
 // Кнопка управления: иконка в lv_btn с минимальной зоной касания; без всплытия жеста.
+// corner_radius: transport slightly rounder (device-like); utility smaller radius = quieter / радиус: транспорт увереннее, utility тише.
+// pressed_bg_opa: larger min_side+pad make the pill big; higher opa = clearer acknowledgment / заметнее подсветка при нажатии.
 static lv_obj_t* main_create_control_icon_btn(
     lv_obj_t* parent,
     const char* utf8_glyph,
     const lv_font_t* icon_font,
     lv_color_t fg,
     lv_coord_t pad_inner,
-    lv_coord_t min_side) {
+    lv_coord_t min_side,
+    lv_coord_t corner_radius = 14,
+    lv_opa_t pressed_bg_opa = LV_OPA_20) {
     lv_obj_t* btn = lv_btn_create(parent);
     if (!btn) return nullptr;
     lv_obj_remove_style_all(btn);
     lv_obj_set_style_bg_opa(btn, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_bg_color(btn, lv_color_white(), static_cast<lv_style_selector_t>(LV_PART_MAIN) | LV_STATE_PRESSED);
-    lv_obj_set_style_bg_opa(btn, LV_OPA_10, static_cast<lv_style_selector_t>(LV_PART_MAIN) | LV_STATE_PRESSED);
-    lv_obj_set_style_radius(btn, 14, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(btn, pressed_bg_opa, static_cast<lv_style_selector_t>(LV_PART_MAIN) | LV_STATE_PRESSED);
+    lv_obj_set_style_radius(btn, corner_radius, LV_PART_MAIN);
     lv_obj_set_style_pad_all(btn, pad_inner, LV_PART_MAIN);
     lv_obj_set_style_min_width(btn, min_side, LV_PART_MAIN);
     lv_obj_set_style_min_height(btn, min_side, LV_PART_MAIN);
@@ -473,16 +481,18 @@ void LvglMainScreen::create() {
         lv_obj_set_style_border_width(zone_bottom, 0, LV_PART_MAIN);
         lv_obj_clear_flag(zone_bottom, LV_OBJ_FLAG_SCROLLABLE);
 
-        // 6.1E: icon ladder — 480-wide: 26/22; narrow (320): 24/18. Transport buttons wired; utility still inactive.
-        // Лестница иконок; транспорт с колбэками; utility без действий.
+        // 6.1E micro-polish: larger glyphs (28px transport on wide) + bigger pressed pill (pad/min/opa).
+        // Крупнее глифы и заметнее pressed; иерархия transport > utility сохранена.
         const lv_font_t* f_ctrl_transport =
-            (W <= 320u) ? &lv_font_yora_control_icons_24 : &lv_font_yora_control_icons_26;
+            (W <= 320u) ? &lv_font_yora_control_icons_26 : &lv_font_yora_control_icons_28;
+        // Utility: small glyphs; hit area still large but slightly under transport so pair can sit closer without overlap.
+        // Utility: мелкий глиф; зона нажатия большая, чуть меньше транспорта — пара ближе, без пересечения hit-box.
         const lv_font_t* f_ctrl_utility =
-            (W <= 320u) ? &lv_font_yora_control_icons_18 : &lv_font_yora_control_icons_22;
-        const lv_coord_t pad_tr  = (W <= 320u) ? static_cast<lv_coord_t>(10) : static_cast<lv_coord_t>(12);
-        const lv_coord_t pad_ut  = (W <= 320u) ? static_cast<lv_coord_t>(8)  : static_cast<lv_coord_t>(10);
-        const lv_coord_t min_tr  = 48;
-        const lv_coord_t min_ut  = 40;
+            (W <= 320u) ? &lv_font_yora_control_icons_22 : &lv_font_yora_control_icons_24;
+        const lv_coord_t pad_tr  = (W <= 320u) ? static_cast<lv_coord_t>(12) : static_cast<lv_coord_t>(16);
+        const lv_coord_t pad_ut  = (W <= 320u) ? static_cast<lv_coord_t>(10) : static_cast<lv_coord_t>(14);
+        const lv_coord_t min_tr  = (W <= 320u) ? static_cast<lv_coord_t>(54) : static_cast<lv_coord_t>(58);
+        const lv_coord_t min_ut  = (W <= 320u) ? static_cast<lv_coord_t>(48) : static_cast<lv_coord_t>(52);
 
         // Control band: three-part row = spacer_left + transport_group + utility_group.
         // Left spacer mirrors utility width → transport triad is truly screen-centered.
@@ -497,14 +507,14 @@ void LvglMainScreen::create() {
                 LV_FLEX_ALIGN_START,
                 LV_FLEX_ALIGN_CENTER,
                 LV_FLEX_ALIGN_CENTER);
-            lv_obj_set_style_pad_ver(control_band, 6, LV_PART_MAIN);
-            lv_obj_set_style_pad_hor(control_band, 4, LV_PART_MAIN);
+            lv_obj_set_style_pad_ver(control_band, 8, LV_PART_MAIN);
+            lv_obj_set_style_pad_hor(control_band, 8, LV_PART_MAIN);
             lv_obj_set_style_pad_column(control_band, 0, LV_PART_MAIN);
             // Shelf underlay: white at low opacity reads on dark TFT better than near-black at higher opa.
             // Полка: белая с низкой прозрачностью читаемее на тёмном TFT, чем почти чёрная при большей opa.
             lv_obj_set_style_bg_color(control_band, lv_color_white(), LV_PART_MAIN);
             lv_obj_set_style_bg_opa(control_band, LV_OPA_10, LV_PART_MAIN);
-            lv_obj_set_style_radius(control_band, 14, LV_PART_MAIN);
+            lv_obj_set_style_radius(control_band, 16, LV_PART_MAIN);
             lv_obj_set_style_border_width(control_band, 0, LV_PART_MAIN);
             lv_obj_clear_flag(control_band, LV_OBJ_FLAG_SCROLLABLE);
             lv_obj_clear_flag(control_band, LV_OBJ_FLAG_GESTURE_BUBBLE);
@@ -530,18 +540,24 @@ void LvglMainScreen::create() {
                     LV_FLEX_ALIGN_CENTER,
                     LV_FLEX_ALIGN_CENTER);
                 lv_obj_set_flex_grow(transport_group, 1);
-                lv_obj_set_style_pad_column(transport_group, 8, LV_PART_MAIN);
-                lv_obj_set_style_pad_all(transport_group, 0, LV_PART_MAIN);
+                lv_obj_set_style_pad_column(transport_group, 11, LV_PART_MAIN);
+                // Inset triad from group bounds so rounded pressed pill is not clipped by default overflow mask.
+                // Отступ слева/справа — иначе крайние кнопки визуально «срезаются» у краёв группы.
+                lv_obj_set_style_pad_hor(transport_group, 4, LV_PART_MAIN);
+                lv_obj_set_style_pad_ver(transport_group, 0, LV_PART_MAIN);
                 lv_obj_set_style_bg_opa(transport_group, LV_OPA_TRANSP, LV_PART_MAIN);
                 lv_obj_set_style_border_width(transport_group, 0, LV_PART_MAIN);
                 lv_obj_clear_flag(transport_group, LV_OBJ_FLAG_SCROLLABLE);
                 lv_obj_clear_flag(transport_group, LV_OBJ_FLAG_GESTURE_BUBBLE);
+                lv_obj_add_flag(transport_group, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
 
                 lv_obj_t* btn_prev = main_create_control_icon_btn(
                     transport_group,
                     control_glyph_utf8_player_skip_back(),
                     f_ctrl_transport, pal.text_primary,
-                    pad_tr, min_tr);
+                    pad_tr, min_tr,
+                    18,
+                    k_ctrl_pressed_opa_transport);
                 if (btn_prev) {
                     lv_obj_add_event_cb(btn_prev, main_transport_prev_cb, LV_EVENT_CLICKED, nullptr);
                 }
@@ -549,7 +565,9 @@ void LvglMainScreen::create() {
                     transport_group,
                     control_glyph_utf8_player_play(),
                     f_ctrl_transport, pal.text_primary,
-                    pad_tr, min_tr);
+                    pad_tr, min_tr,
+                    18,
+                    k_ctrl_pressed_opa_transport);
                 if (btn_play) {
                     lv_obj_add_event_cb(btn_play, main_transport_toggle_cb, LV_EVENT_CLICKED, nullptr);
                     // First child is the icon label — update glyph in update() when playback state changes.
@@ -560,7 +578,9 @@ void LvglMainScreen::create() {
                     transport_group,
                     control_glyph_utf8_player_skip_forward(),
                     f_ctrl_transport, pal.text_primary,
-                    pad_tr, min_tr);
+                    pad_tr, min_tr,
+                    18,
+                    k_ctrl_pressed_opa_transport);
                 if (btn_next) {
                     lv_obj_add_event_cb(btn_next, main_transport_next_cb, LV_EVENT_CLICKED, nullptr);
                 }
@@ -575,23 +595,30 @@ void LvglMainScreen::create() {
                     LV_FLEX_ALIGN_END,
                     LV_FLEX_ALIGN_CENTER,
                     LV_FLEX_ALIGN_CENTER);
-                lv_obj_set_style_pad_column(utility_group, 6, LV_PART_MAIN);
+                // Minimal gap between list/settings — flex pad_column keeps non-zero space (no overlapping hits).
+                // Минимальный зазор list/settings — flex оставляет разрыв между hit-box.
+                lv_obj_set_style_pad_column(utility_group, 2, LV_PART_MAIN);
                 lv_obj_set_style_pad_all(utility_group, 0, LV_PART_MAIN);
                 lv_obj_set_style_bg_opa(utility_group, LV_OPA_TRANSP, LV_PART_MAIN);
                 lv_obj_set_style_border_width(utility_group, 0, LV_PART_MAIN);
                 lv_obj_clear_flag(utility_group, LV_OBJ_FLAG_SCROLLABLE);
                 lv_obj_clear_flag(utility_group, LV_OBJ_FLAG_GESTURE_BUBBLE);
+                lv_obj_add_flag(utility_group, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
 
                 (void)main_create_control_icon_btn(
                     utility_group,
                     control_glyph_utf8_list(),
                     f_ctrl_utility, pal.text_secondary,
-                    pad_ut, min_ut);
+                    pad_ut, min_ut,
+                    18,
+                    k_ctrl_pressed_opa_utility);
                 (void)main_create_control_icon_btn(
                     utility_group,
                     control_glyph_utf8_settings(),
                     f_ctrl_utility, pal.text_secondary,
-                    pad_ut, min_ut);
+                    pad_ut, min_ut,
+                    18,
+                    k_ctrl_pressed_opa_utility);
             }
 
             // Set left spacer width = utility group actual width → true transport centering.

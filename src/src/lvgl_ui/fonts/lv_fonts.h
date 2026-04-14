@@ -32,12 +32,13 @@ extern const lv_font_t lv_font_yora_weather_icons_20;
 extern const lv_font_t lv_font_yora_weather_icons_22;
 extern const lv_font_t lv_font_yora_weather_icons_24;
 extern const lv_font_t lv_font_yora_weather_icons_28;
-/* Tabler-derived subset: Main control band transport + utility icons @ 18/20/22/24/26 px (see lv_font_yora_control_icons.md). */
+/* Tabler-derived subset: Main control band transport + utility icons @ 18/20/22/24/26/28 px (see lv_font_yora_control_icons.md). */
 extern const lv_font_t lv_font_yora_control_icons_18;
 extern const lv_font_t lv_font_yora_control_icons_20;
 extern const lv_font_t lv_font_yora_control_icons_22;
 extern const lv_font_t lv_font_yora_control_icons_24;
 extern const lv_font_t lv_font_yora_control_icons_26;
+extern const lv_font_t lv_font_yora_control_icons_28;
 
 #ifdef __cplusplus
 }
