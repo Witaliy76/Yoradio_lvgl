@@ -12,6 +12,12 @@
 #include <Update.h>
 #include <ESPmDNS.h>
 #include <ArduinoJson.h>
+#if YORADIO_USE_LVGL
+#include "../lvgl_ui/profiles/lv_profile_select.h"
+#if (YORADIO_LVGL_STAGE >= 2)
+#include "../lvgl_ui/theme/lv_theme_yoradio.h"
+#endif
+#endif
 #include "../plugins/AIPlugin.h"
 #include "../plugins/ai/ai_log.h"  // AI Layer logging macros
 
@@ -47,6 +53,12 @@ void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t ind
 void handleUpdate(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
 void handleHTTPArgs(AsyncWebServerRequest * request);
 void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
+#if YORADIO_USE_LVGL
+void beginUploadBg(AsyncWebServerRequest *request);
+void handleUploadBg(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
+void handleRemoveBgHttp(AsyncWebServerRequest *request);
+#endif
+void handleBgStatusHttp(AsyncWebServerRequest *request);
 
 bool  shouldReboot  = false;
 #ifdef MQTT_ROOT_TOPIC
@@ -74,6 +86,7 @@ bool NetServer::begin(bool quiet) {
   nsQueue = xQueueCreate( 20, sizeof( nsRequestParams_t ) );
   while(nsQueue==NULL){;}
   if(config.emptyFS){
+    webserver.on("/bg_status", HTTP_GET, handleBgStatusHttp);
     webserver.on("/", HTTP_GET, [](AsyncWebServerRequest * request) { request->send_P(200, "text/html", emptyfs_html, processor); });
     webserver.on("/", HTTP_POST, [](AsyncWebServerRequest *request) { 
       if(request->arg("ssid")!="" && request->arg("pass")!=""){
@@ -88,6 +101,8 @@ bool NetServer::begin(bool quiet) {
       ESP.restart(); 
     }, handleUploadWeb);
   }else{
+    /* /bg_status BEFORE HTTP_ANY "/" — catch-all can swallow GET /bg_status and never send() → 500 */
+    webserver.on("/bg_status", HTTP_GET, handleBgStatusHttp);
     webserver.on("/", HTTP_ANY, handleHTTPArgs);
     webserver.on("/webboard", HTTP_GET, [](AsyncWebServerRequest * request) { request->send_P(200, "text/html", emptyfs_html, processor); });
     webserver.on("/webboard", HTTP_POST, [](AsyncWebServerRequest *request) { request->redirect("/"); }, handleUploadWeb);
@@ -103,8 +118,22 @@ bool NetServer::begin(bool quiet) {
   webserver.on("/update", HTTP_GET, handleHTTPArgs);
   webserver.on("/update", HTTP_POST, beginUpdate, handleUpdate);
   webserver.on("/settings", HTTP_GET, handleHTTPArgs);
+  webserver.on("/appearance", HTTP_GET, handleHTTPArgs);
+#if YORADIO_USE_LVGL
+  // Main background .bin → /bg/main_{dark,light,custom}.bin (Stage 6.1F-d) / Фон Main в слоты LittleFS
+  webserver.on("/upload_bg", HTTP_POST, beginUploadBg, handleUploadBg);
+  webserver.on("/remove_bg", HTTP_POST, handleRemoveBgHttp);
+#endif
   if (IR_PIN != 255) webserver.on("/ir", HTTP_GET, handleHTTPArgs);
   webserver.serveStatic("/", LittleFS, "/www/").setCacheControl("max-age=31536000");
+  /* No handler matched → library sends 500; route /bg_status here too + 404 for stray GET / Нет маршрута → 500; запасной /bg_status */
+  webserver.onNotFound([](AsyncWebServerRequest* request) {
+    if (request->method() == HTTP_GET && request->url() == "/bg_status") {
+      handleBgStatusHttp(request);
+      return;
+    }
+    request->send(404, "text/plain", "Not found");
+  });
 #ifdef CORS_DEBUG
   DefaultHeaders::Instance().addHeader(F("Access-Control-Allow-Origin"), F("*"));
   DefaultHeaders::Instance().addHeader(F("Access-Control-Allow-Headers"), F("content-type"));
@@ -1060,6 +1089,319 @@ void NetServer::resetQueue(){
   if(nsQueue!=NULL) xQueueReset(nsQueue);
 }
 
+// ---------------------------------------------------------------------------
+// Stage 6.1F-d: Main background slots — POST /upload_bg, GET /bg_status
+// Слоты фона Main: загрузка .bin в /bg/main_*.bin, JSON статус для WebUI
+// ---------------------------------------------------------------------------
+#if YORADIO_USE_LVGL
+namespace {
+
+static const char kBgTmpPath[] = "/bg/.upload_bg.tmp";
+
+// LVGL 8.x lv_img_header_t (4 bytes LE) / Заголовок изображения LVGL 8.x
+static bool bgParseImgHeader(const uint8_t* b, uint8_t* outCf, uint16_t* outW, uint16_t* outH) {
+  uint32_t v = (uint32_t)b[0] | ((uint32_t)b[1] << 8) | ((uint32_t)b[2] << 16) | ((uint32_t)b[3] << 24);
+  uint8_t az = (uint8_t)((v >> 5) & 7u);
+  if (az != 0) {
+    return false;
+  }
+  *outCf = (uint8_t)(v & 0x1Fu);
+  *outW = (uint16_t)((v >> 10) & 0x7FFu);
+  *outH = (uint16_t)((v >> 21) & 0x7FFu);
+  return true;
+}
+
+// LV_IMG_CF_TRUE_COLOR — LVGL 8.x color format for RGB565 image data
+static constexpr uint8_t kLvImgCfTrueColor = 4;
+
+static bool gBgUploadArmed = false;
+static char gBgDestPath[40] = {0};
+static char gBgSlotName[12] = {0};  // dark | light | custom / имя слота для JSON ответа
+static size_t gBgExpectedSize = 0;
+static size_t gBgWrittenTotal = 0;  // bytes written to temp / записано в .tmp (диагностика)
+static bool gBgIoFatal = false;
+static File gBgUploadFile;
+
+// Validate ?slot= + FS space; fill gBgDestPath / gBgExpectedSize / gBgSlotName. / Подготовка слота до записи чанков
+static bool bgPrepareSlotForUpload(AsyncWebServerRequest* request) {
+  memset(gBgDestPath, 0, sizeof(gBgDestPath));
+  memset(gBgSlotName, 0, sizeof(gBgSlotName));
+  if (!request->hasParam("slot")) {
+    request->send(400, "application/json", "{\"ok\":false,\"error\":\"missing_slot\"}");
+    return false;
+  }
+  String slot = request->getParam("slot")->value();
+  if (slot == "dark") {
+    strlcpy(gBgDestPath, "/bg/main_dark.bin", sizeof(gBgDestPath));
+  } else if (slot == "light") {
+    strlcpy(gBgDestPath, "/bg/main_light.bin", sizeof(gBgDestPath));
+  } else if (slot == "custom") {
+    strlcpy(gBgDestPath, "/bg/main_custom.bin", sizeof(gBgDestPath));
+  } else {
+    request->send(400, "application/json", "{\"ok\":false,\"error\":\"bad_slot\"}");
+    return false;
+  }
+  strlcpy(gBgSlotName, slot.c_str(), sizeof(gBgSlotName));
+  uint32_t w = LV_ACTIVE_PROFILE.width;
+  uint32_t h = LV_ACTIVE_PROFILE.height;
+  gBgExpectedSize = 4u + (size_t)w * (size_t)h * 2u;
+  size_t freeB = LittleFS.totalBytes() - LittleFS.usedBytes();
+  if (freeB < gBgExpectedSize + 4096u) {
+    request->send(507, "application/json", "{\"ok\":false,\"error\":\"insufficient_space\"}");
+    return false;
+  }
+  return true;
+}
+
+}  // namespace
+
+void beginUploadBg(AsyncWebServerRequest* request) {
+  (void)request;
+  /* AsyncWebServer: onRequest runs after the multipart body is fully parsed — *after* handleUploadBg.
+     Never send() here: a second 200 overwrote the JSON success body; WebUI saw empty 200 as "success".
+     Не отвечать здесь — иначе второй ответ затирал JSON из handleUploadBg. */
+}
+
+void handleUploadBg(AsyncWebServerRequest* request, String filename, size_t index, uint8_t* data, size_t len, bool final) {
+  (void)filename;
+
+  if (index == 0) {
+    gBgUploadArmed = false;
+    gBgIoFatal = false;
+    gBgWrittenTotal = 0;
+    if (gBgUploadFile) {
+      gBgUploadFile.close();
+    }
+    if (!bgPrepareSlotForUpload(request)) {
+      return;
+    }
+    gBgUploadArmed = true;
+    if (LittleFS.exists(kBgTmpPath)) {
+      LittleFS.remove(kBgTmpPath);
+    }
+    gBgUploadFile = LittleFS.open(kBgTmpPath, "w");
+    if (!gBgUploadFile) {
+      gBgIoFatal = true;
+    }
+  } else {
+    if (!gBgUploadArmed) {
+      return;
+    }
+  }
+
+  if (gBgIoFatal) {
+    if (final) {
+      gBgUploadArmed = false;
+      if (gBgUploadFile) {
+        gBgUploadFile.close();
+      }
+      LittleFS.remove(kBgTmpPath);
+      request->send(500, "application/json", "{\"ok\":false,\"error\":\"open_failed\"}");
+    }
+    return;
+  }
+
+  if (len && gBgUploadFile) {
+    size_t n = gBgUploadFile.write(data, len);
+    gBgWrittenTotal += n;
+    if (n != len) {
+      gBgIoFatal = true;
+    }
+  }
+
+  if (!final) {
+    return;
+  }
+
+  gBgUploadArmed = false;
+  if (gBgUploadFile) {
+    gBgUploadFile.close();
+  }
+
+  if (gBgIoFatal) {
+    LittleFS.remove(kBgTmpPath);
+    request->send(500, "application/json", "{\"ok\":false,\"error\":\"write_failed\"}");
+    gBgIoFatal = false;
+    return;
+  }
+
+  File vf = LittleFS.open(kBgTmpPath, "r");
+  if (!vf) {
+    request->send(500, "application/json", "{\"ok\":false,\"error\":\"read_failed\"}");
+    return;
+  }
+  size_t sz = vf.size();
+  if (sz != gBgExpectedSize) {
+    vf.close();
+    LittleFS.remove(kBgTmpPath);
+    request->send(400, "application/json", "{\"ok\":false,\"error\":\"size_mismatch\"}");
+    return;
+  }
+  uint8_t hdr[4];
+  if (vf.read(hdr, 4) != 4) {
+    vf.close();
+    LittleFS.remove(kBgTmpPath);
+    request->send(400, "application/json", "{\"ok\":false,\"error\":\"header_short\"}");
+    return;
+  }
+  uint8_t cf = 0;
+  uint16_t iw = 0;
+  uint16_t ih = 0;
+  if (!bgParseImgHeader(hdr, &cf, &iw, &ih)) {
+    vf.close();
+    LittleFS.remove(kBgTmpPath);
+    request->send(400, "application/json", "{\"ok\":false,\"error\":\"bad_header\"}");
+    return;
+  }
+  if (cf != kLvImgCfTrueColor) {
+    vf.close();
+    LittleFS.remove(kBgTmpPath);
+    request->send(400, "application/json", "{\"ok\":false,\"error\":\"cf_not_true_color\"}");
+    return;
+  }
+  if (iw != LV_ACTIVE_PROFILE.width || ih != LV_ACTIVE_PROFILE.height) {
+    vf.close();
+    LittleFS.remove(kBgTmpPath);
+    request->send(400, "application/json", "{\"ok\":false,\"error\":\"dimensions_mismatch\"}");
+    return;
+  }
+  vf.close();
+
+  if (LittleFS.exists(gBgDestPath)) {
+    LittleFS.remove(gBgDestPath);
+  }
+  if (!LittleFS.rename(kBgTmpPath, gBgDestPath)) {
+    File src = LittleFS.open(kBgTmpPath, "r");
+    File dst = LittleFS.open(gBgDestPath, "w");
+    if (!src || !dst) {
+      if (src) {
+        src.close();
+      }
+      if (dst) {
+        dst.close();
+      }
+      LittleFS.remove(kBgTmpPath);
+      request->send(500, "application/json", "{\"ok\":false,\"error\":\"commit_failed\"}");
+      return;
+    }
+    uint8_t buf[512];
+    while (src.available()) {
+      size_t rd = src.read(buf, sizeof(buf));
+      if (rd && dst.write(buf, rd) != rd) {
+        src.close();
+        dst.close();
+        LittleFS.remove(kBgTmpPath);
+        LittleFS.remove(gBgDestPath);
+        request->send(500, "application/json", "{\"ok\":false,\"error\":\"commit_copy\"}");
+        return;
+      }
+    }
+    src.close();
+    dst.close();
+    LittleFS.remove(kBgTmpPath);
+  }
+  size_t final_sz = 0;
+  bool target_exists = LittleFS.exists(gBgDestPath);
+  if (target_exists) {
+    File committed = LittleFS.open(gBgDestPath, "r");
+    if (committed) {
+      final_sz = committed.size();
+      committed.close();
+    }
+  }
+  char okjson[280];
+  snprintf(okjson, sizeof(okjson),
+           "{\"ok\":true,\"slot\":\"%s\",\"path\":\"%s\",\"written_bytes\":%lu,\"final_size\":%lu,\"target_exists\":%s}",
+           gBgSlotName[0] ? gBgSlotName : "unknown",
+           gBgDestPath,
+           (unsigned long)gBgWrittenTotal,
+           (unsigned long)final_sz,
+           target_exists ? "true" : "false");
+  request->send(200, "application/json", okjson);
+}
+
+void handleRemoveBgHttp(AsyncWebServerRequest* request) {
+  // Delete slot file on LittleFS; missing file → ok / Удалить bin слота; нет файла → успех
+  if (!request->hasParam("slot")) {
+    request->send(400, "application/json", "{\"ok\":false,\"error\":\"missing_slot\"}");
+    return;
+  }
+  String slot = request->getParam("slot")->value();
+  const char* path = nullptr;
+  if (slot == "dark") {
+    path = "/bg/main_dark.bin";
+  } else if (slot == "light") {
+    path = "/bg/main_light.bin";
+  } else if (slot == "custom") {
+    path = "/bg/main_custom.bin";
+  } else {
+    request->send(400, "application/json", "{\"ok\":false,\"error\":\"bad_slot\"}");
+    return;
+  }
+  if (LittleFS.exists(path)) {
+    if (!LittleFS.remove(path)) {
+      request->send(500, "application/json", "{\"ok\":false,\"error\":\"remove_failed\"}");
+      return;
+    }
+  }
+  request->send(200, "application/json", "{\"ok\":true}");
+}
+#endif  // YORADIO_USE_LVGL
+
+void handleBgStatusHttp(AsyncWebServerRequest* request) {
+  // Main background slots on LittleFS — read-only, defensive / Слоты фона Main, только чтение
+#if YORADIO_USE_LVGL
+  static const char* const kBgPaths[3] = {"/bg/main_dark.bin", "/bg/main_light.bin", "/bg/main_custom.bin"};
+  bool bgOk[3] = {false, false, false};
+  size_t bgSz[3] = {0, 0, 0};
+  for (int i = 0; i < 3; i++) {
+    if (!LittleFS.exists(kBgPaths[i])) {
+      continue;
+    }
+    File f = LittleFS.open(kBgPaths[i], "r");
+    if (!f) {
+      continue;
+    }
+    bgOk[i] = true;
+    bgSz[i] = f.size();
+    f.close();
+  }
+  const uint32_t dw = LV_ACTIVE_PROFILE.width;
+  const uint32_t dh = LV_ACTIVE_PROFILE.height;
+  const char* active_theme = "dark";
+#if (YORADIO_LVGL_STAGE >= 2)
+  switch (lvgl_ui::yoradio_theme_active_preset()) {
+    case lvgl_ui::ThemePreset::Light:
+      active_theme = "light";
+      break;
+    case lvgl_ui::ThemePreset::Custom:
+      active_theme = "custom";
+      break;
+    default:
+      active_theme = "dark";
+      break;
+  }
+#endif
+  char buf[512];
+  snprintf(buf, sizeof(buf),
+           "{\"dsp_w\":%u,\"dsp_h\":%u,"
+           "\"active_theme\":\"%s\","
+           "\"bg_dark\":%s,\"bg_light\":%s,\"bg_custom\":%s,"
+           "\"bg_dark_size\":%lu,\"bg_light_size\":%lu,\"bg_custom_size\":%lu}",
+           (unsigned)dw, (unsigned)dh,
+           active_theme,
+           bgOk[0] ? "true" : "false",
+           bgOk[1] ? "true" : "false",
+           bgOk[2] ? "true" : "false",
+           (unsigned long)bgSz[0], (unsigned long)bgSz[1], (unsigned long)bgSz[2]);
+  request->send(200, "application/json", buf);
+#else
+  request->send(200, "application/json",
+                 "{\"dsp_w\":0,\"dsp_h\":0,\"active_theme\":\"dark\",\"bg_dark\":false,\"bg_light\":false,\"bg_custom\":false,"
+                 "\"bg_dark_size\":0,\"bg_light_size\":0,\"bg_custom_size\":0}");
+#endif
+}
+
 String processor(const String& var) { // %Templates%
   if (var == "ACTION") return (network.status == CONNECTED && !config.emptyFS)?"webboard":"";
   if (var == "UPLOADWIFI") return (network.status == CONNECTED)?" hidden":"";
@@ -1420,6 +1762,11 @@ void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventTyp
 }
 
 void handleHTTPArgs(AsyncWebServerRequest * request) {
+  /* Fallback if HTTP_ANY "/" handled this URL first / Запасной путь если сначала сработал catch-all */
+  if (request->method() == HTTP_GET && strcmp(request->url().c_str(), "/bg_status") == 0) {
+    handleBgStatusHttp(request);
+    return;
+  }
   if (request->method() == HTTP_GET) {
     DBGVB("[%s] client ip=%s request of %s", __func__, request->client()->remoteIP().toString().c_str(), request->url().c_str());
     if (strcmp(request->url().c_str(), PLAYLIST_PATH) == 0 || 
@@ -1442,7 +1789,7 @@ void handleHTTPArgs(AsyncWebServerRequest * request) {
       netserver.chunkedHtmlPage(String(), request, network.status == CONNECTED ? "/www/index.html" : "/www/settings.html");
       return;
     }
-    if (strcmp(request->url().c_str(), "/update") == 0 || strcmp(request->url().c_str(), "/settings") == 0 || strcmp(request->url().c_str(), "/ir") == 0) {
+    if (strcmp(request->url().c_str(), "/update") == 0 || strcmp(request->url().c_str(), "/settings") == 0 || strcmp(request->url().c_str(), "/appearance") == 0 || strcmp(request->url().c_str(), "/ir") == 0) {
       char buf[40] = { 0 };
       sprintf(buf, "/www%s.html", request->url().c_str());
       netserver.chunkedHtmlPage(String(), request, buf);

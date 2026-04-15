@@ -5,6 +5,7 @@
 #include "lv_ui_events.h"
 #include "profiles/lv_profile_select.h"
 #include "theme/lv_theme_yoradio.h"
+#include "lv_fs_littlefs.h"
 
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
 #include "lvgl.h"
@@ -168,6 +169,9 @@ void lvgl_ui::initRuntime() {
     static bool s_inited = false;
     if (s_inited) return;
     lv_init();
+    // Stage 6.1F-b: LVGL file API → same LittleFS mount as legacy (drive L:).
+    // Этап 6.1F-b: файловый API LVGL → тот же LittleFS (диск L:).
+    lv_fs_littlefs_register();
     s_inited = true;
 #endif
 }

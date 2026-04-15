@@ -190,10 +190,10 @@ void u8fix(char *src){
 }
 
 bool Config::_isFSempty() {
-  const char* reqiredFiles[] = {"dragpl.js.gz","elogo.png","elogo84.png","index.html",
-                                "ir.css.gz","ir.html","ir.js.gz","script.js.gz",
-                                "settings.css.gz","settings.html","style.css.gz","update.html"};
-  const uint8_t reqiredFilesSize = 12;
+  const char* reqiredFiles[] = {"index.html","script.js","style.css","settings.html",
+                                "settings.css","update.html","ir.html","ir.js",
+                                "ir.css","dragpl.js"};
+  const uint8_t reqiredFilesSize = 10;
   char fullpath[28];
   for (uint8_t i=0; i<reqiredFilesSize; i++){
     sprintf(fullpath, "/www/%s", reqiredFiles[i]);
@@ -287,6 +287,7 @@ void Config::init() {
   LittleFS.mkdir("/data");
   LittleFS.mkdir("/www");
   LittleFS.mkdir("/ai");
+  LittleFS.mkdir("/bg");
   
   // Load AI configuration from filesystem and apply to store
   // FS config has priority over runtime config (WebUI settings override dev config)

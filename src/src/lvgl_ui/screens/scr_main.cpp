@@ -45,6 +45,7 @@
 #include "../../core/display.h"
 #include "../../core/network.h"
 #include "../../core/player.h"
+#include <LittleFS.h>
 
 namespace lvgl_ui {
 
@@ -63,6 +64,64 @@ char* split_inplace_at(char* str, const char* sep) {
 // Pressed-state opa: transport more readable; utility calmer (secondary) / читаемее на транспорте, utility тише.
 constexpr lv_opa_t k_ctrl_pressed_opa_transport = LV_OPA_20;
 constexpr lv_opa_t k_ctrl_pressed_opa_utility   = static_cast<lv_opa_t>(36); // ~14% vs ~20% transport
+
+// Stage 6.1F-b: theme slot → /bg/main_*.bin; hide layer if missing (normal case). / Слот темы → bin; скрыть если нет файла.
+void main_apply_theme_background(lv_obj_t* bg_img) {
+    if (!bg_img) {
+        return;
+    }
+    static const char* const k_fs[] = {
+        "/bg/main_dark.bin",
+        "/bg/main_light.bin",
+        "/bg/main_custom.bin",
+    };
+    static const char* const k_lvgl[] = {
+        "L:/bg/main_dark.bin",
+        "L:/bg/main_light.bin",
+        "L:/bg/main_custom.bin",
+    };
+    uint8_t idx = static_cast<uint8_t>(yoradio_theme_active_preset());
+    if (idx > 2) {
+        idx = 0;
+    }
+    if (!LittleFS.exists(k_fs[idx])) {
+        // Clear decoder/src so LVGL does not keep stale path → "NoData" after WebUI remove / Сброс src при удалении файла
+        lv_img_set_src(bg_img, nullptr);
+        lv_obj_add_flag(bg_img, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    lv_img_set_src(bg_img, k_lvgl[idx]);
+    lv_obj_clear_flag(bg_img, LV_OBJ_FLAG_HIDDEN);
+}
+
+// F-c: black scrim — only when file bg is shown AND Dark preset (readability). / Scrim только Dark + есть фон.
+// LVGL v8 named opa (lv_opa.h): LV_OPA_TRANSP=0; LV_OPA_10…LV_OPA_90 (~10%…90% of cover); LV_OPA_100/LV_OPA_COVER=255.
+// Именованные ступени: 0, 10…90, 100/COVER; можно любое lv_opa_t 0–255.
+// 50% named step — LV_OPA_50 (~127/255); not linear “half brightness” of the bitmap. / не «половина яркости» пикселей.
+//если хотите изменить яркость фона, то меняйте значение на другие, чем выше тем темнее фон.
+//constexpr lv_opa_t k_main_bg_scrim_opa_dark = LV_OPA_50;
+// TEMP (device testing): scrim effectively off — restore `LV_OPA_50` when re-tuning readability / ВРЕМЕННО: scrim визуально выкл.
+constexpr lv_opa_t k_main_bg_scrim_opa_dark = LV_OPA_TRANSP;  // was: LV_OPA_50
+
+void main_sync_dark_bg_scrim(lv_obj_t* bg_img, lv_obj_t* scrim) {
+    if (!scrim) {
+        return;
+    }
+    // TEMP: skip compositing scrim layer while opacity is fully transparent / Пока opa=0 — не трогаем scrim
+    if (k_main_bg_scrim_opa_dark == LV_OPA_TRANSP) {
+        lv_obj_add_flag(scrim, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    if (!bg_img || lv_obj_has_flag(bg_img, LV_OBJ_FLAG_HIDDEN)) {
+        lv_obj_add_flag(scrim, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    if (yoradio_theme_active_preset() != ThemePreset::Dark) {
+        lv_obj_add_flag(scrim, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    lv_obj_clear_flag(scrim, LV_OBJ_FLAG_HIDDEN);
+}
 
 } // namespace
 
@@ -323,6 +382,31 @@ void LvglMainScreen::create() {
     lv_obj_set_flex_flow(_screen, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(_screen, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_clear_flag(_screen, LV_OBJ_FLAG_SCROLLABLE);
+
+    // 6.1F-b: bottom-most layer — full-screen img; FLOATING so flex ignores it; hidden if no bin on LittleFS.
+    // 6.1F-b: нижний слой — полноэкранный img; FLOATING — вне flex; скрыт если нет .bin в LittleFS.
+    _bg_img = lv_img_create(_screen);
+    if (_bg_img) {
+        lv_obj_add_flag(_bg_img, LV_OBJ_FLAG_FLOATING);
+        lv_obj_clear_flag(_bg_img, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_size(_bg_img, W, H);
+        lv_obj_align(_bg_img, LV_ALIGN_TOP_LEFT, 0, 0);
+        main_apply_theme_background(_bg_img);
+
+        _bg_scrim = lv_obj_create(_screen);
+        if (_bg_scrim) {
+            lv_obj_add_flag(_bg_scrim, LV_OBJ_FLAG_FLOATING);
+            lv_obj_clear_flag(_bg_scrim, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_clear_flag(_bg_scrim, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_set_size(_bg_scrim, W, H);
+            lv_obj_align(_bg_scrim, LV_ALIGN_TOP_LEFT, 0, 0);
+            lv_obj_set_style_bg_color(_bg_scrim, lv_color_black(), LV_PART_MAIN);
+            lv_obj_set_style_bg_opa(_bg_scrim, k_main_bg_scrim_opa_dark, LV_PART_MAIN);
+            lv_obj_set_style_border_width(_bg_scrim, 0, LV_PART_MAIN);
+            lv_obj_set_style_pad_all(_bg_scrim, 0, LV_PART_MAIN);
+            main_sync_dark_bg_scrim(_bg_img, _bg_scrim);
+        }
+    }
 
     if (!wgt_status_line::create(_screen, _status_line)) {
         lv_obj_del(_screen);
@@ -1082,6 +1166,14 @@ void LvglMainScreen::update() {
             main_set_text_if_changed(_lbl_ai_line, "");
         }
     }
+
+    // Re-sync file bg + scrim when LittleFS slot changes (e.g. WebUI remove) — single exists() per tick / Слот фона снят → без NoData
+    if (_bg_img) {
+        main_apply_theme_background(_bg_img);
+        if (_bg_scrim) {
+            main_sync_dark_bg_scrim(_bg_img, _bg_scrim);
+        }
+    }
 }
 
 void LvglMainScreen::destroy() {
@@ -1103,6 +1195,8 @@ void LvglMainScreen::destroy() {
     _lbl_vol_popup = nullptr;
     _bar_buffer = nullptr;
     _lbl_ai_line = nullptr;
+    _bg_img = nullptr;
+    _bg_scrim = nullptr;
     s_vol_touch_active = false; // matches static used by vol_touch_cb / тот же флаг, что в callback
 }
 

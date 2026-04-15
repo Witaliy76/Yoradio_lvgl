@@ -3,7 +3,7 @@
 **English:** Parent → child hierarchy for `LvglMainScreen::create()` in `scr_main.cpp`. Use when reasoning about layout, flex, and theme padding.  
 **Русский:** Иерархия родитель → потомок для `LvglMainScreen::create()` в `scr_main.cpp`. Удобно для разметки, flex и паддингов темы.
 
-**Source of truth:** [`scr_main.cpp`](scr_main.cpp) — update this file when the tree changes.
+**Source of truth:** `[scr_main.cpp](scr_main.cpp)` — update this file when the tree changes.
 
 **Maintenance / Поддержка:** After editing `create()` (new containers, reorder, rename), refresh the ASCII block and the Mermaid block below so they stay accurate.
 
@@ -11,13 +11,15 @@
 
 ## Order on `_screen` (flex column, top → bottom)
 
+**Z-order (bottom → top):** `_bg_img` (6.1F-b) — optional file-backed background; then `_bg_scrim` (F-c) — optional very light black scrim **only for `ThemePreset::Dark`** when bg file exists; both `FLOATING`, not flex children.
+
 1. `wgt_status_line.root`  
-2. `status_divider`  
-3. `spacer_top` (flex grow)  
-4. `cont_mid` (text stack only — 6.1E-c)  
-5. `spacer_bottom` (flex grow)  
-6. `zone_visual` (1 px placeholder)  
-7. `zone_bottom_sym_spacer` (symmetry, height may be set after layout)  
+2. `status_divider`
+3. `spacer_top` (flex grow)
+4. `cont_mid` (text stack only — 6.1E-c)
+5. `spacer_bottom` (flex grow)
+6. `zone_visual` (1 px placeholder)
+7. `zone_bottom_sym_spacer` (symmetry, height may be set after layout)
 8. `zone_bottom`
 
 Floating overlays (not flex children of `_screen` in the same sense): `_lbl_vol_popup`; `_vol_touch_zone` / `_vol_gesture_guard` inside `zone_bottom`; `_screen_bottom_carousel_guard` if needed.
@@ -28,6 +30,8 @@ Floating overlays (not flex children of `_screen` in the same sense): `_lbl_vol_
 
 ```
 _screen
+├── _bg_img  (optional LVGL .bin from LittleFS; FLOATING — under all content; 6.1F-b)
+├── _bg_scrim  (optional black LV_OPA_50; FLOATING; only Dark + bg present; F-c)
 ├── wgt_status_line.root  (see ../widgets/wgt_status_line.cpp)
 │   ├── lbl_wifi
 │   ├── spacer (flex grow)
@@ -155,14 +159,15 @@ flowchart TB
   CV --> BAR
 ```
 
+
+
 ---
 
 ## Notes / Заметки
 
 - **Control band (Stage 6.1E+):** Three flex children: `spacer_left` (width set after layout to match `utility_group`) + `transport_group` + `utility_group`. Transport uses Tabler control icon fonts (profile-dependent sizes, incl. 28px on wide); utility uses smaller glyph with large hit target. No floating `_hit_play` — transport taps only on visible buttons.  
-  **Полоса управления:** три flex-ребёнка: балансирующий `spacer_left` + транспорт + utility. Иконки Tabler; скрытой зоны тапа по центру нет.
-
+**Полоса управления:** три flex-ребёнка: балансирующий `spacer_left` + транспорт + utility. Иконки Tabler; скрытой зоны тапа по центру нет.
 - **Theme padding:** Base `lv_obj` containers may inherit LVGL default `card` padding; Main zeroes explicit `pad_all` where needed — see comments in `scr_main.cpp` and `wgt_status_line.cpp`.  
-  **Паддинг темы:** у базового `lv_obj` может быть `card` padding; на Main явно обнуляем `pad_all` там, где нужно — см. комментарии в `scr_main.cpp` и `wgt_status_line.cpp`.
+**Паддинг темы:** у базового `lv_obj` может быть `card` padding; на Main явно обнуляем `pad_all` там, где нужно — см. комментарии в `scr_main.cpp` и `wgt_status_line.cpp`.
+- Widget `wgt_status_line` is defined in `[../widgets/wgt_status_line.cpp](../widgets/wgt_status_line.cpp)`.
 
-- Widget `wgt_status_line` is defined in [`../widgets/wgt_status_line.cpp`](../widgets/wgt_status_line.cpp).

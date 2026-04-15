@@ -14,9 +14,15 @@
   <div class="content">
     <div class="logo"></div>
     <div id="navbar">
-      <div class="playerbytton navbutton" id="playlistbutton" data-name="playlist"></div>
-      <div class="playerbytton navbutton" id="sdbutton" data-name="sdcard"></div>
-      <div class="playerbytton navbutton" id="settingsbutton" data-name="settings"></div>
+      <!-- Left + right clusters: only two flex slots so nothing sits under .logo / Две зоны — ничего по центру под лого -->
+      <div class="navbar-left">
+        <div class="playerbytton navbutton" id="playlistbutton" data-name="playlist"></div>
+        <div class="playerbytton navbutton" id="sdbutton" data-name="sdcard"></div>
+      </div>
+      <div class="navbar-right">
+        <div class="playerbytton navbutton" id="settingsbutton" data-name="settings"></div>
+        <div class="playerbytton navbutton" id="appearancebutton" data-name="appearance" title="Appearance"></div>
+      </div>
     </div>
     <div class="playerwrap">
       <div class="player">

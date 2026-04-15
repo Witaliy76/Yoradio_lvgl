@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=0.25">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="apple-touch-icon" type="image/png" href="elogo.png">
+  <link rel="icon" type="image/png" href="elogo.png">
+  <link rel="stylesheet" title="base" href="style.css?%VERSION%" type="text/css">
+  <!-- Same layout shell as settings.html — pagetitle, settingsirwrap, section / Как settings: иначе «пустая» вёрстка -->
+  <link rel="stylesheet" title="base" href="settings.css?%VERSION%" type="text/css">
+  <title>ёRadio - Appearance</title>
+  <style>
+    .appearance-section { margin: 16px 0; padding: 12px 0; }
+    .appearance-section .title { font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: #999; padding-bottom: 8px; border-bottom: 1px solid #333; margin-bottom: 12px; }
+    .appearance-section .title span { display: inline-block; }
+    .appearance-placeholder { color: #666; font-size: 13px; padding: 10px 0; }
+    /* Stage 6.1F-d3: Main background slots / Слоты фона Main */
+    #bg-upload-root { max-width: 480px; margin: 0 auto; }
+    .bg-device-dim { font-size: 13px; color: #888; margin-bottom: 16px; }
+    .bg-slots { display: flex; flex-direction: column; gap: 20px; }
+    .bg-slot { border: 1px solid #333; border-radius: 8px; padding: 12px; background: #0a0a0a; }
+    .bg-slot-label { font-size: 15px; font-weight: bold; color: #e3d25f; margin-bottom: 8px; }
+    .bg-slot-preview-wrap { margin: 8px 0; }
+    /* avoid literal percent in CSS — breaks chunked template processor / без символа процента в CSS */
+    .bg-slot-preview { display: block; width: auto; height: auto; border: 1px solid #444; background: #111; border-radius: 4px; }
+    .bg-slot-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+    .bg-slot-actions button { cursor: pointer; padding: 6px 12px; border-radius: 4px; border: 1px solid #e3d25f; background: #1a1a1a; color: #e3d25f; font-size: 13px; }
+    .bg-slot-actions button.bg-slot-remove { border-color: #666; color: #aaa; }
+    .bg-slot-actions button:disabled { opacity: 0.45; cursor: not-allowed; }
+    /* Read-only theme shell (Stage 6.1F) — active preset only, no switching / только отображение активной темы */
+    .appearance-theme-shell { margin-top: 4px; }
+    .appearance-theme-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .appearance-theme-opt { display: inline-block; padding: 8px 14px; border-radius: 6px; border: 1px solid #444; color: #666; font-size: 13px; pointer-events: none; user-select: none; }
+    .appearance-theme-opt.is-active { border-color: #e3d25f; color: #e3d25f; background: #141208; }
+    .appearance-theme-hint { font-size: 12px; color: #555; margin-top: 10px; line-height: 1.35; }
+    .bg-slot-fs { font-size: 12px; color: #777; margin-top: 6px; }
+    .bg-slot-state { font-size: 12px; margin-top: 4px; color: #aaa; }
+    .bg-slot-state.uploaded { color: #8c8; }
+    .bg-slot-state.error { color: #c88; }
+  </style>
+</head>
+<body>
+  <div class="content">
+    <h2 class="pagetitle">APPEARANCE</h2>
+    <div class="playerwrap">
+      <div class="settingsirwrap" id="appearancecontent">
+        <section class="appearance-section" id="section_background">
+          <div class="title"><span>background</span></div>
+          <div id="bg-upload-root" data-bg-api-status="/bg_status" data-bg-api-upload="/upload_bg" data-bg-api-remove="/remove_bg">
+            <p class="bg-device-dim" id="bg-device-dim">…</p>
+            <div class="bg-slots">
+              <div class="bg-slot" data-slot="dark">
+                <div class="bg-slot-label">Dark</div>
+                <div class="bg-slot-preview-wrap"><canvas class="bg-slot-preview" width="200" height="200" aria-label="Dark preview"></canvas></div>
+                <input type="file" class="bg-slot-file" accept="image/*" hidden />
+                <div class="bg-slot-actions">
+                  <button type="button" class="bg-slot-choose">Choose image</button>
+                  <button type="button" class="bg-slot-upload" disabled>Upload</button>
+                  <button type="button" class="bg-slot-remove">Remove</button>
+                </div>
+                <div class="bg-slot-fs">FS: —</div>
+                <div class="bg-slot-state">ready</div>
+              </div>
+              <div class="bg-slot" data-slot="light">
+                <div class="bg-slot-label">Light</div>
+                <div class="bg-slot-preview-wrap"><canvas class="bg-slot-preview" width="200" height="200" aria-label="Light preview"></canvas></div>
+                <input type="file" class="bg-slot-file" accept="image/*" hidden />
+                <div class="bg-slot-actions">
+                  <button type="button" class="bg-slot-choose">Choose image</button>
+                  <button type="button" class="bg-slot-upload" disabled>Upload</button>
+                  <button type="button" class="bg-slot-remove">Remove</button>
+                </div>
+                <div class="bg-slot-fs">FS: —</div>
+                <div class="bg-slot-state">ready</div>
+              </div>
+              <div class="bg-slot" data-slot="custom">
+                <div class="bg-slot-label">Custom</div>
+                <div class="bg-slot-preview-wrap"><canvas class="bg-slot-preview" width="200" height="200" aria-label="Custom preview"></canvas></div>
+                <input type="file" class="bg-slot-file" accept="image/*" hidden />
+                <div class="bg-slot-actions">
+                  <button type="button" class="bg-slot-choose">Choose image</button>
+                  <button type="button" class="bg-slot-upload" disabled>Upload</button>
+                  <button type="button" class="bg-slot-remove">Remove</button>
+                </div>
+                <div class="bg-slot-fs">FS: —</div>
+                <div class="bg-slot-state">ready</div>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section class="appearance-section" id="section_theme">
+          <div class="title"><span>theme</span></div>
+          <div class="appearance-theme-shell" id="appearance-theme-shell" aria-readonly="true">
+            <div class="appearance-theme-row">
+              <span class="appearance-theme-opt" data-theme-preset="dark">Dark</span>
+              <span class="appearance-theme-opt" data-theme-preset="light">Light</span>
+              <span class="appearance-theme-opt" data-theme-preset="custom">Custom</span>
+            </div>
+            <p class="appearance-theme-hint">Active preset matches the device. On-device switching only; WebUI toggle comes later.</p>
+          </div>
+        </section>
+      </div>
+    </div>
+    <div class="button apply done" data-name="appearancedone" id="appearancedone">done</div>
+    <div id="copy">powered by <a target="_blank" href="https://github.com/e2002/yoradio/">ёRadio</a> | v.%VERSION%-RGB Panel-AI</div>
+  </div>
+  <script src="bg.js?%VERSION%" defer></script>
+  <script src="script.js?%VERSION%"></script>
+</body>
+</html>

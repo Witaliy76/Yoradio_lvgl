@@ -32,6 +32,11 @@ public:
 private:
     lv_obj_t* _screen = nullptr;
 
+    // Stage 6.1F-b: optional file-backed background (bottom Z, floating — not in flex). / Фон Main из LittleFS.
+    lv_obj_t* _bg_img = nullptr;
+    // F-c: optional scrim above file bg — ThemePreset::Dark only, hidden if no bg file. / Scrim только Dark при наличии фона.
+    lv_obj_t* _bg_scrim = nullptr;
+
     // Top status strip: Wi‑Fi + weather glance + clock (experimental). / Верх: Wi‑Fi, погода, часы.
     wgt_status_line::Instance _status_line{};
 
