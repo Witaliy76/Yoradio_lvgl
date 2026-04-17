@@ -10,6 +10,11 @@
 #include "rtcsupport.h"
 #include "../pluginsManager/pluginsManager.h"
 
+// Default OFF. Enable in myoptions.h for anti_glitch T1.3 diagnostic only (suppress EEPROM, not SaveManager).
+#ifndef DEBUG_GLITCH_SUSPEND_NVS_WRITES
+#define DEBUG_GLITCH_SUSPEND_NVS_WRITES 0
+#endif
+
 #define EEPROM_SIZE       768
 #define EEPROM_START      500
 #define EEPROM_START_IR   0
@@ -274,6 +279,10 @@ class Config {
     void saveValue(T *field, const T &value, bool commit=true, bool force=false){
       if(*field == value && !force) return;
       *field = value;
+#if DEBUG_GLITCH_SUSPEND_NVS_WRITES
+      (void)commit;
+      return;
+#endif
       size_t address = getAddr(field);
       EEPROM.put(address, value);
       if(commit)
@@ -282,6 +291,11 @@ class Config {
     void saveValue(char *field, const char *value, size_t N, bool commit=true, bool force=false) {
       if (strcmp(field, value) == 0 && !force) return;
       strlcpy(field, value, N);
+#if DEBUG_GLITCH_SUSPEND_NVS_WRITES
+      (void)N;
+      (void)commit;
+      return;
+#endif
       size_t address = getAddr(field);
       size_t fieldlen = strlen(field);
       for (size_t i = 0; i <=fieldlen ; i++) EEPROM.write(address + i, field[i]);

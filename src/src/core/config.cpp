@@ -565,6 +565,11 @@ void Config::loadTheme(){
 }
 
 template <class T> int Config::eepromWrite(int ee, const T& value) {
+#if DEBUG_GLITCH_SUSPEND_NVS_WRITES
+  (void)ee;
+  (void)value;
+  return (int)sizeof(T);
+#endif
   const uint8_t* p = (const uint8_t*)(const void*)&value;
   int i;
   for (i = 0; i < sizeof(value); i++)
