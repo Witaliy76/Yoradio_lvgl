@@ -163,7 +163,8 @@ void DspCore::initDisplay() {
         /* hsync_polarity */ 1, /* hsync_front_porch */ 10, /* hsync_pulse_width */ 8, /* hsync_back_porch */ 50,
         /* vsync_polarity */ 1, /* vsync_front_porch */ 10, /* vsync_pulse_width */ 8, /* vsync_back_porch */ 20,
         // Clock and data format parameters (from GUITION PlatformIO example)
-        /* pclk_active_neg */ 0, /* prefer_speed */ 12000000UL, /* big endian */ false,
+        // T1.2: 480*48 bounce → boot crash (heap); keep bounce=0 until smaller bounce or heap headroom verified
+        /* pclk_active_neg */ 0, /* prefer_speed */ 6000000UL, /* big endian */ false,
         /* de_idle_high */ 0, /* pclk_idle_high */ 0, /* bounce_buffer_size_px */ 0);
     if (!rgbpanel) {
       Serial.println("[ST7701] Failed to initialize RGB panel!");

@@ -107,7 +107,7 @@
    =============================================== */
 //#define HIDE_VU                         // Hide VU-meter (uncomment to enable)
 #define BOOMBOX_STYLE                     // VU-meter style (bars instead of strips)
-#define CPU_LOAD                          // CPU load widget
+//#define CPU_LOAD                          // CPU load widget
 //#define WAKE_PIN              255       // Wake pin (not used)
 #define EXT_WEATHER       false
 
