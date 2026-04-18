@@ -9,9 +9,11 @@
  * - RAM is source of truth between commits; no per-field EEPROM.put before flush.
  */
 #include "config.h"
-#include "save_manager.h"
+#include "save_manager_sections.h"
 #include <EEPROM.h>
+#include <Preferences.h>
 #include <cstddef>
+#include <cstring>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
@@ -60,15 +62,43 @@ static TimerHandle_t s_debounce_timer;
 static QueueHandle_t s_commit_queue;
 static TaskHandle_t s_worker_handle;
 static bool s_inited;
-static volatile bool s_dirty;
+static volatile bool s_dirty;            // legacy / v1 full-store dirty flag (cold sections in M3)
 static volatile bool s_ota_suspended;
 static int s_batch_depth;
+#if SM_V2_ENABLED
+// v2 per-section dirty bitmap (bit i = SectionId(i)). Only M3-managed bits
+// (HOT + META) are ever set by `onFieldWrittenV2`; other bits fall through
+// to the legacy v1 writer and leave this mask untouched. Volatile because
+// the debounce timer callback reads it after arming from another task.
+static volatile uint32_t s_dirty_v2_mask;
+#endif
 
 static void debounceTimerCallback(TimerHandle_t t);
 static void workerTask(void* arg);
 static void runDebouncedCommitFromWorker();
 
-static void commitFullStoreUnderMutex() {
+static inline bool sm_anyDirty() {
+  if (s_dirty) return true;
+#if SM_V2_ENABLED
+  if (s_dirty_v2_mask != 0u) return true;
+#endif
+  return false;
+}
+
+#if SM_V2_ENABLED && SM_DIAG_PERSIST
+// M3.1: single-word commit classification for logs. Makes it trivial to tell
+// whether a commit window is v2-only (ideal on HOT bursts), v1-only (cold
+// settings writes), MIXED (cold touched while HOT was also queued), or a
+// spurious clean wakeup.
+static const char* sm_commitClass(uint32_t v2_mask, bool v1_dirty) {
+  if (v2_mask != 0u && v1_dirty) return "MIXED";
+  if (v2_mask != 0u)             return "v2-only";
+  if (v1_dirty)                  return "v1-only";
+  return "clean";
+}
+#endif
+
+static void commitV1FullStoreUnderMutex() {
 #if DEBUG_GLITCH_SUSPEND_NVS_WRITES
   return;
 #else
@@ -87,10 +117,67 @@ static void commitFullStoreUnderMutex() {
 #endif
 }
 
+#if SM_V2_ENABLED
+// Forward-declare v2 entry points used from the static helpers / sm::* methods
+// below; real implementations live at the bottom of this TU next to the rest
+// of sm::v2. These are file-scope forward decls — they MUST sit outside the
+// main `namespace sm { ... }` block further down, otherwise they resolve as
+// `sm::sm::v2::...` at link time.
+namespace sm {
+namespace v2 {
+bool saveSection(SectionId sid, const void* src, size_t size);
+void refreshManagedSectionsFromStore();
+}  // namespace v2
+}  // namespace sm
+
+static void commitV2DirtySectionsUnderMutex() {
+#if DEBUG_GLITCH_SUSPEND_NVS_WRITES
+  return;
+#else
+  if (s_dirty_v2_mask == 0u) {
+    return;
+  }
+  // Snapshot + clear up front so any new onFieldWrittenV2 arriving mid-flush
+  // can cleanly dirty the mask again for the next commit cycle. If a write
+  // fails we re-set the bit so the next flush retries it.
+  const uint32_t mask = s_dirty_v2_mask;
+  s_dirty_v2_mask = 0u;
+#if SM_DIAG_PERSIST
+  SM_LOG("v2 commit: mask=0x%x", (unsigned)mask);
+#endif
+  for (size_t i = 0; i < sm::kConfigSectionSpanCount; ++i) {
+    const sm::ConfigSectionSpan& s = sm::kConfigSectionSpans[i];
+    const uint32_t bit = 1u << static_cast<uint8_t>(s.id);
+    if ((mask & bit) == 0u) {
+      continue;
+    }
+    const uint8_t* src = reinterpret_cast<const uint8_t*>(&config.store) + s.byte_offset;
+    const char* key = sm::v2::sectionKey(s.id);
+    if (!sm::v2::saveSection(s.id, src, s.byte_size)) {
+      SM_LOG("v2 commit: sec=%s(%u) sz=%u FAILED — re-dirtying bit",
+             key ? key : "?", (unsigned)static_cast<uint8_t>(s.id), (unsigned)s.byte_size);
+      s_dirty_v2_mask |= bit;
+    } else {
+      SM_LOG("v2 commit: sec=%s(%u) sz=%u OK",
+             key ? key : "?", (unsigned)static_cast<uint8_t>(s.id), (unsigned)s.byte_size);
+    }
+  }
+#endif
+}
+#endif  // SM_V2_ENABLED
+
 static void runDebouncedCommitFromWorker() {
   if (!s_eeprom_mutex) {
     if (!s_ota_suspended) {
-      commitFullStoreUnderMutex();
+#if SM_V2_ENABLED && SM_DIAG_PERSIST
+      SM_LOG("worker commit class=%s mask=0x%x v1=%d",
+             sm_commitClass(s_dirty_v2_mask, s_dirty),
+             (unsigned)s_dirty_v2_mask, (int)s_dirty);
+#endif
+#if SM_V2_ENABLED
+      commitV2DirtySectionsUnderMutex();
+#endif
+      commitV1FullStoreUnderMutex();
     }
     return;
   }
@@ -98,7 +185,15 @@ static void runDebouncedCommitFromWorker() {
     return;
   }
   if (!s_ota_suspended) {
-    commitFullStoreUnderMutex();
+#if SM_V2_ENABLED && SM_DIAG_PERSIST
+    SM_LOG("worker commit class=%s mask=0x%x v1=%d",
+           sm_commitClass(s_dirty_v2_mask, s_dirty),
+           (unsigned)s_dirty_v2_mask, (int)s_dirty);
+#endif
+#if SM_V2_ENABLED
+    commitV2DirtySectionsUnderMutex();
+#endif
+    commitV1FullStoreUnderMutex();
   }
   xSemaphoreGive(s_eeprom_mutex);
 }
@@ -139,6 +234,9 @@ void init() {
   s_dirty = false;
   s_ota_suspended = false;
   s_batch_depth = 0;
+#if SM_V2_ENABLED
+  s_dirty_v2_mask = 0u;
+#endif
 
   s_eeprom_mutex = xSemaphoreCreateMutex();
   if (!s_eeprom_mutex) {
@@ -193,17 +291,72 @@ void init() {
          (int)ARDUINO_RUNNING_CORE, (unsigned)SM_DEBOUNCE_MS, (unsigned)EEPROM.length(),
          (unsigned)sizeof(config.store),
          (unsigned)(EEPROM_START + sizeof(config.store)));
+
+  // Boot-time v2 overlay / migration runs from `Config::init()` AFTER the legacy
+  // EEPROM blob has been loaded into `config.store` (and the magic-check /
+  // `setDefaults()` branch completed). Invoking it here would read/overwrite an
+  // empty `config.store`, and the subsequent `eepromRead()` in Config::init would
+  // clobber any overlay. See Config::init for the call site.
 }
 
 void onStoreWriteCompleted(bool commitRequested) {
 #if SM_DIAG_PERSIST
-  SM_LOG("owe commit=%d glitch_suspend=%d inited=%d", (int)commitRequested,
-         (int)DEBUG_GLITCH_SUSPEND_NVS_WRITES, (int)s_inited);
+  SM_LOG("owe commit=%d glitch_suspend=%d inited=%d v2_mask=0x%x v1_dirty=%d",
+         (int)commitRequested, (int)DEBUG_GLITCH_SUSPEND_NVS_WRITES, (int)s_inited,
+#if SM_V2_ENABLED
+         (unsigned)s_dirty_v2_mask,
+#else
+         0u,
+#endif
+         (int)s_dirty);
 #endif
 #if DEBUG_GLITCH_SUSPEND_NVS_WRITES
   (void)commitRequested;
   return;
 #endif
+
+#if SM_V2_ENABLED
+  // M3.1: under v2, this entry point is reached ONLY from the commit-only nudge
+  // in `Config::saveValue` (field unchanged, commit=true). The field-aware path
+  // (`onFieldWrittenV2`) has already dirtied the correct lane — v2 mask for
+  // HOT/META, or `s_dirty` as legacy-fallback for cold/out-of-store writes.
+  //
+  // Unconditionally setting `s_dirty = true` here (legacy v1 footgun fix) would
+  // promote every pure-HOT/META sequence into a MIXED commit — the trailing
+  // `saveValue(same_value, commit=true)` idiom would wake the v1 full-store
+  // writer on each and every such burst, regardless of whether any cold field
+  // was touched. That is the dominant source of "EEPROM.put+commit" noise seen
+  // alongside `ofv2 ...` on device.
+  //
+  // Correct v2 semantic: arm the debouncer for whatever is already dirty.
+  // If nothing is dirty, arming is still safe — both commit helpers early-return
+  // on a clean lane.
+  if (!commitRequested) {
+    return;
+  }
+  if (!s_inited || !s_debounce_timer) {
+    // Pre-init window: the value-changed path already handled its own fallback
+    // write; a bare nudge here has nothing to add. No EEPROM writes from a
+    // nudge pre-init (was a v1-only paranoia; not needed under v2).
+    return;
+  }
+  if (s_ota_suspended) {
+    SM_LOG("owe(v2 nudge): deferred (OTA suspend)");
+    return;
+  }
+  if (s_batch_depth > 0) {
+    SM_LOG("owe(v2 nudge): deferred (batch depth=%d)", s_batch_depth);
+    return;
+  }
+  if (!sm_anyDirty()) {
+    SM_LOG("owe(v2 nudge): clean — no arm");
+    return;
+  }
+  if (xTimerReset(s_debounce_timer, portMAX_DELAY) != pdPASS) {
+    SM_LOG("owe(v2 nudge): xTimerReset FAIL");
+  }
+  return;
+#else
   // valueChanged path sets s_dirty when RAM was updated; commit-only (unchanged field) may still
   // need to flush prior commit=false updates — treat commitRequested as "ensure NVS will catch up".
   s_dirty = true;
@@ -241,6 +394,7 @@ void onStoreWriteCompleted(bool commitRequested) {
   if (xTimerReset(s_debounce_timer, portMAX_DELAY) != pdPASS) {
     SM_LOG("owe: xTimerReset FAIL");
   }
+#endif  // SM_V2_ENABLED
 }
 
 void syncFullStoreNow() {
@@ -254,6 +408,10 @@ void syncFullStoreNow() {
     EEPROM.put(EEPROM_START, config.store);
     EEPROM.commit();
     s_dirty = false;
+#if SM_V2_ENABLED
+    sm::v2::refreshManagedSectionsFromStore();
+    s_dirty_v2_mask = 0u;
+#endif
     return;
   }
   if (xSemaphoreTake(s_eeprom_mutex, portMAX_DELAY) != pdTRUE) {
@@ -262,6 +420,13 @@ void syncFullStoreNow() {
   EEPROM.put(EEPROM_START, config.store);
   EEPROM.commit();
   s_dirty = false;
+#if SM_V2_ENABLED
+  // Keep v2 HOT/META blobs consistent with the freshly-written legacy snapshot,
+  // and (one-time) seed the full v2 layout + marker if this device hasn't
+  // migrated yet — required so boot-time overlay has something to load.
+  sm::v2::refreshManagedSectionsFromStore();
+  s_dirty_v2_mask = 0u;
+#endif
   xSemaphoreGive(s_eeprom_mutex);
 }
 
@@ -298,14 +463,25 @@ void flushSync() {
   if (s_debounce_timer && s_inited) {
     (void)xTimerStop(s_debounce_timer, portMAX_DELAY);
   }
+#if SM_V2_ENABLED && SM_DIAG_PERSIST
+  SM_LOG("flushSync class=%s mask=0x%x v1=%d",
+         sm_commitClass(s_dirty_v2_mask, s_dirty),
+         (unsigned)s_dirty_v2_mask, (int)s_dirty);
+#endif
   if (!s_eeprom_mutex) {
-    commitFullStoreUnderMutex();
+#if SM_V2_ENABLED
+    commitV2DirtySectionsUnderMutex();
+#endif
+    commitV1FullStoreUnderMutex();
     return;
   }
   if (xSemaphoreTake(s_eeprom_mutex, portMAX_DELAY) != pdTRUE) {
     return;
   }
-  commitFullStoreUnderMutex();
+#if SM_V2_ENABLED
+  commitV2DirtySectionsUnderMutex();
+#endif
+  commitV1FullStoreUnderMutex();
   xSemaphoreGive(s_eeprom_mutex);
 }
 
@@ -316,7 +492,7 @@ void flushAsync() {
   if (!s_inited || s_ota_suspended || !s_commit_queue) {
     return;
   }
-  if (s_dirty) {
+  if (sm_anyDirty()) {
     const uint32_t msg = kQueueMsgCommit;
     (void)xQueueSend(s_commit_queue, &msg, 0);
   }
@@ -332,7 +508,7 @@ void endBatch() {
     s_batch_depth = 0;
   }
 #if !DEBUG_GLITCH_SUSPEND_NVS_WRITES
-  if (s_batch_depth == 0 && s_dirty && !s_ota_suspended && s_debounce_timer && s_inited) {
+  if (s_batch_depth == 0 && sm_anyDirty() && !s_ota_suspended && s_debounce_timer && s_inited) {
     (void)xTimerReset(s_debounce_timer, portMAX_DELAY);
   }
 #endif
@@ -359,4 +535,398 @@ void systemRestart() {
   ESP.restart();
 }
 
+void onFieldWrittenV2(const void* field_ptr, size_t field_size, bool commit_requested) {
+#if !SM_V2_ENABLED
+  (void)field_ptr;
+  (void)field_size;
+  (void)commit_requested;
+  return;
+#else
+#if DEBUG_GLITCH_SUSPEND_NVS_WRITES
+  (void)field_ptr;
+  (void)field_size;
+  (void)commit_requested;
+  return;
+#endif
+
+  // ---- Section routing (M4c scope: HOT + META + TIME + WEATHER + AI through v2) ----
+  // Managed set is the single source of truth — `isV2ManagedSection`. Widening
+  // the cutover is a one-line change there plus a schema-version bump.
+  // Out-of-store pointers, unresolved sections, and still-cold sections
+  // (Tuning / Controls / Screensaver / Network) fall back to the legacy
+  // v1 full-store path by setting `s_dirty`.
+  bool managed_by_v2 = false;
+  bool in_store = false;
+  SectionId resolved_sid = SectionId::Count;
+  size_t resolved_off = 0;
+  if (field_ptr && field_size > 0) {
+    const uintptr_t store_base = reinterpret_cast<uintptr_t>(&config.store);
+    const uintptr_t p = reinterpret_cast<uintptr_t>(field_ptr);
+    if (p >= store_base && (p + field_size) <= (store_base + sizeof(config.store))) {
+      in_store = true;
+      resolved_off = static_cast<size_t>(p - store_base);
+      resolved_sid = section_id_for_store_offset(resolved_off);
+      if (resolved_sid != SectionId::Count && isV2ManagedSection(resolved_sid)) {
+        s_dirty_v2_mask |= (1u << static_cast<uint8_t>(resolved_sid));
+        managed_by_v2 = true;
+      }
+    }
+  }
+  if (!managed_by_v2) {
+    s_dirty = true;
+  }
+
+#if SM_DIAG_PERSIST
+  // M3.1 resolution log: name every write so mixed-mode noise is attributable.
+  {
+    const char* key = (resolved_sid != SectionId::Count) ? sm::v2::sectionKey(resolved_sid) : nullptr;
+    const unsigned sid_u = (unsigned)static_cast<uint8_t>(resolved_sid);
+    if (managed_by_v2) {
+      SM_LOG("ofv2: lane=v2     sec=%s(%u) off=%u sz=%u commit=%d -> mask=0x%x",
+             key ? key : "?", sid_u,
+             (unsigned)resolved_off, (unsigned)field_size,
+             (int)commit_requested, (unsigned)s_dirty_v2_mask);
+    } else if (in_store && resolved_sid != SectionId::Count) {
+      SM_LOG("ofv2: lane=v1(COLD) sec=%s(%u) off=%u sz=%u commit=%d -> s_dirty=1",
+             key ? key : "?", sid_u,
+             (unsigned)resolved_off, (unsigned)field_size,
+             (int)commit_requested);
+    } else {
+      SM_LOG("ofv2: lane=v1(OOB)  in_store=%d sec=(%u) fp=%p sz=%u commit=%d -> s_dirty=1",
+             (int)in_store, sid_u, field_ptr, (unsigned)field_size,
+             (int)commit_requested);
+    }
+  }
+#endif
+
+  // ---- Debounce / OTA / batch plumbing, mirrors onStoreWriteCompleted ----
+  if (!commit_requested) {
+    return;
+  }
+  if (!s_inited || !s_debounce_timer) {
+    // Pre-init window: worker task / timer not ready yet. Do a v1-immediate
+    // commit so the byte-level state lands in EEPROM before we return. The v2
+    // dirty bit (if set) is left intact; a later flush (or boot migration on
+    // the next boot) will fan it out into Preferences.
+    SM_LOG("ofv2: immediate put (no timer or not inited)");
+    if (s_eeprom_mutex) {
+      if (xSemaphoreTake(s_eeprom_mutex, portMAX_DELAY) == pdTRUE) {
+        EEPROM.put(EEPROM_START, config.store);
+        EEPROM.commit();
+        s_dirty = false;
+        smLogReadback("ofv2 immediate");
+        xSemaphoreGive(s_eeprom_mutex);
+      }
+    } else {
+      EEPROM.put(EEPROM_START, config.store);
+      EEPROM.commit();
+      s_dirty = false;
+      smLogReadback("ofv2 immediate");
+    }
+    return;
+  }
+  if (s_ota_suspended) {
+    SM_LOG("ofv2: commit deferred (OTA suspend)");
+    return;
+  }
+  if (s_batch_depth > 0) {
+    SM_LOG("ofv2: commit deferred (batch depth=%d)", s_batch_depth);
+    return;
+  }
+  if (xTimerReset(s_debounce_timer, portMAX_DELAY) != pdPASS) {
+    SM_LOG("ofv2: xTimerReset FAIL");
+  }
+#endif  // SM_V2_ENABLED
+}
+
+}  // namespace sm
+
+// ===========================================================================
+// SaveManager v2 — dark backend implementation (M2).
+// Separate NVS namespace, Preferences-backed per-section blobs, marker key.
+// No auto-invocation while SM_V2_ENABLED=0; v1 stays the active write path.
+// ===========================================================================
+
+namespace {
+
+// Preferences (NVS) namespace for v2 section blobs. Distinct from legacy EEPROM.
+// Keep ≤15 chars per ESP-IDF NVS limit.
+constexpr const char* kV2Namespace = "yo_sm_v2";
+
+// Marker key: presence + uint32 value = active v2 on-disk schema version.
+// Schema history:
+//   v1 (M2/M3/M3.1): runtime-managed sections = {Meta, Hot}.
+//   v2 (M4a):        runtime-managed sections = {Meta, Hot, Time}.
+//   v3 (M4b):        runtime-managed sections = {Meta, Hot, Time, Weather}.
+//   v4 (M4c):        runtime-managed sections = {Meta, Hot, Time, Weather, Ai}.
+//                    On a device previously at v1/v2/v3, the boot upgrade
+//                    path re-seeds Ai (and any earlier promotions) from the
+//                    legacy EEPROM snapshot. Reseed steps are additive — a
+//                    single boot can span multiple version jumps.
+constexpr const char* kV2MarkerKey = "v2m";
+constexpr uint32_t kV2SchemaVersion = 4u;
+
+// Legacy blob sentinel — `config.store.config_set` magic (see config.cpp / config.h).
+constexpr uint16_t kLegacyMagic = 4262u;
+
+// Per-section NVS blob key table. Order is not semantically tied to SectionId
+// enum order — lookup goes through sectionKey(). Keys kept ≤8 chars.
+struct SectionKeyEntry {
+  sm::SectionId id;
+  const char* key;
+};
+constexpr SectionKeyEntry kV2SectionKeys[] = {
+    {sm::SectionId::Meta,        "meta"},
+    {sm::SectionId::Hot,         "hot"},
+    {sm::SectionId::Time,        "time"},
+    {sm::SectionId::Weather,     "wx"},
+    {sm::SectionId::Tuning,      "tun"},
+    {sm::SectionId::Controls,    "ctrl"},
+    {sm::SectionId::Screensaver, "ss"},
+    {sm::SectionId::Network,     "net"},
+    {sm::SectionId::Ai,          "ai"},
+};
+static_assert(sizeof(kV2SectionKeys) / sizeof(kV2SectionKeys[0]) == sm::kSectionIdCount,
+              "v2 section key table must cover every SectionId");
+
+const sm::ConfigSectionSpan* spanForSection(sm::SectionId sid) {
+  for (size_t i = 0; i < sm::kConfigSectionSpanCount; ++i) {
+    if (sm::kConfigSectionSpans[i].id == sid) {
+      return &sm::kConfigSectionSpans[i];
+    }
+  }
+  return nullptr;
+}
+
+}  // namespace
+
+namespace sm {
+namespace v2 {
+
+const char* sectionKey(SectionId sid) {
+  for (const auto& e : kV2SectionKeys) {
+    if (e.id == sid) {
+      return e.key;
+    }
+  }
+  return nullptr;
+}
+
+bool hasMarker() {
+  Preferences p;
+  if (!p.begin(kV2Namespace, /*readOnly=*/true)) {
+    return false;
+  }
+  const bool present = p.isKey(kV2MarkerKey);
+  p.end();
+  return present;
+}
+
+bool writeMarker() {
+  Preferences p;
+  if (!p.begin(kV2Namespace, /*readOnly=*/false)) {
+    return false;
+  }
+  const size_t n = p.putUInt(kV2MarkerKey, kV2SchemaVersion);
+  p.end();
+  return n == sizeof(uint32_t);
+}
+
+namespace {
+// Read the on-disk marker value (schema version). Returns 0 if absent / failed,
+// which callers treat as "pre-v1, needs full migration" (same as hasMarker()==false).
+uint32_t readMarkerVersionImpl() {
+  Preferences p;
+  if (!p.begin(kV2Namespace, /*readOnly=*/true)) {
+    return 0u;
+  }
+  if (!p.isKey(kV2MarkerKey)) {
+    p.end();
+    return 0u;
+  }
+  const uint32_t v = p.getUInt(kV2MarkerKey, 0u);
+  p.end();
+  return v;
+}
+
+// Re-seed a single v2 section blob from the current `config.store`. Used by
+// the boot upgrade path to refresh sections that are becoming runtime-managed
+// for the first time on this device (their existing blob is stale migration
+// data, legacy EEPROM holds the fresh values we want to preserve).
+bool reseedSectionFromStoreImpl(sm::SectionId sid) {
+  const sm::ConfigSectionSpan* span = spanForSection(sid);
+  if (!span) {
+    return false;
+  }
+  const uint8_t* src = reinterpret_cast<const uint8_t*>(&config.store) + span->byte_offset;
+  return sm::v2::saveSection(sid, src, span->byte_size);
+}
+}  // namespace
+
+bool loadSection(SectionId sid, void* dst, size_t expected_size) {
+  const char* key = sectionKey(sid);
+  if (!key || !dst || expected_size == 0) {
+    return false;
+  }
+  Preferences p;
+  if (!p.begin(kV2Namespace, /*readOnly=*/true)) {
+    return false;
+  }
+  const size_t stored = p.getBytesLength(key);
+  if (stored != expected_size) {
+    p.end();
+    return false;
+  }
+  const size_t n = p.getBytes(key, dst, expected_size);
+  p.end();
+  return n == expected_size;
+}
+
+bool saveSection(SectionId sid, const void* src, size_t size) {
+  const char* key = sectionKey(sid);
+  if (!key || !src || size == 0) {
+    return false;
+  }
+  Preferences p;
+  if (!p.begin(kV2Namespace, /*readOnly=*/false)) {
+    return false;
+  }
+  const size_t n = p.putBytes(key, src, size);
+  p.end();
+  return n == size;
+}
+
+bool loadStoreFromSections() {
+  for (size_t i = 0; i < kConfigSectionSpanCount; ++i) {
+    const ConfigSectionSpan& s = kConfigSectionSpans[i];
+    uint8_t* dst = reinterpret_cast<uint8_t*>(&config.store) + s.byte_offset;
+    if (!loadSection(s.id, dst, s.byte_size)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool migrateFromLegacyStore() {
+  // Fan out `config.store` section-by-section. Intentionally write marker LAST
+  // so a mid-migration crash leaves the device in legacy mode (marker absent →
+  // next boot retries). Partial section blobs on crash are harmless: they will
+  // be overwritten on retry before the marker is set.
+  for (size_t i = 0; i < kConfigSectionSpanCount; ++i) {
+    const ConfigSectionSpan& s = kConfigSectionSpans[i];
+    const uint8_t* src = reinterpret_cast<const uint8_t*>(&config.store) + s.byte_offset;
+    if (!saveSection(s.id, src, s.byte_size)) {
+      return false;
+    }
+  }
+  return writeMarker();
+}
+
+void runBootMigrationIfNeeded() {
+  // Contract: caller (Config::init) has already populated `config.store` from
+  // the legacy EEPROM blob AND executed the `setDefaults()` branch if needed.
+  // This orchestrator only decides which snapshot wins for the currently
+  // v2-managed sections. Cold sections remain sourced from legacy EEPROM /
+  // defaults.
+
+  if (hasMarker()) {
+    // --- M4a upgrade path ------------------------------------------------
+    // A device at an older schema has v2 blobs only for whatever sections
+    // were RUNTIME-AUTHORITATIVE at that schema. Sections that got promoted
+    // between then and now carry STALE blobs (migration-time snapshot), while
+    // legacy EEPROM holds the fresh bytes (cold writes went through v1).
+    // Before overlay, re-seed the newly-promoted sections from `config.store`
+    // (= legacy EEPROM snapshot) so post-migration user data survives.
+    const uint32_t stored_ver = readMarkerVersionImpl();
+    if (stored_ver < kV2SchemaVersion) {
+      SM_LOG("v2: schema upgrade %u -> %u", (unsigned)stored_ver, (unsigned)kV2SchemaVersion);
+      // Reseed steps are additive: a device at v=1 needs BOTH the v1->v2 and
+      // v2->v3 reseeds on the same boot. Keep each step as an independent
+      // `if (stored_ver < N)` so adding a new milestone is a one-line append.
+      if (stored_ver < 2u) {
+        // v1 -> v2 (M4a): Time was promoted to runtime-authoritative.
+        if (reseedSectionFromStoreImpl(SectionId::Time)) {
+          SM_LOG("v2 upgrade: reseeded sec=time(2) from legacy EEPROM snapshot");
+        } else {
+          SM_LOG("v2 upgrade: reseed sec=time(2) FAILED — will degrade to stale overlay");
+        }
+      }
+      if (stored_ver < 3u) {
+        // v2 -> v3 (M4b): Weather was promoted to runtime-authoritative.
+        if (reseedSectionFromStoreImpl(SectionId::Weather)) {
+          SM_LOG("v2 upgrade: reseeded sec=wx(3) from legacy EEPROM snapshot");
+        } else {
+          SM_LOG("v2 upgrade: reseed sec=wx(3) FAILED — will degrade to stale overlay");
+        }
+      }
+      if (stored_ver < 4u) {
+        // v3 -> v4 (M4c): Ai was promoted to runtime-authoritative.
+        if (reseedSectionFromStoreImpl(SectionId::Ai)) {
+          SM_LOG("v2 upgrade: reseeded sec=ai(8) from legacy EEPROM snapshot");
+        } else {
+          SM_LOG("v2 upgrade: reseed sec=ai(8) FAILED — will degrade to stale overlay");
+        }
+      }
+      // Add future schema steps ABOVE in ascending order.
+      if (!writeMarker()) {
+        SM_LOG("v2 upgrade: writeMarker FAILED — upgrade will retry on next boot");
+      }
+    }
+
+    // --- Overlay v2-managed sections onto config.store -------------------
+    // Size-mismatch / missing-blob policy: on any per-section load failure we
+    // keep whatever bytes were already in `config.store` (legacy EEPROM or
+    // defaults). This is the safe, reversible choice — a bad blob just
+    // degrades to v1 for that field.
+    for (size_t i = 0; i < kConfigSectionSpanCount; ++i) {
+      const ConfigSectionSpan& s = kConfigSectionSpans[i];
+      if (!isV2ManagedSection(s.id)) {
+        continue;
+      }
+      uint8_t* dst = reinterpret_cast<uint8_t*>(&config.store) + s.byte_offset;
+      if (!loadSection(s.id, dst, s.byte_size)) {
+        SM_LOG("v2 overlay: sec=%s(%u) size=%u load failed — keeping legacy bytes",
+               sectionKey(s.id) ? sectionKey(s.id) : "?",
+               (unsigned)static_cast<uint8_t>(s.id), (unsigned)s.byte_size);
+      } else {
+        SM_LOG("v2 overlay: sec=%s(%u) size=%u OK",
+               sectionKey(s.id) ? sectionKey(s.id) : "?",
+               (unsigned)static_cast<uint8_t>(s.id), (unsigned)s.byte_size);
+      }
+    }
+    return;
+  }
+
+  // No marker yet. Only migrate when the legacy blob actually carries the magic;
+  // otherwise this is a fresh device / factory reset and Config::setDefaults
+  // will populate `config.store` — migration will run on a later boot.
+  if (config.store.config_set != kLegacyMagic) {
+    return;
+  }
+
+  if (!migrateFromLegacyStore()) {
+    SM_LOG("v2: migrateFromLegacyStore failed — marker NOT written, staying on legacy");
+  }
+}
+
+void refreshManagedSectionsFromStore() {
+  // Called from `sm::syncFullStoreNow()` (factory reset / setDefaults path).
+  // If the marker is absent, seed the full layout once so future boots can
+  // overlay HOT+META via `runBootMigrationIfNeeded`. Otherwise just refresh
+  // the M3-managed sections so v2 blobs stay consistent with current RAM.
+  if (!hasMarker()) {
+    (void)migrateFromLegacyStore();
+    return;
+  }
+  for (size_t i = 0; i < kConfigSectionSpanCount; ++i) {
+    const ConfigSectionSpan& s = kConfigSectionSpans[i];
+    if (!isV2ManagedSection(s.id)) {
+      continue;
+    }
+    const uint8_t* src = reinterpret_cast<const uint8_t*>(&config.store) + s.byte_offset;
+    (void)saveSection(s.id, src, s.byte_size);
+  }
+}
+
+}  // namespace v2
 }  // namespace sm

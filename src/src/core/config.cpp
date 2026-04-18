@@ -1,4 +1,5 @@
 #include "config.h"
+#include "save_manager_sections.h"  // M3: sm::v2::runBootMigrationIfNeeded() declaration
 
 //#include <LittleFS.h>  // Migrated to LittleFS (Stage 1)
 #include "display.h"
@@ -245,6 +246,20 @@ void Config::init() {
   if (store.config_set != 4262) {
     setDefaults();
   }
+#if SM_V2_ENABLED
+  // M3: HOT + META v2 overlay.
+  // Runs after the legacy EEPROM read and the magic/setDefaults branch so that:
+  //  - when the marker is present, v2 wins for HOT+META (sections authoritative
+  //    at this milestone) while cold sections stay on the legacy snapshot;
+  //  - when the marker is absent and legacy is valid, it seeds all v2 blobs +
+  //    marker so future boots can overlay;
+  //  - when legacy was invalid and setDefaults ran, sm::syncFullStoreNow (called
+  //    from setDefaults) already populated v2 blobs + marker; this call is a
+  //    no-op overlay from those very blobs onto the defaults-filled store.
+  // The version migration `_setupVersion()` below therefore observes the
+  // authoritative `store.version` (carried inside the META section).
+  sm::v2::runBootMigrationIfNeeded();
+#endif
   if(store.version>CONFIG_VERSION) store.version=1;
   while(store.version!=CONFIG_VERSION) _setupVersion();
   BOOTLOG("CONFIG_VERSION\t%d", store.version);

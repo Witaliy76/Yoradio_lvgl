@@ -19,6 +19,10 @@ void init();
 /// to schedule an NVS flush after a commit=false / commit=true pair (see config.h saveValue).
 void onStoreWriteCompleted(bool commitRequested);
 
+/// SaveManager v2 (M1 stub): field-level intent hook. `SM_V2_ENABLED` defaults to 0 — no persistence side effects.
+/// When enabled in a later milestone, maps `field_ptr` to a `config_t` section for granular dirty tracking.
+void onFieldWrittenV2(const void* field_ptr, size_t field_size, bool commit_requested);
+
 /// Synchronous full `config_t` write + NVS commit (factory reset / setDefaults). Bypasses debounce queue.
 void syncFullStoreNow();
 

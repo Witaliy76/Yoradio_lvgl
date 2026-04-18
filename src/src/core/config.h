@@ -18,7 +18,7 @@
 
 /* Emulated EEPROM blob size (NVS). Must be >= EEPROM_START + sizeof(config_t): Arduino-ESP32
  * EEPROM.put skips memcpy entirely when address+sizeof(value) exceeds this → silent no persistence. */
-#define EEPROM_SIZE       2048
+#define EEPROM_SIZE       896
 #define EEPROM_START      500
 #define EEPROM_START_IR   0
 #define EEPROM_START_2    10
@@ -287,6 +287,8 @@ class Config {
     void saveValue(T *field, const T &value, bool commit=true, bool force=false){
       // If this field is unchanged, still notify SaveManager when commit=true so a pending flush
       // from an earlier commit=false write in the same pair cannot be skipped (legacy footgun).
+      // Commit-only nudges keep using the v1 entry point — they carry no field identity and must
+      // conservatively arm the debouncer for whatever is already dirty (v2 mask or v1 `s_dirty`).
       if(*field == value && !force) {
         if (commit) {
           sm::onStoreWriteCompleted(true);
@@ -298,7 +300,13 @@ class Config {
       (void)commit;
       return;
 #endif
+#if SM_V2_ENABLED
+      // M3: route through the field-aware path so HOT+META writes go to per-section
+      // blobs and cold sections keep falling back to the legacy v1 writer.
+      sm::onFieldWrittenV2(field, sizeof(*field), commit);
+#else
       sm::onStoreWriteCompleted(commit);
+#endif
     }
     void saveValue(char *field, const char *value, size_t N, bool commit=true, bool force=false) {
       if (strcmp(field, value) == 0 && !force) {
@@ -313,7 +321,14 @@ class Config {
       (void)commit;
       return;
 #endif
+#if SM_V2_ENABLED
+      // Use `N` (declared buffer length), not strlen — sections are identified by
+      // offset, and the bounds check in onFieldWrittenV2 validates against the
+      // field's declared footprint.
+      sm::onFieldWrittenV2(field, N, commit);
+#else
       sm::onStoreWriteCompleted(commit);
+#endif
     }
     uint32_t getChipId(){
       uint32_t chipId = 0;

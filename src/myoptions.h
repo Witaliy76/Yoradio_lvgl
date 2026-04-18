@@ -16,7 +16,7 @@
 
 /* 1 = concise Serial traces for SaveManager (init, owe, timer, worker, EEPROM commit + readback). Revert to 0 after diagnosis. */
 #define SM_DIAG_PERSIST 1
-
+#define SM_V2_ENABLED 1
 /* Audio library debug level / Уровень отладки аудиобиблиотеки */
 /* 0=no debug, 1=error, 2=warn, 3=info, 4=debug, 5=verbose */
 #define CORE_DEBUG_LEVEL 0
