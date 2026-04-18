@@ -11,11 +11,6 @@
 #include "rtcsupport.h"
 #include "../pluginsManager/pluginsManager.h"
 
-// Default OFF. Enable in myoptions.h for anti_glitch T1.3 diagnostic only (suppress EEPROM, not SaveManager).
-#ifndef DEBUG_GLITCH_SUSPEND_NVS_WRITES
-#define DEBUG_GLITCH_SUSPEND_NVS_WRITES 0
-#endif
-
 /* Emulated EEPROM blob size (NVS). Must be >= EEPROM_START + sizeof(config_t): Arduino-ESP32
  * EEPROM.put skips memcpy entirely when address+sizeof(value) exceeds this → silent no persistence. */
 #define EEPROM_SIZE       896
