@@ -219,6 +219,7 @@ bool aiGetRuntimeConfig(AIConfig& out) {
 
 void Config::init() {
   EEPROM.begin(EEPROM_SIZE);
+  sm::init();
   sdResumePos = 0;
   screensaverTicks = 0;
   screensaverPlayingTicks = 0;
@@ -564,20 +565,6 @@ void Config::loadTheme(){
   #include "../displays/tools/tftinverttitle.h"
 }
 
-template <class T> int Config::eepromWrite(int ee, const T& value) {
-#if DEBUG_GLITCH_SUSPEND_NVS_WRITES
-  (void)ee;
-  (void)value;
-  return (int)sizeof(T);
-#endif
-  const uint8_t* p = (const uint8_t*)(const void*)&value;
-  int i;
-  for (i = 0; i < sizeof(value); i++)
-    EEPROM.write(ee++, *p++);
-  EEPROM.commit();
-  return i;
-}
-
 template <class T> int Config::eepromRead(int ee, T& value) {
   uint8_t* p = (uint8_t*)(void*)&value;
   int i;;
@@ -589,7 +576,7 @@ template <class T> int Config::eepromRead(int ee, T& value) {
 void Config::reset(){
   setDefaults();
   delay(500);
-  ESP.restart();
+  sm::systemRestart();
 }
 
 void Config::setDefaults() {
@@ -662,7 +649,7 @@ void Config::setDefaults() {
   // Runtime config will be applied in Config::init() after store is loaded
   // Runtime config будет применена в Config::init() после загрузки store
   
-  eepromWrite(EEPROM_START, store);
+  sm::syncFullStoreNow();
 }
 void Config::setTimezone(int8_t tzh, int8_t tzm) {
   saveValue(&store.tzHour, tzh, false);
@@ -684,7 +671,7 @@ void Config::setSnuffle(bool sn){
 
 #if IR_PIN!=255
 void Config::saveIR(){
-  eepromWrite(EEPROM_START_IR, ircodes);
+  sm::syncIrBlobNow(&ircodes, sizeof(ircodes), EEPROM_START_IR);
 }
 #endif
 
@@ -693,7 +680,7 @@ void Config::saveVolume(){
 }
 
 uint8_t Config::setVolume(uint8_t val) {
-  store.volume = val;
+  saveValue(&store.volume, val);
   display.putRequest(DRAWVOL);
   netserver.requestOnChange(VOLUME, 0);
   return store.volume;
