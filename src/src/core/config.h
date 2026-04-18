@@ -11,11 +11,6 @@
 #include "rtcsupport.h"
 #include "../pluginsManager/pluginsManager.h"
 
-// Default OFF. Enable in myoptions.h for anti_glitch T1.3 diagnostic only (suppress EEPROM, not SaveManager).
-#ifndef DEBUG_GLITCH_SUSPEND_NVS_WRITES
-#define DEBUG_GLITCH_SUSPEND_NVS_WRITES 0
-#endif
-
 /* Emulated EEPROM blob size (NVS). Must be >= EEPROM_START + sizeof(config_t): Arduino-ESP32
  * EEPROM.put skips memcpy entirely when address+sizeof(value) exceeds this → silent no persistence. */
 #define EEPROM_SIZE       896
@@ -177,6 +172,8 @@ static_assert(EEPROM_START + sizeof(config_t) <= EEPROM_SIZE,
               "EEPROM_SIZE too small: EEPROM.put(EEPROM_START, config_t) is a no-op on ESP32");
 #endif
 
+#include "save_manager_sections.h"
+
 #if IR_PIN!=255
 struct ircodes_t
 {
@@ -296,10 +293,6 @@ class Config {
         return;
       }
       *field = value;
-#if DEBUG_GLITCH_SUSPEND_NVS_WRITES
-      (void)commit;
-      return;
-#endif
 #if SM_V2_ENABLED
       // M3: route through the field-aware path so HOT+META writes go to per-section
       // blobs and cold sections keep falling back to the legacy v1 writer.
@@ -316,11 +309,6 @@ class Config {
         return;
       }
       strlcpy(field, value, N);
-#if DEBUG_GLITCH_SUSPEND_NVS_WRITES
-      (void)N;
-      (void)commit;
-      return;
-#endif
 #if SM_V2_ENABLED
       // Use `N` (declared buffer length), not strlen — sections are identified by
       // offset, and the bounds check in onFieldWrittenV2 validates against the

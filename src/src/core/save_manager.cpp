@@ -1,11 +1,17 @@
 /**
- * SaveManager Phase 1 — debounced full-store NVS commits, OTA suspend/resume, flush/restart helpers.
- * Config remains the public facade; this file is the internal engine only.
+ * @file save_manager.cpp
+ * @brief YoRadio SaveManager implementation: debounced worker, v1/v2 NVS persistence, boot migration,
+ *        OTA suspend/resume, flush/restart. `Config` is the public facade; `sm::*` is internal.
  *
- * Design:
- * - FreeRTOS one-shot debounce timer (SM_DEBOUNCE_MS): each commit=true save resets it; on expiry it
- *   queues a commit request to a low-priority worker task (not the timer service task).
- * - Worker performs EEPROM.put(EEPROM_START, config.store) + EEPROM.commit() under a mutex.
+ * @author https://github.com/Witaliy76
+ * @license MIT License v1.0, dated 18/04/2026
+ *
+ * Design summary:
+ * - FreeRTOS one-shot debounce (SM_DEBOUNCE_MS) + worker queue serializes commits.
+ * - SM_V2_ENABLED=0: worker writes full `config_t` via EEPROM.put+commit (legacy v1).
+ * - SM_V2_ENABLED=1 (M5): debounced path writes **v2 Preferences blobs only** for `config_t`;
+ *   legacy EEPROM is still **read** at boot for migration/downgrade; **written** on explicit
+ *   `syncFullStoreNow()` and rare OOB `s_dirty` hatch (see in-file M5 comments).
  * - RAM is source of truth between commits; no per-field EEPROM.put before flush.
  */
 #include "config.h"
@@ -20,6 +26,7 @@
 #include <freertos/timers.h>
 #include <freertos/queue.h>
 
+/* Optional: set SM_DIAG_PERSIST=1 (e.g. build flag) for brief `[sm]` Serial traces. Default 0. */
 #ifndef SM_DIAG_PERSIST
 #define SM_DIAG_PERSIST 0
 #endif
@@ -62,7 +69,9 @@ static TimerHandle_t s_debounce_timer;
 static QueueHandle_t s_commit_queue;
 static TaskHandle_t s_worker_handle;
 static bool s_inited;
-static volatile bool s_dirty;            // legacy / v1 full-store dirty flag (cold sections in M3)
+// M5+SM_V2: set only for out-of-store / unresolved writes (no v2 section). Debounced worker
+// does not consume this flag; flushSync + ofv2 pre-init may run a one-shot EEPROM hatch.
+static volatile bool s_dirty;
 static volatile bool s_ota_suspended;
 static int s_batch_depth;
 #if SM_V2_ENABLED
@@ -98,10 +107,10 @@ static const char* sm_commitClass(uint32_t v2_mask, bool v1_dirty) {
 }
 #endif
 
+// Full-store EEPROM mirror for `config_t`. Under SM_V2_ENABLED (M5), **not** invoked from the
+// debounced worker — only from explicit syncFullStoreNow(), legacy SM_V2=0 builds, and OOB hatch
+// paths when `s_dirty` is set.
 static void commitV1FullStoreUnderMutex() {
-#if DEBUG_GLITCH_SUSPEND_NVS_WRITES
-  return;
-#else
   if (!s_dirty) {
     return;
   }
@@ -114,7 +123,6 @@ static void commitV1FullStoreUnderMutex() {
   s_dirty = false;
   SM_LOG("EEPROM.put+commit end");
   smLogReadback("commit");
-#endif
 }
 
 #if SM_V2_ENABLED
@@ -131,9 +139,6 @@ void refreshManagedSectionsFromStore();
 }  // namespace sm
 
 static void commitV2DirtySectionsUnderMutex() {
-#if DEBUG_GLITCH_SUSPEND_NVS_WRITES
-  return;
-#else
   if (s_dirty_v2_mask == 0u) {
     return;
   }
@@ -162,7 +167,6 @@ static void commitV2DirtySectionsUnderMutex() {
              key ? key : "?", (unsigned)static_cast<uint8_t>(s.id), (unsigned)s.byte_size);
     }
   }
-#endif
 }
 #endif  // SM_V2_ENABLED
 
@@ -176,8 +180,13 @@ static void runDebouncedCommitFromWorker() {
 #endif
 #if SM_V2_ENABLED
       commitV2DirtySectionsUnderMutex();
-#endif
+      if (s_dirty) {
+        SM_LOG("worker(M5): s_dirty — OOB hatch EEPROM.put+commit");
+        commitV1FullStoreUnderMutex();
+      }
+#else
       commitV1FullStoreUnderMutex();
+#endif
     }
     return;
   }
@@ -192,8 +201,13 @@ static void runDebouncedCommitFromWorker() {
 #endif
 #if SM_V2_ENABLED
     commitV2DirtySectionsUnderMutex();
-#endif
+    if (s_dirty) {
+      SM_LOG("worker(M5): s_dirty — OOB hatch EEPROM.put+commit");
+      commitV1FullStoreUnderMutex();
+    }
+#else
     commitV1FullStoreUnderMutex();
+#endif
   }
   xSemaphoreGive(s_eeprom_mutex);
 }
@@ -301,18 +315,14 @@ void init() {
 
 void onStoreWriteCompleted(bool commitRequested) {
 #if SM_DIAG_PERSIST
-  SM_LOG("owe commit=%d glitch_suspend=%d inited=%d v2_mask=0x%x v1_dirty=%d",
-         (int)commitRequested, (int)DEBUG_GLITCH_SUSPEND_NVS_WRITES, (int)s_inited,
+  SM_LOG("owe commit=%d inited=%d v2_mask=0x%x v1_dirty=%d",
+         (int)commitRequested, (int)s_inited,
 #if SM_V2_ENABLED
          (unsigned)s_dirty_v2_mask,
 #else
          0u,
 #endif
          (int)s_dirty);
-#endif
-#if DEBUG_GLITCH_SUSPEND_NVS_WRITES
-  (void)commitRequested;
-  return;
 #endif
 
 #if SM_V2_ENABLED
@@ -364,7 +374,6 @@ void onStoreWriteCompleted(bool commitRequested) {
     return;
   }
   if (!s_inited || !s_debounce_timer) {
-#if !DEBUG_GLITCH_SUSPEND_NVS_WRITES
     SM_LOG("owe: immediate put (no timer or not inited)");
     if (s_eeprom_mutex) {
       if (xSemaphoreTake(s_eeprom_mutex, portMAX_DELAY) == pdTRUE) {
@@ -380,7 +389,6 @@ void onStoreWriteCompleted(bool commitRequested) {
       s_dirty = false;
       smLogReadback("immediate");
     }
-#endif
     return;
   }
   if (s_ota_suspended) {
@@ -398,9 +406,8 @@ void onStoreWriteCompleted(bool commitRequested) {
 }
 
 void syncFullStoreNow() {
-#if DEBUG_GLITCH_SUSPEND_NVS_WRITES
-  return;
-#endif
+  // M5 (SM_V2_ENABLED): **explicit** legacy EEPROM mirror + v2 blob refresh — factory reset,
+  // setDefaults, version migration, and downgrade safety. Not used on the debounced hot path.
   if (s_debounce_timer && s_inited) {
     (void)xTimerStop(s_debounce_timer, portMAX_DELAY);
   }
@@ -431,12 +438,6 @@ void syncFullStoreNow() {
 }
 
 void syncIrBlobNow(const void* data, size_t len, int eepromOffset) {
-#if DEBUG_GLITCH_SUSPEND_NVS_WRITES
-  (void)data;
-  (void)len;
-  (void)eepromOffset;
-  return;
-#endif
   if (!s_eeprom_mutex) {
     const uint8_t* p = static_cast<const uint8_t*>(data);
     for (size_t i = 0; i < len; i++) {
@@ -457,9 +458,6 @@ void syncIrBlobNow(const void* data, size_t len, int eepromOffset) {
 }
 
 void flushSync() {
-#if DEBUG_GLITCH_SUSPEND_NVS_WRITES
-  return;
-#endif
   if (s_debounce_timer && s_inited) {
     (void)xTimerStop(s_debounce_timer, portMAX_DELAY);
   }
@@ -471,8 +469,13 @@ void flushSync() {
   if (!s_eeprom_mutex) {
 #if SM_V2_ENABLED
     commitV2DirtySectionsUnderMutex();
-#endif
+    if (s_dirty) {
+      SM_LOG("flushSync(M5): s_dirty — OOB hatch EEPROM.put+commit");
+      commitV1FullStoreUnderMutex();
+    }
+#else
     commitV1FullStoreUnderMutex();
+#endif
     return;
   }
   if (xSemaphoreTake(s_eeprom_mutex, portMAX_DELAY) != pdTRUE) {
@@ -480,15 +483,17 @@ void flushSync() {
   }
 #if SM_V2_ENABLED
   commitV2DirtySectionsUnderMutex();
-#endif
+  if (s_dirty) {
+    SM_LOG("flushSync(M5): s_dirty — OOB hatch EEPROM.put+commit");
+    commitV1FullStoreUnderMutex();
+  }
+#else
   commitV1FullStoreUnderMutex();
+#endif
   xSemaphoreGive(s_eeprom_mutex);
 }
 
 void flushAsync() {
-#if DEBUG_GLITCH_SUSPEND_NVS_WRITES
-  return;
-#endif
   if (!s_inited || s_ota_suspended || !s_commit_queue) {
     return;
   }
@@ -507,11 +512,9 @@ void endBatch() {
   if (s_batch_depth < 0) {
     s_batch_depth = 0;
   }
-#if !DEBUG_GLITCH_SUSPEND_NVS_WRITES
   if (s_batch_depth == 0 && sm_anyDirty() && !s_ota_suspended && s_debounce_timer && s_inited) {
     (void)xTimerReset(s_debounce_timer, portMAX_DELAY);
   }
-#endif
 }
 
 void suspendForOta() {
@@ -542,12 +545,6 @@ void onFieldWrittenV2(const void* field_ptr, size_t field_size, bool commit_requ
   (void)commit_requested;
   return;
 #else
-#if DEBUG_GLITCH_SUSPEND_NVS_WRITES
-  (void)field_ptr;
-  (void)field_size;
-  (void)commit_requested;
-  return;
-#endif
 
   // ---- Section routing (M4d: entire `config_t` via v2; IR stays separate) ----
   // Managed set is the single source of truth — `isV2ManagedSection`. Widening
@@ -603,24 +600,26 @@ void onFieldWrittenV2(const void* field_ptr, size_t field_size, bool commit_requ
     return;
   }
   if (!s_inited || !s_debounce_timer) {
-    // Pre-init window: worker task / timer not ready yet. Do a v1-immediate
-    // commit so the byte-level state lands in EEPROM before we return. The v2
-    // dirty bit (if set) is left intact; a later flush (or boot migration on
-    // the next boot) will fan it out into Preferences.
-    SM_LOG("ofv2: immediate put (no timer or not inited)");
+    // Pre-init window (M5): flush dirty v2 blobs synchronously; legacy EEPROM only
+    // if `s_dirty` (OOB / non-store path) — same hatch policy as flushSync().
+    SM_LOG("ofv2: immediate flush (no timer or not inited) — M5 v2 + optional legacy hatch");
     if (s_eeprom_mutex) {
       if (xSemaphoreTake(s_eeprom_mutex, portMAX_DELAY) == pdTRUE) {
-        EEPROM.put(EEPROM_START, config.store);
-        EEPROM.commit();
-        s_dirty = false;
-        smLogReadback("ofv2 immediate");
+        commitV2DirtySectionsUnderMutex();
+        if (s_dirty) {
+          SM_LOG("ofv2 immediate(M5): s_dirty — OOB hatch EEPROM.put+commit");
+          commitV1FullStoreUnderMutex();
+        } else {
+          SM_LOG("ofv2 immediate(M5): v2-only, no legacy mirror");
+        }
         xSemaphoreGive(s_eeprom_mutex);
       }
     } else {
-      EEPROM.put(EEPROM_START, config.store);
-      EEPROM.commit();
-      s_dirty = false;
-      smLogReadback("ofv2 immediate");
+      commitV2DirtySectionsUnderMutex();
+      if (s_dirty) {
+        SM_LOG("ofv2 immediate(M5): s_dirty — OOB hatch (no mutex)");
+        commitV1FullStoreUnderMutex();
+      }
     }
     return;
   }
@@ -641,9 +640,8 @@ void onFieldWrittenV2(const void* field_ptr, size_t field_size, bool commit_requ
 }  // namespace sm
 
 // ===========================================================================
-// SaveManager v2 — dark backend implementation (M2).
-// Separate NVS namespace, Preferences-backed per-section blobs, marker key.
-// No auto-invocation while SM_V2_ENABLED=0; v1 stays the active write path.
+// SaveManager v2 — Preferences-backed per-section blobs + marker (implementation).
+// When SM_V2_ENABLED=0, debounced runtime uses legacy EEPROM full-store only.
 // ===========================================================================
 
 namespace {
@@ -827,9 +825,10 @@ bool migrateFromLegacyStore() {
 void runBootMigrationIfNeeded() {
   // Contract: caller (Config::init) has already populated `config.store` from
   // the legacy EEPROM blob AND executed the `setDefaults()` branch if needed.
-  // This orchestrator only decides which snapshot wins for the currently
-  // v2-managed sections. Cold sections remain sourced from legacy EEPROM /
-  // defaults.
+  // M5: at runtime, debounced writes do not mirror `config_t` back to EEPROM;
+  // this boot read is still the **legacy migration / downgrade snapshot** before
+  // v2 overlay. If a section blob is missing or wrong-sized, overlay skips it and
+  // RAM keeps the EEPROM-backed bytes for that span.
 
   if (hasMarker()) {
     // --- M4a upgrade path ------------------------------------------------

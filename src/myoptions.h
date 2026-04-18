@@ -11,12 +11,6 @@
 #ifndef myoptions_h
 #define myoptions_h
 
-/* 0 = normal NVS persistence (default). 1 = suppress EEPROM.put/commit in Config::saveValue/eepromWrite for local T1.3-style diagnosis only. anti_glitch diagnostic branch closed with 0. */
-#define DEBUG_GLITCH_SUSPEND_NVS_WRITES 0
-
-/* 1 = concise Serial traces for SaveManager (init, owe, timer, worker, EEPROM commit + readback). Revert to 0 after diagnosis. */
-#define SM_DIAG_PERSIST 1
-#define SM_V2_ENABLED 1
 /* Audio library debug level / Уровень отладки аудиобиблиотеки */
 /* 0=no debug, 1=error, 2=warn, 3=info, 4=debug, 5=verbose */
 #define CORE_DEBUG_LEVEL 0

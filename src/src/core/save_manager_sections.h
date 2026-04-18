@@ -1,12 +1,10 @@
 /**
- * SaveManager v2 — M1/M2 compile-time section map + dark backend API over `config_t`.
- * Physical spans tile `config_t` with no gaps; logical SectionId tags each span.
- * Include only in TUs after `config_t` is defined (e.g. save_manager.cpp after config.h).
+ * @file save_manager_sections.h
+ * @brief YoRadio SaveManager v2 — compile-time `config_t` section map (`SectionId`, spans, `isV2ManagedSection`)
+ *        and declarations for the Preferences-backed `sm::v2::*` API. Include only after complete `struct config_t`.
  *
- * M1: metadata only. `SM_V2_ENABLED` defaults to 0.
- * M2: Preferences-backed per-section storage + legacy→v2 migration. Dark by default:
- *     while `SM_V2_ENABLED=0`, no auto-calls are made, active write path stays v1.
- *     Callers can still invoke the v2 primitives directly (tests / future cutover).
+ * @author https://github.com/Witaliy76
+ * @license MIT License v1.0, dated 18/04/2026
  */
 #ifndef SAVE_MANAGER_SECTIONS_H
 #define SAVE_MANAGER_SECTIONS_H
@@ -14,11 +12,12 @@
 #include <cstddef>
 #include <cstdint>
 
+/* Production persistence uses v2 (per-section Preferences + boot overlay). Set to 0 only for
+ * a legacy v1-only build (e.g. `-DSM_V2_ENABLED=0` or `#define SM_V2_ENABLED 0` before this
+ * header in a bring-up TU). Not a user-facing runtime switch. */
 #ifndef SM_V2_ENABLED
-#define SM_V2_ENABLED 0
+#define SM_V2_ENABLED 1
 #endif
-
-/* Requires complete `config_t` (include this header only after config.h in the TU). */
 
 namespace sm {
 
@@ -145,18 +144,12 @@ inline SectionId section_id_for_store_offset(size_t offset) {
 }
 
 /**
- * v2 dark backend (M2). Preferences-backed per-section persistence.
+ * v2 backend: Preferences-backed per-section persistence (separate NVS namespace).
  *
- * Layout:
- *  - One NVS namespace (see kV2Namespace in save_manager.cpp), distinct from legacy EEPROM blob.
- *  - One blob key per section (see kV2SectionKeys in save_manager.cpp).
- *  - One marker key (see kV2MarkerKey) stores the active v2 schema version.
+ * Layout: kV2Namespace, one blob key per section (save_manager.cpp), marker key for schema.
  *
- * Semantics:
- *  - All primitives are safe to call regardless of `SM_V2_ENABLED`. They operate on a
- *    separate NVS namespace and do NOT touch the legacy EEPROM blob / v1 writer.
- *  - `SM_V2_ENABLED=0` (default) keeps v1 as the active runtime write path. These
- *    primitives are not auto-invoked; they are "dark" until M3 wiring.
+ * `sm::v2::*` primitives only touch the v2 namespace. When `SM_V2_ENABLED` is 0, SaveManager
+ * keeps the legacy EEPROM full-store runtime path; v2 helpers may still be called explicitly.
  */
 namespace v2 {
 
@@ -197,8 +190,7 @@ bool loadStoreFromSections();
  *  - If marker absent and legacy magic is valid: fan out to v2 + write marker.
  *  - Otherwise: no-op (treated as fresh device; defaults handled by Config).
  *
- * Currently invoked from `sm::init()` ONLY under `#if SM_V2_ENABLED` — that is
- * the intentional cutover point for M3.
+ * Invoked from `Config::init()` after legacy EEPROM read when `SM_V2_ENABLED` is 1.
  */
 void runBootMigrationIfNeeded();
 

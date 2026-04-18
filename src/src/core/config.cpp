@@ -1,5 +1,4 @@
 #include "config.h"
-#include "save_manager_sections.h"  // M3: sm::v2::runBootMigrationIfNeeded() declaration
 
 //#include <LittleFS.h>  // Migrated to LittleFS (Stage 1)
 #include "display.h"
@@ -247,10 +246,11 @@ void Config::init() {
     setDefaults();
   }
 #if SM_V2_ENABLED
-  // M3: HOT + META v2 overlay.
+  // v2 overlay after legacy EEPROM read (M5: legacy is read/migration only at runtime;
+  // authoritative state for config_t is v2 blobs when the marker is present).
   // Runs after the legacy EEPROM read and the magic/setDefaults branch so that:
-  //  - when the marker is present, v2 wins for HOT+META (sections authoritative
-  //    at this milestone) while cold sections stay on the legacy snapshot;
+  //  - when the marker is present, v2 wins for all managed sections while EEPROM
+  //    still supplies the migration snapshot and downgrade window;
   //  - when the marker is absent and legacy is valid, it seeds all v2 blobs +
   //    marker so future boots can overlay;
   //  - when legacy was invalid and setDefaults ran, sm::syncFullStoreNow (called
