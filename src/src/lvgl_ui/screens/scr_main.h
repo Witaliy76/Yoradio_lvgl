@@ -37,6 +37,16 @@ private:
     // F-c: optional scrim above file bg — ThemePreset::Dark only, hidden if no bg file. / Scrim только Dark при наличии фона.
     lv_obj_t* _bg_scrim = nullptr;
 
+    // PSRAM-preloaded bg: eliminates per-frame LittleFS reads on DspTask (WDT fix, Stage 6 diag).
+    // Предзагруженный фон в PSRAM — нет LittleFS-чтений на DspTask при каждом кадре (фикс WDT).
+    uint8_t*     _bg_psram_buf = nullptr;
+    lv_img_dsc_t _bg_psram_dsc = {};
+    uint8_t      _bg_last_slot = 255; // 255 = not loaded / не загружен
+
+    // Apply bg from PSRAM (force=true: reload; force=false: skip if slot unchanged and buf present).
+    // Применить фон из PSRAM. force=true — перезагрузить; false — пропустить если слот и буфер не изменились.
+    void _applyBgTheme(bool force);
+
     // Top status strip: Wi‑Fi + weather glance + clock (experimental). / Верх: Wi‑Fi, погода, часы.
     wgt_status_line::Instance _status_line{};
 

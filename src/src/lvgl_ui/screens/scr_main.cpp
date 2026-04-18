@@ -61,6 +61,53 @@ char* split_inplace_at(char* str, const char* sep) {
     return p + strlen(sep);
 }
 
+// Load a .bin (4-byte lv_img_header_t + RGB565 pixels) from LittleFS into PSRAM.
+// On success: out_buf is ps_malloc'd buffer, out_dsc is ready for lv_img_set_src().
+// Caller owns out_buf and must free() it.
+// Загрузить .bin из LittleFS в PSRAM; out_buf — ps_malloc, освобождать через free().
+static bool bg_load_into_psram(const char* fs_path, uint8_t*& out_buf, lv_img_dsc_t& out_dsc) {
+    out_buf = nullptr;
+    File f = LittleFS.open(fs_path, "r");
+    if (!f) return false;
+
+    const size_t file_sz = static_cast<size_t>(f.size());
+    if (file_sz <= sizeof(lv_img_header_t)) {
+        f.close();
+        return false;
+    }
+
+    lv_img_header_t hdr;
+    if (f.read(reinterpret_cast<uint8_t*>(&hdr), sizeof(hdr)) != sizeof(hdr)) {
+        f.close();
+        return false;
+    }
+
+    const uint32_t data_size = static_cast<uint32_t>(file_sz - sizeof(hdr));
+    uint8_t* buf = static_cast<uint8_t*>(ps_malloc(data_size));
+    if (!buf) {
+        f.close();
+        Serial.printf("[BG] ps_malloc failed (%u bytes) for %s\n", data_size, fs_path);
+        return false;
+    }
+
+    const int32_t n = f.read(buf, data_size);
+    f.close();
+
+    if (n < 0 || static_cast<uint32_t>(n) != data_size) {
+        free(buf);
+        Serial.printf("[BG] read incomplete: got %d / %u bytes\n", n, data_size);
+        return false;
+    }
+
+    out_buf           = buf;
+    out_dsc.header    = hdr;
+    out_dsc.data_size = data_size;
+    out_dsc.data      = buf;
+
+    Serial.printf("[BG] preloaded %s -> PSRAM %u bytes\n", fs_path, data_size);
+    return true;
+}
+
 // Pressed-state opa: transport more readable; utility calmer (secondary) / читаемее на транспорте, utility тише.
 constexpr lv_opa_t k_ctrl_pressed_opa_transport = LV_OPA_20;
 constexpr lv_opa_t k_ctrl_pressed_opa_utility   = static_cast<lv_opa_t>(36); // ~14% vs ~20% transport
@@ -361,6 +408,59 @@ ScreenType LvglMainScreen::screenType() const {
     return ScreenType::Page;
 }
 
+void LvglMainScreen::_applyBgTheme(bool force) {
+    if (!_bg_img) return;
+
+    static const char* const k_fs[] = {
+        "/bg/main_dark.bin",
+        "/bg/main_light.bin",
+        "/bg/main_custom.bin",
+    };
+    static const char* const k_lvgl[] = {
+        "L:/bg/main_dark.bin",
+        "L:/bg/main_light.bin",
+        "L:/bg/main_custom.bin",
+    };
+
+    uint8_t slot = static_cast<uint8_t>(yoradio_theme_active_preset());
+    if (slot > 2) slot = 0;
+
+    // Fast path: PSRAM buffer loaded for this slot → just check for deletion, no lv_img_set_src.
+    // Быстрый путь: буфер PSRAM уже загружен → только проверка удаления файла.
+    if (!force && slot == _bg_last_slot && _bg_psram_buf != nullptr) {
+        if (!LittleFS.exists(k_fs[slot])) {
+            free(_bg_psram_buf);
+            _bg_psram_buf = nullptr;
+            lv_img_set_src(_bg_img, nullptr);
+            lv_obj_add_flag(_bg_img, LV_OBJ_FLAG_HIDDEN);
+        }
+        return; // No lv_img_set_src → no LVGL invalidation → no LFS read on next frame
+    }
+
+    // Slow path: slot changed, forced reload, or no PSRAM buffer yet.
+    // Медленный путь: смена слота, принудительная загрузка или буфер ещё не создан.
+    if (_bg_psram_buf) {
+        free(_bg_psram_buf);
+        _bg_psram_buf = nullptr;
+    }
+    _bg_last_slot = slot;
+
+    if (!LittleFS.exists(k_fs[slot])) {
+        lv_img_set_src(_bg_img, nullptr);
+        lv_obj_add_flag(_bg_img, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+
+    if (bg_load_into_psram(k_fs[slot], _bg_psram_buf, _bg_psram_dsc)) {
+        lv_img_set_src(_bg_img, &_bg_psram_dsc);
+    } else {
+        // Fallback: file-backed path (LFS reads on DspTask — slow, but better than no image).
+        // Резервный путь: читаем из LittleFS напрямую (медленно, но без крэша).
+        lv_img_set_src(_bg_img, k_lvgl[slot]);
+    }
+    lv_obj_clear_flag(_bg_img, LV_OBJ_FLAG_HIDDEN);
+}
+
 void LvglMainScreen::create() {
     if (_screen) return;
 
@@ -391,7 +491,7 @@ void LvglMainScreen::create() {
         lv_obj_clear_flag(_bg_img, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_size(_bg_img, W, H);
         lv_obj_align(_bg_img, LV_ALIGN_TOP_LEFT, 0, 0);
-        main_apply_theme_background(_bg_img);
+        _applyBgTheme(true); // preload active theme .bin into PSRAM / предзагрузка в PSRAM
 
         _bg_scrim = lv_obj_create(_screen);
         if (_bg_scrim) {
@@ -1169,7 +1269,7 @@ void LvglMainScreen::update() {
 
     // Re-sync file bg + scrim when LittleFS slot changes (e.g. WebUI remove) — single exists() per tick / Слот фона снят → без NoData
     if (_bg_img) {
-        main_apply_theme_background(_bg_img);
+        _applyBgTheme(false); // fast path if slot unchanged + PSRAM loaded / быстрый путь — нет LFS при устойчивом слоте
         if (_bg_scrim) {
             main_sync_dark_bg_scrim(_bg_img, _bg_scrim);
         }
@@ -1195,6 +1295,7 @@ void LvglMainScreen::destroy() {
     _lbl_vol_popup = nullptr;
     _bar_buffer = nullptr;
     _lbl_ai_line = nullptr;
+    if (_bg_psram_buf) { free(_bg_psram_buf); _bg_psram_buf = nullptr; }
     _bg_img = nullptr;
     _bg_scrim = nullptr;
     s_vol_touch_active = false; // matches static used by vol_touch_cb / тот же флаг, что в callback
