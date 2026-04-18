@@ -66,10 +66,10 @@ static volatile bool s_dirty;            // legacy / v1 full-store dirty flag (c
 static volatile bool s_ota_suspended;
 static int s_batch_depth;
 #if SM_V2_ENABLED
-// v2 per-section dirty bitmap (bit i = SectionId(i)). Only M3-managed bits
-// (HOT + META) are ever set by `onFieldWrittenV2`; other bits fall through
-// to the legacy v1 writer and leave this mask untouched. Volatile because
-// the debounce timer callback reads it after arming from another task.
+// v2 per-section dirty bitmap (bit i = SectionId(i)). Any `config_t` field
+// write routed by `isV2ManagedSection` sets a bit here; OOB / IR-only paths
+// use `s_dirty` (v1 full-store) instead. Volatile because the debounce timer
+// callback reads it after arming from another task.
 static volatile uint32_t s_dirty_v2_mask;
 #endif
 
@@ -319,7 +319,7 @@ void onStoreWriteCompleted(bool commitRequested) {
   // M3.1: under v2, this entry point is reached ONLY from the commit-only nudge
   // in `Config::saveValue` (field unchanged, commit=true). The field-aware path
   // (`onFieldWrittenV2`) has already dirtied the correct lane — v2 mask for
-  // HOT/META, or `s_dirty` as legacy-fallback for cold/out-of-store writes.
+  // in-store managed fields, or `s_dirty` as legacy-fallback for OOB writes.
   //
   // Unconditionally setting `s_dirty = true` here (legacy v1 footgun fix) would
   // promote every pure-HOT/META sequence into a MIXED commit — the trailing
@@ -421,7 +421,7 @@ void syncFullStoreNow() {
   EEPROM.commit();
   s_dirty = false;
 #if SM_V2_ENABLED
-  // Keep v2 HOT/META blobs consistent with the freshly-written legacy snapshot,
+  // Keep v2 section blobs consistent with the freshly-written legacy snapshot,
   // and (one-time) seed the full v2 layout + marker if this device hasn't
   // migrated yet — required so boot-time overlay has something to load.
   sm::v2::refreshManagedSectionsFromStore();
@@ -549,11 +549,10 @@ void onFieldWrittenV2(const void* field_ptr, size_t field_size, bool commit_requ
   return;
 #endif
 
-  // ---- Section routing (M4c scope: HOT + META + TIME + WEATHER + AI through v2) ----
+  // ---- Section routing (M4d: entire `config_t` via v2; IR stays separate) ----
   // Managed set is the single source of truth — `isV2ManagedSection`. Widening
-  // the cutover is a one-line change there plus a schema-version bump.
-  // Out-of-store pointers, unresolved sections, and still-cold sections
-  // (Tuning / Controls / Screensaver / Network) fall back to the legacy
+  // the cutover is a change there plus a schema-version bump in runBootMigration.
+  // Out-of-store pointers and unresolved sections fall back to the legacy
   // v1 full-store path by setting `s_dirty`.
   bool managed_by_v2 = false;
   bool in_store = false;
@@ -659,12 +658,15 @@ constexpr const char* kV2Namespace = "yo_sm_v2";
 //   v2 (M4a):        runtime-managed sections = {Meta, Hot, Time}.
 //   v3 (M4b):        runtime-managed sections = {Meta, Hot, Time, Weather}.
 //   v4 (M4c):        runtime-managed sections = {Meta, Hot, Time, Weather, Ai}.
-//                    On a device previously at v1/v2/v3, the boot upgrade
-//                    path re-seeds Ai (and any earlier promotions) from the
-//                    legacy EEPROM snapshot. Reseed steps are additive — a
-//                    single boot can span multiple version jumps.
+//   v5 (M4d):        +Tuning   — reseed from legacy EEPROM before overlay (cold
+//                    v1 writes may have updated play_mode etc. after migration).
+//   v6 (M4d):        +Controls — GPIO / encoder / irtlp region same rationale.
+//   v7 (M4d):        +Screensaver.
+//   v8 (M4d):        +Network (mdnsname .. ai_enabled).
+//                    On a device jumping v4->v8 in one flash, all four reseed
+//                    steps run in one boot (additive `if (stored_ver < N)`).
 constexpr const char* kV2MarkerKey = "v2m";
-constexpr uint32_t kV2SchemaVersion = 4u;
+constexpr uint32_t kV2SchemaVersion = 8u;
 
 // Legacy blob sentinel — `config.store.config_set` magic (see config.cpp / config.h).
 constexpr uint16_t kLegacyMagic = 4262u;
@@ -867,6 +869,35 @@ void runBootMigrationIfNeeded() {
           SM_LOG("v2 upgrade: reseed sec=ai(8) FAILED — will degrade to stale overlay");
         }
       }
+      if (stored_ver < 5u) {
+        // v4 -> v5 (M4d): Tuning promoted; blob may be stale vs EEPROM cold writes.
+        if (reseedSectionFromStoreImpl(SectionId::Tuning)) {
+          SM_LOG("v2 upgrade: reseeded sec=tun(4) from legacy EEPROM snapshot");
+        } else {
+          SM_LOG("v2 upgrade: reseed sec=tun(4) FAILED — will degrade to stale overlay");
+        }
+      }
+      if (stored_ver < 6u) {
+        if (reseedSectionFromStoreImpl(SectionId::Controls)) {
+          SM_LOG("v2 upgrade: reseeded sec=ctrl(5) from legacy EEPROM snapshot");
+        } else {
+          SM_LOG("v2 upgrade: reseed sec=ctrl(5) FAILED — will degrade to stale overlay");
+        }
+      }
+      if (stored_ver < 7u) {
+        if (reseedSectionFromStoreImpl(SectionId::Screensaver)) {
+          SM_LOG("v2 upgrade: reseeded sec=ss(6) from legacy EEPROM snapshot");
+        } else {
+          SM_LOG("v2 upgrade: reseed sec=ss(6) FAILED — will degrade to stale overlay");
+        }
+      }
+      if (stored_ver < 8u) {
+        if (reseedSectionFromStoreImpl(SectionId::Network)) {
+          SM_LOG("v2 upgrade: reseeded sec=net(7) from legacy EEPROM snapshot");
+        } else {
+          SM_LOG("v2 upgrade: reseed sec=net(7) FAILED — will degrade to stale overlay");
+        }
+      }
       // Add future schema steps ABOVE in ascending order.
       if (!writeMarker()) {
         SM_LOG("v2 upgrade: writeMarker FAILED — upgrade will retry on next boot");
@@ -912,8 +943,8 @@ void runBootMigrationIfNeeded() {
 void refreshManagedSectionsFromStore() {
   // Called from `sm::syncFullStoreNow()` (factory reset / setDefaults path).
   // If the marker is absent, seed the full layout once so future boots can
-  // overlay HOT+META via `runBootMigrationIfNeeded`. Otherwise just refresh
-  // the M3-managed sections so v2 blobs stay consistent with current RAM.
+  // overlay via `runBootMigrationIfNeeded`. Otherwise refresh every
+  // `isV2ManagedSection` blob so v2 NVS stays consistent with the EEPROM snapshot.
   if (!hasMarker()) {
     (void)migrateFromLegacyStore();
     return;

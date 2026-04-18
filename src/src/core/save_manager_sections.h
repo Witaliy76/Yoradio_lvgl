@@ -110,11 +110,9 @@ static_assert(kConfigSectionSpans[8].byte_size > 0, "empty span 8");
 /**
  * True if `sid` is runtime-authoritative in the current v2 milestone.
  *
- * M4c scope: HOT + META + TIME + WEATHER + AI. Writes to these sections
- * bypass the v1 full-store path and go through per-section Preferences blobs;
- * all other sections (Tuning, Controls, Screensaver, Network) still fall back
- * to the legacy v1 writer. Extend this predicate (not the call sites) to
- * widen the cutover in subsequent milestones.
+ * M4d scope: the full `config_t` partition (every row in `kConfigSectionSpans`).
+ * IR codes live outside `config_t`
+ * (`syncIrBlobNow` / EEPROM_START_IR) and stay on the legacy IR path.
  *
  * When widening this set on a device that already carries a v2 marker, bump
  * `kV2SchemaVersion` in save_manager.cpp and extend the boot-upgrade branch
@@ -123,10 +121,14 @@ static_assert(kConfigSectionSpans[8].byte_size > 0, "empty span 8");
  * stale migration-time blobs would clobber post-migration cold-path writes.
  */
 constexpr bool isV2ManagedSection(SectionId sid) {
-  return sid == SectionId::Hot ||
-         sid == SectionId::Meta ||
+  return sid == SectionId::Meta ||
+         sid == SectionId::Hot ||
          sid == SectionId::Time ||
          sid == SectionId::Weather ||
+         sid == SectionId::Tuning ||
+         sid == SectionId::Controls ||
+         sid == SectionId::Screensaver ||
+         sid == SectionId::Network ||
          sid == SectionId::Ai;
 }
 
