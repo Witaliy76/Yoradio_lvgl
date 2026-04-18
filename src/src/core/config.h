@@ -7,6 +7,7 @@
 #include <EEPROM.h>
 //#include "SD.h"
 #include "options.h"
+#include "save_manager.h"
 #include "rtcsupport.h"
 #include "../pluginsManager/pluginsManager.h"
 
@@ -15,6 +16,8 @@
 #define DEBUG_GLITCH_SUSPEND_NVS_WRITES 0
 #endif
 
+/* Emulated EEPROM blob size (NVS). Must be >= EEPROM_START + sizeof(config_t): Arduino-ESP32
+ * EEPROM.put skips memcpy entirely when address+sizeof(value) exceeds this → silent no persistence. */
 #define EEPROM_SIZE       896
 #define EEPROM_START      500
 #define EEPROM_START_IR   0
@@ -169,6 +172,13 @@ struct config_t
   bool      ai_enableFiles;                // Опция для файлов (если используется) / Files option
 };
 
+#if __cplusplus >= 201103L
+static_assert(EEPROM_START + sizeof(config_t) <= EEPROM_SIZE,
+              "EEPROM_SIZE too small: EEPROM.put(EEPROM_START, config_t) is a no-op on ESP32");
+#endif
+
+#include "save_manager_sections.h"
+
 #if IR_PIN!=255
 struct ircodes_t
 {
@@ -277,30 +287,41 @@ class Config {
     }
     template <typename T>
     void saveValue(T *field, const T &value, bool commit=true, bool force=false){
-      if(*field == value && !force) return;
+      // If this field is unchanged, still notify SaveManager when commit=true so a pending flush
+      // from an earlier commit=false write in the same pair cannot be skipped (legacy footgun).
+      // Commit-only nudges keep using the v1 entry point — they carry no field identity and must
+      // conservatively arm the debouncer for whatever is already dirty (v2 mask or v1 `s_dirty`).
+      if(*field == value && !force) {
+        if (commit) {
+          sm::onStoreWriteCompleted(true);
+        }
+        return;
+      }
       *field = value;
-#if DEBUG_GLITCH_SUSPEND_NVS_WRITES
-      (void)commit;
-      return;
+#if SM_V2_ENABLED
+      // M3: route through the field-aware path so HOT+META writes go to per-section
+      // blobs and cold sections keep falling back to the legacy v1 writer.
+      sm::onFieldWrittenV2(field, sizeof(*field), commit);
+#else
+      sm::onStoreWriteCompleted(commit);
 #endif
-      size_t address = getAddr(field);
-      EEPROM.put(address, value);
-      if(commit)
-        EEPROM.commit();
     }
     void saveValue(char *field, const char *value, size_t N, bool commit=true, bool force=false) {
-      if (strcmp(field, value) == 0 && !force) return;
+      if (strcmp(field, value) == 0 && !force) {
+        if (commit) {
+          sm::onStoreWriteCompleted(true);
+        }
+        return;
+      }
       strlcpy(field, value, N);
-#if DEBUG_GLITCH_SUSPEND_NVS_WRITES
-      (void)N;
-      (void)commit;
-      return;
+#if SM_V2_ENABLED
+      // Use `N` (declared buffer length), not strlen — sections are identified by
+      // offset, and the bounds check in onFieldWrittenV2 validates against the
+      // field's declared footprint.
+      sm::onFieldWrittenV2(field, N, commit);
+#else
+      sm::onStoreWriteCompleted(commit);
 #endif
-      size_t address = getAddr(field);
-      size_t fieldlen = strlen(field);
-      for (size_t i = 0; i <=fieldlen ; i++) EEPROM.write(address + i, field[i]);
-      if(commit)
-        EEPROM.commit();
     }
     uint32_t getChipId(){
       uint32_t chipId = 0;
@@ -310,7 +331,6 @@ class Config {
       return chipId;
     }
   private:
-    template <class T> int eepromWrite(int ee, const T& value);
     template <class T> int eepromRead(int ee, T& value);
     bool _bootDone;
     #if RTCSUPPORTED

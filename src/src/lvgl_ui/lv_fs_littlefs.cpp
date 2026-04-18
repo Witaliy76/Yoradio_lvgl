@@ -7,6 +7,7 @@
 
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
 
+#include "../core/options.h"
 #include <LittleFS.h>
 #include <FS.h>
 #include <new>
@@ -52,7 +53,28 @@ lv_fs_res_t fs_read_cb(lv_fs_drv_t*, void* file_p, void* buf, uint32_t btr, uint
         }
         return LV_FS_RES_INV_PARAM;
     }
+#ifdef LV_FS_DIAG
+    // DIAG: measure blocking time of each LittleFS read on DspTask
+    const uint32_t t0 = micros();
+#endif
     const int n = fp->read(static_cast<uint8_t*>(buf), btr);
+#ifdef LV_FS_DIAG
+    const uint32_t dt_us = micros() - t0;
+    static uint32_t s_total_us = 0;
+    static uint32_t s_calls = 0;
+    static uint32_t s_max_us = 0;
+    s_total_us += dt_us;
+    s_calls++;
+    if (dt_us > s_max_us) s_max_us = dt_us;
+    // Print summary every 50 calls or if single read > 20ms
+    if (s_calls >= 50 || dt_us > 20000) {
+        Serial.printf("[LV_FS_DIAG] calls=%u total=%ums max=%ums last=%ums btr=%u\n",
+            s_calls, s_total_us / 1000, s_max_us / 1000, dt_us / 1000, btr);
+        s_total_us = 0;
+        s_calls = 0;
+        s_max_us = 0;
+    }
+#endif
     if (br) {
         *br = (n < 0) ? 0u : static_cast<uint32_t>(n);
     }

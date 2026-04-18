@@ -2,6 +2,7 @@
 #include <LittleFS.h>
 
 #include "config.h"
+#include "save_manager.h"
 #include "player.h"
 #include "telnet.h"
 #include "display.h"
@@ -164,26 +165,33 @@ void NetServer::beginUpdate(AsyncWebServerRequest *request) {
 
 void handleUpdate(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
   if (!index) {
+    sm::suspendForOta();
     int target = (request->getParam("updatetarget", true)->value() == "spiffs") ? U_SPIFFS : U_FLASH;
     Serial.printf("Update Start: %s\n", filename.c_str());
     player.sendCommand({PR_STOP, 0});
     display.putRequest(NEWMODE, UPDATING);
     if (!Update.begin(UPDATE_SIZE_UNKNOWN, target)) {
       Update.printError(Serial);
+      sm::resumeAfterOta();
       request->send(200, "text/html", updateError());
+      return;
     }
   }
   if (!Update.hasError()) {
     if (Update.write(data, len) != len) {
       Update.printError(Serial);
+      sm::resumeAfterOta();
       request->send(200, "text/html", updateError());
+      return;
     }
   }
   if (final) {
     if (Update.end(true)) {
       Serial.printf("Update Success: %uB\n", index + len);
+      sm::resumeAfterOta();
     } else {
       Update.printError(Serial);
+      sm::resumeAfterOta();
       request->send(200, "text/html", updateError());
     }
   }
@@ -455,7 +463,7 @@ void NetServer::loop() {
   if (shouldReboot) {
     Serial.println("Rebooting...");
     delay(100);
-    ESP.restart();
+    sm::systemRestart();
   }
   websocket.cleanupClients();
   switch (importRequest) {
@@ -1853,8 +1861,8 @@ void handleHTTPArgs(AsyncWebServerRequest * request) {
       int v = atoi(p->value().c_str());
       if (v < 0) v = 0;
       if (v > 254) v = 254;
-      config.store.volume = v;
-      player.setVol(v);
+      config.setVolume((uint8_t)v);
+      player.setVol((uint8_t)v);
       commandFound=true;
       DBGVB("[%s] vol=%d", __func__, v);
     }
