@@ -15,7 +15,7 @@
 #define DEBUG_GLITCH_SUSPEND_NVS_WRITES 0
 #endif
 
-#define EEPROM_SIZE       768
+#define EEPROM_SIZE       896
 #define EEPROM_START      500
 #define EEPROM_START_IR   0
 #define EEPROM_START_2    10
