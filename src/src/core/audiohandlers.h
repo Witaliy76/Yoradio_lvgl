@@ -24,6 +24,14 @@ void audio_info(const char *info) {
     
   }
   char* ici; char b[20]={0};
+  // Parsed stream facts for LVGL Main meta row (same strings as Audio::showCodecParams()).
+  // Факты потока для Main meta — те же строки, что шлёт библиотека после decode.
+  if ((ici = strstr(info, "SampleRate: ")) != NULL) {
+    config.station.stream_sample_rate_hz = static_cast<uint32_t>(atoi(ici + 12));
+  }
+  if ((ici = strstr(info, "BitsPerSample: ")) != NULL) {
+    config.station.stream_bits_per_sample = static_cast<uint8_t>(atoi(ici + 15));
+  }
   if ((ici = strstr(info, "BitRate: ")) != NULL) {
     strlcpy(b, ici + 9, 50);
     audio_bitrate(b);

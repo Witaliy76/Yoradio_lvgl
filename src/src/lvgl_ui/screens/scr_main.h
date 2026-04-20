@@ -50,9 +50,9 @@ private:
     // Top status strip: Wi‑Fi + weather glance + clock (experimental). / Верх: Wi‑Fi, погода, часы.
     wgt_status_line::Instance _status_line{};
 
-    // Meta row (below control band): preset # + bitrate / Meta под полосой кнопок
-    lv_obj_t* _lbl_station_num = nullptr;
-    lv_obj_t* _lbl_bitrate = nullptr;
+    // Meta row (below control band): composed stream-info line (6.1E stream facts).
+    // Мета-строка: один label — факты потока.
+    lv_obj_t* _lbl_stream_info = nullptr;
 
     // Center text stack: name → track → artist (track/artist may be HIDDEN) / Стек: имя → трек → артист
     lv_obj_t* _lbl_station_name = nullptr;

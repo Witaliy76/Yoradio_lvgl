@@ -122,6 +122,8 @@ void Player::_stop(bool alreadyStopped){
   setOutputPins(false);
   if(!hasError()) config.setTitle((display.mode()==LOST || display.mode()==UPDATING)?"":const_PlStopped);
   config.station.bitrate = 0;
+  config.station.stream_sample_rate_hz   = 0;
+  config.station.stream_bits_per_sample = 0;
   config.setBitrateFormat(BF_UNCNOWN);
   #ifdef USE_NEXTION
     nextion.bitrate(config.station.bitrate);
@@ -233,7 +235,9 @@ void Player::_play(uint16_t stationId) {
   setOutputPins(false);
   config.setTitle(config.getMode()==PM_WEB?const_PlConnect:"");
 //  config.setTitle(config.getMode()==PM_WEB?const_PlConnect:"[next track]");
-  config.station.bitrate=0;
+  config.station.bitrate = 0;
+  config.station.stream_sample_rate_hz   = 0;
+  config.station.stream_bits_per_sample = 0;
   config.setBitrateFormat(BF_UNCNOWN);
   Serial.printf("🎵 [PLAY] About to call config.loadStation(%d)\n", stationId);
   config.loadStation(stationId);

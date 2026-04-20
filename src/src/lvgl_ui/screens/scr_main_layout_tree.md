@@ -60,8 +60,7 @@ _screen
 │   │   └── utility_right (settings; same balanced width as utility_left)
 │   │       └── settings — lv_btn, text_secondary (transport-sized); routing TBD
 │   ├── row_meta_stream
-│   │   ├── _lbl_station_num
-│   │   └── _lbl_bitrate
+│   │   └── _lbl_stream_info  (compact: #N • 44.1/16 • 256k • CODEC; SR/bits only if both known; U+2022 sep)
 │   ├── col_vol
 │   │   ├── _lbl_volume
 │   │   └── _bar_volume
@@ -131,8 +130,7 @@ flowchart TB
   end
 
   subgraph rms["row_meta_stream"]
-    NUM[_lbl_station_num]
-    BR[_lbl_bitrate]
+    SI[_lbl_stream_info]
   end
 
   subgraph cv["col_vol"]
@@ -155,11 +153,10 @@ flowchart TB
   ZB --> CV
   ZB --> BUF
   ZB --> AI
-  CB --> SLB
+  CB --> UL
   CB --> TG
-  CB --> UG
-  RMS --> NUM
-  RMS --> BR
+  CB --> UR
+  RMS --> SI
   CV --> VOL
   CV --> BAR
 ```

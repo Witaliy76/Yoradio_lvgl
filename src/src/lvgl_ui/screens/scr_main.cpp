@@ -17,7 +17,7 @@
  * Split stream title: first " - " → artist string (before) + track (after), same heuristic as legacy Display::_title.
  * Визуальный порядок строк: name → track → artist (artist скрыт, если split не дал первой части).
  *
- * Scroll policy (6.1B): SCROLL_CIRCULAR — station name, track, artist, AI line; CLIP — meta row (#/kbps), weather mini glyphs/temp.
+ * Scroll policy (6.1B): SCROLL_CIRCULAR — station name, track, artist, AI line; CLIP — meta stream-info line, weather mini glyphs/temp.
  * DspTask-only lv_*; main_set_text_if_changed reduces redundant layout; RSSI throttled ~3s.
  * Do not route title logic through display.cpp — LVGL path is independent.
  *
@@ -113,6 +113,74 @@ static bool bg_load_into_psram(const char* fs_path, uint8_t*& out_buf, lv_img_ds
 // Транспорт заметнее нажатие; list/settings — тише, размер как у транспорта.
 constexpr lv_opa_t k_ctrl_pressed_opa_transport = LV_OPA_20;
 constexpr lv_opa_t k_ctrl_pressed_opa_utility = static_cast<lv_opa_t>(36); // ~14% vs ~20% transport
+
+// Meta row: field separator — U+2022 BULLET (in lv_font_yora_montserrat_16_cyr: 0x2022 in .c opts).
+// U+00B7 middle dot is NOT in that font subset → would render as wrong glyph on device/sim.
+// Разделитель: • из шрифта; средняя точка U+00B7 в подмножестве шрифта нет.
+static constexpr char k_meta_field_sep[] = " \xE2\x80\xA2 ";
+
+// Append s to buf (NUL-terminated); cap = total buffer size. Portable (no strlcat).
+static void meta_append_cstr(char* buf, size_t cap, const char* s) {
+    if (!buf || cap == 0u || !s || s[0] == '\0') {
+        return;
+    }
+    const size_t cur = strlen(buf);
+    const size_t add = strlen(s);
+    if (cur + add + 1u > cap) {
+        return;
+    }
+    memcpy(buf + cur, s, add + 1u);
+}
+
+// Compact kHz token only: "48" or "44.1" (no suffix; used in "44.1/16" block).
+static void format_sample_rate_khz_compact(uint32_t hz, char* out, size_t out_sz) {
+    if (!out || out_sz == 0u) {
+        return;
+    }
+    out[0] = '\0';
+    if (hz == 0u) {
+        return;
+    }
+    if ((hz % 1000u) == 0u) {
+        snprintf(out, out_sz, "%lu", static_cast<unsigned long>(hz / 1000u));
+    } else {
+        const unsigned long k     = static_cast<unsigned long>(hz / 1000u);
+        const unsigned long tenth = static_cast<unsigned long>((hz % 1000u) / 100u);
+        snprintf(out, out_sz, "%lu.%lu", k, tenth);
+    }
+}
+
+// One composed stream-info line: #N · [SR/bits] · [Nk] · [CODEC]; omit unknown (SR/bits only if both known).
+static void main_compose_stream_info_line(char* buf, size_t cap) {
+    if (!buf || cap == 0u) {
+        return;
+    }
+    snprintf(buf, cap, "#%u", static_cast<unsigned>(config.lastStation()));
+
+    char piece[40];
+    char sr_compact[16];
+    if (config.station.stream_sample_rate_hz > 0u && config.station.stream_bits_per_sample > 0u) {
+        format_sample_rate_khz_compact(config.station.stream_sample_rate_hz, sr_compact, sizeof(sr_compact));
+        snprintf(
+            piece,
+            sizeof(piece),
+            "%s/%u",
+            sr_compact,
+            static_cast<unsigned>(config.station.stream_bits_per_sample));
+        meta_append_cstr(buf, cap, k_meta_field_sep);
+        meta_append_cstr(buf, cap, piece);
+    }
+    if (config.station.bitrate > 0u) {
+        snprintf(piece, sizeof(piece), "%uk", static_cast<unsigned>(config.station.bitrate));
+        meta_append_cstr(buf, cap, k_meta_field_sep);
+        meta_append_cstr(buf, cap, piece);
+    }
+    const char* codec = player.getCodecname();
+    if (codec != nullptr && strcmp(codec, "unknown") != 0) {
+        meta_append_cstr(buf, cap, k_meta_field_sep);
+        meta_append_cstr(buf, cap, codec);
+    }
+}
 
 // Stage 6.1F-b: theme slot → /bg/main_*.bin; hide layer if missing (normal case). / Слот темы → bin; скрыть если нет файла.
 void main_apply_theme_background(lv_obj_t* bg_img) {
@@ -968,26 +1036,25 @@ void LvglMainScreen::create() {
                 LV_FLEX_ALIGN_CENTER,
                 LV_FLEX_ALIGN_CENTER,
                 LV_FLEX_ALIGN_CENTER);
-            lv_obj_set_style_pad_column(row_meta_stream, 12, LV_PART_MAIN);
+            lv_obj_set_style_pad_column(row_meta_stream, 0, LV_PART_MAIN);
             lv_obj_set_style_bg_opa(row_meta_stream, LV_OPA_TRANSP, LV_PART_MAIN);
             lv_obj_set_style_border_width(row_meta_stream, 0, LV_PART_MAIN);
             lv_obj_set_style_pad_all(row_meta_stream, 0, LV_PART_MAIN);
             lv_obj_clear_flag(row_meta_stream, LV_OBJ_FLAG_SCROLLABLE);
 
-            _lbl_station_num = lv_label_create(row_meta_stream);
-            if (_lbl_station_num) {
-                lv_label_set_text(_lbl_station_num, "#--");
-                lv_label_set_long_mode(_lbl_station_num, LV_LABEL_LONG_CLIP);
-                main_set_font(_lbl_station_num, reinterpret_cast<const void*>(&lv_font_yora_montserrat_14_cyr));
-                lv_obj_set_style_text_color(_lbl_station_num, pal.text_meta, LV_PART_MAIN);
-            }
-
-            _lbl_bitrate = lv_label_create(row_meta_stream);
-            if (_lbl_bitrate) {
-                lv_label_set_text(_lbl_bitrate, "--- kbps");
-                lv_label_set_long_mode(_lbl_bitrate, LV_LABEL_LONG_CLIP);
-                main_set_font(_lbl_bitrate, reinterpret_cast<const void*>(&lv_font_yora_montserrat_14_cyr));
-                lv_obj_set_style_text_color(_lbl_bitrate, pal.text_meta, LV_PART_MAIN);
+            // 6.1E: one composed stream-info line — real facts only; omit unknown fields (no placeholders).
+            _lbl_stream_info = lv_label_create(row_meta_stream);
+            if (_lbl_stream_info) {
+                lv_obj_set_width(_lbl_stream_info, LV_PCT(100));
+                lv_label_set_long_mode(_lbl_stream_info, LV_LABEL_LONG_CLIP);
+                lv_obj_set_style_text_align(_lbl_stream_info, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+                main_set_font(_lbl_stream_info, reinterpret_cast<const void*>(&lv_font_yora_montserrat_16_cyr));
+                lv_obj_set_style_text_color(_lbl_stream_info, pal.text_meta, LV_PART_MAIN);
+                {
+                    char ib[64];
+                    main_compose_stream_info_line(ib, sizeof(ib));
+                    lv_label_set_text(_lbl_stream_info, ib);
+                }
             }
         }
 
@@ -1282,15 +1349,11 @@ void LvglMainScreen::update() {
         }
     }
 
-    snprintf(buf, sizeof(buf), "#%d", config.store.lastStation);
-    main_set_text_if_changed(_lbl_station_num, buf);
-
-    if (config.station.bitrate > 0) {
-        snprintf(buf, sizeof(buf), "%u kbps", config.station.bitrate);
-    } else {
-        snprintf(buf, sizeof(buf), "--- kbps");
+    if (_lbl_stream_info) {
+        static char stream_info_buf[64];
+        main_compose_stream_info_line(stream_info_buf, sizeof(stream_info_buf));
+        main_set_text_if_changed(_lbl_stream_info, stream_info_buf);
     }
-    main_set_text_if_changed(_lbl_bitrate, buf);
 
     // Play/stop button: show stop while playing, play while stopped (same semantics as player.toggle()).
     // Кнопка воспроизведения: при PLAYING — иконка stop, при STOPPED — play (как у toggle).
@@ -1436,7 +1499,7 @@ void LvglMainScreen::destroy() {
         _screen = nullptr;
     }
     _status_line = {};
-    _lbl_station_num = _lbl_bitrate = nullptr;
+    _lbl_stream_info = nullptr;
     _lbl_station_name = _lbl_track = _lbl_artist = nullptr;
     _lbl_transport_play_stop = nullptr;
     _lbl_volume = nullptr;

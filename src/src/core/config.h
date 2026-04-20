@@ -189,6 +189,10 @@ struct station_t
   char title[BUFLEN];
   uint16_t bitrate;
   int  ovol;
+  // Runtime-only stream facts (not in config_t / EEPROM): filled from audio_info() after decode.
+  // Рантайм-метаданные текущего потока — не в EEPROM.
+  uint32_t stream_sample_rate_hz;  // 0 = unknown for current stream
+  uint8_t  stream_bits_per_sample; // 0 = unknown for current stream
 };
 
 struct neworkItem
