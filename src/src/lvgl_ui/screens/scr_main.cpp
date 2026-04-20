@@ -3,8 +3,9 @@
  *
  * Layout (flex column on _screen, top → bottom):
  *   wgt_status_line → divider → spacer_top (flex 1) → cont_mid (text only) → spacer_bottom (flex 1)
- *   → zone_visual (1px) → zone_bottom: control_band → row_meta_stream → col_vol → heapbar → AI;
- *   FLOATING: vol_touch_zone, vol_gesture_guard,
+ *   → zone_visual (1px) → zone_bottom: control_band (list | transport | settings) → row_meta_stream → col_vol → heapbar → AI;
+ *   FLOATING: control_band edge glows — 4-stop HOR grad (lv_conf LV_GRADIENT_MAX_STOPS), under buttons,
+ *   vol_touch_zone, vol_gesture_guard,
  *   screen_bottom_carousel_guard (dead strip / padding — no carousel to touch bottom)
  *   → (_lbl_vol_popup floating).
  * 6.1D-a / a2: volume capsule + inset rim; lower 1px divider/meter; stable AI slot (min_height).
@@ -108,9 +109,10 @@ static bool bg_load_into_psram(const char* fs_path, uint8_t*& out_buf, lv_img_ds
     return true;
 }
 
-// Pressed-state opa: transport more readable; utility calmer (secondary) / читаемее на транспорте, utility тише.
+// Pressed-state opa: transport readable; list/settings calmer (same hit size as transport, softer feedback).
+// Транспорт заметнее нажатие; list/settings — тише, размер как у транспорта.
 constexpr lv_opa_t k_ctrl_pressed_opa_transport = LV_OPA_20;
-constexpr lv_opa_t k_ctrl_pressed_opa_utility   = static_cast<lv_opa_t>(36); // ~14% vs ~20% transport
+constexpr lv_opa_t k_ctrl_pressed_opa_utility = static_cast<lv_opa_t>(36); // ~14% vs ~20% transport
 
 // Stage 6.1F-b: theme slot → /bg/main_*.bin; hide layer if missing (normal case). / Слот темы → bin; скрыть если нет файла.
 void main_apply_theme_background(lv_obj_t* bg_img) {
@@ -664,25 +666,28 @@ void LvglMainScreen::create() {
         lv_obj_set_style_bg_opa(zone_bottom, LV_OPA_TRANSP, LV_PART_MAIN);
         lv_obj_set_style_border_width(zone_bottom, 0, LV_PART_MAIN);
         lv_obj_clear_flag(zone_bottom, LV_OBJ_FLAG_SCROLLABLE);
+        // Grandchildren (control_band rim glow) can paint slightly outside row bounds; default clip would eat 1–2px.
+        // Внук (rim glow) может выходить за bounds ряда — без этого снизу «пропадает» часть линии.
+        lv_obj_add_flag(zone_bottom, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
 
-        // 6.1E micro-polish: larger glyphs (28px transport on wide) + bigger pressed pill (pad/min/opa).
-        // Крупнее глифы и заметнее pressed; иерархия transport > utility сохранена.
+        // 6.1E: list/settings = transport font + pad/min (size); color/pressed stay utility (secondary + calmer opa).
+        // Размер list/settings как у транспорта; цвет и pressed — как раньше у utility.
         const lv_font_t* f_ctrl_transport =
             (W <= 320u) ? &lv_font_yora_control_icons_26 : &lv_font_yora_control_icons_28;
-        // Utility: small glyphs; hit area still large but slightly under transport so pair can sit closer without overlap.
-        // Utility: мелкий глиф; зона нажатия большая, чуть меньше транспорта — пара ближе, без пересечения hit-box.
-        const lv_font_t* f_ctrl_utility =
-            (W <= 320u) ? &lv_font_yora_control_icons_22 : &lv_font_yora_control_icons_24;
-        const lv_coord_t pad_tr  = (W <= 320u) ? static_cast<lv_coord_t>(12) : static_cast<lv_coord_t>(16);
-        const lv_coord_t pad_ut  = (W <= 320u) ? static_cast<lv_coord_t>(10) : static_cast<lv_coord_t>(14);
-        const lv_coord_t min_tr  = (W <= 320u) ? static_cast<lv_coord_t>(54) : static_cast<lv_coord_t>(58);
-        const lv_coord_t min_ut  = (W <= 320u) ? static_cast<lv_coord_t>(48) : static_cast<lv_coord_t>(52);
+        const lv_coord_t pad_tr = (W <= 320u) ? static_cast<lv_coord_t>(12) : static_cast<lv_coord_t>(16);
+        const lv_coord_t min_tr = (W <= 320u) ? static_cast<lv_coord_t>(54) : static_cast<lv_coord_t>(58);
 
-        // Control band: three-part row = spacer_left + transport_group + utility_group.
-        // Left spacer mirrors utility width → transport triad is truly screen-centered.
-        // Полка: три части = левый спейсер (зеркало utility) + transport + utility.
+        // Control band: list (left inset = pad_hor) | transport (grow, centered) | settings (right inset = pad_hor).
+        // Symmetric slot widths keep the triad centered; list/settings no longer share one utility cluster.
+        // Полка: list слева | транспорт по центру | settings справа; равные ширины боковых слотов — центр триады.
         lv_obj_t* control_band = lv_obj_create(zone_bottom);
         if (control_band) {
+            // Shelf corner geometry — keep radius/border and rim-math in sync (glow right stop uses R−border).
+            // Геометрия скругления полки — radius/border и расчёт правого inset из одних чисел.
+            constexpr lv_coord_t k_control_band_corner_r = 22;
+            constexpr lv_coord_t k_control_band_border_w = 2;
+            constexpr lv_coord_t k_glow_inset_left_px = 3; // rim strip X; sync PASS B + width block / левый inset glow
+
             lv_obj_set_width(control_band, LV_PCT(100));
             lv_obj_set_height(control_band, LV_SIZE_CONTENT);
             lv_obj_set_flex_flow(control_band, LV_FLEX_FLOW_ROW);
@@ -694,24 +699,137 @@ void LvglMainScreen::create() {
             lv_obj_set_style_pad_ver(control_band, 8, LV_PART_MAIN);
             lv_obj_set_style_pad_hor(control_band, 8, LV_PART_MAIN);
             lv_obj_set_style_pad_column(control_band, 0, LV_PART_MAIN);
-            // Shelf underlay: white at low opacity reads on dark TFT better than near-black at higher opa.
-            // Полка: белая с низкой прозрачностью читаемее на тёмном TFT, чем почти чёрная при большей opa.
-            lv_obj_set_style_bg_color(control_band, lv_color_white(), LV_PART_MAIN);
-            lv_obj_set_style_bg_opa(control_band, LV_OPA_10, LV_PART_MAIN);
-            lv_obj_set_style_radius(control_band, 16, LV_PART_MAIN);
-            lv_obj_set_style_border_width(control_band, 0, LV_PART_MAIN);
+            // PASS A + salvage S1: shelf — same radius (22); denser matte slab, softer border read.
+            // PASS A + S1: тот же radius; плотнее матовая панель, рамка чуть мягче; flex/pad без изменений.
+            // Theme: no runtime preset switch yet — product tuning is Dark-first; Light branch kept for future / Переключения темы пока нет, опора на Dark; ветка Light на будущее.
+            {
+                const bool lightScheme = (yoradio_theme_active_preset() == ThemePreset::Light);
+                if (lightScheme) {
+                    lv_obj_set_style_bg_color(control_band, lv_color_hex(0xDCE2E9), LV_PART_MAIN);
+                    lv_obj_set_style_bg_opa(control_band, LV_OPA_50, LV_PART_MAIN); // user tune / подбор Light
+                    lv_obj_set_style_border_color(control_band, lv_color_hex(0x98AAB8), LV_PART_MAIN);
+                } else {
+                    lv_obj_set_style_bg_color(control_band, lv_color_hex(0x252D38), LV_PART_MAIN);
+                    lv_obj_set_style_bg_opa(control_band, LV_OPA_50, LV_PART_MAIN); // user tune / подбор Dark
+                    lv_obj_set_style_border_color(control_band, lv_color_hex(0x6B7D8F), LV_PART_MAIN); // S1: slightly softer than 0x7A8FA3 / мягче рамка
+                }
+                lv_obj_set_style_border_opa(control_band, LV_OPA_30, LV_PART_MAIN); // S1: less harsh edge / меньше контраст рамки
+                lv_obj_set_style_radius(control_band, k_control_band_corner_r, LV_PART_MAIN);
+                // 2px rim trial: unifies shelf edge with rounded cap read (vs 1px cap + thicker glow band).
+                // Проба 2px: кромка полки визуально ближе к скруглению; иначе «толстый glow + тонкая дуга».
+                lv_obj_set_style_border_width(control_band, k_control_band_border_w, LV_PART_MAIN);
+                lv_obj_set_style_shadow_width(control_band, 8, LV_PART_MAIN);
+                lv_obj_set_style_shadow_spread(control_band, 0, LV_PART_MAIN);
+                lv_obj_set_style_shadow_ofs_y(control_band, 1, LV_PART_MAIN);
+                lv_obj_set_style_shadow_ofs_x(control_band, 0, LV_PART_MAIN);
+                lv_obj_set_style_shadow_opa(control_band, LV_OPA_10, LV_PART_MAIN);
+                lv_obj_set_style_shadow_color(control_band, lv_color_hex(0x000000), LV_PART_MAIN);
+            }
+            lv_obj_add_flag(control_band, LV_OBJ_FLAG_OVERFLOW_VISIBLE); // glow/shadow not clipped / не клиповать край
             lv_obj_clear_flag(control_band, LV_OBJ_FLAG_SCROLLABLE);
             lv_obj_clear_flag(control_band, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
-            // Left balancing spacer — fixed width set after utility_group is built.
-            // Левый балансирующий спейсер — ширина задаётся после создания utility_group.
-            lv_obj_t* spacer_left = lv_obj_create(control_band);
-            if (spacer_left) {
-                lv_obj_set_height(spacer_left, 1);
-                lv_obj_set_style_bg_opa(spacer_left, LV_OPA_TRANSP, LV_PART_MAIN);
-                lv_obj_set_style_border_width(spacer_left, 0, LV_PART_MAIN);
-                lv_obj_set_style_pad_all(spacer_left, 0, LV_PART_MAIN);
-                lv_obj_clear_flag(spacer_left, LV_OBJ_FLAG_SCROLLABLE);
+            // Rim glow handles — width set after flex layout (LV_PCT is content box, misses cap / pad_hor zone).
+            // Хэндлы блика — ширина после layout (проценты = content, не доходит до скругления под pad).
+            lv_obj_t* edge_glow_top = nullptr;
+            lv_obj_t* edge_glow_bot = nullptr;
+            // LVGL stores pointer to lv_grad_dsc_t in style — must outlive create(); one dsc per strip.
+            // В стиле хранится указатель на lv_grad_dsc_t — статический массив, не stack.
+            static lv_grad_dsc_t s_cb_rim_glow_grad[2];
+
+            // PASS B: 4-stop HOR — mat→peak→mat, then mat plateau to x2=x3 so last pixels = shelf (no grey rim).
+            // Четыре стопа: после пика снова мат и длинный «плато» тот же мат до правого края — без серого хвоста.
+            {
+                constexpr lv_coord_t kGlowH = 2;
+                const bool lightScheme = (yoradio_theme_active_preset() == ThemePreset::Light);
+                // Edge = shelf body; peak brighter so center reads as light pool, not uniform stripe.
+                // Край = мат полки; пик ярче — центр как пятно света, не однотонная полоса.
+                const lv_color_t edge_d = lv_color_hex(0x252D38);
+                // Peak chroma — stepped up with bg_opa (LVGL 10% steps). / пик + opa дискретно LVGL.
+                const lv_color_t peak_top_d = lv_color_hex(0xc6ebff);
+                const lv_color_t peak_bot_d = lv_color_hex(0xa2cce0); // calmer bottom / низ спокойнее
+                const lv_color_t edge_l = lv_color_hex(0xDCE2E9);
+                const lv_color_t peak_top_l = lv_color_hex(0x94d2f8);
+                const lv_color_t peak_bot_l = lv_color_hex(0xb6e0ff);
+                const lv_opa_t glow_bg_top = lightScheme ? LV_OPA_50 : LV_OPA_60;
+                const lv_opa_t glow_bg_bot = lightScheme ? LV_OPA_40 : LV_OPA_50;
+                auto add_edge_glow = [&](bool top) {
+                    lv_obj_t* const g = lv_obj_create(control_band);
+                    if (!g) return;
+                    lv_obj_add_flag(g, LV_OBJ_FLAG_FLOATING);
+                    lv_obj_set_height(g, kGlowH);
+                    // Placeholder until layout; then nearly full outer shelf width (see post-layout block below).
+                    // Заглушка до layout; потом почти полная ширина корпуса полки (см. блок ниже после слотов list/settings).
+                    lv_obj_set_width(g, LV_PCT(88));
+                    const unsigned gi = top ? 0u : 1u;
+                    lv_grad_dsc_t* const gd = &s_cb_rim_glow_grad[gi];
+                    std::memset(gd, 0, sizeof(*gd));
+                    gd->dir = LV_GRAD_DIR_HOR;
+                    gd->dither = LV_DITHER_NONE;
+                    gd->stops_count = 4;
+                    gd->stops[0].frac = 0;
+                    gd->stops[1].frac = 108; // peak left of centre — long gentle falloff to the right / длинный спад вправо
+                    gd->stops[2].frac = 172; // touch mat again before final edge (plateau start) / снова мат
+                    gd->stops[3].frac = 255;
+                    if (lightScheme) {
+                        gd->stops[0].color = edge_l;
+                        gd->stops[1].color = top ? peak_top_l : peak_bot_l;
+                        gd->stops[2].color = edge_l;
+                        gd->stops[3].color = edge_l;
+                    } else {
+                        gd->stops[0].color = edge_d;
+                        gd->stops[1].color = top ? peak_top_d : peak_bot_d;
+                        gd->stops[2].color = edge_d;
+                        gd->stops[3].color = edge_d;
+                    }
+                    lv_obj_set_style_bg_grad(g, gd, LV_PART_MAIN);
+                    lv_obj_set_style_bg_opa(g, top ? glow_bg_top : glow_bg_bot, LV_PART_MAIN);
+                    lv_obj_set_style_radius(g, (kGlowH + 1) / 2, LV_PART_MAIN);
+                    lv_obj_set_style_border_width(g, 0, LV_PART_MAIN);
+                    lv_obj_clear_flag(g, LV_OBJ_FLAG_SCROLLABLE);
+                    lv_obj_clear_flag(g, LV_OBJ_FLAG_CLICKABLE);
+                    // Final X from TOP_LEFT after layout (asymmetric inset — правый край не в радиус); Y provisional.
+                    // Финальный X после layout; Y пока — потом тот же в post-layout.
+                    if (top) {
+                        lv_obj_align(g, LV_ALIGN_TOP_LEFT, k_glow_inset_left_px, -10);
+                    } else {
+                        lv_obj_align(g, LV_ALIGN_BOTTOM_LEFT, k_glow_inset_left_px, 10);
+                    }
+                    if (top) {
+                        edge_glow_top = g;
+                    } else {
+                        edge_glow_bot = g;
+                    }
+                };
+                add_edge_glow(true);
+                add_edge_glow(false);
+            }
+
+            // Left slot: list only — same horizontal inset from band edge as settings on the right (control_band pad_hor).
+            // Левый слот: только list; отступ от края полки = pad_hor, зеркально settings справа.
+            lv_obj_t* utility_left = lv_obj_create(control_band);
+            if (utility_left) {
+                lv_obj_set_height(utility_left, LV_SIZE_CONTENT);
+                lv_obj_set_flex_flow(utility_left, LV_FLEX_FLOW_ROW);
+                lv_obj_set_flex_align(
+                    utility_left,
+                    LV_FLEX_ALIGN_START,
+                    LV_FLEX_ALIGN_CENTER,
+                    LV_FLEX_ALIGN_CENTER);
+                lv_obj_set_style_pad_all(utility_left, 0, LV_PART_MAIN);
+                lv_obj_set_style_pad_column(utility_left, 0, LV_PART_MAIN);
+                lv_obj_set_style_bg_opa(utility_left, LV_OPA_TRANSP, LV_PART_MAIN);
+                lv_obj_set_style_border_width(utility_left, 0, LV_PART_MAIN);
+                lv_obj_clear_flag(utility_left, LV_OBJ_FLAG_SCROLLABLE);
+                lv_obj_clear_flag(utility_left, LV_OBJ_FLAG_GESTURE_BUBBLE);
+                lv_obj_add_flag(utility_left, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+                (void)main_create_control_icon_btn(
+                    utility_left,
+                    control_glyph_utf8_list(),
+                    f_ctrl_transport, pal.text_secondary,
+                    pad_tr, min_tr,
+                    18,
+                    k_ctrl_pressed_opa_utility);
             }
 
             lv_obj_t* transport_group = lv_obj_create(control_band);
@@ -770,46 +888,71 @@ void LvglMainScreen::create() {
                 }
             }
 
-            lv_obj_t* utility_group = lv_obj_create(control_band);
-            if (utility_group) {
-                lv_obj_set_height(utility_group, LV_SIZE_CONTENT);
-                lv_obj_set_flex_flow(utility_group, LV_FLEX_FLOW_ROW);
+            // Right slot: settings only — inset from band edge matches list (symmetric pad_hor on control_band).
+            // Правый слот: только settings; зеркально list слева (общий pad_hor полки).
+            lv_obj_t* utility_right = lv_obj_create(control_band);
+            if (utility_right) {
+                lv_obj_set_height(utility_right, LV_SIZE_CONTENT);
+                lv_obj_set_flex_flow(utility_right, LV_FLEX_FLOW_ROW);
                 lv_obj_set_flex_align(
-                    utility_group,
+                    utility_right,
                     LV_FLEX_ALIGN_END,
                     LV_FLEX_ALIGN_CENTER,
                     LV_FLEX_ALIGN_CENTER);
-                // Minimal gap between list/settings — flex pad_column keeps non-zero space (no overlapping hits).
-                // Минимальный зазор list/settings — flex оставляет разрыв между hit-box.
-                lv_obj_set_style_pad_column(utility_group, 2, LV_PART_MAIN);
-                lv_obj_set_style_pad_all(utility_group, 0, LV_PART_MAIN);
-                lv_obj_set_style_bg_opa(utility_group, LV_OPA_TRANSP, LV_PART_MAIN);
-                lv_obj_set_style_border_width(utility_group, 0, LV_PART_MAIN);
-                lv_obj_clear_flag(utility_group, LV_OBJ_FLAG_SCROLLABLE);
-                lv_obj_clear_flag(utility_group, LV_OBJ_FLAG_GESTURE_BUBBLE);
-                lv_obj_add_flag(utility_group, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+                lv_obj_set_style_pad_all(utility_right, 0, LV_PART_MAIN);
+                lv_obj_set_style_pad_column(utility_right, 0, LV_PART_MAIN);
+                lv_obj_set_style_bg_opa(utility_right, LV_OPA_TRANSP, LV_PART_MAIN);
+                lv_obj_set_style_border_width(utility_right, 0, LV_PART_MAIN);
+                lv_obj_clear_flag(utility_right, LV_OBJ_FLAG_SCROLLABLE);
+                lv_obj_clear_flag(utility_right, LV_OBJ_FLAG_GESTURE_BUBBLE);
+                lv_obj_add_flag(utility_right, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
 
                 (void)main_create_control_icon_btn(
-                    utility_group,
-                    control_glyph_utf8_list(),
-                    f_ctrl_utility, pal.text_secondary,
-                    pad_ut, min_ut,
-                    18,
-                    k_ctrl_pressed_opa_utility);
-                (void)main_create_control_icon_btn(
-                    utility_group,
+                    utility_right,
                     control_glyph_utf8_settings(),
-                    f_ctrl_utility, pal.text_secondary,
-                    pad_ut, min_ut,
+                    f_ctrl_transport, pal.text_secondary,
+                    pad_tr, min_tr,
                     18,
                     k_ctrl_pressed_opa_utility);
             }
 
-            // Set left spacer width = utility group actual width → true transport centering.
-            // Ширина спейсера = ширина utility → транспорт по центру.
-            if (spacer_left && utility_group) {
+            // Equalize left/right slot widths so transport triad stays visually centered.
+            // Выровнять ширины слотов list/settings — триада транспорта остаётся по центру полки.
+            if (utility_left && utility_right) {
                 lv_obj_update_layout(control_band);
-                lv_obj_set_width(spacer_left, lv_obj_get_width(utility_group));
+                const lv_coord_t wL = lv_obj_get_width(utility_left);
+                const lv_coord_t wR = lv_obj_get_width(utility_right);
+                const lv_coord_t wBal = LV_MAX(wL, wR);
+                lv_obj_set_width(utility_left, wBal);
+                lv_obj_set_width(utility_right, wBal);
+                lv_obj_update_layout(control_band);
+            } else {
+                lv_obj_update_layout(control_band);
+            }
+            // Width from CONTENT: left fixed. Right = geometric base (R−B) minus nudge — extend ~10px toward rounding.
+            // Слева как было. Справа: база R−B, минус «дожим» к скруглению (~10px по глазу); не ниже 4 — запас от клипа.
+            if (edge_glow_top && edge_glow_bot) {
+                constexpr lv_coord_t k_glow_inset_left = k_glow_inset_left_px; // same as band-level constant / см. выше
+                constexpr lv_coord_t k_glow_right_extend_px = 10; // closer to corner / ближе к дуге
+                constexpr lv_coord_t k_glow_right_extra_width_px = 2; // widen strip slightly right / добить правый край
+                constexpr lv_coord_t k_glow_right_shrink_px = 3;    // user: strip 3px shorter on the right / короче справа на 3px
+                const lv_coord_t k_glow_inset_right_base =
+                    k_control_band_corner_r - k_control_band_border_w; // 20 @ R22 B2
+                lv_coord_t k_glow_inset_right =
+                    k_glow_inset_right_base - k_glow_right_extend_px - k_glow_right_extra_width_px + k_glow_right_shrink_px;
+                if (k_glow_inset_right < 4) {
+                    k_glow_inset_right = 4;
+                }
+                const lv_coord_t c_w = lv_obj_get_content_width(control_band);
+                if (c_w > k_glow_inset_left + k_glow_inset_right + 16) {
+                    const lv_coord_t gw = c_w - k_glow_inset_left - k_glow_inset_right;
+                    lv_obj_set_width(edge_glow_top, gw);
+                    lv_obj_set_width(edge_glow_bot, gw);
+                    lv_obj_align(edge_glow_top, LV_ALIGN_TOP_LEFT, k_glow_inset_left, -10);
+                    lv_obj_align(edge_glow_bot, LV_ALIGN_BOTTOM_LEFT, k_glow_inset_left, 10);
+                    // No extra “feather” rects — straight overlap into the arc looked wrong (line into corner).
+                    // Без доп. прямоугольников: прямой «хвост» в зону скругления визуально фигня, только два rim glow.
+                }
             }
         }
 
@@ -893,7 +1036,9 @@ void LvglMainScreen::create() {
                 // Inner shadow from top: spread=-1 keeps it inside the capsule boundary.
                 // Внутренняя тень сверху: spread=-1 не выходит за края капсулы.
                 lv_obj_set_style_shadow_color(_bar_volume, lv_color_black(), LV_PART_MAIN);
-                lv_obj_set_style_shadow_opa(_bar_volume, LV_OPA_50, LV_PART_MAIN);
+                // Slightly softer inner shadow — less “lit” groove vs previous 50%.
+                // Чуть мягче внутренняя тень — меньше ощущения яркой подсветки канавки.
+                lv_obj_set_style_shadow_opa(_bar_volume, LV_OPA_30, LV_PART_MAIN);
                 lv_obj_set_style_shadow_width(_bar_volume, 5, LV_PART_MAIN);
                 lv_obj_set_style_shadow_spread(_bar_volume, -1, LV_PART_MAIN);
                 lv_obj_set_style_shadow_ofs_y(_bar_volume, 2, LV_PART_MAIN);
@@ -908,8 +1053,15 @@ void LvglMainScreen::create() {
                 // fill radius = fill_height/2 = 5 → mini-capsule fully inside groove r=8.
                 // Заливка-капсула r=5 целиком внутри groove r=8.
                 lv_obj_set_style_radius(_bar_volume, 5, LV_PART_INDICATOR);
-                lv_obj_set_style_bg_color(_bar_volume, pal.volume_bar_fill, LV_PART_INDICATOR);
-                lv_obj_set_style_bg_opa(_bar_volume, LV_OPA_COVER, LV_PART_INDICATOR);
+                // HOR: full inner-width gradient + clip (lv_bar.c). lv_color_mix(c1,c2,mix): higher mix → more c1 (fill).
+                // Слева тоже близко к fill (высокий mix) — «тёмный» конец градиента поярче; справа — чистый volume_bar_fill.
+                {
+                    const lv_color_t g0 = lv_color_mix(pal.volume_bar_fill, pal.volume_bar_track, LV_OPA_50);
+                    lv_obj_set_style_bg_color(_bar_volume, g0, LV_PART_INDICATOR);
+                    lv_obj_set_style_bg_grad_color(_bar_volume, pal.volume_bar_fill, LV_PART_INDICATOR);
+                    lv_obj_set_style_bg_grad_dir(_bar_volume, LV_GRAD_DIR_HOR, LV_PART_INDICATOR);
+                    lv_obj_set_style_bg_opa(_bar_volume, LV_OPA_COVER, LV_PART_INDICATOR);
+                }
                 lv_obj_clear_flag(_bar_volume, LV_OBJ_FLAG_CLICKABLE);
             }
 
@@ -1229,8 +1381,8 @@ void LvglMainScreen::update() {
     // Компактная погода в status line — те же network.weather* поля.
     static char weather_temp[16];
     if (_status_line.cont_weather && _status_line.lbl_weather_glyph && _status_line.lbl_weather_temp) {
-        const bool wantWx =
-            config.store.showweather && (strlen(config.store.weatherkey) > 0) && (network.weatherBuf != nullptr);
+        // Compact status weather: key + showweather only; do not gate on legacy full-string weatherBuf.
+        const bool wantWx = config.store.showweather && (strlen(config.store.weatherkey) > 0);
         if (wantWx && network.weatherGlanceValid) {
             main_set_text_if_changed(
                 _status_line.lbl_weather_glyph,

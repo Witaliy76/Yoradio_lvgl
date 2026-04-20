@@ -73,9 +73,11 @@
 #define LV_CIRCLE_CACHE_SIZE 4
 #define LV_LAYER_SIMPLE_BUF_SIZE (24 * 1024)
 #define LV_IMG_CACHE_DEF_SIZE 0
-#define LV_GRADIENT_MAX_STOPS 2
+/* 4 stops: rim glow HOR mat→peak→mat + mat plateau to pixel edge (no grey tail). / 4 стопа — длинный «чистый» мат справа */
+#define LV_GRADIENT_MAX_STOPS 4
 #define LV_GRAD_CACHE_DEF_SIZE 0
-#define LV_DITHER_GRADIENT 0
+/* Dither HOR/VERT gradients — less banding on RGB565 panels (volume bar, glows). / Меньше «лесенки» на 16-bit */
+#define LV_DITHER_GRADIENT 1
 #define LV_DISP_ROT_MAX_BUF (10 * 1024)
 
 /*--- GPU ---*/
