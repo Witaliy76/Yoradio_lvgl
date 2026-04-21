@@ -157,6 +157,21 @@ void lvgl_ui::refreshMainScreen() {
 #endif
 }
 
+void lvgl_ui::onMainBackgroundSlotCommitted(uint8_t slot) {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    if (slot > 2u) {
+        return;
+    }
+    const uint8_t active = static_cast<uint8_t>(yoradio_theme_active_preset());
+    if (slot != active) {
+        return;
+    }
+    s_main_screen.reloadFileBackgroundFromLittlefs();
+#else
+    (void)slot;
+#endif
+}
+
 // Stage 0: stub — confirms LVGL library is compiled into the build
 // Stage 0: заглушка — подтверждает, что библиотека LVGL скомпилирована в сборку
 

@@ -1,5 +1,6 @@
 #include "netserver.h"
 #include <LittleFS.h>
+#include <cstring>
 
 #include "config.h"
 #include "save_manager.h"
@@ -1317,6 +1318,26 @@ void handleUploadBg(AsyncWebServerRequest* request, String filename, size_t inde
       committed.close();
     }
   }
+#if (YORADIO_LVGL_STAGE >= 2)
+  // Invalidate Main PSRAM bg when WebUI overwrote the active theme slot (DspTask reload).
+  // Сброс кэша фона: только если залитый слот совпадает с активным пресетом — иначе очередь не трогаем.
+  {
+    uint8_t uploaded = 255;
+    if (std::strcmp(gBgSlotName, "dark") == 0) {
+      uploaded = 0;
+    } else if (std::strcmp(gBgSlotName, "light") == 0) {
+      uploaded = 1;
+    } else if (std::strcmp(gBgSlotName, "custom") == 0) {
+      uploaded = 2;
+    }
+    if (uploaded <= 2u) {
+      const uint8_t active = static_cast<uint8_t>(lvgl_ui::yoradio_theme_active_preset());
+      if (uploaded == active) {
+        display.putRequest(MAIN_BG_FS_UPDATED, static_cast<int>(uploaded));
+      }
+    }
+  }
+#endif
   char okjson[280];
   snprintf(okjson, sizeof(okjson),
            "{\"ok\":true,\"slot\":\"%s\",\"path\":\"%s\",\"written_bytes\":%lu,\"final_size\":%lu,\"target_exists\":%s}",

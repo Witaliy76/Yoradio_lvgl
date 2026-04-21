@@ -961,6 +961,13 @@ void Display::loop() {
           #endif
           break;
         }
+        case MAIN_BG_FS_UPDATED: {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+          // NetServer after successful /upload_bg; LVGL only on DspTask / После commit upload — только здесь lv_*.
+          lvgl_ui::onMainBackgroundSlotCommitted(static_cast<uint8_t>(request.payload));
+#endif
+          break;
+        }
         default: break;
       }
     DisplayEvent evt = { request.type, &request, _mode };

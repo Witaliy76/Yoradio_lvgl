@@ -478,6 +478,16 @@ ScreenType LvglMainScreen::screenType() const {
     return ScreenType::Page;
 }
 
+void LvglMainScreen::reloadFileBackgroundFromLittlefs() {
+    if (!_bg_img) {
+        return;
+    }
+    _applyBgTheme(true);
+    if (_bg_scrim) {
+        main_sync_dark_bg_scrim(_bg_img, _bg_scrim);
+    }
+}
+
 void LvglMainScreen::_applyBgTheme(bool force) {
     if (!_bg_img) return;
 

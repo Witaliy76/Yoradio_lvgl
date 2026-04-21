@@ -29,6 +29,10 @@ public:
     void destroy() override;
     lv_obj_t* screen() override;
 
+    // WebUI replaced LittleFS .bin for a slot — force PSRAM reload (call from DspTask only).
+    // Веб перезаписал .bin слота — принудительно перезагрузить PSRAM (только DspTask).
+    void reloadFileBackgroundFromLittlefs();
+
 private:
     lv_obj_t* _screen = nullptr;
 
