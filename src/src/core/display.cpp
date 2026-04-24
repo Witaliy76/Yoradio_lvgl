@@ -968,6 +968,14 @@ void Display::loop() {
 #endif
           break;
         }
+        case ART_FS_UPDATED: {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+          // NetServer after successful /upload_art or /remove_art — reload art on Main (DspTask only).
+          // NetServer после /upload_art или /remove_art — перезагрузить арт на Main (только DspTask).
+          lvgl_ui::onStationArtCommitted();
+#endif
+          break;
+        }
         default: break;
       }
     DisplayEvent evt = { request.type, &request, _mode };

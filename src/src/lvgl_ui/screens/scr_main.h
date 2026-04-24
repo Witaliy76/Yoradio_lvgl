@@ -33,6 +33,10 @@ public:
     // Веб перезаписал .bin слота — принудительно перезагрузить PSRAM (только DspTask).
     void reloadFileBackgroundFromLittlefs();
 
+    // Station Art MVP: WebUI committed upload_art / remove_art — force art reload (DspTask only).
+    // Station Art MVP: после upload_art / remove_art — принудительно перезагрузить арт (только DspTask).
+    void reloadStationArtFromLittlefs();
+
 private:
     lv_obj_t* _screen = nullptr;
 
@@ -53,6 +57,11 @@ private:
 
     // Top status strip: Wi‑Fi + weather glance + clock (experimental). / Верх: Wi‑Fi, погода, часы.
     wgt_status_line::Instance _status_line{};
+
+    // Flex spacers around cont_mid (equal by default; with left art — asymmetric grow, see create()).
+    // Спейсеры вокруг cont_mid: по умолчанию равны; с left art — асимметричный grow.
+    lv_obj_t* _spacer_top    = nullptr;
+    lv_obj_t* _spacer_bottom  = nullptr;
 
     // Meta row (below control band): composed stream-info line (6.1E stream facts).
     // Мета-строка: один label — факты потока.
@@ -85,6 +94,32 @@ private:
     // Нижний разделитель, превращающийся в meter буфера при audioinfo == true.
     lv_obj_t* _bar_buffer = nullptr;
     lv_obj_t* _lbl_ai_line = nullptr;
+
+    // Left Art slot (6.1E-visual v1): hidden when no local asset (Mode A); visible when asset present (Mode B).
+    // Dynamic collapse: LVGL v8 flex skips HIDDEN children — cont_text auto-expands in Mode A.
+    // art_slot скрыт по умолчанию (Mode A); показывается при наличии локального asset (Mode B).
+    lv_obj_t* _art_slot  = nullptr;
+    lv_obj_t* _art_img   = nullptr;
+    // Flex containers whose alignment changes when art appears / disappears (CENTER ↔ START).
+    // Контейнеры, выравнивание которых меняется при появлении/исчезновении арта.
+    lv_obj_t* _cont_mid  = nullptr; // outer column (row host)
+    lv_obj_t* _cont_text = nullptr; // text column (station name / track / artist)
+
+    // Station Art MVP: runtime reload state.
+    // _art_last_station_num: 0xFFFF = uninitialized (force reload on first update() call).
+    // _art_reload_forced: set by reloadStationArtFromLittlefs() to re-check even if num unchanged.
+    // _art_current_key: normalized key of the last loaded asset (empty = none loaded).
+    // Station Art MVP: состояние runtime-перезагрузки.
+    uint16_t _art_last_station_num = 0xFFFF; // sentinel: force reload on first call
+    bool     _art_reload_forced    = false;
+    char     _art_current_key[68]  = {};
+
+    // Reload station art from LittleFS for the current station.
+    // Must be called only from DspTask (same thread as all lv_* calls).
+    // Key source: stationByNum(config.lastStation()) — never config.station.name.
+    // Перезагрузка арта для текущей станции из LittleFS (только DspTask).
+    // Источник ключа: stationByNum() — не config.station.name.
+    void _reloadArtIfNeeded();
 };
 
 } // namespace lvgl_ui

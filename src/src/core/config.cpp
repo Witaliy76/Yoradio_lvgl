@@ -304,6 +304,7 @@ void Config::init() {
   LittleFS.mkdir("/www");
   LittleFS.mkdir("/ai");
   LittleFS.mkdir("/bg");
+  LittleFS.mkdir("/logo"); // Station Art MVP: per-station art files /logo/<normalized_name>.bin
   
   // Load AI configuration from filesystem and apply to store
   // FS config has priority over runtime config (WebUI settings override dev config)

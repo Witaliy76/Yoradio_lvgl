@@ -172,6 +172,14 @@ void lvgl_ui::onMainBackgroundSlotCommitted(uint8_t slot) {
 #endif
 }
 
+void lvgl_ui::onStationArtCommitted() {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    // Force art reload on Main after WebUI upload_art / remove_art (DspTask queue handler only).
+    // Принудительная перезагрузка арта после upload_art / remove_art из обработчика очереди DspTask.
+    s_main_screen.reloadStationArtFromLittlefs();
+#endif
+}
+
 // Stage 0: stub — confirms LVGL library is compiled into the build
 // Stage 0: заглушка — подтверждает, что библиотека LVGL скомпилирована в сборку
 

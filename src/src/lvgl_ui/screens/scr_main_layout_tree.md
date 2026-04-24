@@ -15,9 +15,9 @@
 
 1. `wgt_status_line.root`  
 2. `status_divider`
-3. `spacer_top` (flex grow)
-4. `cont_mid` (text stack only — 6.1E-c)
-5. `spacer_bottom` (flex grow)
+3. `spacer_top` (flex grow; Mode A: **1** / Mode B: **1** — paired with `spacer_bottom` **5** to lift `cont_mid` higher)
+4. `cont_mid` (outer COLUMN wrapper — 6.1E-visual)
+5. `spacer_bottom` (flex grow; Mode A: **1** / Mode B: **5**)
 6. `zone_visual` (1 px placeholder)
 7. `zone_bottom_sym_spacer` (symmetry, height may be set after layout)
 8. `zone_bottom`
@@ -41,11 +41,14 @@ _screen
 │   └── lbl_clock
 ├── status_divider
 ├── spacer_top
-├── cont_mid
-│   └── cont_text
-│       ├── _lbl_station_name
-│       ├── _lbl_track
-│       └── _lbl_artist
+├── cont_mid  (COLUMN wrapper; 6.1E-visual)
+│   └── cont_mid_row  (ROW; art_slot + cont_text; 6.1E-visual)
+│       ├── _art_slot  (120×120; LV_OBJ_FLAG_HIDDEN when no art file — Mode A; visible when station art present — Mode B)
+│       │   └── _art_img  (lv_img; L:/logo/<normalized_key>.bin — TRUE_COLOR_ALPHA CF=5, 120×120)
+│       └── cont_text  (flex_grow=1; Mode A: CENTER flex + LV_TEXT_ALIGN_CENTER; Mode B: START flex + LV_TEXT_ALIGN_LEFT)
+│           ├── _lbl_station_name
+│           ├── _lbl_track
+│           └── _lbl_artist
 ├── spacer_bottom
 ├── zone_visual
 ├── zone_bottom_sym_spacer
@@ -104,7 +107,12 @@ flowchart TB
   end
 
   subgraph cm["cont_mid"]
-    CT[cont_text]
+    CMR[cont_mid_row]
+  end
+
+  subgraph cmr["cont_mid_row (ROW)"]
+    AS["_art_slot 120×120 (Mode A: HIDDEN / Mode B: visible)"]
+    CT[cont_text flex_grow=1]
   end
 
   subgraph ct["cont_text"]
@@ -144,7 +152,9 @@ flowchart TB
   SL --> CLK
   CWX --> WG
   CWX --> WT
-  CM --> CT
+  CM --> CMR
+  CMR --> AS
+  CMR --> CT
   CT --> SN
   CT --> TR
   CT --> AR

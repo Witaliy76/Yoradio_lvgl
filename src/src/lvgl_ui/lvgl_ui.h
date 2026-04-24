@@ -55,6 +55,10 @@ void refreshMainScreen();
 // После upload_bg: перечитать фон в PSRAM только для активного слота темы; только из обработчика displayQueue.
 void onMainBackgroundSlotCommitted(uint8_t slot);
 
+// Station Art MVP: WebUI committed /logo/<key>.bin (upload or remove) — force art reload on Main (DspTask queue only).
+// Station Art MVP: после upload_art / remove_art — принудительно перезагрузить арт на Main (только DspTask).
+void onStationArtCommitted();
+
 // Stage 3.2: backend selection stub (no behavior change yet).
 // Stage 3.2: заглушка выбора backend'а (без изменения поведения).
 enum class UiBackend {

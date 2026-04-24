@@ -59,6 +59,11 @@ void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventTyp
 void beginUploadBg(AsyncWebServerRequest *request);
 void handleUploadBg(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
 void handleRemoveBgHttp(AsyncWebServerRequest *request);
+// Station Art MVP: /upload_art, /remove_art, /art_status
+void beginUploadArt(AsyncWebServerRequest *request);
+void handleUploadArt(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
+void handleRemoveArtHttp(AsyncWebServerRequest *request);
+void handleArtStatusHttp(AsyncWebServerRequest *request);
 #endif
 void handleBgStatusHttp(AsyncWebServerRequest *request);
 
@@ -125,6 +130,10 @@ bool NetServer::begin(bool quiet) {
   // Main background .bin → /bg/main_{dark,light,custom}.bin (Stage 6.1F-d) / Фон Main в слоты LittleFS
   webserver.on("/upload_bg", HTTP_POST, beginUploadBg, handleUploadBg);
   webserver.on("/remove_bg", HTTP_POST, handleRemoveBgHttp);
+  // Station Art MVP: per-station art /logo/<key>.bin / Station Art MVP: арт станции
+  webserver.on("/art_status", HTTP_GET, handleArtStatusHttp);
+  webserver.on("/upload_art", HTTP_POST, beginUploadArt, handleUploadArt);
+  webserver.on("/remove_art", HTTP_POST, handleRemoveArtHttp);
 #endif
   if (IR_PIN != 255) webserver.on("/ir", HTTP_GET, handleHTTPArgs);
   webserver.serveStatic("/", LittleFS, "/www/").setCacheControl("max-age=31536000");
@@ -1430,6 +1439,249 @@ void handleBgStatusHttp(AsyncWebServerRequest* request) {
                  "\"bg_dark_size\":0,\"bg_light_size\":0,\"bg_custom_size\":0}");
 #endif
 }
+
+// ---------------------------------------------------------------------------
+// Station Art MVP: POST /upload_art, POST /remove_art, GET /art_status
+// Арт станции: загрузка/удаление/статус — /logo/<normalized_playlist_name>.bin
+// Key contract: stationByNum(config.lastStation()) → artNormalizeKey() — server-side only.
+// ---------------------------------------------------------------------------
+#if YORADIO_USE_LVGL
+#include "art_key.h"
+namespace {
+
+static const char kArtTmpPath[] = "/logo/.upload_art.tmp";
+static constexpr uint16_t kArtSlotW = 120;
+static constexpr uint16_t kArtSlotH = 120;
+// LV_IMG_CF_TRUE_COLOR_ALPHA = 5; 3 bytes per pixel (RGB565 LE + alpha)
+static constexpr uint8_t kLvImgCfTrueColorAlpha = 5;
+static constexpr size_t kArtExpectedSize = 4u + (size_t)kArtSlotW * kArtSlotH * 3u; // 43204
+
+static bool   gArtUploadArmed   = false;
+static char   gArtDestPath[84]  = {0};  // /logo/<key>.bin
+static char   gArtNormalizedKey[68] = {0};
+static size_t gArtWrittenTotal  = 0;
+static bool   gArtIoFatal       = false;
+static File   gArtUploadFile;
+
+// Build current station's art path from stable playlist source.
+// Строим путь к арту из стабильного плейлистного имени (не runtime ICY name).
+static bool artBuildCurrentPath(char* dest_path, size_t dest_sz, char* key_out, size_t key_sz) {
+    const char* playlist_name = config.stationByNum(config.lastStation());
+    memset(key_out, 0, key_sz);
+    artNormalizeKey(playlist_name, key_out, key_sz);
+    if (key_out[0] == '\0') return false;
+    snprintf(dest_path, dest_sz, "/logo/%s.bin", key_out);
+    return true;
+}
+
+}  // namespace
+
+void beginUploadArt(AsyncWebServerRequest* request) {
+    (void)request;
+    // Same as beginUploadBg: do not send() here — response comes from handleUploadArt on final chunk.
+    // Не отвечать здесь — ответ придёт из handleUploadArt при final-чанке (иначе два ответа → клиент видит пустой 200).
+}
+
+void handleUploadArt(AsyncWebServerRequest* request, String filename, size_t index, uint8_t* data, size_t len, bool final) {
+    (void)filename;
+
+    if (index == 0) {
+        gArtUploadArmed = false;
+        gArtIoFatal     = false;
+        gArtWrittenTotal = 0;
+        if (gArtUploadFile) gArtUploadFile.close();
+
+        // Determine dest from current station (server-side only — never from client param).
+        // Путь определяется на сервере из stationByNum — клиент не может влиять на имя файла.
+        if (!artBuildCurrentPath(gArtDestPath, sizeof(gArtDestPath), gArtNormalizedKey, sizeof(gArtNormalizedKey))) {
+            request->send(400, "application/json", "{\"ok\":false,\"error\":\"empty_key\"}");
+            return;
+        }
+
+        size_t freeB = LittleFS.totalBytes() - LittleFS.usedBytes();
+        if (freeB < kArtExpectedSize + 4096u) {
+            request->send(507, "application/json", "{\"ok\":false,\"error\":\"insufficient_space\"}");
+            return;
+        }
+
+        gArtUploadArmed = true;
+        if (LittleFS.exists(kArtTmpPath)) LittleFS.remove(kArtTmpPath);
+        gArtUploadFile = LittleFS.open(kArtTmpPath, "w");
+        if (!gArtUploadFile) gArtIoFatal = true;
+    } else {
+        if (!gArtUploadArmed) return;
+    }
+
+    if (gArtIoFatal) {
+        if (final) {
+            gArtUploadArmed = false;
+            if (gArtUploadFile) gArtUploadFile.close();
+            LittleFS.remove(kArtTmpPath);
+            request->send(500, "application/json", "{\"ok\":false,\"error\":\"open_failed\"}");
+        }
+        return;
+    }
+
+    if (len && gArtUploadFile) {
+        size_t n = gArtUploadFile.write(data, len);
+        gArtWrittenTotal += n;
+        if (n != len) gArtIoFatal = true;
+    }
+
+    if (!final) return;
+
+    gArtUploadArmed = false;
+    if (gArtUploadFile) gArtUploadFile.close();
+
+    if (gArtIoFatal) {
+        LittleFS.remove(kArtTmpPath);
+        request->send(500, "application/json", "{\"ok\":false,\"error\":\"write_failed\"}");
+        gArtIoFatal = false;
+        return;
+    }
+
+    // Validate: size, LVGL header, CF=5, 120×120
+    File vf = LittleFS.open(kArtTmpPath, "r");
+    if (!vf) {
+        request->send(500, "application/json", "{\"ok\":false,\"error\":\"read_failed\"}");
+        return;
+    }
+    const size_t sz = vf.size();
+    if (sz != kArtExpectedSize) {
+        vf.close(); LittleFS.remove(kArtTmpPath);
+        request->send(400, "application/json", "{\"ok\":false,\"error\":\"size_mismatch\"}");
+        return;
+    }
+    uint8_t hdr[4];
+    if (vf.read(hdr, 4) != 4) {
+        vf.close(); LittleFS.remove(kArtTmpPath);
+        request->send(400, "application/json", "{\"ok\":false,\"error\":\"header_short\"}");
+        return;
+    }
+    uint8_t cf = 0; uint16_t iw = 0, ih = 0;
+    if (!bgParseImgHeader(hdr, &cf, &iw, &ih)) {  // reuse existing LVGL header parser
+        vf.close(); LittleFS.remove(kArtTmpPath);
+        request->send(400, "application/json", "{\"ok\":false,\"error\":\"bad_header\"}");
+        return;
+    }
+    if (cf != kLvImgCfTrueColorAlpha) {
+        vf.close(); LittleFS.remove(kArtTmpPath);
+        request->send(400, "application/json", "{\"ok\":false,\"error\":\"cf_not_true_color_alpha\"}");
+        return;
+    }
+    if (iw != kArtSlotW || ih != kArtSlotH) {
+        vf.close(); LittleFS.remove(kArtTmpPath);
+        request->send(400, "application/json", "{\"ok\":false,\"error\":\"dimensions_mismatch\"}");
+        return;
+    }
+    vf.close();
+
+    // Commit: rename tmp → dest (fallback to copy if rename fails across dirs on some FS versions)
+    if (LittleFS.exists(gArtDestPath)) LittleFS.remove(gArtDestPath);
+    if (!LittleFS.rename(kArtTmpPath, gArtDestPath)) {
+        File src = LittleFS.open(kArtTmpPath, "r");
+        File dst = LittleFS.open(gArtDestPath, "w");
+        if (!src || !dst) {
+            if (src) src.close();
+            if (dst) dst.close();
+            LittleFS.remove(kArtTmpPath);
+            request->send(500, "application/json", "{\"ok\":false,\"error\":\"commit_failed\"}");
+            return;
+        }
+        uint8_t cpbuf[512];
+        bool copy_ok = true;
+        while (src.available()) {
+            size_t rd = src.read(cpbuf, sizeof(cpbuf));
+            if (rd && dst.write(cpbuf, rd) != rd) { copy_ok = false; break; }
+        }
+        src.close(); dst.close();
+        LittleFS.remove(kArtTmpPath);
+        if (!copy_ok) {
+            LittleFS.remove(gArtDestPath);
+            request->send(500, "application/json", "{\"ok\":false,\"error\":\"commit_copy\"}");
+            return;
+        }
+    }
+
+    size_t final_sz = 0;
+    const bool target_exists = LittleFS.exists(gArtDestPath);
+    if (target_exists) {
+        File committed = LittleFS.open(gArtDestPath, "r");
+        if (committed) { final_sz = committed.size(); committed.close(); }
+    }
+
+#if (YORADIO_LVGL_STAGE >= 2)
+    // Signal DspTask to reload art on Main screen / Сигнал DspTask — перезагрузить арт на Main.
+    display.putRequest(ART_FS_UPDATED, 0);
+#endif
+
+    char okjson[320];
+    snprintf(okjson, sizeof(okjson),
+             "{\"ok\":true,\"normalized_key\":\"%s\",\"path\":\"%s\","
+             "\"written_bytes\":%lu,\"final_size\":%lu,\"target_exists\":%s}",
+             gArtNormalizedKey, gArtDestPath,
+             (unsigned long)gArtWrittenTotal, (unsigned long)final_sz,
+             target_exists ? "true" : "false");
+    request->send(200, "application/json", okjson);
+}
+
+void handleRemoveArtHttp(AsyncWebServerRequest* request) {
+    char key[68]  = {};
+    char path[84] = {};
+    if (!artBuildCurrentPath(path, sizeof(path), key, sizeof(key))) {
+        request->send(400, "application/json", "{\"ok\":false,\"error\":\"empty_key\"}");
+        return;
+    }
+    if (LittleFS.exists(path)) {
+        if (!LittleFS.remove(path)) {
+            request->send(500, "application/json", "{\"ok\":false,\"error\":\"remove_failed\"}");
+            return;
+        }
+    }
+#if (YORADIO_LVGL_STAGE >= 2)
+    display.putRequest(ART_FS_UPDATED, 0);
+#endif
+    request->send(200, "application/json", "{\"ok\":true}");
+}
+
+void handleArtStatusHttp(AsyncWebServerRequest* request) {
+    char key[68]  = {};
+    char path[84] = {};
+    const char* playlist_name = config.stationByNum(config.lastStation());
+    artNormalizeKey(playlist_name, key, sizeof(key));
+    if (key[0] != '\0') {
+        snprintf(path, sizeof(path), "/logo/%s.bin", key);
+    }
+
+    bool art_ok  = (path[0] != '\0') && LittleFS.exists(path);
+    size_t art_sz = 0;
+    if (art_ok) {
+        File f = LittleFS.open(path, "r");
+        if (f) { art_sz = f.size(); f.close(); }
+    }
+
+    // Minimal JSON-safe escape for station name (replace backslash and double-quote only).
+    // Минимальное экранирование для JSON: только \\ и \".
+    char name_esc[512] = {};
+    size_t ne = 0;
+    for (size_t i = 0; playlist_name[i] && ne < sizeof(name_esc) - 2u; i++) {
+        char c = playlist_name[i];
+        if (c == '"' || c == '\\') name_esc[ne++] = '\\';
+        name_esc[ne++] = c;
+    }
+
+    char buf[640];
+    snprintf(buf, sizeof(buf),
+             "{\"station_name\":\"%s\",\"normalized_key\":\"%s\","
+             "\"art_present\":%s,\"art_size\":%lu,\"slot_w\":%u,\"slot_h\":%u}",
+             name_esc, key,
+             art_ok ? "true" : "false",
+             (unsigned long)art_sz,
+             (unsigned)kArtSlotW, (unsigned)kArtSlotH);
+    request->send(200, "application/json", buf);
+}
+
+#endif  // YORADIO_USE_LVGL (Station Art MVP)
 
 String processor(const String& var) { // %Templates%
   if (var == "ACTION") return (network.status == CONNECTED && !config.emptyFS)?"webboard":"";

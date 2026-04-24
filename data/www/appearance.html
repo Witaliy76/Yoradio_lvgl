@@ -39,6 +39,17 @@
     .bg-slot-state { font-size: 12px; margin-top: 4px; color: #aaa; }
     .bg-slot-state.uploaded { color: #8c8; }
     .bg-slot-state.error { color: #c88; }
+    /* Station Art MVP / Арт станции */
+    #art-upload-root { max-width: 480px; margin: 0 auto; }
+    .art-station-label { font-size: 13px; color: #999; margin-bottom: 10px; }
+    .art-station-name { color: #e3d25f; }
+    .art-dim { font-size: 12px; color: #666; margin-bottom: 12px; }
+    .art-slot { border: 1px solid #333; border-radius: 8px; padding: 12px; background: #0a0a0a; }
+    .art-preview { display: block; width: auto; height: auto; border: 1px solid #444; background: #111; border-radius: 4px; margin: 8px 0; }
+    .art-fs { font-size: 12px; color: #777; margin-top: 6px; }
+    .art-state { font-size: 12px; margin-top: 4px; color: #aaa; }
+    .art-state.uploaded { color: #8c8; }
+    .art-state.error { color: #c88; }
   </style>
 </head>
 <body>
@@ -90,6 +101,24 @@
             </div>
           </div>
         </section>
+        <section class="appearance-section" id="section_station_art">
+          <div class="title"><span>station art</span></div>
+          <div id="art-upload-root" data-art-api-status="/art_status" data-art-api-upload="/upload_art" data-art-api-remove="/remove_art">
+            <p class="art-station-label">Current station: <span class="art-station-name">&hellip;</span></p>
+            <p class="art-dim" id="art-dim"></p>
+            <div class="art-slot">
+              <div><canvas class="art-preview" width="120" height="120" aria-label="Art preview"></canvas></div>
+              <input type="file" class="art-file" accept="image/*" hidden />
+              <div class="bg-slot-actions">
+                <button type="button" class="art-choose">Choose image</button>
+                <button type="button" class="art-upload" disabled>Upload</button>
+                <button type="button" class="art-remove">Remove</button>
+              </div>
+              <div class="art-fs">FS: &mdash;</div>
+              <div class="art-state">ready</div>
+            </div>
+          </div>
+        </section>
         <section class="appearance-section" id="section_theme">
           <div class="title"><span>theme</span></div>
           <div class="appearance-theme-shell" id="appearance-theme-shell" aria-readonly="true">
@@ -107,6 +136,7 @@
     <div id="copy">powered by <a target="_blank" href="https://github.com/e2002/yoradio/">ёRadio</a> | v.%VERSION%-RGB Panel-AI</div>
   </div>
   <script src="bg.js?%VERSION%" defer></script>
+  <script src="art.js?%VERSION%" defer></script>
   <script src="script.js?%VERSION%"></script>
 </body>
 </html>

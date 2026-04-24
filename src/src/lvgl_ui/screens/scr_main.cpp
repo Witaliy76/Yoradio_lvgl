@@ -2,7 +2,7 @@
  * scr_main.cpp — LvglMainScreen: layout + bindings for Main (LVGL).
  *
  * Layout (flex column on _screen, top → bottom):
- *   wgt_status_line → divider → spacer_top (flex 1) → cont_mid (text only) → spacer_bottom (flex 1)
+ *   wgt_status_line → divider → spacer_top (flex 1) → cont_mid → spacer_bottom (flex 1; with left art: top 1 / bottom 5)
  *   → zone_visual (1px) → zone_bottom: control_band (list | transport | settings) → row_meta_stream → col_vol → heapbar → AI;
  *   FLOATING: control_band edge glows — 4-stop HOR grad (lv_conf LV_GRADIENT_MAX_STOPS), under buttons,
  *   vol_touch_zone, vol_gesture_guard,
@@ -46,6 +46,7 @@
 #include "../../core/display.h"
 #include "../../core/network.h"
 #include "../../core/player.h"
+#include "../../core/art_key.h"  // Station Art MVP: artNormalizeKey()
 #include <LittleFS.h>
 
 namespace lvgl_ui {
@@ -118,6 +119,29 @@ constexpr lv_opa_t k_ctrl_pressed_opa_utility = static_cast<lv_opa_t>(36); // ~1
 // U+00B7 middle dot is NOT in that font subset → would render as wrong glyph on device/sim.
 // Разделитель: • из шрифта; средняя точка U+00B7 в подмножестве шрифта нет.
 static constexpr char k_meta_field_sep[] = " \xE2\x80\xA2 ";
+
+// Left Art v1: square slot size — local tuning constant (not in display profile yet; Stage 6.1E-visual).
+// Размер art_slot — локальная константа настройки, пока не в display profile.
+static constexpr lv_coord_t k_art_slot_size = 120; // px, baseline for 480×480
+static constexpr lv_coord_t k_art_slot_gap  = 12;  // gap between art_slot and cont_text / зазор между слотом и текстом
+// Art slot frame: matches control_band border (same hue); radius clips the image corners.
+// Рамка art_slot: тот же цвет, что у control_band border; radius обрезает углы картинки.
+static constexpr lv_coord_t k_art_frame_radius = 12; // squircle; tune alongside cont_mid composition
+static constexpr lv_coord_t k_art_frame_border_w = 2; // px; same visual weight as control_band (2px)
+static constexpr lv_opa_t   k_art_frame_border_opa = LV_OPA_50; // slightly softer than solid / чуть мягче
+
+// cont_mid vertical position: spacers use flex_grow. Equal grow → block centered in free space.
+// With left art: more grow below than above → cont_mid sits higher (6.1E-visual tune).
+// Вертикаль: равный grow — центр; с артом — больше grow снизу — средний блок выше.
+static constexpr int32_t k_spacer_grow_no_art_top    = 1;
+static constexpr int32_t k_spacer_grow_no_art_bottom = 1;
+static constexpr int32_t k_spacer_grow_with_art_top    = 1;
+static constexpr int32_t k_spacer_grow_with_art_bottom  = 5; // 1:5 — выше cont_mid, меньше перекрытие фона (было 1:3)
+
+// Station Art MVP: initial art is determined by artNormalizeKey(stationByNum()) in create().
+// Dummy path constants removed — _reloadArtIfNeeded() is the single source of truth.
+// Station Art MVP: исходное состояние арта определяется через artNormalizeKey(stationByNum()).
+// Dummy-пути удалены — единственный источник истины: _reloadArtIfNeeded().
 
 // Append s to buf (NUL-terminated); cap = total buffer size. Portable (no strlcat).
 static void meta_append_cstr(char* buf, size_t cap, const char* s) {
@@ -609,103 +633,265 @@ void LvglMainScreen::create() {
         lv_obj_clear_flag(status_divider, LV_OBJ_FLAG_SCROLLABLE);
     }
 
-    // Equal flex spacers above/below cont_mid → vertical balance vs 6.1A single lower flex blob.
-    // Два равных спейсера — баланс центра по вертикали.
-    lv_obj_t* spacer_top = lv_obj_create(_screen);
-    if (spacer_top) {
-        lv_obj_set_width(spacer_top, LV_PCT(100));
-        lv_obj_set_flex_grow(spacer_top, 1);
-        lv_obj_set_style_bg_opa(spacer_top, LV_OPA_TRANSP, LV_PART_MAIN);
-        lv_obj_set_style_border_width(spacer_top, 0, LV_PART_MAIN);
-        lv_obj_clear_flag(spacer_top, LV_OBJ_FLAG_SCROLLABLE);
+    // Flex spacers above/below cont_mid — default 1:1; with left art rebalanced in code after cont_mid (see below).
+    // Спейсеры сверху/снизу — по умолчанию 1:1; с left art — перебаланс после cont_mid.
+    _spacer_top = lv_obj_create(_screen);
+    if (_spacer_top) {
+        lv_obj_set_width(_spacer_top, LV_PCT(100));
+        lv_obj_set_flex_grow(_spacer_top, k_spacer_grow_no_art_top);
+        lv_obj_set_style_bg_opa(_spacer_top, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_border_width(_spacer_top, 0, LV_PART_MAIN);
+        lv_obj_clear_flag(_spacer_top, LV_OBJ_FLAG_SCROLLABLE);
     }
 
-    // cont_mid: primary text stack only — meta row moved to zone_bottom (6.1E-c).
-    // cont_mid: только стек текста — meta перенесена в нижний stack.
+    // cont_mid: primary composition — horizontal row inside (6.1E-visual).
+    // Outer COLUMN wrapper kept for future vertical siblings (e.g. ticker below text row).
+    // cont_mid: горизонтальный ряд внутри (6.1E-visual); внешний COLUMN сохранён для будущих соседей.
     lv_obj_t* cont_mid = lv_obj_create(_screen);
+    _cont_mid = cont_mid; // stored for runtime alignment update in _reloadArtIfNeeded()
     if (cont_mid) {
         lv_obj_set_width(cont_mid, LV_PCT(100));
         lv_obj_set_height(cont_mid, LV_SIZE_CONTENT);
         lv_obj_set_flex_flow(cont_mid, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_flex_align(
-            cont_mid,
-            LV_FLEX_ALIGN_CENTER,
-            LV_FLEX_ALIGN_CENTER,
-            LV_FLEX_ALIGN_CENTER);
+        // cont_mid flex_align set after art_slot visibility (center without cover, start with cover).
+        // Выравнивание обёртки — после решения Mode A/B (без обложки центр, с обложкой — start).
         lv_obj_set_style_pad_all(cont_mid, 0, LV_PART_MAIN);
-        lv_obj_set_style_pad_row(cont_mid, 16, LV_PART_MAIN);
+        lv_obj_set_style_pad_row(cont_mid, 0, LV_PART_MAIN);
         lv_obj_set_style_bg_opa(cont_mid, LV_OPA_TRANSP, LV_PART_MAIN);
         lv_obj_set_style_border_width(cont_mid, 0, LV_PART_MAIN);
         lv_obj_clear_flag(cont_mid, LV_OBJ_FLAG_SCROLLABLE);
 
-        lv_obj_t* cont_text = lv_obj_create(cont_mid);
-        if (cont_text) {
-            lv_obj_set_width(cont_text, LV_PCT(100));
-            lv_obj_set_height(cont_text, LV_SIZE_CONTENT);
-            lv_obj_set_flex_flow(cont_text, LV_FLEX_FLOW_COLUMN);
+        // 6.1E-visual: horizontal row — art_slot (left, dynamic-collapse) + cont_text (right, flex_grow=1).
+        // Mode A (no asset): art_slot HIDDEN → LVGL v8 flex skips it → cont_text fills full row width (no reserved hole).
+        // Mode B (asset present): art_slot visible (k_art_slot_size sq) → cont_text takes remaining width.
+        // Горизонтальный ряд: art_slot (collapse) + cont_text (flex_grow). Mode A: арт скрыт, текст на всю ширину.
+        lv_obj_t* cont_mid_row = lv_obj_create(cont_mid);
+        if (cont_mid_row) {
+            lv_obj_set_width(cont_mid_row, LV_PCT(100));
+            lv_obj_set_height(cont_mid_row, LV_SIZE_CONTENT);
+            lv_obj_set_flex_flow(cont_mid_row, LV_FLEX_FLOW_ROW);
             lv_obj_set_flex_align(
-                cont_text,
-                LV_FLEX_ALIGN_CENTER,
-                LV_FLEX_ALIGN_CENTER,
+                cont_mid_row,
+                LV_FLEX_ALIGN_START,   // main: left-to-right
+                LV_FLEX_ALIGN_CENTER,  // cross: vertically center items
                 LV_FLEX_ALIGN_CENTER);
-            // Vertical rhythm: anchor → track → artist (6.1B). pad_row = gap track↔artist; pad_top on track = extra name↔track (LVGL 8 has no margin_top helper).
-            // Ритм: pad_row — зазор трек↔артист; pad_top у трека — доп. воздух name↔трек (~4–6 px), кегли без изменений.
-            constexpr int32_t k_main_center_pad_row = 10;
-            constexpr int32_t k_main_track_pad_top = 6;
-            lv_obj_set_style_pad_all(cont_text, 0, LV_PART_MAIN);
-            lv_obj_set_style_pad_row(cont_text, k_main_center_pad_row, LV_PART_MAIN);
-            lv_obj_set_style_bg_opa(cont_text, LV_OPA_TRANSP, LV_PART_MAIN);
-            lv_obj_set_style_border_width(cont_text, 0, LV_PART_MAIN);
-            lv_obj_clear_flag(cont_text, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_set_style_pad_all(cont_mid_row, 0, LV_PART_MAIN);
+            lv_obj_set_style_pad_column(cont_mid_row, k_art_slot_gap, LV_PART_MAIN);
+            lv_obj_set_style_bg_opa(cont_mid_row, LV_OPA_TRANSP, LV_PART_MAIN);
+            lv_obj_set_style_border_width(cont_mid_row, 0, LV_PART_MAIN);
+            lv_obj_clear_flag(cont_mid_row, LV_OBJ_FLAG_SCROLLABLE);
 
-            _lbl_station_name = lv_label_create(cont_text);
-            if (_lbl_station_name) {
-                lv_label_set_text(_lbl_station_name, "---");
-                lv_label_set_long_mode(_lbl_station_name, LV_LABEL_LONG_SCROLL_CIRCULAR);
-                lv_obj_set_width(_lbl_station_name, LV_PCT(100));
-                lv_obj_set_style_text_align(_lbl_station_name, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-                // Main font experiment: 32 px anchor (direct font ref, not profile slot).
-                // Эксперимент: якорь 32 px.
-                main_set_font(_lbl_station_name, reinterpret_cast<const void*>(&lv_font_yora_montserrat_32_cyr));
-                lv_obj_set_style_text_color(_lbl_station_name, pal.station_name_text, LV_PART_MAIN);
+            // art_slot: fixed square; HIDDEN by default (Mode A — no asset, no reserved hole).
+            // Shown when station art file exists (Mode B); hidden by default (Mode A).
+            // art_slot: фиксированный квадрат; по умолчанию скрыт (Mode A — нет заглушки).
+            _art_slot = lv_obj_create(cont_mid_row);
+            if (_art_slot) {
+                // Default lv_obj + theme "card" can add border/shadow/pad — looks like a frame; rounded parent + img can leak light pixels on corners in RGB565.
+                // Сбрасываем стили: без рамки темы, без clip по radius (иначе по углам «точки»/просветы).
+                lv_obj_remove_style_all(_art_slot);
+                lv_obj_set_size(_art_slot, k_art_slot_size, k_art_slot_size);
+                lv_obj_set_style_shadow_width(_art_slot, 0, LV_PART_MAIN);
+                lv_obj_set_style_outline_width(_art_slot, 0, LV_PART_MAIN);
+                // Frame: same color family as control_band border (Dark: 0x6B7D8F, Light: 0x98AAB8).
+                // radius clips content — image corners follow the same arc.
+                // Рамка: тот же оттенок что у полки; radius обрезает углы картинки изнутри.
+                {
+                    const bool lightScheme = (yoradio_theme_active_preset() == ThemePreset::Light);
+                    const lv_color_t frame_col = lightScheme
+                        ? lv_color_hex(0x98AAB8)
+                        : lv_color_hex(0x6B7D8F);
+                    lv_obj_set_style_border_color(_art_slot, frame_col, LV_PART_MAIN);
+                    lv_obj_set_style_border_opa(_art_slot, k_art_frame_border_opa, LV_PART_MAIN);
+                    lv_obj_set_style_border_width(_art_slot, k_art_frame_border_w, LV_PART_MAIN);
+                }
+                lv_obj_set_style_radius(_art_slot, k_art_frame_radius, LV_PART_MAIN);
+                lv_obj_set_style_bg_opa(_art_slot, LV_OPA_TRANSP, LV_PART_MAIN);
+                // Pad = border width → image sits inside the border ring.
+                // Паддинг = ширина рамки → картинка внутри кольца рамки.
+                lv_obj_set_style_pad_all(_art_slot, k_art_frame_border_w, LV_PART_MAIN);
+                // DO NOT use clip_corner on art_slot: in LVGL 8 it masks the object's own border arcs
+                // → corner pixels of the border itself get clipped → corners look "undrawn".
+                // Instead: set inner radius on art_img so image corners follow the border arc from inside.
+                // НЕ используем clip_corner: он маскирует дуги самой рамки → углы выглядят «непрорисованными».
+                // Вместо: inner radius на art_img = slot_radius − border_w → картинка повторяет дугу изнутри.
+                lv_obj_clear_flag(_art_slot, LV_OBJ_FLAG_SCROLLABLE);
+                lv_obj_clear_flag(_art_slot, LV_OBJ_FLAG_CLICKABLE);
+                lv_obj_add_flag(_art_slot, LV_OBJ_FLAG_HIDDEN); // default: Mode A
+
+                _art_img = lv_img_create(_art_slot);
+                if (_art_img) {
+                    lv_obj_remove_style_all(_art_img);
+                    // Explicit pixel size = content area; LV_SIZE_CONTENT would be 120px (image) vs 116px (area)
+                    // → overflows 2px top/bottom, covers top/bottom border. Fixed: size = slot − 2×border.
+                    // LV_SIZE_CONTENT = 120px > content area 116px → верх/низ рамки перекрыты. Фикс: явный размер.
+                    const lv_coord_t art_img_size = k_art_slot_size - 2 * k_art_frame_border_w;
+                    lv_obj_set_size(_art_img, art_img_size, art_img_size);
+                    lv_obj_set_style_bg_opa(_art_img, LV_OPA_TRANSP, LV_PART_MAIN);
+                    lv_obj_set_style_border_width(_art_img, 0, LV_PART_MAIN);
+                    lv_obj_set_style_pad_all(_art_img, 0, LV_PART_MAIN);
+                    // Inner radius = slot_radius − border_width → image corners follow the border arc.
+                    // Внутренний radius = slot_radius − border_w → углы картинки совпадают с дугой рамки.
+                    const lv_coord_t art_img_radius = k_art_frame_radius - k_art_frame_border_w;
+                    lv_obj_set_style_radius(_art_img, art_img_radius, LV_PART_MAIN);
+                    lv_obj_set_style_clip_corner(_art_img, true, LV_PART_MAIN); // clip img pixels to inner rounded rect
+                    lv_obj_set_style_shadow_width(_art_img, 0, LV_PART_MAIN);
+                    lv_obj_align(_art_img, LV_ALIGN_CENTER, 0, 0);
+                    lv_obj_clear_flag(_art_img, LV_OBJ_FLAG_CLICKABLE);
+                }
+
+                // Station Art MVP: initial art state from current station key — same contract
+                // as _reloadArtIfNeeded(). Sets _art_current_key/_art_last_station_num so the
+                // first update() call skips duplicate I/O when station has not changed.
+                // Key source: stationByNum(lastStation()) — never config.station.name.
+                // Station Art MVP: исходное состояние арта — тот же контракт что у
+                // _reloadArtIfNeeded(). Инициализируем кэш, чтобы первый update() не делал
+                // лишний I/O. Источник: stationByNum() — не config.station.name.
+                if (_art_img) {
+                    const char* init_pl = config.stationByNum(config.lastStation());
+                    char init_key[68]  = {};
+                    char init_fs[84]   = {};
+                    artNormalizeKey(init_pl, init_key, sizeof(init_key));
+                    if (init_key[0] != '\0') {
+                        snprintf(init_fs, sizeof(init_fs), "/logo/%s.bin", init_key);
+                    }
+                    if (init_key[0] != '\0' && LittleFS.exists(init_fs)) {
+                        char init_lvgl[88] = {};
+                        snprintf(init_lvgl, sizeof(init_lvgl), "L:/logo/%s.bin", init_key);
+                        lv_img_set_src(_art_img, init_lvgl);
+                        lv_obj_clear_flag(_art_slot, LV_OBJ_FLAG_HIDDEN); // Mode B
+                        strlcpy(_art_current_key, init_key, sizeof(_art_current_key));
+                        _art_last_station_num = config.lastStation();
+                        Serial.printf("[ART] create: key='%s'\n", init_key);
+                    }
+                    // else: _art_slot stays HIDDEN (Mode A); _art_last_station_num stays 0xFFFF
+                    // → first update() will call _reloadArtIfNeeded() and confirm no art.
+                }
             }
 
-            _lbl_track = lv_label_create(cont_text);
-            if (_lbl_track) {
-                lv_label_set_text(_lbl_track, " ");
-                lv_label_set_long_mode(_lbl_track, LV_LABEL_LONG_SCROLL_CIRCULAR);
-                lv_obj_set_width(_lbl_track, LV_PCT(100));
-                lv_obj_set_style_text_align(_lbl_track, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-                // Second tier: 22 px.
-                // Второй уровень: 22 px.
-                main_set_font(_lbl_track, reinterpret_cast<const void*>(&lv_font_yora_montserrat_22_cyr));
-                lv_obj_set_style_text_color(_lbl_track, pal.track_text, LV_PART_MAIN);
-                lv_obj_set_style_pad_top(_lbl_track, k_main_track_pad_top, LV_PART_MAIN);
-                lv_obj_add_flag(_lbl_track, LV_OBJ_FLAG_HIDDEN);
+            const bool has_cover =
+                (_art_slot != nullptr && !lv_obj_has_flag(_art_slot, LV_OBJ_FLAG_HIDDEN));
+            if (cont_mid) {
+                if (has_cover) {
+                    lv_obj_set_flex_align(
+                        cont_mid,
+                        LV_FLEX_ALIGN_START,
+                        LV_FLEX_ALIGN_START,
+                        LV_FLEX_ALIGN_START);
+                } else {
+                    lv_obj_set_flex_align(
+                        cont_mid,
+                        LV_FLEX_ALIGN_CENTER,
+                        LV_FLEX_ALIGN_CENTER,
+                        LV_FLEX_ALIGN_CENTER);
+                }
             }
 
-            _lbl_artist = lv_label_create(cont_text);
-            if (_lbl_artist) {
-                lv_label_set_text(_lbl_artist, " ");
-                lv_label_set_long_mode(_lbl_artist, LV_LABEL_LONG_SCROLL_CIRCULAR);
-                lv_obj_set_width(_lbl_artist, LV_PCT(100));
-                lv_obj_set_style_text_align(_lbl_artist, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-                // Third tier: 18 px (experiment ladder).
-                // Третий уровень: 18 px.
-                main_set_font(_lbl_artist, reinterpret_cast<const void*>(&lv_font_yora_montserrat_18_cyr));
-                lv_obj_set_style_text_color(_lbl_artist, pal.artist_text, LV_PART_MAIN);
-                lv_obj_add_flag(_lbl_artist, LV_OBJ_FLAG_HIDDEN);
+            // cont_text: flex_grow=1 fills remaining row width.
+            // Mode A: art_slot hidden → full row width (same visual as before).
+            // Mode B: art_slot visible → width = row − art_slot − gap.
+            // cont_text: flex_grow=1 — занимает оставшуюся ширину ряда.
+            lv_obj_t* cont_text = lv_obj_create(cont_mid_row);
+            _cont_text = cont_text; // stored for runtime alignment update in _reloadArtIfNeeded()
+            if (cont_text) {
+                lv_obj_set_flex_grow(cont_text, 1);
+                lv_obj_set_height(cont_text, LV_SIZE_CONTENT);
+                lv_obj_set_flex_flow(cont_text, LV_FLEX_FLOW_COLUMN);
+                // Label text_align + cont_text flex: set after children (uses has_cover) / После лейблов — центр или лево от обложки.
+                // Vertical rhythm: anchor → track → artist (6.1B). pad_row = gap track↔artist; pad_top on track = extra name↔track (LVGL 8 has no margin_top helper).
+                // Ритм: pad_row — зазор трек↔артист; pad_top у трека — доп. воздух name↔трек (~4–6 px), кегли без изменений.
+                constexpr int32_t k_main_center_pad_row = 10;
+                constexpr int32_t k_main_track_pad_top = 6;
+                lv_obj_set_style_pad_all(cont_text, 0, LV_PART_MAIN);
+                lv_obj_set_style_pad_row(cont_text, k_main_center_pad_row, LV_PART_MAIN);
+                lv_obj_set_style_bg_opa(cont_text, LV_OPA_TRANSP, LV_PART_MAIN);
+                lv_obj_set_style_border_width(cont_text, 0, LV_PART_MAIN);
+                lv_obj_clear_flag(cont_text, LV_OBJ_FLAG_SCROLLABLE);
+
+                _lbl_station_name = lv_label_create(cont_text);
+                if (_lbl_station_name) {
+                    lv_label_set_text(_lbl_station_name, "---");
+                    lv_label_set_long_mode(_lbl_station_name, LV_LABEL_LONG_SCROLL_CIRCULAR);
+                    lv_obj_set_width(_lbl_station_name, LV_PCT(100));
+                    // Main font experiment: 32 px anchor (direct font ref, not profile slot).
+                    // Эксперимент: якорь 32 px.
+                    main_set_font(_lbl_station_name, reinterpret_cast<const void*>(&lv_font_yora_montserrat_32_cyr));
+                    lv_obj_set_style_text_color(_lbl_station_name, pal.station_name_text, LV_PART_MAIN);
+                }
+
+                _lbl_track = lv_label_create(cont_text);
+                if (_lbl_track) {
+                    lv_label_set_text(_lbl_track, " ");
+                    lv_label_set_long_mode(_lbl_track, LV_LABEL_LONG_SCROLL_CIRCULAR);
+                    lv_obj_set_width(_lbl_track, LV_PCT(100));
+                    // Second tier: 22 px.
+                    // Второй уровень: 22 px.
+                    main_set_font(_lbl_track, reinterpret_cast<const void*>(&lv_font_yora_montserrat_22_cyr));
+                    lv_obj_set_style_text_color(_lbl_track, pal.track_text, LV_PART_MAIN);
+                    lv_obj_set_style_pad_top(_lbl_track, k_main_track_pad_top, LV_PART_MAIN);
+                    lv_obj_add_flag(_lbl_track, LV_OBJ_FLAG_HIDDEN);
+                }
+
+                _lbl_artist = lv_label_create(cont_text);
+                if (_lbl_artist) {
+                    lv_label_set_text(_lbl_artist, " ");
+                    lv_label_set_long_mode(_lbl_artist, LV_LABEL_LONG_SCROLL_CIRCULAR);
+                    lv_obj_set_width(_lbl_artist, LV_PCT(100));
+                    // Third tier: 18 px (experiment ladder).
+                    // Третий уровень: 18 px.
+                    main_set_font(_lbl_artist, reinterpret_cast<const void*>(&lv_font_yora_montserrat_18_cyr));
+                    lv_obj_set_style_text_color(_lbl_artist, pal.artist_text, LV_PART_MAIN);
+                    lv_obj_add_flag(_lbl_artist, LV_OBJ_FLAG_HIDDEN);
+                }
+
+                if (has_cover) {
+                    lv_obj_set_flex_align(
+                        cont_text,
+                        LV_FLEX_ALIGN_START,
+                        LV_FLEX_ALIGN_START,
+                        LV_FLEX_ALIGN_START);
+                    if (_lbl_station_name) {
+                        lv_obj_set_style_text_align(_lbl_station_name, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
+                    }
+                    if (_lbl_track) {
+                        lv_obj_set_style_text_align(_lbl_track, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
+                    }
+                    if (_lbl_artist) {
+                        lv_obj_set_style_text_align(_lbl_artist, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
+                    }
+                } else {
+                    lv_obj_set_flex_align(
+                        cont_text,
+                        LV_FLEX_ALIGN_CENTER,
+                        LV_FLEX_ALIGN_CENTER,
+                        LV_FLEX_ALIGN_CENTER);
+                    if (_lbl_station_name) {
+                        lv_obj_set_style_text_align(_lbl_station_name, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+                    }
+                    if (_lbl_track) {
+                        lv_obj_set_style_text_align(_lbl_track, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+                    }
+                    if (_lbl_artist) {
+                        lv_obj_set_style_text_align(_lbl_artist, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+                    }
+                }
             }
         }
     }
 
-    lv_obj_t* spacer_bottom = lv_obj_create(_screen);
-    if (spacer_bottom) {
-        lv_obj_set_width(spacer_bottom, LV_PCT(100));
-        lv_obj_set_flex_grow(spacer_bottom, 1);
-        lv_obj_set_style_bg_opa(spacer_bottom, LV_OPA_TRANSP, LV_PART_MAIN);
-        lv_obj_set_style_border_width(spacer_bottom, 0, LV_PART_MAIN);
-        lv_obj_clear_flag(spacer_bottom, LV_OBJ_FLAG_SCROLLABLE);
+    _spacer_bottom = lv_obj_create(_screen);
+    if (_spacer_bottom) {
+        lv_obj_set_width(_spacer_bottom, LV_PCT(100));
+        lv_obj_set_flex_grow(_spacer_bottom, k_spacer_grow_no_art_bottom);
+        lv_obj_set_style_bg_opa(_spacer_bottom, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_border_width(_spacer_bottom, 0, LV_PART_MAIN);
+        lv_obj_clear_flag(_spacer_bottom, LV_OBJ_FLAG_SCROLLABLE);
+    }
+
+    // Left art visible: more flex below cont_mid than above → main block sits higher (still between spacers, not an overlay).
+    // С артом: больше grow снизу — средний композиционный блок выше.
+    if (_art_slot && !lv_obj_has_flag(_art_slot, LV_OBJ_FLAG_HIDDEN) && _spacer_top && _spacer_bottom) {
+        lv_obj_set_flex_grow(_spacer_top, k_spacer_grow_with_art_top);
+        lv_obj_set_flex_grow(_spacer_bottom, k_spacer_grow_with_art_bottom);
     }
 
     // Reserved height slot for Stage 6.1E / 7 visual widget — no drawing in 6.1B.
@@ -1212,12 +1398,12 @@ void LvglMainScreen::create() {
             const lv_coord_t delta = target_heap_y2 - heap.y2;
             if (delta > 0) {
                 lv_obj_set_height(zone_bottom_sym_spacer, delta);
-            } else if (delta < 0 && spacer_bottom) {
-                lv_obj_set_flex_grow(spacer_bottom, 0);
-                lv_coord_t sh = lv_obj_get_height(spacer_bottom);
+            } else if (delta < 0 && _spacer_bottom) {
+                lv_obj_set_flex_grow(_spacer_bottom, 0);
+                lv_coord_t sh = lv_obj_get_height(_spacer_bottom);
                 lv_coord_t nh = sh + delta;
                 if (nh < 0) nh = 0;
-                lv_obj_set_height(spacer_bottom, nh);
+                lv_obj_set_height(_spacer_bottom, nh);
             }
             lv_obj_update_layout(_screen);
         }
@@ -1314,6 +1500,102 @@ void LvglMainScreen::create() {
     }
 
     installCarouselGesturesOnPageRoot(_screen);
+}
+
+// ---------------------------------------------------------------------------
+// Station Art MVP: runtime reload helpers (DspTask only, lv_* safe).
+// Station Art MVP: runtime-перезагрузка арта (только DspTask).
+// ---------------------------------------------------------------------------
+
+void LvglMainScreen::_reloadArtIfNeeded() {
+    if (!_art_slot || !_art_img) return;
+
+    const uint16_t current_num = config.lastStation();
+
+    // Re-evaluate only when station changes or forced (avoids stationByNum() I/O every update tick).
+    // Пересчитываем только при смене станции или принудительном флаге (минимальный I/O).
+    if (current_num == _art_last_station_num && !_art_reload_forced) return;
+    _art_last_station_num = current_num;
+    _art_reload_forced    = false;
+
+    // Stable source: playlist name via stationByNum — never config.station.name (may be ICY-overwritten).
+    // Стабильный источник: плейлистное имя через stationByNum, не config.station.name.
+    const char* playlist_name = config.stationByNum(current_num);
+
+    char key[68]  = {};
+    char fs_path[84]   = {};
+    char lvgl_path[88] = {};
+    artNormalizeKey(playlist_name, key, sizeof(key));
+    if (key[0] != '\0') {
+        snprintf(fs_path,   sizeof(fs_path),   "/logo/%s.bin",   key);
+        snprintf(lvgl_path, sizeof(lvgl_path), "L:/logo/%s.bin", key);
+    }
+
+    const bool file_exists      = (key[0] != '\0') && LittleFS.exists(fs_path);
+    const bool currently_visible = !lv_obj_has_flag(_art_slot, LV_OBJ_FLAG_HIDDEN);
+    const bool key_changed      = (strncmp(_art_current_key, key, sizeof(_art_current_key)) != 0);
+
+    if (!key_changed && (file_exists == currently_visible)) {
+        return; // nothing changed — skip all lv_* calls
+    }
+
+    strlcpy(_art_current_key, key, sizeof(_art_current_key));
+
+    if (file_exists) {
+        lv_img_set_src(_art_img, lvgl_path);
+        lv_obj_clear_flag(_art_slot, LV_OBJ_FLAG_HIDDEN); // Mode B: art visible
+    } else {
+        // Do NOT call lv_img_set_src(nullptr) — LVGL 8.x warns "unknown type" for NULL src.
+        // Hiding the slot is sufficient: LVGL skips rendering hidden objects entirely.
+        // lv_img_set_src(nullptr) не вызываем — LVGL 8 даёт warn "unknown type" для NULL.
+        // Скрытие слота достаточно: LVGL не рендерит скрытые объекты.
+        lv_obj_add_flag(_art_slot, LV_OBJ_FLAG_HIDDEN);   // Mode A: no art, cont_text expands
+    }
+
+    // Sync flex + text alignment to art mode (mirrors has_cover logic from create()).
+    // CENTER when no art; START/LEFT when art is visible.
+    // Синхронизируем выравнивание flex/text с Mode A/B (зеркало has_cover из create()).
+    {
+        const lv_flex_align_t fa = file_exists ? LV_FLEX_ALIGN_START  : LV_FLEX_ALIGN_CENTER;
+        const lv_text_align_t ta = file_exists ? LV_TEXT_ALIGN_LEFT   : LV_TEXT_ALIGN_CENTER;
+        if (_cont_mid) {
+            lv_obj_set_flex_align(_cont_mid,  fa, fa, fa);
+        }
+        if (_cont_text) {
+            lv_obj_set_flex_align(_cont_text, fa, fa, fa);
+        }
+        if (_lbl_station_name) {
+            lv_obj_set_style_text_align(_lbl_station_name, ta, LV_PART_MAIN);
+        }
+        if (_lbl_track) {
+            lv_obj_set_style_text_align(_lbl_track, ta, LV_PART_MAIN);
+        }
+        if (_lbl_artist) {
+            lv_obj_set_style_text_align(_lbl_artist, ta, LV_PART_MAIN);
+        }
+    }
+
+    // Update flex grow for art/no-art vertical composition (spacers around cont_mid).
+    // Обновляем grow спейсеров для вертикальной компоновки с артом и без.
+    if (_spacer_top && _spacer_bottom) {
+        if (file_exists) {
+            lv_obj_set_flex_grow(_spacer_top,    k_spacer_grow_with_art_top);
+            lv_obj_set_flex_grow(_spacer_bottom, k_spacer_grow_with_art_bottom);
+        } else {
+            lv_obj_set_flex_grow(_spacer_top,    k_spacer_grow_no_art_top);
+            lv_obj_set_flex_grow(_spacer_bottom, k_spacer_grow_no_art_bottom);
+        }
+    }
+
+    Serial.printf("[ART] reload: num=%u key='%s' present=%d\n",
+        (unsigned)current_num, key, (int)file_exists);
+}
+
+void LvglMainScreen::reloadStationArtFromLittlefs() {
+    // Called from DspTask via ART_FS_UPDATED queue event after WebUI upload_art / remove_art.
+    // Вызывается из DspTask после ART_FS_UPDATED (upload_art / remove_art через WebUI).
+    _art_reload_forced = true;
+    _reloadArtIfNeeded();
 }
 
 void LvglMainScreen::enter() {
@@ -1499,6 +1781,11 @@ void LvglMainScreen::update() {
             main_sync_dark_bg_scrim(_bg_img, _bg_scrim);
         }
     }
+
+    // Station Art MVP: reload art when station changes.
+    // Key: stationByNum(lastStation()) — not config.station.name.
+    // Station Art MVP: перезагрузка арта при смене станции (ключ из plейлиста, не runtime name).
+    _reloadArtIfNeeded();
 }
 
 void LvglMainScreen::destroy() {
@@ -1523,6 +1810,15 @@ void LvglMainScreen::destroy() {
     if (_bg_psram_buf) { free(_bg_psram_buf); _bg_psram_buf = nullptr; }
     _bg_img = nullptr;
     _bg_scrim = nullptr;
+    _art_slot  = nullptr; // deleted with _screen tree / удалено вместе с деревом
+    _art_img   = nullptr;
+    _cont_mid  = nullptr;
+    _cont_text = nullptr;
+    _art_last_station_num = 0xFFFF; // reset sentinel so next create()+update() re-evaluates
+    _art_reload_forced    = false;
+    _art_current_key[0]   = '\0';
+    _spacer_top    = nullptr;
+    _spacer_bottom = nullptr;
     s_vol_touch_active = false; // matches static used by vol_touch_cb / тот же флаг, что в callback
 }
 
