@@ -18,7 +18,7 @@
  * Визуальный порядок строк: name → track → artist (artist скрыт, если split не дал первой части).
  *
  * Scroll policy (6.1B): SCROLL_CIRCULAR — station name, track, artist, AI line; CLIP — meta stream-info line, weather mini glyphs/temp.
- * DspTask-only lv_*; main_set_text_if_changed reduces redundant layout; RSSI throttled ~3s.
+ * DspTask-only lv_*; main_set_text_if_changed reduces redundant layout; status line RSSI throttled in wgt_status_line.
  * Do not route title logic through display.cpp — LVGL path is independent.
  *
  * Object tree (parent→child): scr_main_layout_tree.md — update when create() layout changes.
@@ -33,13 +33,9 @@
 #include "Arduino.h"
 #include <cstdio>
 #include <cstring>
-#include <ctime>
-#include "WiFi.h"
 #include "../fonts/lv_fonts.h"
 #include "../profiles/lv_profile_select.h"
 #include "../theme/lv_theme_yoradio.h"
-#include "../wifi_signal_map.h"
-#include "../weather_owm_glyph.h"
 #include "../control_glyph_utf8.h"
 #include "lvgl_ui.h"
 #include "../../core/config.h"
@@ -1655,41 +1651,9 @@ void LvglMainScreen::update() {
         main_set_text_if_changed(_lbl_transport_play_stop, play_stop_glyph);
     }
 
-    // Wi-Fi icon: Tabler subset glyphs; RSSI sampled at most every 3s when connected.
-    // Иконка Wi‑Fi; RSSI не чаще 3 с при подключении.
-    static uint32_t s_last_rssi_ms = 0;
-    static int      s_rssi_cached_dbm = -100;
-    static bool     s_wifi_was_connected = false;
-    const bool      wifi_connected = (WiFi.status() == WL_CONNECTED);
-    if (wifi_connected != s_wifi_was_connected) {
-        s_wifi_was_connected = wifi_connected;
-        s_last_rssi_ms = 0;
-    }
-    const uint32_t now = millis();
-    if (!wifi_connected) {
-        main_set_text_if_changed(_status_line.lbl_wifi, wifi_status_glyph_utf8_disconnected());
-    } else {
-        if (s_last_rssi_ms == 0u || (now - s_last_rssi_ms >= 3000u)) {
-            s_last_rssi_ms = now;
-            s_rssi_cached_dbm = WiFi.RSSI();
-        }
-        const int lvl = wifi_rssi_to_level(s_rssi_cached_dbm);
-        main_set_text_if_changed(_status_line.lbl_wifi, wifi_status_glyph_utf8_for_level(lvl));
-    }
-
-    // Clock from network.timeinfo (filled by existing stack — no new bridge in 6.1).
-    // Часы из network.timeinfo — тот же источник, что и screensaver.
-    static char s_clock_line[16];
-    if (network.timeinfo.tm_year > 100) {
-        if (strftime(s_clock_line, sizeof(s_clock_line), "%H:%M", &network.timeinfo) == 0) {
-            strncpy(s_clock_line, "--:--", sizeof(s_clock_line) - 1);
-            s_clock_line[sizeof(s_clock_line) - 1] = '\0';
-        }
-    } else {
-        strncpy(s_clock_line, "--:--", sizeof(s_clock_line) - 1);
-        s_clock_line[sizeof(s_clock_line) - 1] = '\0';
-    }
-    main_set_text_if_changed(_status_line.lbl_clock, s_clock_line);
+    // Status line: Wi‑Fi / clock / weather — delegated to wgt_status_line (Stage 6.2 Patch A).
+    // Верхняя полоса — делегирование в wgt_status_line.
+    wgt_status_line::update(_status_line);
 
     snprintf(buf, sizeof(buf), "Vol: %d", config.store.volume);
     main_set_text_if_changed(_lbl_volume, buf);
@@ -1730,35 +1694,6 @@ void LvglMainScreen::update() {
             _lbl_volume,
             volMode ? pal.text_primary : pal.text_secondary,
             LV_PART_MAIN);
-    }
-
-    // Compact weather in status line (glyph + °C); same data as 6.1C glance fields.
-    // Компактная погода в status line — те же network.weather* поля.
-    static char weather_temp[16];
-    if (_status_line.cont_weather && _status_line.lbl_weather_glyph && _status_line.lbl_weather_temp) {
-        // Compact status weather: key + showweather only; do not gate on legacy full-string weatherBuf.
-        const bool wantWx = config.store.showweather && (strlen(config.store.weatherkey) > 0);
-        if (wantWx && network.weatherGlanceValid) {
-            main_set_text_if_changed(
-                _status_line.lbl_weather_glyph,
-                weather_owm_icon_to_glyph_utf8(network.weatherOwmIcon));
-            snprintf(
-                weather_temp,
-                sizeof(weather_temp),
-                "%+.0f°C",
-                static_cast<double>(network.weatherLastTempC));
-            main_set_text_if_changed(_status_line.lbl_weather_temp, weather_temp);
-            lv_obj_clear_flag(_status_line.lbl_weather_glyph, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_clear_flag(_status_line.cont_weather, LV_OBJ_FLAG_HIDDEN);
-        } else if (wantWx) {
-            lv_obj_add_flag(_status_line.lbl_weather_glyph, LV_OBJ_FLAG_HIDDEN);
-            main_set_text_if_changed(_status_line.lbl_weather_temp, "…");
-            lv_obj_clear_flag(_status_line.cont_weather, LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_add_flag(_status_line.cont_weather, LV_OBJ_FLAG_HIDDEN);
-            main_set_text_if_changed(_status_line.lbl_weather_glyph, "");
-            main_set_text_if_changed(_status_line.lbl_weather_temp, "");
-        }
     }
 
     // 6.1C AI line: read-only from Display::_aiPendingText via thin API; no AIPlugin changes.

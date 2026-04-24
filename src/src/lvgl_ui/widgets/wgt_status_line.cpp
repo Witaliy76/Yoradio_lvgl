@@ -5,9 +5,20 @@
 
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
 
+#include <cstdio>
+#include <cstring>
+#include <ctime>
+
+#include "Arduino.h"
+#include "WiFi.h"
+
 #include "../fonts/lv_fonts.h"
 #include "../profiles/lv_profile_select.h"
 #include "../theme/lv_theme_yoradio.h"
+#include "../weather_owm_glyph.h"
+#include "../wifi_signal_map.h"
+#include "../../core/config.h"
+#include "../../core/network.h"
 
 namespace lvgl_ui {
 namespace wgt_status_line {
@@ -138,6 +149,82 @@ bool create(lv_obj_t* parent, Instance& out) {
         return false;
     }
     return true;
+}
+
+// Avoid lv_label_set_text when unchanged — fewer layout passes (same as scr_main 5.5a pattern).
+// Не дергать set_text без изменения текста — меньше лишнего layout.
+static void status_line_set_text_if_changed(lv_obj_t* lbl, const char* s) {
+    if (!lbl || !s) return;
+    const char* cur = lv_label_get_text(lbl);
+    if (cur != nullptr && strcmp(cur, s) == 0) return;
+    lv_label_set_text(lbl, s);
+}
+
+void update(const Instance& inst) {
+    // Wi-Fi icon: Tabler subset glyphs; RSSI sampled at most every 3s when connected.
+    // Иконка Wi‑Fi; RSSI не чаще 3 с при подключении.
+    static uint32_t s_last_rssi_ms = 0;
+    static int      s_rssi_cached_dbm = -100;
+    static bool     s_wifi_was_connected = false;
+    const bool      wifi_connected = (WiFi.status() == WL_CONNECTED);
+    if (wifi_connected != s_wifi_was_connected) {
+        s_wifi_was_connected = wifi_connected;
+        s_last_rssi_ms = 0;
+    }
+    const uint32_t now = millis();
+    if (!wifi_connected) {
+        status_line_set_text_if_changed(inst.lbl_wifi, wifi_status_glyph_utf8_disconnected());
+    } else {
+        if (s_last_rssi_ms == 0u || (now - s_last_rssi_ms >= 3000u)) {
+            s_last_rssi_ms = now;
+            s_rssi_cached_dbm = WiFi.RSSI();
+        }
+        const int lvl = wifi_rssi_to_level(s_rssi_cached_dbm);
+        status_line_set_text_if_changed(inst.lbl_wifi, wifi_status_glyph_utf8_for_level(lvl));
+    }
+
+    // Clock from network.timeinfo (filled by existing stack — no new bridge in 6.1).
+    // Часы из network.timeinfo — тот же источник, что и screensaver.
+    static char s_clock_line[16];
+    if (network.timeinfo.tm_year > 100) {
+        if (strftime(s_clock_line, sizeof(s_clock_line), "%H:%M", &network.timeinfo) == 0) {
+            strncpy(s_clock_line, "--:--", sizeof(s_clock_line) - 1);
+            s_clock_line[sizeof(s_clock_line) - 1] = '\0';
+        }
+    } else {
+        strncpy(s_clock_line, "--:--", sizeof(s_clock_line) - 1);
+        s_clock_line[sizeof(s_clock_line) - 1] = '\0';
+    }
+    status_line_set_text_if_changed(inst.lbl_clock, s_clock_line);
+
+    // Compact weather in status line (glyph + °C); same data as 6.1C glance fields.
+    // Компактная погода в status line — те же network.weather* поля.
+    static char weather_temp[16];
+    if (inst.cont_weather && inst.lbl_weather_glyph && inst.lbl_weather_temp) {
+        // Compact status weather: key + showweather only; do not gate on legacy full-string weatherBuf.
+        const bool wantWx = config.store.showweather && (strlen(config.store.weatherkey) > 0);
+        if (wantWx && network.weatherGlanceValid) {
+            status_line_set_text_if_changed(
+                inst.lbl_weather_glyph,
+                weather_owm_icon_to_glyph_utf8(network.weatherOwmIcon));
+            snprintf(
+                weather_temp,
+                sizeof(weather_temp),
+                "%+.0f°C",
+                static_cast<double>(network.weatherLastTempC));
+            status_line_set_text_if_changed(inst.lbl_weather_temp, weather_temp);
+            lv_obj_clear_flag(inst.lbl_weather_glyph, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(inst.cont_weather, LV_OBJ_FLAG_HIDDEN);
+        } else if (wantWx) {
+            lv_obj_add_flag(inst.lbl_weather_glyph, LV_OBJ_FLAG_HIDDEN);
+            status_line_set_text_if_changed(inst.lbl_weather_temp, "…");
+            lv_obj_clear_flag(inst.cont_weather, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(inst.cont_weather, LV_OBJ_FLAG_HIDDEN);
+            status_line_set_text_if_changed(inst.lbl_weather_glyph, "");
+            status_line_set_text_if_changed(inst.lbl_weather_temp, "");
+        }
+    }
 }
 
 } // namespace wgt_status_line

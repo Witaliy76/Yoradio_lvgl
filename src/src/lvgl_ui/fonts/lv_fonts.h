@@ -39,6 +39,13 @@ extern const lv_font_t lv_font_yora_control_icons_22;
 extern const lv_font_t lv_font_yora_control_icons_24;
 extern const lv_font_t lv_font_yora_control_icons_26;
 extern const lv_font_t lv_font_yora_control_icons_28;
+/* Tabler subset: Info Page section rail (Stage 6.2). */
+extern const lv_font_t lv_font_yora_info_section_icons_24;
+extern const lv_font_t lv_font_yora_info_section_icons_28;
+extern const lv_font_t lv_font_yora_info_section_icons_32;
+extern const lv_font_t lv_font_yora_info_section_icons_36;
+extern const lv_font_t lv_font_yora_info_section_icons_40;
+extern const lv_font_t lv_font_yora_info_section_icons_44;
 
 #ifdef __cplusplus
 }

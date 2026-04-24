@@ -25,6 +25,9 @@ panel_vendor_files/
 # Local TTF for lv_font_conv (Stage 5.1); generated .c is under src/src/lvgl_ui/fonts/
 tools/fonts/*.ttf
 
+# Scratch dir for Tabler download + strip (Stage 6.2 Info icons); do not commit TTF.
+.fontwork/
+
 # Local-only migration notes (removed from Git index; keep your copies on disk).
 # Локальные заметки по миграции — не в репозитории, копии у себя оставляем.
 docs/LVGL_MIGRATION_PLAN.md

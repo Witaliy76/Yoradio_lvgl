@@ -171,6 +171,13 @@
 #define LV_FONT_YORA_CONTROL_ICONS_24 1
 #define LV_FONT_YORA_CONTROL_ICONS_26 1
 #define LV_FONT_YORA_CONTROL_ICONS_28 1
+/* Tabler subset: Info Page section rail (database, device-desktop, router, cpu) @ 24|28|32|36|40|44. Stage 6.2 Patch B. */
+#define LV_FONT_YORA_INFO_SECTION_ICONS_24 1
+#define LV_FONT_YORA_INFO_SECTION_ICONS_28 1
+#define LV_FONT_YORA_INFO_SECTION_ICONS_32 1
+#define LV_FONT_YORA_INFO_SECTION_ICONS_36 1
+#define LV_FONT_YORA_INFO_SECTION_ICONS_40 1
+#define LV_FONT_YORA_INFO_SECTION_ICONS_44 1
 
 #define LV_FONT_MONTSERRAT_14 1
 #define LV_FONT_MONTSERRAT_8  0
@@ -223,7 +230,13 @@
     extern const lv_font_t lv_font_yora_control_icons_22;                                      \
     extern const lv_font_t lv_font_yora_control_icons_24;                                      \
     extern const lv_font_t lv_font_yora_control_icons_26;                                      \
-    extern const lv_font_t lv_font_yora_control_icons_28;
+    extern const lv_font_t lv_font_yora_control_icons_28;                                      \
+    extern const lv_font_t lv_font_yora_info_section_icons_24;                                      \
+    extern const lv_font_t lv_font_yora_info_section_icons_28;                                      \
+    extern const lv_font_t lv_font_yora_info_section_icons_32;                                      \
+    extern const lv_font_t lv_font_yora_info_section_icons_36;                                      \
+    extern const lv_font_t lv_font_yora_info_section_icons_40;                                      \
+    extern const lv_font_t lv_font_yora_info_section_icons_44;
 
 #define LV_FONT_DEFAULT &lv_font_montserrat_14
 #define LV_FONT_FMT_TXT_LARGE 0
