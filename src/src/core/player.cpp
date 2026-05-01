@@ -11,8 +11,22 @@
 
 #include "../displays/tools/spectrum_analyzer.h"
 
+#include <freertos/portmacro.h>
+
 Player player;
 QueueHandle_t playerQueue;
+
+// PR_VOL overflow merge — non-blocking send leaves latest volume here for next loop() — avoids deadlock / merge при полной очереди
+static portMUX_TYPE s_vol_merge_mux = portMUX_INITIALIZER_UNLOCKED;
+static volatile bool s_vol_merge_pending = false;
+static volatile int s_vol_merge_payload = 0;
+
+static void playerApplyVolFromPayload(int payload) {
+  uint8_t v = static_cast<uint8_t>(payload);
+  if (v > 254) v = 254;
+  config.setVolume(v);
+  player.setVolume(player.volToI2S(v));
+}
 
 #if VS1053_CS!=255 && !I2S_INTERNAL
 
@@ -52,7 +66,7 @@ void Player::init() {
   Serial.print("##[BOOT]#\tplayer.init\t");
   playerQueue=NULL;
   _resumeFilePos = 0;
-  playerQueue = xQueueCreate( 5, sizeof( playerRequestParams_t ) );
+  playerQueue = xQueueCreate(PLAYER_QUEUE_LENGTH, sizeof(playerRequestParams_t));
   setOutputPins(false);
   delay(50);
   memset(_plError, 0, PLERR_LN);
@@ -91,11 +105,25 @@ void Player::init() {
 
 void Player::sendCommand(playerRequestParams_t request){
   if(playerQueue==NULL) return;
+  // PR_VOL: never block — burst volume changes must not stall loop()/telnet/WebUI waiting on queue space.
+  // Только для VOL — без ожидания; при полной очереди сохраняем последнее значение (merge).
+  if(request.type == PR_VOL) {
+    if(xQueueSend(playerQueue, &request, 0) != pdTRUE) {
+      portENTER_CRITICAL(&s_vol_merge_mux);
+      s_vol_merge_payload = request.payload;
+      s_vol_merge_pending = true;
+      portEXIT_CRITICAL(&s_vol_merge_mux);
+    }
+    return;
+  }
   xQueueSend(playerQueue, &request, PLQ_SEND_DELAY);
 }
 
 void Player::resetQueue(){
 	if(playerQueue!=NULL) xQueueReset(playerQueue);
+  portENTER_CRITICAL(&s_vol_merge_mux);
+  s_vol_merge_pending = false;
+  portEXIT_CRITICAL(&s_vol_merge_mux);
 }
 
 void Player::stopInfo() {
@@ -162,6 +190,7 @@ void Player::initHeaders(const char *file) {
 void Player::loop() {
   if(playerQueue==NULL) return;
   playerRequestParams_t requestP;
+
   if(xQueueReceive(playerQueue, &requestP, isRunning()?PL_QUEUE_TICKS:PL_QUEUE_TICKS_ST)){
     switch (requestP.type){
       case PR_STOP: _stop(); break;
@@ -177,8 +206,7 @@ void Player::loop() {
         break;
       }
       case PR_VOL: {
-        config.setVolume(requestP.payload);
-        Audio::setVolume(volToI2S(requestP.payload));
+        playerApplyVolFromPayload(requestP.payload);
         break;
       }
       #ifdef USE_SD
@@ -197,6 +225,23 @@ void Player::loop() {
       default: break;
     }
   }
+
+  // Overflow merge AFTER dequeue — stale PR_VOL in queue must not overwrite latest finger/WebUI value / merge после очереди — «последний побеждает»
+  {
+    bool merge_now = false;
+    int merge_payload = 0;
+    portENTER_CRITICAL(&s_vol_merge_mux);
+    if(s_vol_merge_pending) {
+      merge_now = true;
+      merge_payload = s_vol_merge_payload;
+      s_vol_merge_pending = false;
+    }
+    portEXIT_CRITICAL(&s_vol_merge_mux);
+    if(merge_now) {
+      playerApplyVolFromPayload(merge_payload);
+    }
+  }
+
   Audio::loop();
   if(!isRunning() && _status==PLAYING) _stop(true);
   if(_volTimer){

@@ -6014,14 +6014,17 @@ void Audio::computeLimit() {    // is calculated when the volume or balance chan
     if(m_balance < 0) { r -= (float)abs(m_balance) / 16; }
     else if(m_balance > 0) { l -= (float)abs(m_balance) / 16; }
 
-//            v = (double)pow(m_vol, 1.2) / pow(127, 1.2); // square (default)
-// 			// logarithmic
-//            double log1 = log(1);
-//            if(m_vol > 0) { v = m_vol * ((std::exp(log1 + (m_vol - 1) * (std::log(m_vol_steps) - log1) / (m_vol_steps - 1))) / m_vol_steps) / m_vol_steps; }
-//            else { v = 0; }
-
-    m_limit_left = (double)(m_vol * l / 254); 
-    m_limit_right = (double)(m_vol * r / 254); 
+    // Power-law "perceptual" volume: small UI steps map to much quieter output.
+    // Степенная кривая громкости: малые значения регулятора дают заметно тише выход (см. docs/LOGARITHMIC_VOLUME.md).
+    // output ≈ 254 * (m_vol/254)^GAMMA — γ>1 усиливает прижатие низа диапазона
+    constexpr float GAMMA = 2.5f;
+    float volOut = 0.f;
+    if (m_vol > 0) {
+        const float inputNorm = static_cast<float>(m_vol) / 254.0f;
+        volOut = powf(inputNorm, GAMMA) * 254.0f;
+    }
+    m_limit_left  = static_cast<double>(volOut * l / 254.0f);
+    m_limit_right = static_cast<double>(volOut * r / 254.0f);
 
     // AUDIO_INFO("m_limit_left %f,  m_limit_right %f ",m_limit_left, m_limit_right);
 }

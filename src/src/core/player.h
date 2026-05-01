@@ -16,6 +16,12 @@
 	#define PLQ_SEND_DELAY portMAX_DELAY
 #endif
 
+/* Player command queue depth (was 5): burst PR_VOL + WebUI/API could fill queue and block sender forever. /
+ * Глубина очереди команд плеера: лавина VOL раньше забивала очередь → зависание на portMAX_DELAY. */
+#ifndef PLAYER_QUEUE_LENGTH
+#define PLAYER_QUEUE_LENGTH 24
+#endif
+
 #define PLERR_LN        64
 #define SET_PLAY_ERROR(...) {char buff[512 + 64]; sprintf(buff,__VA_ARGS__); setError(buff);}
 

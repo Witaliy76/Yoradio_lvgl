@@ -61,6 +61,50 @@ static void touch_wake_saver_or_blank_if_needed(uint16_t x, uint16_t y, bool poi
 }
 #endif
 
+#if (TS_MODEL!=TS_MODEL_UNDEFINED) && (DSP_MODEL!=DSP_DUMMY) && YORADIO_LVGL_TOUCH_DEBUG
+#include <Arduino.h>
+// Throttled trace: raw GT911 vs state fed to LVGL (incl. screensaver wake suppress).
+// Урезанный лог: сырой тач и то, что реально уходит в LVGL (в т.ч. suppress после saver wake).
+static void lv_touch_debug_on_feed(bool raw_down, uint16_t x, uint16_t y, lv_indev_state_t fed) {
+    static bool s_was_down;
+    static uint16_t s_lx;
+    static uint16_t s_ly;
+    static uint32_t s_last_move_ms;
+    static bool s_suppress_msg;
+    const uint32_t now = millis();
+    const bool fed_down = (fed == LV_INDEV_STATE_PRESSED);
+    if (!raw_down) {
+        if (s_was_down) {
+            Serial.printf("[touch] UP fed=%s\n", fed_down ? "PR" : "REL");
+        }
+        s_was_down = false;
+        s_suppress_msg = false;
+        return;
+    }
+    if (s_suppress_lvgl_pointer_until_release && !s_suppress_msg) {
+        Serial.printf("[touch] suppress: LVGL fed=REL while raw DOWN xy=%u,%u\n", x, y);
+        s_suppress_msg = true;
+    }
+    if (!s_was_down) {
+        Serial.printf("[touch] DOWN xy=%u,%u fed=%s\n", x, y, fed_down ? "PR" : "REL");
+        s_was_down = true;
+        s_last_move_ms = now;
+        s_lx = x;
+        s_ly = y;
+        return;
+    }
+    const int dx = static_cast<int>(x) - static_cast<int>(s_lx);
+    const int dy = static_cast<int>(y) - static_cast<int>(s_ly);
+    const uint32_t dist2 = static_cast<uint32_t>(dx * dx + dy * dy);
+    if ((now - s_last_move_ms) >= 80u || dist2 >= 400u) {
+        Serial.printf("[touch] MOVE xy=%u,%u d=%d,%d fed=%s\n", x, y, dx, dy, fed_down ? "PR" : "REL");
+        s_last_move_ms = now;
+        s_lx = x;
+        s_ly = y;
+    }
+}
+#endif
+
 static void lv_touch_read_cb(lv_indev_drv_t* drv, lv_indev_data_t* data) {
     (void)drv;
 #if (TS_MODEL!=TS_MODEL_UNDEFINED) && (DSP_MODEL!=DSP_DUMMY)
@@ -81,9 +125,15 @@ static void lv_touch_read_cb(lv_indev_drv_t* drv, lv_indev_data_t* data) {
         } else {
             data->state = LV_INDEV_STATE_PRESSED;
         }
+#if YORADIO_LVGL_TOUCH_DEBUG && (TS_MODEL!=TS_MODEL_UNDEFINED) && (DSP_MODEL!=DSP_DUMMY)
+        lv_touch_debug_on_feed(true, x, y, data->state);
+#endif
     } else {
         touch_wake_saver_or_blank_if_needed(0, 0, false);
         data->state = LV_INDEV_STATE_RELEASED;
+#if YORADIO_LVGL_TOUCH_DEBUG && (TS_MODEL!=TS_MODEL_UNDEFINED) && (DSP_MODEL!=DSP_DUMMY)
+        lv_touch_debug_on_feed(false, 0, 0, data->state);
+#endif
     }
 #else
     data->state = LV_INDEV_STATE_RELEASED;
