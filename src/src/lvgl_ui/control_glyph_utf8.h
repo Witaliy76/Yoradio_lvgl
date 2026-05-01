@@ -24,6 +24,18 @@ inline const char* control_glyph_utf8_list() {
 inline const char* control_glyph_utf8_settings() {
     return reinterpret_cast<const char*>(u8"\uEB20");
 }
+inline const char* control_glyph_utf8_volume_2() {
+    return reinterpret_cast<const char*>(u8"\uEB4F");
+}
+
+// Station Page — `lv_font_yora_station_icons_*` (marker + bottom hint), not the bottom control bar.
+// Station Page — тот же subset, что маркер и подсказка; не нижняя панель плеера.
+inline const char* station_glyph_utf8_volume_2() {
+    return reinterpret_cast<const char*>(u8"\uEB4F");
+}
+inline const char* station_glyph_utf8_hand_click() {
+    return reinterpret_cast<const char*>(u8"\uEF4F");
+}
 
 } // namespace lvgl_ui
 

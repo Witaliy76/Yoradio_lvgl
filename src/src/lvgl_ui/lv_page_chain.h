@@ -21,6 +21,7 @@ public:
     static constexpr int PAGE_COUNT = 6;
     static constexpr int INFO_INDEX = 0;
     static constexpr int MAIN_INDEX = 1;
+    static constexpr int STATION_INDEX = 3;
 
     void registerPage(int index, ILvglScreen* page);
     // create + enter start page; cold load without animation.

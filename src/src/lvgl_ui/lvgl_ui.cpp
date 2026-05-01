@@ -14,6 +14,7 @@
 #include "lv_page_chain.h"
 #include "screens/scr_info.h"
 #include "screens/scr_main.h"
+#include "screens/scr_station.h"
 #include "screens/scr_stub.h"
 #include "screens/scr_boot.h"
 #include "../displays/tools/GFX_Canvas_screen.h"
@@ -33,7 +34,7 @@ static PageChain s_page_chain;
 static LvglInfoPage s_info_page;
 static LvglMainScreen s_main_screen;
 static LvglStubPage s_stub_visual("Visual");
-static LvglStubPage s_stub_station("Station");
+static LvglStationPage s_station_page;
 static LvglStubPage s_stub_weather("Weather");
 static LvglStubPage s_stub_settings("Settings");
 static LvglBootScreen s_boot_screen;
@@ -66,6 +67,9 @@ static void carousel_gesture_event_cb(lv_event_t* e) {
     if (dir != LV_DIR_LEFT && dir != LV_DIR_RIGHT) return;
     s_page_chain.onActivity();
     map_horizontal_gesture_to_carousel(dir);
+    // Consume indev gesture so child widgets do not emit click/SHORT_CLICKED for same stroke (Station focus).
+    // Поглощаем последовательность — дочерние виджеты не получают click за тот же жест карусели.
+    lv_indev_wait_release(indev);
 }
 
 } // namespace
@@ -83,7 +87,7 @@ static void ensurePageChainRegistered() {
     s_page_chain.registerPage(PageChain::INFO_INDEX, &s_info_page);
     s_page_chain.registerPage(PageChain::MAIN_INDEX, &s_main_screen);
     s_page_chain.registerPage(2, &s_stub_visual);
-    s_page_chain.registerPage(3, &s_stub_station);
+    s_page_chain.registerPage(PageChain::STATION_INDEX, &s_station_page);
     s_page_chain.registerPage(4, &s_stub_weather);
     s_page_chain.registerPage(5, &s_stub_settings);
     s_registered = true;
@@ -291,9 +295,26 @@ void lvgl_ui::createTestOverlay() {
 #endif
 }
 
-// Stage 3.1: stub — forward display events to LVGL layer; no behavior yet.
+// Stage 3.1 + 6.3D-b1: forward displayQueue events for LVGL (DspTask only; see Display::loop).
+// 6.3D-b1: station change = cheap marker/header refresh; playlist change = optional full rebuild.
 void lvgl_ui::onDisplayEvent(const DisplayEvent& evt) {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    ensurePageChainRegistered();
+    if (evt.type == NEWSTATION) {
+        if (s_page_chain.currentIndex() == PageChain::STATION_INDEX) {
+            s_station_page.refreshCurrentStationVisuals();
+        }
+        return;
+    }
+    if (evt.type == DRAWPLAYLIST) {
+        if (s_page_chain.currentIndex() == PageChain::STATION_INDEX) {
+            s_station_page.onPlaylistDataMaybeChanged();
+        }
+        return;
+    }
+#else
     (void)evt;
+#endif
 }
 
 // Stage 5.5 + 5.7 + 5.6: LVGL owns INFO, PLAYER, LOST, UPDATING, VOL, SCREENSAVER overlay, SCREENBLANK coord.

@@ -39,6 +39,18 @@ extern const lv_font_t lv_font_yora_control_icons_22;
 extern const lv_font_t lv_font_yora_control_icons_24;
 extern const lv_font_t lv_font_yora_control_icons_26;
 extern const lv_font_t lv_font_yora_control_icons_28;
+/* Tabler-derived subset: Station Page current marker (volume-2) @ 14–24 px — pick per profile. */
+extern const lv_font_t lv_font_yora_station_icons_14;
+extern const lv_font_t lv_font_yora_station_icons_15;
+extern const lv_font_t lv_font_yora_station_icons_16;
+extern const lv_font_t lv_font_yora_station_icons_17;
+extern const lv_font_t lv_font_yora_station_icons_18;
+extern const lv_font_t lv_font_yora_station_icons_19;
+extern const lv_font_t lv_font_yora_station_icons_20;
+extern const lv_font_t lv_font_yora_station_icons_21;
+extern const lv_font_t lv_font_yora_station_icons_22;
+extern const lv_font_t lv_font_yora_station_icons_23;
+extern const lv_font_t lv_font_yora_station_icons_24;
 /* Tabler subset: Info Page section rail (Stage 6.2). */
 extern const lv_font_t lv_font_yora_info_section_icons_24;
 extern const lv_font_t lv_font_yora_info_section_icons_28;

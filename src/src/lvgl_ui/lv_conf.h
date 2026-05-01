@@ -136,7 +136,7 @@
 #define LV_ATTRIBUTE_FAST_MEM
 #define LV_ATTRIBUTE_DMA
 #define LV_EXPORT_CONST_INT(int_value) struct _silence_gcc_warning
-#define LV_USE_LARGE_COORD 0
+#define LV_USE_LARGE_COORD 1
 
 /*==================
  *  FONT USAGE
@@ -171,6 +171,18 @@
 #define LV_FONT_YORA_CONTROL_ICONS_24 1
 #define LV_FONT_YORA_CONTROL_ICONS_26 1
 #define LV_FONT_YORA_CONTROL_ICONS_28 1
+/* Tabler subset: Station Page current marker (volume-2) @ 14–24 px (profile pick later). Stage 6.3D-b+ */
+#define LV_FONT_YORA_STATION_ICONS_14 1
+#define LV_FONT_YORA_STATION_ICONS_15 1
+#define LV_FONT_YORA_STATION_ICONS_16 1
+#define LV_FONT_YORA_STATION_ICONS_17 1
+#define LV_FONT_YORA_STATION_ICONS_18 1
+#define LV_FONT_YORA_STATION_ICONS_19 1
+#define LV_FONT_YORA_STATION_ICONS_20 1
+#define LV_FONT_YORA_STATION_ICONS_21 1
+#define LV_FONT_YORA_STATION_ICONS_22 1
+#define LV_FONT_YORA_STATION_ICONS_23 1
+#define LV_FONT_YORA_STATION_ICONS_24 1
 /* Tabler subset: Info Page section rail (database, device-desktop, router, cpu) @ 24|28|32|36|40|44. Stage 6.2 Patch B. */
 #define LV_FONT_YORA_INFO_SECTION_ICONS_24 1
 #define LV_FONT_YORA_INFO_SECTION_ICONS_28 1
@@ -231,6 +243,17 @@
     extern const lv_font_t lv_font_yora_control_icons_24;                                      \
     extern const lv_font_t lv_font_yora_control_icons_26;                                      \
     extern const lv_font_t lv_font_yora_control_icons_28;                                      \
+    extern const lv_font_t lv_font_yora_station_icons_14;                                      \
+    extern const lv_font_t lv_font_yora_station_icons_15;                                      \
+    extern const lv_font_t lv_font_yora_station_icons_16;                                      \
+    extern const lv_font_t lv_font_yora_station_icons_17;                                      \
+    extern const lv_font_t lv_font_yora_station_icons_18;                                      \
+    extern const lv_font_t lv_font_yora_station_icons_19;                                      \
+    extern const lv_font_t lv_font_yora_station_icons_20;                                      \
+    extern const lv_font_t lv_font_yora_station_icons_21;                                      \
+    extern const lv_font_t lv_font_yora_station_icons_22;                                      \
+    extern const lv_font_t lv_font_yora_station_icons_23;                                      \
+    extern const lv_font_t lv_font_yora_station_icons_24;                                      \
     extern const lv_font_t lv_font_yora_info_section_icons_24;                                      \
     extern const lv_font_t lv_font_yora_info_section_icons_28;                                      \
     extern const lv_font_t lv_font_yora_info_section_icons_32;                                      \
