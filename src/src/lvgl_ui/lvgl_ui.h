@@ -97,6 +97,10 @@ void notifyPageChainActivity();
 // Карусель на слоте Info, хотя mode может оставаться PLAYER — путь свайпом.
 bool isLvglCarouselOnInfoSlot();
 
+// Wi-Fi 3A: cancel ops, dismiss RebootRequired shell, return display mode to PLAYER (DspTask only).
+// Wi-Fi 3A: cancel ops, снять RebootRequired, режим PLAYER (только DspTask).
+void dismissWifiFlowReturnToPlayer();
+
 }
 
 #endif

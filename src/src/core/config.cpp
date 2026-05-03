@@ -1000,6 +1000,9 @@ bool Config::initNetwork() {
       strlcpy(ssids[c].password, passval, 40);
       ssidsCount++;
       c++;
+      if (c >= 5) {
+        break;
+      }
     }
   }
   file.close();

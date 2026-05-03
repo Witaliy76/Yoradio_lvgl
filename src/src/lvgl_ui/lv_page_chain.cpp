@@ -226,6 +226,27 @@ void PageChain::showRebootRequired(ILvglScreen* scr) {
     loadScreenAnim(scr->screen(), LV_SCR_LOAD_ANIM_FADE_IN, kPageAnimMs);
 }
 
+void PageChain::dismissRebootRequired() {
+    if (_special != SpecialMode::RebootRequired || !_rebootScreen) return;
+
+    ILvglScreen* main = _pages[MAIN_INDEX];
+    if (!main) return;
+
+    // Load Main before destroying service screen — avoid lv_scr_act() dangling / Main до destroy сервиса.
+    main->create();
+    main->enter();
+    lv_obj_t* mainScr = main->screen();
+    if (mainScr) {
+        lv_scr_load(mainScr);
+    }
+    _currentIndex = MAIN_INDEX;
+
+    _rebootScreen->exit();
+    _rebootScreen->destroy();
+    _rebootScreen = nullptr;
+    _special = SpecialMode::None;
+}
+
 int PageChain::currentIndex() const {
     return _currentIndex;
 }

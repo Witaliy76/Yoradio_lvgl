@@ -17,9 +17,11 @@
 #include "screens/scr_station.h"
 #include "screens/scr_stub.h"
 #include "screens/scr_boot.h"
+#include "screens/scr_wifi_flow.h"
 #include "../displays/tools/GFX_Canvas_screen.h"
 #include "../core/config.h"
 #include "../core/display.h"
+#include "../core/wifi_ops_adapter.h"
 
 using namespace lvgl_ui;
 
@@ -38,6 +40,7 @@ static LvglStationPage s_station_page;
 static LvglStubPage s_stub_weather("Weather");
 static LvglStubPage s_stub_settings("Settings");
 static LvglBootScreen s_boot_screen;
+static LvglWifiFlowScreen s_wifi_flow_screen;
 
 namespace {
 
@@ -59,6 +62,11 @@ static void carousel_gesture_event_cb(lv_event_t* e) {
     // SCREENSAVER / SCREENBLANK: horizontal wake + carousel suppressed — lv_touch_read_cb handles wake first.
     // Saver/blank: горизонтальный жест не ведёт в карусель; пробуждение — в lv_touch_read_cb.
     if (display.mode() == SCREENBLANK || display.mode() == SCREENSAVER) {
+        return;
+    }
+    // Wi-Fi 3A: service shell is not a carousel page; ignore horizontal swipe on page roots during WIFI mode.
+    // Wi‑Fi 3A: сервисный shell не в карусели; горизонтальный жест на корнях страниц в режиме WIFI игнорируем.
+    if (display.mode() == WIFI) {
         return;
     }
     lv_indev_t* indev = lv_indev_get_act();
@@ -142,7 +150,7 @@ static void lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t 
 // Политика периодического refresh: не трогать Main/Info/стабы в saver или blank (любой слот карусели).
 static bool lvgl_page_refresh_allowed() {
     const displayMode_e m = display.mode();
-    return m != SCREENBLANK && m != SCREENSAVER;
+    return m != SCREENBLANK && m != SCREENSAVER && m != WIFI;
 }
 
 #endif
@@ -320,7 +328,7 @@ void lvgl_ui::onDisplayEvent(const DisplayEvent& evt) {
 // Stage 5.5 + 5.7 + 5.6: LVGL owns INFO, PLAYER, LOST, UPDATING, VOL, SCREENSAVER overlay, SCREENBLANK coord.
 // Stage 5.5 + 5.7 + 5.6: LVGL — INFO, PLAYER, LOST, UPDATING, VOL, оверлей SCREENSAVER, коорд. SCREENBLANK.
 lvgl_ui::UiBackend lvgl_ui::getPreferredBackend(displayMode_e mode) {
-    if (mode == INFO || mode == PLAYER || mode == LOST || mode == UPDATING || mode == VOL ||
+    if (mode == INFO || mode == PLAYER || mode == LOST || mode == UPDATING || mode == VOL || mode == WIFI ||
         mode == SCREENSAVER || mode == SCREENBLANK) {
         return UiBackend::Lvgl;
     }
@@ -341,6 +349,12 @@ void lvgl_ui::onModeChanged(displayMode_e mode, UiBackend backend, displayMode_e
         if (mode == SCREENBLANK) {
             screensaverHide();
             overlayHideAll();
+            return;
+        }
+        if (mode == WIFI) {
+            overlayHideAll();
+            (void)wifiOpsInit();
+            s_page_chain.showRebootRequired(&s_wifi_flow_screen);
             return;
         }
         if (mode == INFO) {
@@ -464,5 +478,14 @@ bool lvgl_ui::isLvglCarouselOnInfoSlot() {
     return s_page_chain.currentIndex() == PageChain::INFO_INDEX;
 #else
     return false;
+#endif
+}
+
+void lvgl_ui::dismissWifiFlowReturnToPlayer() {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    wifiOpsCancel();
+    ensurePageChainRegistered();
+    s_page_chain.dismissRebootRequired();
+    display.putRequest(NEWMODE, PLAYER);
 #endif
 }

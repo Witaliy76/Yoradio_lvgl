@@ -48,6 +48,9 @@ public:
     // Wi-Fi setup: full-screen RebootRequired; no back-nav, exit = reboot (Stage 7+ UI).
     // Wi-Fi: полноэкранный RebootRequired; без назад, выход = перезагрузка (UI в Stage 7+).
     void showRebootRequired(ILvglScreen* scr);
+    // Wi-Fi 3A+: leave RebootRequired shell, restore carousel Main (sync load; no broad refactor).
+    // Wi-Fi 3A+: выход из RebootRequired, возврат карусели на Main.
+    void dismissRebootRequired();
 
     int currentIndex() const;
     ILvglScreen* currentPage() const;

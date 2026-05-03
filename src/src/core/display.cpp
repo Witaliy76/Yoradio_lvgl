@@ -527,7 +527,13 @@ void Display::_swichMode(displayMode_e newmode) {
     //nextion.swichMode(newmode);
     nextion.putRequest({NEWMODE, newmode});
   #endif
-  if (newmode == _mode || (network.status != CONNECTED && network.status != SDREADY)) return;
+  if (newmode == _mode) return;
+  // Wi-Fi 3A: allow WIFI while offline; allow return to PLAYER when leaving LVGL Wi-Fi shell.
+  // Wi‑Fi 3A: WIFI офлайн; возврат в PLAYER при выходе из LVGL Wi‑Fi shell.
+  if (network.status != CONNECTED && network.status != SDREADY && newmode != WIFI &&
+      !(newmode == PLAYER && _mode == WIFI)) {
+    return;
+  }
 
   // Previous mode for lvgl_ui::onModeChanged (carousel preservation when leaving saver/blank).
   // Предыдущий режим для onModeChanged (сохранение карусели при выходе из saver/blank).
@@ -636,7 +642,14 @@ void Display::_swichMode(displayMode_e newmode) {
   if (newmode == UPDATING && !lvgl_upd)  _showDialog(const_DlgUpdate);
   if (newmode == SLEEPING)  _showDialog("SLEEPING");
   if (newmode == SDCHANGE)  _showDialog(const_waitForSD);
-  if (newmode == INFO || newmode == SETTINGS || newmode == TIMEZONE || newmode == WIFI) _showDialog(const_DlgNextion);
+  if (newmode == INFO || newmode == SETTINGS || newmode == TIMEZONE) _showDialog(const_DlgNextion);
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+  if (newmode == WIFI && lvgl_ui::getPreferredBackend(WIFI) != lvgl_ui::UiBackend::Lvgl) {
+    _showDialog(const_DlgNextion);
+  }
+#else
+  if (newmode == WIFI) _showDialog(const_DlgNextion);
+#endif
   if (newmode == NUMBERS) _showDialog("");
   if (newmode == STATIONS) {
     _pager.setPage( pages[PG_PLAYLIST]);
