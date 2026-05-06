@@ -301,7 +301,7 @@
 #define LV_USE_ROLLER     1
 #define LV_USE_SLIDER     1
 #define LV_USE_SWITCH     1
-#define LV_USE_TEXTAREA   0
+#define LV_USE_TEXTAREA   1 /* Wi-Fi 4A: password entry / ввод пароля Wi‑Fi */
 #define LV_USE_TABLE      1
 
 /*--- Extra widgets ---*/
@@ -310,7 +310,7 @@
 #define LV_USE_CHART      0
 #define LV_USE_COLORWHEEL 0
 #define LV_USE_IMGBTN     0
-#define LV_USE_KEYBOARD   0
+#define LV_USE_KEYBOARD   1 /* Wi-Fi 4A: on-screen keyboard / экранная клавиатура */
 #define LV_USE_LED        0
 #define LV_USE_LIST       1
 #define LV_USE_MENU       0

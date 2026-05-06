@@ -81,6 +81,11 @@ class Display {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     bool _lvgl_player_handoff_pending = false;
     void _tryCompleteLvglPlayerHandoff();
+    // Wi‑Fi 5A: Boot fail → LVGL Recovery handoff (dwell + “Opening…” pause).
+    bool _lvgl_wifi_recovery_handoff_pending = false;
+    uint8_t _lvgl_wifi_recovery_handoff_phase = 0; // 0=min dwell; 1=Opening msg, wait short delay
+    uint32_t _lvgl_wifi_recovery_phase_started_ms = 0;
+    void _tryCompleteLvglWifiRecoveryHandoff();
 #endif
     void _time(bool redraw = false);
     void _apScreen();

@@ -79,9 +79,14 @@ bool tryPresentLvglBootOnFirstDspLoop();
 // Drop Boot special mode before Main (PageChain goTo) or AP legacy handoff.
 // Снять Boot перед Main или перед legacy AP.
 void dismissBootForMainHandoff();
+// Wi‑Fi 5B: Boot fail → Wi‑Fi Recovery — tear down Boot into RebootRequired without Main create/enter (no BG preload).
+// Wi‑Fi 5B: снять Boot сразу в Wi‑Fi shell, без Main/preload.
+void dismissBootForWifiRecoveryHandoff();
 // Main path: dismiss only after min time on screen (non-blocking; see Display::_tryCompleteLvglPlayerHandoff).
 // Main: снять Boot не раньше min времени на экране (без блокировки DspTask).
 bool dismissBootForMainHandoffWhenDue();
+// Wi‑Fi 5A: min Boot dwell elapsed (same threshold as dismissBootWhenDue).
+bool isLvglBootMinDwellElapsed();
 void dismissBootForApLegacyHandoff();
 void bootScreenSetStatusUtf8(const char* text);
 void bootScreenNotifyBootSignal();
@@ -100,6 +105,14 @@ bool isLvglCarouselOnInfoSlot();
 // Wi-Fi 3A: cancel ops, dismiss RebootRequired shell, return display mode to PLAYER (DspTask only).
 // Wi-Fi 3A: cancel ops, снять RebootRequired, режим PLAYER (только DspTask).
 void dismissWifiFlowReturnToPlayer();
+
+// Wi‑Fi 4C: LVGL Wi‑Fi Setup shell is on screen (RebootRequired + wifi flow screen).
+// Wi‑Fi 4C: активен LVGL shell настройки Wi‑Fi (RebootRequired + экран потока).
+bool isWifiSetupFlowActive();
+
+// Wi‑Fi 5A: next Wi‑Fi shell enter() is from boot failure (hide Home Back, subtitle).
+void notifyWifiRecoveryEnteredFromBootFailure();
+bool consumeWifiRecoveryEnteredFromBootFailure();
 
 }
 

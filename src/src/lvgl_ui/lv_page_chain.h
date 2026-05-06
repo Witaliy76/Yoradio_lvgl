@@ -42,15 +42,20 @@ public:
     void dismissTemporary();
 
     void showBoot(ILvglScreen* scr);
-    // Tear down Boot special mode only; does not load Main — onModeChanged/goTo does (Stage 5.4).
-    // Снимает только Boot; Main не грузит — дальше onModeChanged/goTo (этап 5.4).
+    // Boot → Main handoff (Main create/enter + preload path). Not for Wi‑Fi Recovery from Boot failure / только Boot→Main.
     void dismissBoot();
+    // Boot → RebootRequired (Wi‑Fi shell): same LVGL fade as dismissBoot but skips Main — avoids BG/player preload offline / без Main preload офлайн.
+    void dismissBootThenShowRebootRequired(ILvglScreen* scr);
     // Wi-Fi setup: full-screen RebootRequired; no back-nav, exit = reboot (Stage 7+ UI).
     // Wi-Fi: полноэкранный RebootRequired; без назад, выход = перезагрузка (UI в Stage 7+).
     void showRebootRequired(ILvglScreen* scr);
     // Wi-Fi 3A+: leave RebootRequired shell, restore carousel Main (sync load; no broad refactor).
     // Wi-Fi 3A+: выход из RebootRequired, возврат карусели на Main.
     void dismissRebootRequired();
+
+    // Wi‑Fi 4C: RebootRequired shell is active for this screen pointer (LVGL Wi‑Fi flow only today).
+    // Wi‑Fi 4C: активен полноэкранный RebootRequired для данного экрана (сейчас только Wi‑Fi).
+    bool isRebootRequiredActiveFor(const ILvglScreen* scr) const;
 
     int currentIndex() const;
     ILvglScreen* currentPage() const;

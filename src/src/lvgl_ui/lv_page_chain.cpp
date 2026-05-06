@@ -211,6 +211,25 @@ void PageChain::dismissBoot() {
     _special = SpecialMode::None;
 }
 
+void PageChain::dismissBootThenShowRebootRequired(ILvglScreen* scr) {
+    if (_special != SpecialMode::Boot || !_bootScreen || !scr) return;
+
+    // Same ordering contract as showRebootRequired: special mode flags before create/load_anim()
+    // Тот же порядок что showRebootRequired: режим до load_anim.
+    _rebootScreen = scr;
+    _special      = SpecialMode::RebootRequired;
+
+    scr->create();
+    scr->enter();
+    lv_obj_t* svcScr = scr->screen();
+    // Same auto_del fade as dismissBoot→Main; avoids Main::enter / BG preload when STA offline / без Main preload.
+    if (svcScr) loadScreenAnimAutoDel(svcScr, LV_SCR_LOAD_ANIM_FADE_ON, kBootHandoffFadeMs);
+
+    _bootScreen->exit();
+    _bootScreen->destroy();
+    _bootScreen = nullptr;
+}
+
 void PageChain::showRebootRequired(ILvglScreen* scr) {
     if (!scr || navigationBlocked()) return;
 
@@ -224,6 +243,11 @@ void PageChain::showRebootRequired(ILvglScreen* scr) {
     scr->create();
     scr->enter();
     loadScreenAnim(scr->screen(), LV_SCR_LOAD_ANIM_FADE_IN, kPageAnimMs);
+}
+
+bool PageChain::isRebootRequiredActiveFor(const ILvglScreen* scr) const {
+    if (!scr) return false;
+    return (_special == SpecialMode::RebootRequired) && (_rebootScreen == scr);
 }
 
 void PageChain::dismissRebootRequired() {

@@ -354,7 +354,11 @@ void lvgl_ui::onModeChanged(displayMode_e mode, UiBackend backend, displayMode_e
         if (mode == WIFI) {
             overlayHideAll();
             (void)wifiOpsInit();
-            s_page_chain.showRebootRequired(&s_wifi_flow_screen);
+            // Wi‑Fi 5B: boot-fail handoff may already have loaded the shell via dismissBootThenShowRebootRequired().
+            // Wi‑Fi 5B: после Boot→Wi‑Fi не вызывать showRebootRequired повторно.
+            if (!isWifiSetupFlowActive()) {
+                s_page_chain.showRebootRequired(&s_wifi_flow_screen);
+            }
             return;
         }
         if (mode == INFO) {
@@ -370,7 +374,11 @@ void lvgl_ui::onModeChanged(displayMode_e mode, UiBackend backend, displayMode_e
             s_page_chain.goTo(PageChain::MAIN_INDEX);
             refreshMainScreen();
         } else if (mode == LOST) {
-            overlayShowLost();
+            // Wi‑Fi 4C: do not stack LOST over Wi‑Fi shell (STA may drop during manual connect).
+            // Wi‑Fi 4C: не класть LOST поверх Wi‑Fi shell (STA может рваться при ручном connect).
+            if (!isWifiSetupFlowActive()) {
+                overlayShowLost();
+            }
         } else if (mode == UPDATING) {
             overlayShowUpdating();
         } else if (mode == VOL) {
@@ -419,6 +427,16 @@ void lvgl_ui::dismissBootForMainHandoff() {
 #endif
 }
 
+void lvgl_ui::dismissBootForWifiRecoveryHandoff() {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    if (!s_lvgl_boot_active) return;
+    ensurePageChainRegistered();
+    overlayHideAll();
+    s_page_chain.dismissBootThenShowRebootRequired(&s_wifi_flow_screen);
+    s_lvgl_boot_active = false;
+#endif
+}
+
 bool lvgl_ui::dismissBootForMainHandoffWhenDue() {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     if (!s_lvgl_boot_active) return true;
@@ -429,6 +447,38 @@ bool lvgl_ui::dismissBootForMainHandoffWhenDue() {
     return true;
 #else
     return true;
+#endif
+}
+
+bool lvgl_ui::isLvglBootMinDwellElapsed() {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    if (!s_lvgl_boot_active) return true;
+    return (uint32_t)(millis() - s_lvgl_boot_shown_ms) >= kLvglBootMinVisibleMs;
+#else
+    return true;
+#endif
+}
+
+namespace {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+static bool s_wifi_recovery_enter_from_boot_failure = false;
+#endif
+} // namespace
+
+void lvgl_ui::notifyWifiRecoveryEnteredFromBootFailure() {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    s_wifi_recovery_enter_from_boot_failure = true;
+#else
+#endif
+}
+
+bool lvgl_ui::consumeWifiRecoveryEnteredFromBootFailure() {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    if (!s_wifi_recovery_enter_from_boot_failure) return false;
+    s_wifi_recovery_enter_from_boot_failure = false;
+    return true;
+#else
+    return false;
 #endif
 }
 
@@ -476,6 +526,15 @@ void lvgl_ui::notifyPageChainActivity() {
 bool lvgl_ui::isLvglCarouselOnInfoSlot() {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     return s_page_chain.currentIndex() == PageChain::INFO_INDEX;
+#else
+    return false;
+#endif
+}
+
+bool lvgl_ui::isWifiSetupFlowActive() {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    ensurePageChainRegistered();
+    return s_page_chain.isRebootRequiredActiveFor(&s_wifi_flow_screen);
 #else
     return false;
 #endif

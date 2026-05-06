@@ -416,6 +416,20 @@ void Display::_start() {
   #endif
   if (network.status != CONNECTED && network.status != SDREADY) {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    // Wi‑Fi 5A: LVGL Boot + Wi‑Fi fail → Recovery shell (AP still raised in network.begin hybrid C).
+    // Wi‑Fi 5A: при активном LVGL Boot не показывать legacy AP как основной экран.
+    if (lvgl_ui::isLvglBootActive()) {
+      _mode = PLAYER; // coherent nominal mode until WIFI takes over / номинальный режим до перехода в WIFI
+      lvgl_ui::bootScreenSetStatusUtf8(
+          (config.ssidsCount == 0) ? "No saved Wi-Fi networks" : "Could not connect to saved networks");
+      lvgl_ui::bootScreenNotifyBootSignal();
+      _lvgl_wifi_recovery_handoff_pending   = true;
+      _lvgl_wifi_recovery_handoff_phase     = 0;
+      _lvgl_wifi_recovery_phase_started_ms  = 0;
+      _suspendFlush                         = false;
+      Serial.println("[Display] Wi-Fi 5A: LVGL Recovery handoff pending");
+      return;
+    }
     lvgl_ui::dismissBootForApLegacyHandoff(); // blank LVGL screen; AP uses legacy pager / пустой LVGL, AP на legacy
 #endif
     _suspendFlush = false; // разрешаем flush в AP режиме / enable flush in AP mode
@@ -490,6 +504,42 @@ void Display::_start() {
 }
 
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+void Display::_tryCompleteLvglWifiRecoveryHandoff() {
+  if (!_lvgl_wifi_recovery_handoff_pending) return;
+  constexpr uint32_t kOpeningMsgHoldMs = 450;
+
+  if (_lvgl_wifi_recovery_handoff_phase == 0) {
+    if (!lvgl_ui::isLvglBootMinDwellElapsed()) return;
+    lvgl_ui::bootScreenSetStatusUtf8("Opening Wi-Fi Setup…");
+    lvgl_ui::bootScreenNotifyBootSignal();
+    _lvgl_wifi_recovery_handoff_phase    = 1;
+    _lvgl_wifi_recovery_phase_started_ms = millis();
+    return;
+  }
+  if (_lvgl_wifi_recovery_handoff_phase == 1) {
+    if ((uint32_t)(millis() - _lvgl_wifi_recovery_phase_started_ms) < kOpeningMsgHoldMs) return;
+    lvgl_ui::notifyWifiRecoveryEnteredFromBootFailure();
+    // Wi‑Fi 5B: must not use dismissBootForMainHandoff() — it enters Main and preloads background offline → crash / см. 5B.
+    lvgl_ui::dismissBootForWifiRecoveryHandoff();
+    _lvgl_wifi_recovery_handoff_pending  = false;
+    _lvgl_wifi_recovery_handoff_phase    = 0;
+    const displayMode_e prev_mode        = _mode;
+    _mode                                = WIFI;
+    lvgl_ui::UiBackend backend           = lvgl_ui::getPreferredBackend(WIFI);
+    _activeBackend                       = backend;
+    lvgl_ui::onModeChanged(WIFI, backend, prev_mode);
+    if (backend == lvgl_ui::UiBackend::Lvgl) {
+      _deactivateLegacyPagerForLvgl();
+    }
+    _bootStep       = 2;
+    _suspendFlush = false;
+    // Wi‑Fi 5B: do not call pm.on_display_player() — plugins/Main hooks are PLAYER-oriented; recovery stays WIFI-only.
+    // Wi‑Fi 5B: без on_display_player — не тянуть plugin/Main цепочку в режиме Recovery.
+  }
+}
+#endif
+
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
 void Display::_tryCompleteLvglPlayerHandoff() {
   if (!_lvgl_player_handoff_pending) return;
   if (!lvgl_ui::dismissBootForMainHandoffWhenDue()) return;
@@ -528,6 +578,14 @@ void Display::_swichMode(displayMode_e newmode) {
     nextion.putRequest({NEWMODE, newmode});
   #endif
   if (newmode == _mode) return;
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+  // Wi‑Fi 4C: ignore LOST while LVGL Wi‑Fi Setup owns the screen — keeps display.mode() WIFI so
+  // legacy LOST path (overlay + controls gating) does not cover the password/connect UI.
+  // Wi‑Fi 4C: игнорировать LOST пока активен LVGL Wi‑Fi Setup — mode остаётся WIFI, без оверлея LOST.
+  if (newmode == LOST && lvgl_ui::isWifiSetupFlowActive()) {
+    return;
+  }
+#endif
   // Wi-Fi 3A: allow WIFI while offline; allow return to PLAYER when leaving LVGL Wi-Fi shell.
   // Wi‑Fi 3A: WIFI офлайн; возврат в PLAYER при выходе из LVGL Wi‑Fi shell.
   if (network.status != CONNECTED && network.status != SDREADY && newmode != WIFI &&
@@ -995,6 +1053,7 @@ void Display::loop() {
     lvgl_ui::onDisplayEvent(evt);
   }
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+  _tryCompleteLvglWifiRecoveryHandoff();
   _tryCompleteLvglPlayerHandoff();
 #endif
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
