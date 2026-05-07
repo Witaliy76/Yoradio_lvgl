@@ -1,7 +1,7 @@
 /*
- * LvglWifiFlowScreen — Wi-Fi 3A–6A service shell (PageChain RebootRequired, not carousel page).
- * Home + Networks + PasswordEntry (4B connect + 5F status lock + 6A save credentials + reboot).
- * Shell: RebootRequired; scan через ops; 6A — save/update after Success + ESP.restart.
+ * LvglWifiFlowScreen — Wi-Fi 3A–6C service shell (PageChain RebootRequired, not carousel page).
+ * Home + Networks + PasswordEntry + SavedNetworkPanel (6B/6C).
+ * 4B: connect; 5F: status lock; 6A: save+reboot; 6B: saved panel; 6C: Remove inline confirm.
  */
 
 #include "scr_wifi_flow.h"
@@ -84,27 +84,26 @@ void LvglWifiFlowScreen::clear_password_panel_state() {
 }
 
 void LvglWifiFlowScreen::show_home_panel() {
+    // Wi-Fi 6B: clear saved state before returning Home / сброс Saved panel при возврате на Home.
+    clear_saved_state();
     clear_password_panel_state();
     _home_visible = true;
-    if (_panel_home) lv_obj_clear_flag(_panel_home, LV_OBJ_FLAG_HIDDEN);
-    if (_panel_net) lv_obj_add_flag(_panel_net, LV_OBJ_FLAG_HIDDEN);
-    if (_panel_pass) lv_obj_add_flag(_panel_pass, LV_OBJ_FLAG_HIDDEN);
+    if (_panel_home)  lv_obj_clear_flag(_panel_home,  LV_OBJ_FLAG_HIDDEN);
+    if (_panel_net)   lv_obj_add_flag(_panel_net,   LV_OBJ_FLAG_HIDDEN);
+    if (_panel_pass)  lv_obj_add_flag(_panel_pass,  LV_OBJ_FLAG_HIDDEN);
+    if (_panel_saved) lv_obj_add_flag(_panel_saved, LV_OBJ_FLAG_HIDDEN);
     sync_home_boot_failure_ui();
 }
 
 void LvglWifiFlowScreen::sync_home_boot_failure_ui() {
     if (!_sub_home) return;
     const YoRadioPalette& pal = yoradio_palette();
+    // Wi-Fi 6B: saved rows are interactive — remove "read-only" wording / строки кликабельны, убираем "read-only".
     if (_entered_from_boot_failure) {
-        lv_label_set_text(_sub_home,
-                          "Could not connect to saved Wi-Fi. Saved list below is read-only - tap Scan to pick a "
-                          "network / сохранённые не подключились; список ниже только для просмотра - выберите сеть "
-                          "через Scan.");
+        lv_label_set_text(_sub_home, "Could not connect. Tap a saved network or Scan.");
         if (_btn_back_home) lv_obj_add_flag(_btn_back_home, LV_OBJ_FLAG_HIDDEN);
     } else {
-        lv_label_set_text(_sub_home,
-                          "Saved networks below (read-only). Tap Scan to choose a network / сохранённые ниже "
-                          "(только просмотр). Выберите сеть через Scan.");
+        lv_label_set_text(_sub_home, "Tap a saved network, or Scan to choose another.");
         if (_btn_back_home) lv_obj_clear_flag(_btn_back_home, LV_OBJ_FLAG_HIDDEN);
     }
     lv_obj_set_style_text_color(_sub_home, pal.text_secondary, LV_PART_MAIN);
@@ -113,16 +112,69 @@ void LvglWifiFlowScreen::sync_home_boot_failure_ui() {
 void LvglWifiFlowScreen::show_networks_panel() {
     clear_password_panel_state();
     _home_visible = false;
-    if (_panel_net) lv_obj_clear_flag(_panel_net, LV_OBJ_FLAG_HIDDEN);
-    if (_panel_home) lv_obj_add_flag(_panel_home, LV_OBJ_FLAG_HIDDEN);
-    if (_panel_pass) lv_obj_add_flag(_panel_pass, LV_OBJ_FLAG_HIDDEN);
+    if (_panel_net)   lv_obj_clear_flag(_panel_net,   LV_OBJ_FLAG_HIDDEN);
+    if (_panel_home)  lv_obj_add_flag(_panel_home,  LV_OBJ_FLAG_HIDDEN);
+    if (_panel_pass)  lv_obj_add_flag(_panel_pass,  LV_OBJ_FLAG_HIDDEN);
+    if (_panel_saved) lv_obj_add_flag(_panel_saved, LV_OBJ_FLAG_HIDDEN);
 }
 
 void LvglWifiFlowScreen::show_password_panel() {
     _home_visible = false;
-    if (_panel_pass) lv_obj_clear_flag(_panel_pass, LV_OBJ_FLAG_HIDDEN);
-    if (_panel_home) lv_obj_add_flag(_panel_home, LV_OBJ_FLAG_HIDDEN);
-    if (_panel_net) lv_obj_add_flag(_panel_net, LV_OBJ_FLAG_HIDDEN);
+    if (_panel_pass)  lv_obj_clear_flag(_panel_pass,  LV_OBJ_FLAG_HIDDEN);
+    if (_panel_home)  lv_obj_add_flag(_panel_home,  LV_OBJ_FLAG_HIDDEN);
+    if (_panel_net)   lv_obj_add_flag(_panel_net,   LV_OBJ_FLAG_HIDDEN);
+    if (_panel_saved) lv_obj_add_flag(_panel_saved, LV_OBJ_FLAG_HIDDEN);
+}
+
+// Wi-Fi 6B: show Saved Network panel (state set by open_saved_network) / показываем Saved panel.
+void LvglWifiFlowScreen::show_saved_panel() {
+    _home_visible = false;
+    if (_panel_saved) lv_obj_clear_flag(_panel_saved, LV_OBJ_FLAG_HIDDEN);
+    if (_panel_home)  lv_obj_add_flag(_panel_home,  LV_OBJ_FLAG_HIDDEN);
+    if (_panel_net)   lv_obj_add_flag(_panel_net,   LV_OBJ_FLAG_HIDDEN);
+    if (_panel_pass)  lv_obj_add_flag(_panel_pass,  LV_OBJ_FLAG_HIDDEN);
+}
+
+// Wi-Fi 6B/6C: reset Saved panel state on navigation / сброс состояния Saved panel при навигации.
+void LvglWifiFlowScreen::clear_saved_state() {
+    _selectedSavedSlot      = 255;
+    _await_saved_connect_ui = false;
+    _saved_status_terminal  = false;
+    _password_from_saved    = false;
+    // Wi-Fi 6C: clear pending confirmation / сброс ожидающего подтверждения.
+    _remove_confirm_pending = false;
+    memset(_selectedSavedSsid, 0, sizeof(_selectedSavedSsid));
+}
+
+// Wi-Fi 6B: open Saved Network panel for a given slot / открытие Saved panel по тапу на строке.
+void LvglWifiFlowScreen::open_saved_network(uint8_t slot) {
+    if (slot >= WIFI_CRED_STORE_CAPACITY) return;
+    WifiCredStoreEntryView v{};
+    if (!wifiCredStoreGetEntry(slot, &v) || !v.ssid || !v.ssid[0]) return;
+    clear_saved_state();
+    _selectedSavedSlot = slot;
+    strlcpy(_selectedSavedSsid, v.ssid, sizeof(_selectedSavedSsid));
+    if (_lbl_saved_ssid) {
+        lv_label_set_text(_lbl_saved_ssid, _selectedSavedSsid);
+    }
+    if (_lbl_saved_sub) {
+        lv_label_set_text(_lbl_saved_sub, "Saved network. Use saved password or change it.");
+    }
+    if (_lbl_saved_status) {
+        const YoRadioPalette& pal = yoradio_palette();
+        lv_label_set_text(_lbl_saved_status, " ");
+        lv_obj_set_style_text_color(_lbl_saved_status, pal.text_meta, LV_PART_MAIN);
+    }
+    // Re-enable buttons for fresh panel open / кнопки включены при каждом открытии.
+    if (_btn_saved_connect) lv_obj_clear_state(_btn_saved_connect, LV_STATE_DISABLED);
+    if (_btn_saved_chpwd)   lv_obj_clear_state(_btn_saved_chpwd,   LV_STATE_DISABLED);
+    if (_btn_saved_back)    lv_obj_clear_state(_btn_saved_back,    LV_STATE_DISABLED);
+    // Wi-Fi 6C: ensure normal row visible, confirm hidden, Remove enabled / нормальный ряд, Remove активен.
+    if (_btn_saved_remove)  lv_obj_clear_state(_btn_saved_remove, LV_STATE_DISABLED);
+    if (_row_saved_confirm) lv_obj_add_flag(_row_saved_confirm, LV_OBJ_FLAG_HIDDEN);
+    if (_row_saved_normal)  lv_obj_clear_flag(_row_saved_normal, LV_OBJ_FLAG_HIDDEN);
+    _remove_confirm_pending = false;
+    show_saved_panel();
 }
 
 void LvglWifiFlowScreen::open_password_entry(const char* ssid_utf8) {
@@ -446,7 +498,11 @@ void LvglWifiFlowScreen::rebuild_saved_list() {
         if (!wifiCredStoreGetEntry(i, &v) || !v.ssid) continue;
         char line[40];
         snprintf(line, sizeof(line), "%u  %s", static_cast<unsigned>(i + 1U), v.ssid);
-        lv_list_add_btn(_list_saved, LV_SYMBOL_LIST, line);
+        lv_obj_t* btn = lv_list_add_btn(_list_saved, LV_SYMBOL_LIST, line);
+        if (!btn) continue;
+        // Wi-Fi 6B: store slot+1 so slot 0 != nullptr; mirror scan list sentinel pattern / slot+1 как в scan.
+        lv_obj_set_user_data(btn, reinterpret_cast<void*>(static_cast<uintptr_t>(static_cast<uint32_t>(i) + 1U)));
+        lv_obj_add_event_cb(btn, on_saved_row_click, LV_EVENT_CLICKED, this);
     }
 }
 
@@ -477,6 +533,139 @@ void LvglWifiFlowScreen::rebuild_scan_list() {
     }
 }
 
+// Wi-Fi 6B/6C: disable/enable Saved panel action buttons during connect / блок кнопок во время connect.
+void LvglWifiFlowScreen::set_saved_panel_connecting_ui(bool connecting) {
+    if (connecting) {
+        if (_btn_saved_connect) lv_obj_add_state(_btn_saved_connect, LV_STATE_DISABLED);
+        if (_btn_saved_chpwd)   lv_obj_add_state(_btn_saved_chpwd,   LV_STATE_DISABLED);
+        // Wi-Fi 6C: disable Remove while connect is running / Remove выкл во время connect.
+        if (_btn_saved_remove)  lv_obj_add_state(_btn_saved_remove,  LV_STATE_DISABLED);
+    } else {
+        if (_btn_saved_connect) lv_obj_clear_state(_btn_saved_connect, LV_STATE_DISABLED);
+        if (_btn_saved_chpwd)   lv_obj_clear_state(_btn_saved_chpwd,   LV_STATE_DISABLED);
+        if (_btn_saved_remove)  lv_obj_clear_state(_btn_saved_remove,  LV_STATE_DISABLED);
+    }
+}
+
+// Wi-Fi 6B/6C: lock Saved panel permanently before reboot / блок панели до reboot.
+void LvglWifiFlowScreen::set_saved_panel_saving_ui() {
+    if (_btn_saved_connect) lv_obj_add_state(_btn_saved_connect, LV_STATE_DISABLED);
+    if (_btn_saved_chpwd)   lv_obj_add_state(_btn_saved_chpwd,   LV_STATE_DISABLED);
+    if (_btn_saved_back)    lv_obj_add_state(_btn_saved_back,    LV_STATE_DISABLED);
+    // Wi-Fi 6C: also lock Remove while reboot is pending / Remove тоже заблокирован до reboot.
+    if (_btn_saved_remove)  lv_obj_add_state(_btn_saved_remove,  LV_STATE_DISABLED);
+}
+
+// Wi-Fi 6B: connect using stored password for selected saved slot.
+// Wi-Fi 6B: подключение по сохранённому паролю выбранного слота.
+void LvglWifiFlowScreen::start_connect_from_saved() {
+    if (_selectedSavedSlot == 255 || !_selectedSavedSsid[0]) return;
+    if (_await_saved_connect_ui) return;
+    if (_saving_in_progress) return;
+
+    WifiOpsSnapshot cur{};
+    if (wifiOpsGetSnapshot(&cur) && cur.busy) {
+        if (_lbl_saved_status) {
+            const YoRadioPalette& pal = yoradio_palette();
+            lv_label_set_text(_lbl_saved_status, "Wi-Fi busy. Try again.");
+            lv_obj_set_style_text_color(_lbl_saved_status, pal.text_secondary, LV_PART_MAIN);
+            _saved_status_terminal = true;
+        }
+        return;
+    }
+
+    // Resolve stored PSK into a local stack buffer; memset immediately after use / PSK в стек, затем обнуление.
+    char tmpPass[40]{};
+    if (!wifiCredStoreResolvePasswordForSlot(_selectedSavedSlot, tmpPass, sizeof(tmpPass))) {
+        memset(tmpPass, 0, sizeof(tmpPass));
+        if (_lbl_saved_status) {
+            const YoRadioPalette& pal = yoradio_palette();
+            lv_label_set_text(_lbl_saved_status, "Wi-Fi error. Try again.");
+            lv_obj_set_style_text_color(_lbl_saved_status, pal.text_secondary, LV_PART_MAIN);
+            _saved_status_terminal = true;
+        }
+        return;
+    }
+
+    const bool started = wifiOpsRequestConnectWithPassword(_selectedSavedSsid, tmpPass, true);
+    memset(tmpPass, 0, sizeof(tmpPass)); // PSK off stack / PSK обнулён
+
+    if (!started) {
+        if (_lbl_saved_status) {
+            const YoRadioPalette& pal = yoradio_palette();
+            lv_label_set_text(_lbl_saved_status, "Wi-Fi error. Try again.");
+            lv_obj_set_style_text_color(_lbl_saved_status, pal.text_secondary, LV_PART_MAIN);
+            _saved_status_terminal = true;
+        }
+        return;
+    }
+
+    _await_saved_connect_ui = true;
+    _saved_status_terminal  = false;
+    if (_lbl_saved_status) {
+        const YoRadioPalette& pal = yoradio_palette();
+        lv_label_set_text(_lbl_saved_status, "Connecting...");
+        lv_obj_set_style_text_color(_lbl_saved_status, pal.text_meta, LV_PART_MAIN);
+    }
+    set_saved_panel_connecting_ui(true);
+}
+
+// Wi-Fi 6B: called by pollOpsSnapshot when connect op finishes on Saved panel.
+// Wi-Fi 6B: вызывается из pollOpsSnapshot при завершении connect на Saved panel.
+void LvglWifiFlowScreen::handle_saved_connect_finished() {
+    WifiOpsSnapshot snap{};
+    if (!wifiOpsGetSnapshot(&snap)) return;
+
+    _await_saved_connect_ui = false;
+    const YoRadioPalette& pal = yoradio_palette();
+    set_saved_panel_connecting_ui(false);
+
+    if (!_lbl_saved_status) return;
+
+    switch (snap.lastResult) {
+    case WifiOpsResult::Success:
+    case WifiOpsResult::AlreadyConnected: {
+        // Only update lastSSID; no wifi.csv write for saved Connect / только lastSSID, wifi.csv не трогаем.
+        const bool ok = wifiCredStoreSetLastSuccessFromSlot(_selectedSavedSlot);
+        if (!ok) {
+            lv_label_set_text(_lbl_saved_status, "Wi-Fi error. Try again.");
+            lv_obj_set_style_text_color(_lbl_saved_status, pal.text_secondary, LV_PART_MAIN);
+            _saved_status_terminal = true;
+            return;
+        }
+        lv_label_set_text(_lbl_saved_status, "Connected. Restarting...");
+        lv_obj_set_style_text_color(_lbl_saved_status, pal.text_secondary, LV_PART_MAIN);
+        _saved_status_terminal = true;
+        _saving_in_progress    = true;
+        set_saved_panel_saving_ui();
+        // Reuse existing reboot timer; do not create duplicate / переиспользуем таймер, без дубликата.
+        if (!_reboot_timer) {
+            _reboot_timer = lv_timer_create(on_reboot_timer, 1800, this);
+            lv_timer_set_repeat_count(_reboot_timer, 1);
+        }
+        return;
+    }
+    case WifiOpsResult::Timeout:
+    case WifiOpsResult::AuthFailed:
+    case WifiOpsResult::NoNetwork:
+        // Generic wording — ESP may report Timeout for wrong PSK / общий текст, т.к. неверный PSK → Timeout.
+        lv_label_set_text(_lbl_saved_status, "Could not connect. Check password or signal.");
+        lv_obj_set_style_text_color(_lbl_saved_status, pal.text_secondary, LV_PART_MAIN);
+        _saved_status_terminal = true;
+        break;
+    case WifiOpsResult::Cancelled:
+        lv_label_set_text(_lbl_saved_status, "Cancelled.");
+        lv_obj_set_style_text_color(_lbl_saved_status, pal.text_meta, LV_PART_MAIN);
+        _saved_status_terminal = true;
+        break;
+    default:
+        lv_label_set_text(_lbl_saved_status, "Wi-Fi error. Try again.");
+        lv_obj_set_style_text_color(_lbl_saved_status, pal.text_secondary, LV_PART_MAIN);
+        _saved_status_terminal = true;
+        break;
+    }
+}
+
 void LvglWifiFlowScreen::create() {
     if (_screen) return;
 
@@ -492,25 +681,31 @@ void LvglWifiFlowScreen::create() {
     lv_obj_set_size(_screen, LV_PCT(100), LV_PCT(100));
     lv_obj_clear_flag(_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-    _panel_home = lv_obj_create(_screen);
-    _panel_net  = lv_obj_create(_screen);
-    _panel_pass = lv_obj_create(_screen);
-    if (!_panel_home || !_panel_net || !_panel_pass) return;
-    lv_obj_set_width(_panel_home, LV_PCT(100));
-    lv_obj_set_flex_grow(_panel_home, 1);
-    lv_obj_set_width(_panel_net, LV_PCT(100));
-    lv_obj_set_flex_grow(_panel_net, 1);
-    lv_obj_set_width(_panel_pass, LV_PCT(100));
-    lv_obj_set_flex_grow(_panel_pass, 1);
-    lv_obj_set_flex_flow(_panel_home, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_flow(_panel_net, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_flow(_panel_pass, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(_panel_home, 8, LV_PART_MAIN);
-    lv_obj_set_style_pad_row(_panel_net, 8, LV_PART_MAIN);
-    lv_obj_set_style_pad_row(_panel_pass, 8, LV_PART_MAIN);
-    style_service_panel(_panel_home, pal);
-    style_service_panel(_panel_net, pal);
-    style_service_panel(_panel_pass, pal);
+    _panel_home  = lv_obj_create(_screen);
+    _panel_net   = lv_obj_create(_screen);
+    _panel_pass  = lv_obj_create(_screen);
+    _panel_saved = lv_obj_create(_screen);
+    if (!_panel_home || !_panel_net || !_panel_pass || !_panel_saved) return;
+    lv_obj_set_width(_panel_home,  LV_PCT(100));
+    lv_obj_set_flex_grow(_panel_home,  1);
+    lv_obj_set_width(_panel_net,   LV_PCT(100));
+    lv_obj_set_flex_grow(_panel_net,   1);
+    lv_obj_set_width(_panel_pass,  LV_PCT(100));
+    lv_obj_set_flex_grow(_panel_pass,  1);
+    lv_obj_set_width(_panel_saved, LV_PCT(100));
+    lv_obj_set_flex_grow(_panel_saved, 1);
+    lv_obj_set_flex_flow(_panel_home,  LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_flow(_panel_net,   LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_flow(_panel_pass,  LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_flow(_panel_saved, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(_panel_home,  8, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(_panel_net,   8, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(_panel_pass,  8, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(_panel_saved, 8, LV_PART_MAIN);
+    style_service_panel(_panel_home,  pal);
+    style_service_panel(_panel_net,   pal);
+    style_service_panel(_panel_pass,  pal);
+    style_service_panel(_panel_saved, pal);
 
     _hdr_home = lv_label_create(_panel_home);
     lv_label_set_text(_hdr_home, "Wi-Fi Setup");
@@ -520,9 +715,8 @@ void LvglWifiFlowScreen::create() {
     }
 
     _sub_home = lv_label_create(_panel_home);
-    lv_label_set_text(_sub_home,
-                      "Saved networks below (read-only). Tap Scan to choose a network / сохранённые ниже "
-                      "(только просмотр). Выберите сеть через Scan.");
+    // Initial text is immediately overwritten by sync_home_boot_failure_ui() / перезаписывается при enter.
+    lv_label_set_text(_sub_home, "Tap a saved network, or Scan to choose another.");
     lv_obj_set_style_text_color(_sub_home, pal.text_secondary, LV_PART_MAIN);
     if (LV_ACTIVE_PROFILE.font_small) {
         lv_obj_set_style_text_font(_sub_home, static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_small), LV_PART_MAIN);
@@ -667,6 +861,68 @@ void LvglWifiFlowScreen::create() {
 
     lv_obj_add_flag(_panel_pass, LV_OBJ_FLAG_HIDDEN);
 
+    // Wi-Fi 6B: Saved Network panel — title, subtitle, status, buttons / Saved Network panel.
+    {
+        _lbl_saved_ssid = lv_label_create(_panel_saved);
+        lv_label_set_text(_lbl_saved_ssid, " ");
+        lv_obj_set_style_text_color(_lbl_saved_ssid, pal.text_primary, LV_PART_MAIN);
+        if (LV_ACTIVE_PROFILE.font_header) {
+            lv_obj_set_style_text_font(_lbl_saved_ssid,
+                static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_header), LV_PART_MAIN);
+        }
+        lv_label_set_long_mode(_lbl_saved_ssid, LV_LABEL_LONG_DOT);
+        lv_obj_set_width(_lbl_saved_ssid, LV_PCT(100));
+
+        _lbl_saved_sub = lv_label_create(_panel_saved);
+        lv_label_set_text(_lbl_saved_sub, "Saved network. Use saved password or change it.");
+        lv_obj_set_style_text_color(_lbl_saved_sub, pal.text_secondary, LV_PART_MAIN);
+        if (LV_ACTIVE_PROFILE.font_small) {
+            lv_obj_set_style_text_font(_lbl_saved_sub,
+                static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_small), LV_PART_MAIN);
+        }
+        lv_label_set_long_mode(_lbl_saved_sub, LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(_lbl_saved_sub, LV_PCT(100));
+
+        _lbl_saved_status = lv_label_create(_panel_saved);
+        lv_label_set_text(_lbl_saved_status, " ");
+        lv_obj_set_style_text_color(_lbl_saved_status, pal.text_meta, LV_PART_MAIN);
+        if (LV_ACTIVE_PROFILE.font_small) {
+            lv_obj_set_style_text_font(_lbl_saved_status,
+                static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_small), LV_PART_MAIN);
+        }
+        lv_label_set_long_mode(_lbl_saved_status, LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(_lbl_saved_status, LV_PCT(100));
+
+        // Wi-Fi 6C: normal row — Connect / Chg pwd / Remove / Back / нормальный ряд действий.
+        _row_saved_normal = lv_obj_create(_panel_saved);
+        lv_obj_set_width(_row_saved_normal, LV_PCT(100));
+        lv_obj_set_height(_row_saved_normal, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(_row_saved_normal, LV_FLEX_FLOW_ROW);
+        lv_obj_set_style_pad_column(_row_saved_normal, 8, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(_row_saved_normal, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_border_width(_row_saved_normal, 0, LV_PART_MAIN);
+
+        _btn_saved_connect = add_footer_button(_row_saved_normal, "Connect", pal, on_btn_saved_connect, this);
+        _btn_saved_chpwd   = add_footer_button(_row_saved_normal, "Chg pwd", pal, on_btn_saved_chpwd,   this);
+        _btn_saved_remove  = add_footer_button(_row_saved_normal, "Remove",  pal, on_btn_saved_remove,  this);
+        _btn_saved_back    = add_footer_button(_row_saved_normal, "Back",    pal, on_btn_saved_back,    this);
+
+        // Wi-Fi 6C: confirm row — Yes / No, hidden until Remove tapped / ряд подтверждения, скрыт по умолчанию.
+        _row_saved_confirm = lv_obj_create(_panel_saved);
+        lv_obj_set_width(_row_saved_confirm, LV_PCT(100));
+        lv_obj_set_height(_row_saved_confirm, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(_row_saved_confirm, LV_FLEX_FLOW_ROW);
+        lv_obj_set_style_pad_column(_row_saved_confirm, 8, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(_row_saved_confirm, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_border_width(_row_saved_confirm, 0, LV_PART_MAIN);
+
+        _btn_saved_yes = add_footer_button(_row_saved_confirm, "Yes", pal, on_btn_saved_yes, this);
+        _btn_saved_no  = add_footer_button(_row_saved_confirm, "No",  pal, on_btn_saved_no,  this);
+        lv_obj_add_flag(_row_saved_confirm, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    lv_obj_add_flag(_panel_saved, LV_OBJ_FLAG_HIDDEN);
+
     show_home_panel();
     rebuild_saved_list();
 }
@@ -680,6 +936,13 @@ void LvglWifiFlowScreen::enter() {
     _skip_next_ta_pass_status_sync = false;
     _saving_in_progress            = false;
     memset(_connectCandidatePass, 0, sizeof(_connectCandidatePass));
+    // Wi-Fi 6B/6C: reset Saved panel state on each enter / сброс состояния Saved panel при каждом входе.
+    _await_saved_connect_ui = false;
+    _saved_status_terminal  = false;
+    _password_from_saved    = false;
+    _remove_confirm_pending = false;
+    _selectedSavedSlot      = 255;
+    memset(_selectedSavedSsid, 0, sizeof(_selectedSavedSsid));
     _entered_from_boot_failure = lvgl_ui::consumeWifiRecoveryEnteredFromBootFailure();
     rebuild_saved_list();
     sync_home_boot_failure_ui();
@@ -712,12 +975,18 @@ void LvglWifiFlowScreen::destroy() {
         lv_obj_del(_screen);
         _screen = nullptr;
     }
-    _panel_home = _panel_net = _panel_pass = nullptr;
+    _panel_home = _panel_net = _panel_pass = _panel_saved = nullptr;
     _hdr_home = _sub_home = _list_saved = nullptr;
     _hdr_net = _lbl_net_status = _list_scan = nullptr;
     _hdr_pass = _lbl_pass_ssid = _lbl_pass_hint = _ta_password = _lbl_pass_status = nullptr;
     _btn_connect = _btn_back_pass = _kbd = nullptr;
     _btn_scan = _btn_back_home = _btn_rescan = nullptr;
+    // Wi-Fi 6B: null Saved Network panel widgets / обнуляем виджеты Saved Network panel.
+    _lbl_saved_ssid = _lbl_saved_sub = _lbl_saved_status = nullptr;
+    _btn_saved_connect = _btn_saved_chpwd = _btn_saved_back = nullptr;
+    // Wi-Fi 6C: null Remove confirmation widgets / обнуляем виджеты Remove.
+    _row_saved_normal = _row_saved_confirm = nullptr;
+    _btn_saved_remove = _btn_saved_yes = _btn_saved_no = nullptr;
 }
 
 lv_obj_t* LvglWifiFlowScreen::screen() {
@@ -735,10 +1004,11 @@ void LvglWifiFlowScreen::pollOpsSnapshot() {
 
     const YoRadioPalette& pal = yoradio_palette();
 
-    const bool pass_visible =
-        _panel_pass && !lv_obj_has_flag(_panel_pass, LV_OBJ_FLAG_HIDDEN);
+    const bool pass_visible  = _panel_pass  && !lv_obj_has_flag(_panel_pass,  LV_OBJ_FLAG_HIDDEN);
+    // Wi-Fi 6B: track saved panel visibility for connect polling / видимость Saved panel для polling.
+    const bool saved_visible = _panel_saved && !lv_obj_has_flag(_panel_saved, LV_OBJ_FLAG_HIDDEN);
 
-    // 4B: Connect polling — do not mix with scan-list rebuild / connect отдельно от scan.
+    // 4B: Connect polling for Password panel / опрос завершения connect для Password panel.
     if (pass_visible && _await_connect_ui) {
         if (snap.busy && snap.currentOp == WifiOpsOp::Connect) {
             if (_lbl_pass_status) {
@@ -756,6 +1026,21 @@ void LvglWifiFlowScreen::pollOpsSnapshot() {
         }
     }
 
+    // Wi-Fi 6B: Connect polling for Saved Network panel / опрос завершения connect для Saved panel.
+    if (saved_visible && _await_saved_connect_ui) {
+        if (snap.busy && snap.currentOp == WifiOpsOp::Connect) {
+            if (_lbl_saved_status && !_saved_status_terminal) {
+                lv_label_set_text(_lbl_saved_status, "Connecting...");
+                lv_obj_set_style_text_color(_lbl_saved_status, pal.text_meta, LV_PART_MAIN);
+            }
+            return;
+        }
+        if (!snap.busy && snap.phase == WifiOpsPhase::Idle) {
+            handle_saved_connect_finished();
+            // Fall through: refresh scan buttons etc. / дальше — кнопки скана.
+        }
+    }
+
     if (snap.phase == WifiOpsPhase::Scanning || (snap.busy && snap.currentOp == WifiOpsOp::Scan)) {
         lv_label_set_text(_lbl_net_status, "Scanning...");
         lv_obj_set_style_text_color(_lbl_net_status, pal.text_meta, LV_PART_MAIN);
@@ -766,8 +1051,9 @@ void LvglWifiFlowScreen::pollOpsSnapshot() {
     if (_btn_scan) lv_obj_clear_state(_btn_scan, LV_STATE_DISABLED);
     if (_btn_rescan) lv_obj_clear_state(_btn_rescan, LV_STATE_DISABLED);
 
-    // Completing scan await only when Networks (not Password) visible / завершение скана не на пароле.
-    if (_await_scan_ui && !pass_visible && snap.phase == WifiOpsPhase::Idle && !snap.busy) {
+    // Completing scan await only when Networks (not Password or Saved) visible.
+    // Завершение скана не обрабатывается на Password или Saved panel.
+    if (_await_scan_ui && !pass_visible && !saved_visible && snap.phase == WifiOpsPhase::Idle && !snap.busy) {
         _await_scan_ui = false;
         if (snap.lastResult == WifiOpsResult::Success) {
             rebuild_scan_list();
@@ -872,6 +1158,13 @@ void LvglWifiFlowScreen::on_btn_back_pass(lv_event_t* e) {
     if (self->_await_connect_ui) {
         wifiOpsCancel();
     }
+    // Wi-Fi 6B: return to Saved panel if Password was opened via Change password / Back на Saved при смене пароля.
+    if (self->_password_from_saved) {
+        self->_password_from_saved = false;
+        self->clear_password_panel_state();
+        self->show_saved_panel();
+        return;
+    }
     self->show_networks_panel();
 }
 
@@ -935,6 +1228,13 @@ void LvglWifiFlowScreen::on_keyboard_event(lv_event_t* e) {
     if (self->_await_connect_ui) {
         wifiOpsCancel();
     }
+    // Wi-Fi 6B: return to Saved panel if keyboard was opened via Change password / Cancel с клавиатуры → Saved.
+    if (self->_password_from_saved) {
+        self->_password_from_saved = false;
+        self->clear_password_panel_state();
+        self->show_saved_panel();
+        return;
+    }
     self->show_networks_panel();
 }
 
@@ -961,6 +1261,149 @@ void LvglWifiFlowScreen::on_scan_row_click(lv_event_t* e) {
         return;
     }
     self->open_password_entry(row.ssid);
+}
+
+// Wi-Fi 6B: tap on saved network row — open Saved Network panel.
+// Wi-Fi 6B: тап по строке сохранённой сети — открыть Saved Network panel.
+void LvglWifiFlowScreen::on_saved_row_click(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    lv_obj_t* tgt = lv_event_get_target(e);
+    lv_obj_t* o   = tgt;
+    // Climb from child label to the list row button that holds user_data / поднимаемся до кнопки со slot+1.
+    while (o && lv_obj_get_user_data(o) == nullptr) {
+        o = lv_obj_get_parent(o);
+    }
+    auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
+    if (!o || !self) return;
+    const uintptr_t stored = reinterpret_cast<uintptr_t>(lv_obj_get_user_data(o));
+    if (stored == 0U) return; // sentinel: not a valid slot / не слот
+    const uint8_t slot = static_cast<uint8_t>(stored - 1U);
+    if (slot >= wifiCredStoreSavedCount()) return;
+    self->open_saved_network(slot);
+}
+
+void LvglWifiFlowScreen::on_btn_saved_connect(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
+    if (self) self->start_connect_from_saved();
+}
+
+// Wi-Fi 6B: Change password — open Password panel with empty TA; Back from there returns here.
+// Wi-Fi 6B: смена пароля — Password panel с пустым TA; Back возвращает сюда.
+void LvglWifiFlowScreen::on_btn_saved_chpwd(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
+    if (!self || !self->_selectedSavedSsid[0]) return;
+    self->_password_from_saved = true;
+    self->open_password_entry(self->_selectedSavedSsid);
+    // Update hint to indicate context / уточняем подсказку для смены пароля.
+    if (self->_lbl_pass_hint) {
+        lv_label_set_text(self->_lbl_pass_hint, "Enter new password. On success it will be saved.");
+    }
+}
+
+// Wi-Fi 6B: Back on Saved panel: cancel if connecting, then return Home.
+// Wi-Fi 6B: Back на Saved panel: Cancel если идёт connect, затем возврат Home.
+void LvglWifiFlowScreen::on_btn_saved_back(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
+    if (!self) return;
+    if (self->_saving_in_progress) return; // locked until reboot / заблокировано до reboot
+    if (self->_await_saved_connect_ui) {
+        wifiOpsCancel();
+        self->_await_saved_connect_ui = false;
+    }
+    self->show_home_panel();
+}
+
+// Wi-Fi 6C: Remove tapped — show inline confirmation / тап Remove — показываем подтверждение.
+void LvglWifiFlowScreen::on_btn_saved_remove(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
+    if (!self) return;
+    // Block if connect or reboot is in progress / блокировать при connect/reboot.
+    if (self->_await_saved_connect_ui || self->_saving_in_progress) return;
+    if (self->_selectedSavedSlot == 255 || !self->_selectedSavedSsid[0]) return;
+
+    self->_remove_confirm_pending = true;
+    if (self->_lbl_saved_status) {
+        const YoRadioPalette& pal = yoradio_palette();
+        char msg[80];
+        snprintf(msg, sizeof(msg), "Remove \"%s\"? Cannot be undone.", self->_selectedSavedSsid);
+        lv_label_set_text(self->_lbl_saved_status, msg);
+        lv_obj_set_style_text_color(self->_lbl_saved_status, pal.text_secondary, LV_PART_MAIN);
+        self->_saved_status_terminal = true;
+    }
+    if (self->_row_saved_normal)  lv_obj_add_flag(self->_row_saved_normal,   LV_OBJ_FLAG_HIDDEN);
+    if (self->_row_saved_confirm) lv_obj_clear_flag(self->_row_saved_confirm, LV_OBJ_FLAG_HIDDEN);
+}
+
+// Wi-Fi 6C: No — cancel confirmation, restore normal row / No — отмена, возврат к нормальному ряду.
+void LvglWifiFlowScreen::on_btn_saved_no(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
+    if (!self) return;
+    self->_remove_confirm_pending = false;
+    self->_saved_status_terminal  = false;
+    if (self->_lbl_saved_status) {
+        const YoRadioPalette& pal = yoradio_palette();
+        lv_label_set_text(self->_lbl_saved_status, " ");
+        lv_obj_set_style_text_color(self->_lbl_saved_status, pal.text_meta, LV_PART_MAIN);
+    }
+    if (self->_row_saved_confirm) lv_obj_add_flag(self->_row_saved_confirm, LV_OBJ_FLAG_HIDDEN);
+    if (self->_row_saved_normal)  lv_obj_clear_flag(self->_row_saved_normal, LV_OBJ_FLAG_HIDDEN);
+}
+
+// Wi-Fi 6C: Yes — confirm Remove; mutate store, persist, return Home. No reboot.
+// Wi-Fi 6C: Yes — выполнить удаление; store+persist, затем Home. Без reboot.
+void LvglWifiFlowScreen::on_btn_saved_yes(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
+    if (!self) return;
+    const YoRadioPalette& pal = yoradio_palette();
+
+    // Guard: validate slot before any mutation / проверка слота перед мутацией.
+    if (self->_selectedSavedSlot == 255 ||
+        self->_selectedSavedSlot >= wifiCredStoreSavedCount()) {
+        self->_remove_confirm_pending = false;
+        if (self->_lbl_saved_status) {
+            lv_label_set_text(self->_lbl_saved_status, "Wi-Fi error. Try again.");
+            lv_obj_set_style_text_color(self->_lbl_saved_status, pal.text_secondary, LV_PART_MAIN);
+            self->_saved_status_terminal = true;
+        }
+        if (self->_row_saved_confirm) lv_obj_add_flag(self->_row_saved_confirm, LV_OBJ_FLAG_HIDDEN);
+        if (self->_row_saved_normal)  lv_obj_clear_flag(self->_row_saved_normal, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+
+    // RemoveAt adjusts lastSSID internally; no extra ClearLastSuccess needed.
+    // RemoveAt корректирует lastSSID внутри; дополнительный ClearLastSuccess не нужен.
+    const bool removed = wifiCredStoreRemoveAt(self->_selectedSavedSlot);
+    if (!removed) {
+        self->_remove_confirm_pending = false;
+        if (self->_lbl_saved_status) {
+            lv_label_set_text(self->_lbl_saved_status, "Wi-Fi error. Try again.");
+            lv_obj_set_style_text_color(self->_lbl_saved_status, pal.text_secondary, LV_PART_MAIN);
+            self->_saved_status_terminal = true;
+        }
+        if (self->_row_saved_confirm) lv_obj_add_flag(self->_row_saved_confirm, LV_OBJ_FLAG_HIDDEN);
+        if (self->_row_saved_normal)  lv_obj_clear_flag(self->_row_saved_normal, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+
+    const bool persisted = wifiCredStorePersistToFs();
+    if (!persisted) {
+        // Persist failed: reload RAM from file to restore consistency / RAM восстанавливается из файла.
+        wifiCredStoreReloadFromFs();
+    }
+
+    // Regardless of persist outcome: rebuild list and return Home. No reboot.
+    // В любом случае: обновляем список и возвращаемся на Home. Без reboot.
+    self->_remove_confirm_pending = false;
+    self->rebuild_saved_list();
+    self->show_home_panel();
+    // persist-fail UX is minimal (per spec): show_home_panel clears saved state;
+    // no dedicated Home status label exists; list reflects reloaded state.
 }
 
 } // namespace lvgl_ui

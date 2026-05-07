@@ -6,8 +6,8 @@
 
 namespace lvgl_ui {
 
-// Wi-Fi 3A–6A: LVGL service shell — Home, Networks, PasswordEntry (4B connect + 5F status lock + 6A save/reboot).
-// Wi-Fi 3A–6A: сервисный shell — Home, Networks, PasswordEntry (connect + save + reboot).
+// Wi-Fi 3A–6C: LVGL service shell — Home, Networks, PasswordEntry, SavedNetworkPanel (6B/6C Remove).
+// Wi-Fi 3A–6C: сервисный shell — Home, Networks, PasswordEntry, Saved panel (6B), Remove+confirm (6C).
 
 class LvglWifiFlowScreen final : public ILvglScreen {
 public:
@@ -34,6 +34,15 @@ private:
     static void on_btn_connect(lv_event_t* e);
     static void on_ta_password_changed(lv_event_t* e);
     static void on_keyboard_event(lv_event_t* e);
+    // Wi-Fi 6B: Saved Network panel callbacks / обработчики Saved Network panel.
+    static void on_saved_row_click(lv_event_t* e);
+    static void on_btn_saved_connect(lv_event_t* e);
+    static void on_btn_saved_chpwd(lv_event_t* e);
+    static void on_btn_saved_back(lv_event_t* e);
+    // Wi-Fi 6C: Remove inline confirmation callbacks / обработчики inline-подтверждения Remove.
+    static void on_btn_saved_remove(lv_event_t* e);
+    static void on_btn_saved_yes(lv_event_t* e);
+    static void on_btn_saved_no(lv_event_t* e);
 
     void rebuild_saved_list();
     void rebuild_scan_list();
@@ -41,6 +50,14 @@ private:
     void sync_home_boot_failure_ui();
     void show_networks_panel();
     void show_password_panel();
+    // Wi-Fi 6B: Saved Network panel navigation / навигация Saved Network panel.
+    void show_saved_panel();
+    void clear_saved_state();
+    void open_saved_network(uint8_t slot);
+    void start_connect_from_saved();
+    void handle_saved_connect_finished();
+    void set_saved_panel_connecting_ui(bool connecting);
+    void set_saved_panel_saving_ui();
     void start_scan_from_user();
     void clear_password_secrets();
     void clear_password_panel_state();
@@ -55,30 +72,46 @@ private:
 
     lv_obj_t* _screen = nullptr;
 
-    lv_obj_t* _panel_home = nullptr;
-    lv_obj_t* _panel_net  = nullptr;
-    lv_obj_t* _panel_pass = nullptr;
+    lv_obj_t* _panel_home  = nullptr;
+    lv_obj_t* _panel_net   = nullptr;
+    lv_obj_t* _panel_pass  = nullptr;
+    // Wi-Fi 6B: fourth internal panel for saved network actions / четвёртая панель для действий с сохранённой сетью.
+    lv_obj_t* _panel_saved = nullptr;
 
-    lv_obj_t* _hdr_home = nullptr;
-    lv_obj_t* _sub_home = nullptr;
+    lv_obj_t* _hdr_home   = nullptr;
+    lv_obj_t* _sub_home   = nullptr;
     lv_obj_t* _list_saved = nullptr;
 
-    lv_obj_t* _hdr_net = nullptr;
+    lv_obj_t* _hdr_net        = nullptr;
     lv_obj_t* _lbl_net_status = nullptr;
-    lv_obj_t* _list_scan = nullptr;
+    lv_obj_t* _list_scan      = nullptr;
 
-    lv_obj_t* _hdr_pass = nullptr;
-    lv_obj_t* _lbl_pass_ssid = nullptr;
-    lv_obj_t* _lbl_pass_hint = nullptr;
-    lv_obj_t* _ta_password = nullptr;
+    lv_obj_t* _hdr_pass        = nullptr;
+    lv_obj_t* _lbl_pass_ssid   = nullptr;
+    lv_obj_t* _lbl_pass_hint   = nullptr;
+    lv_obj_t* _ta_password     = nullptr;
     lv_obj_t* _lbl_pass_status = nullptr;
-    lv_obj_t* _btn_connect = nullptr;
-    lv_obj_t* _btn_back_pass = nullptr;
-    lv_obj_t* _kbd = nullptr;
+    lv_obj_t* _btn_connect     = nullptr;
+    lv_obj_t* _btn_back_pass   = nullptr;
+    lv_obj_t* _kbd             = nullptr;
 
-    lv_obj_t* _btn_scan = nullptr;
+    // Wi-Fi 6B: Saved Network panel widgets / виджеты Saved Network panel.
+    lv_obj_t* _lbl_saved_ssid    = nullptr;
+    lv_obj_t* _lbl_saved_sub     = nullptr;
+    lv_obj_t* _lbl_saved_status  = nullptr;
+    lv_obj_t* _btn_saved_connect = nullptr;
+    lv_obj_t* _btn_saved_chpwd   = nullptr;
+    lv_obj_t* _btn_saved_back    = nullptr;
+    // Wi-Fi 6C: two-row button layout (normal / confirm) / два ряда кнопок (нормальный / подтверждение).
+    lv_obj_t* _row_saved_normal  = nullptr;
+    lv_obj_t* _row_saved_confirm = nullptr;
+    lv_obj_t* _btn_saved_remove  = nullptr;
+    lv_obj_t* _btn_saved_yes     = nullptr;
+    lv_obj_t* _btn_saved_no      = nullptr;
+
+    lv_obj_t* _btn_scan      = nullptr;
     lv_obj_t* _btn_back_home = nullptr;
-    lv_obj_t* _btn_rescan = nullptr;
+    lv_obj_t* _btn_rescan    = nullptr;
 
     lv_timer_t* _poll_timer   = nullptr;
     lv_timer_t* _reboot_timer = nullptr;
@@ -92,12 +125,23 @@ private:
     bool        _saving_in_progress = false;
     bool        _home_visible       = true;
     bool        _entered_from_boot_failure = false;
+    // Wi-Fi 6B: saved network panel state / состояние Saved Network panel.
+    uint8_t     _selectedSavedSlot      = 255;
+    bool        _await_saved_connect_ui = false;
+    bool        _saved_status_terminal  = false;
+    // Wi-Fi 6B: Password opened from Saved panel (Change password); Back returns to Saved.
+    // Wi-Fi 6B: пароль открыт из Saved panel; Back возвращает в Saved.
+    bool        _password_from_saved    = false;
+    // Wi-Fi 6C: inline Remove confirmation active / активно inline-подтверждение удаления.
+    bool        _remove_confirm_pending = false;
 
     // Ephemeral secrets — cleared on Back/exit; never logged / не в лог, не в snapshot.
     char _selectedSsid[33]{};
     char _passwordScratch[40]{};
     // Wi-Fi 6A: candidate password kept for post-Success persist only / кандидат для сохранения после Success.
     char _connectCandidatePass[40]{};
+    // Wi-Fi 6B: selected saved network SSID copy — not a pointer into store / копия SSID, не указатель в store.
+    char _selectedSavedSsid[33]{};
 };
 
 } // namespace lvgl_ui
