@@ -302,6 +302,23 @@ void MyNetwork::raiseSoftAP() {
     rtimer.once(config.store.softapdelay*60, rebootTime);
 }
 
+void MyNetwork::recoveryEnsureSoftAP() {
+  const wifi_mode_t wm = WiFi.getMode();
+  const bool        ap_mode = (wm == WIFI_AP || wm == WIFI_AP_STA);
+  if (ap_mode) {
+    const IPAddress ap_ip = WiFi.softAPIP();
+    if (static_cast<uint32_t>(ap_ip) != 0U) {
+      if (status != SOFT_AP) {
+        status = SOFT_AP;
+      }
+      // Idempotent no-op: avoid Serial spam when UI re-enters Hotspot / идемпотентно, без шума в Serial.
+      return;
+    }
+  }
+  Serial.println("[Network] Open Hotspot mode active");
+  raiseSoftAP();
+}
+
 void MyNetwork::requestWeatherSync(){
   display.putRequest(NEWWEATHER);
 }

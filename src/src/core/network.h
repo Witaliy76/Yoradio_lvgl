@@ -35,6 +35,8 @@ class MyNetwork {
     void requestWeatherSync();
     void setWifiParams();
     bool wifiBegin(bool silent=false);
+    // Wi-Fi S6V7A: idempotent softAP for LVGL Recovery Hotspot / безопасный повторный подъём AP для Hotspot UI.
+    void recoveryEnsureSoftAP();
   private:
     Ticker rtimer;
     void raiseSoftAP();

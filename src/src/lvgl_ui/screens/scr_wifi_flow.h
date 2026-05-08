@@ -6,8 +6,8 @@
 
 namespace lvgl_ui {
 
-// Wi-Fi 3A–6C: LVGL service shell — Home, Networks, PasswordEntry, SavedNetworkPanel (6B/6C Remove).
-// Wi-Fi 3A–6C: сервисный shell — Home, Networks, PasswordEntry, Saved panel (6B), Remove+confirm (6C).
+// Wi-Fi 3A–6D + S6V7A + S6V7B: LVGL service shell — Home, Networks, Password, Saved (6B/6C), Hotspot, boot-fail idle→AP; S6V7B = open network connect from scan.
+// Wi-Fi 3A–6D + S6V7A + S6V7B: тот же shell; S6V7B — open network из Scan без Password panel, save+reboot как 6A.
 
 class LvglWifiFlowScreen final : public ILvglScreen {
 public:
@@ -23,8 +23,8 @@ private:
     static void on_poll_timer(lv_timer_t* t);
     void        pollOpsSnapshot();
     static void on_btn_scan(lv_event_t* e);
-    static void on_btn_try_stub(lv_event_t* e);
-    static void on_btn_hotspot_stub(lv_event_t* e);
+    static void on_btn_hotspot(lv_event_t* e);
+    static void on_btn_back_hotspot(lv_event_t* e);
     static void on_btn_back_home(lv_event_t* e);
     static void on_btn_back_net(lv_event_t* e);
     static void on_btn_rescan(lv_event_t* e);
@@ -52,6 +52,9 @@ private:
     void show_password_panel();
     // Wi-Fi 6B: Saved Network panel navigation / навигация Saved Network panel.
     void show_saved_panel();
+    // Wi-Fi S6V7A: LVGL Hotspot panel (softAP info); legacy _apScreen stays emergency fallback only.
+    void show_hotspot_panel();
+    void sync_hotspot_panel_labels();
     void clear_saved_state();
     void open_saved_network(uint8_t slot);
     void start_connect_from_saved();
@@ -68,7 +71,19 @@ private:
     void handle_connect_finished();
     void handle_successful_connect_persist();
     void start_connect_from_user();
+    // Wi-Fi S6V7B: open network (WIFI_AUTH_OPEN) connect from Networks panel / open network из Scan.
+    void start_open_connect_from_user(const char* ssid);
+    void handle_open_connect_finished();
+    void handle_open_network_success_persist();
+    void set_networks_panel_connecting_ui(bool connecting);
+    void set_networks_panel_saving_ui();
+    void cancel_open_connect_state();
     static void on_reboot_timer(lv_timer_t* t);
+
+    void disarm_boot_idle_timer();
+    void arm_boot_idle_if_home_bootfail();
+    void process_boot_idle_timer_tick();
+    bool is_recovery_home_only_visible() const;
 
     lv_obj_t* _screen = nullptr;
 
@@ -77,6 +92,8 @@ private:
     lv_obj_t* _panel_pass  = nullptr;
     // Wi-Fi 6B: fourth internal panel for saved network actions / четвёртая панель для действий с сохранённой сетью.
     lv_obj_t* _panel_saved = nullptr;
+    // Wi-Fi S6V7A: fifth panel — read-only softAP instructions / пятая панель — только текст и Back.
+    lv_obj_t* _panel_hotspot = nullptr;
 
     lv_obj_t* _hdr_home   = nullptr;
     lv_obj_t* _sub_home   = nullptr;
@@ -109,15 +126,27 @@ private:
     lv_obj_t* _btn_saved_yes     = nullptr;
     lv_obj_t* _btn_saved_no      = nullptr;
 
-    lv_obj_t* _btn_scan      = nullptr;
-    lv_obj_t* _btn_back_home = nullptr;
-    lv_obj_t* _btn_rescan    = nullptr;
+    lv_obj_t* _hdr_hotspot      = nullptr;
+    lv_obj_t* _lbl_hotspot_ssid = nullptr;
+    lv_obj_t* _lbl_hotspot_pwd  = nullptr;
+    lv_obj_t* _lbl_hotspot_ip   = nullptr;
+    lv_obj_t* _lbl_hotspot_help = nullptr;
+    lv_obj_t* _btn_hotspot_back = nullptr;
+
+    lv_obj_t* _btn_scan         = nullptr;
+    lv_obj_t* _btn_back_home    = nullptr;
+    lv_obj_t* _btn_rescan       = nullptr;
+    lv_obj_t* _btn_cancel_scan  = nullptr;
+    lv_obj_t* _btn_back_net     = nullptr;
 
     lv_timer_t* _poll_timer   = nullptr;
     lv_timer_t* _reboot_timer = nullptr;
     uint32_t    _last_results_seq = 0;
-    bool        _await_scan_ui    = false;
-    bool        _await_connect_ui = false;
+    bool        _await_scan_ui           = false;
+    bool        _await_connect_ui        = false;
+    // Wi-Fi S6V7B: open-network connect from Scan (password "") / коннект к open AP из списка скана.
+    bool        _await_open_connect_ui  = false;
+    bool        _open_status_terminal    = false;
     // Wi-Fi 5F: terminal connect result must not be overwritten by TA validation / итог connect не затирается валидацией.
     bool        _pass_status_terminal          = false;
     bool        _skip_next_ta_pass_status_sync = false;
@@ -125,6 +154,9 @@ private:
     bool        _saving_in_progress = false;
     bool        _home_visible       = true;
     bool        _entered_from_boot_failure = false;
+    // Wi-Fi S6V7A: boot-fail Home idle → Hotspot panel (code-only constant) / таймер простоя только Home boot-fail.
+    bool        _boot_idle_armed         = false;
+    uint32_t    _boot_idle_deadline_ms   = 0;
     // Wi-Fi 6B: saved network panel state / состояние Saved Network panel.
     uint8_t     _selectedSavedSlot      = 255;
     bool        _await_saved_connect_ui = false;
@@ -142,6 +174,8 @@ private:
     char _connectCandidatePass[40]{};
     // Wi-Fi 6B: selected saved network SSID copy — not a pointer into store / копия SSID, не указатель в store.
     char _selectedSavedSsid[33]{};
+    // Wi-Fi S6V7B: SSID for open-network connect (copy from scan row) / SSID для open connect.
+    char _selectedOpenSsid[33]{};
 };
 
 } // namespace lvgl_ui
