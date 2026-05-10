@@ -21,6 +21,7 @@
 #include "../displays/tools/GFX_Canvas_screen.h"
 #include "../core/config.h"
 #include "../core/display.h"
+#include "../core/network.h"
 #include "../core/wifi_ops_adapter.h"
 
 using namespace lvgl_ui;
@@ -461,7 +462,10 @@ bool lvgl_ui::isLvglBootMinDwellElapsed() {
 
 namespace {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-static bool s_wifi_recovery_enter_from_boot_failure = false;
+static bool s_wifi_recovery_enter_from_boot_failure     = false;
+// S6V8A: runtime disconnect escalation context flag (one-shot, consumed in enter()).
+// S6V8A: флаг runtime-контекста эскалации (одноразовый, consumable в enter()).
+static bool s_wifi_recovery_enter_from_runtime_disconnect = false;
 #endif
 } // namespace
 
@@ -481,6 +485,25 @@ bool lvgl_ui::consumeWifiRecoveryEnteredFromBootFailure() {
     return false;
 #endif
 }
+
+// S6V8A: notify that the next Wi-Fi shell enter() is from a runtime disconnect escalation.
+// S6V8A: сообщить, что следующий enter() Wi-Fi shell — из runtime disconnect escalation.
+void lvgl_ui::notifyWifiRecoveryEnteredFromRuntimeDisconnect() {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    s_wifi_recovery_enter_from_runtime_disconnect = true;
+#endif
+}
+
+bool lvgl_ui::consumeWifiRecoveryEnteredFromRuntimeDisconnect() {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    if (!s_wifi_recovery_enter_from_runtime_disconnect) return false;
+    s_wifi_recovery_enter_from_runtime_disconnect = false;
+    return true;
+#else
+    return false;
+#endif
+}
+
 
 void lvgl_ui::dismissBootForApLegacyHandoff() {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
@@ -543,6 +566,7 @@ bool lvgl_ui::isWifiSetupFlowActive() {
 void lvgl_ui::dismissWifiFlowReturnToPlayer() {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     wifiOpsCancel();
+    network.runtimeReconnectSuspendedForSetup = false;
     ensurePageChainRegistered();
     s_page_chain.dismissRebootRequired();
     display.putRequest(NEWMODE, PLAYER);

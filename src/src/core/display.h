@@ -86,6 +86,12 @@ class Display {
     uint8_t _lvgl_wifi_recovery_handoff_phase = 0; // 0=min dwell; 1=Opening msg, wait short delay
     uint32_t _lvgl_wifi_recovery_phase_started_ms = 0;
     void _tryCompleteLvglWifiRecoveryHandoff();
+    // S6V8A: runtime LOST → Recovery escalation timer (Display / DspTask owned).
+    // S6V8A: таймер эскалации runtime LOST → Recovery (владелец — Display / DspTask).
+    bool     _lost_escalation_armed      = false;
+    uint32_t _lost_started_ms            = 0;
+    uint8_t  _lost_escalation_milestone  = 0; // 0=initial text pending; 1=set; 2=30s; 3=50s
+    void _tryCompleteLostEscalation();
 #endif
     void _time(bool redraw = false);
     void _apScreen();

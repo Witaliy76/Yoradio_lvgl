@@ -114,6 +114,15 @@ bool isWifiSetupFlowActive();
 void notifyWifiRecoveryEnteredFromBootFailure();
 bool consumeWifiRecoveryEnteredFromBootFailure();
 
+// S6V8A: runtime disconnect LOST → Recovery escalation (60 s timeout; Display-owned timer).
+// S6V8A: эскалация runtime LOST → Recovery (60 с таймер; владелец — Display).
+void notifyWifiRecoveryEnteredFromRuntimeDisconnect();
+bool consumeWifiRecoveryEnteredFromRuntimeDisconnect();
+
+// S6V8A: overlayLostSetStatusText exposed so Display::_tryCompleteLostEscalation can call it.
+// S6V8A: overlayLostSetStatusText доступна Display для обновления milestone текста.
+void overlayLostSetStatusText(const char* text);
+
 }
 
 #endif

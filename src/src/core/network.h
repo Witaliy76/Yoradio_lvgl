@@ -19,6 +19,9 @@ class MyNetwork {
     struct tm timeinfo;
     bool firstRun, forceTimeSync, forceWeather;
     bool lostPlaying = false, beginReconnect = false;
+    // S6V9G: true after recoverySuspendReconnectForSetup — WiFiLostConnection must not drive LOST/reconnect during LVGL Setup.
+    // S6V9G: после suspend — игнорируем runtime disconnect в Wi-Fi Setup / Recovery.
+    bool runtimeReconnectSuspendedForSetup = false;
     //uint8_t tsFailCnt, wsFailCnt;
     Ticker ctimer;
     char *weatherBuf;
@@ -37,6 +40,11 @@ class MyNetwork {
     bool wifiBegin(bool silent=false);
     // Wi-Fi S6V7A: idempotent softAP for LVGL Recovery Hotspot / безопасный повторный подъём AP для Hotspot UI.
     void recoveryEnsureSoftAP();
+    // S6V9C: stop SoftAP and cancel softapdelay when leaving LVGL Hotspot page / гасим AP и отменяем softapdelay.
+    void recoveryStopSoftAP();
+    // S6V9E: after runtime LOST timeout → LVGL Wi-Fi Recovery — stop driver/runtime reconnect; radio for Scan/Connect.
+    // S6V9E: после таймаута LOST → Recovery — глушим auto/manual reconnect, радио для Scan/Connect.
+    void recoverySuspendReconnectForSetup();
   private:
     Ticker rtimer;
     void raiseSoftAP();

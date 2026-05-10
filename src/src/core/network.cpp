@@ -107,6 +107,7 @@ void ticks() {
 
 void MyNetwork::WiFiReconnected(WiFiEvent_t event, WiFiEventInfo_t info){
   network.beginReconnect = false;
+  network.runtimeReconnectSuspendedForSetup = false;
   player.lockOutput = false;
   delay(100);
   display.putRequest(NEWMODE, PLAYER);
@@ -123,19 +124,29 @@ void MyNetwork::WiFiReconnected(WiFiEvent_t event, WiFiEventInfo_t info){
 }
 
 void MyNetwork::WiFiLostConnection(WiFiEvent_t event, WiFiEventInfo_t info){
-  if(!network.beginReconnect){
-    Serial.printf("Lost connection, reconnecting to %s...\n", config.ssids[config.store.lastSSID-1].ssid);
-    if(config.getMode()==PM_SDCARD) {
-      network.status=SDREADY;
+  if (network.runtimeReconnectSuspendedForSetup) {
+    // S6V9G: no LOST/reconnect/player while LVGL Wi-Fi Setup owns radio after runtime Recovery suspend.
+    // S6V9G: без LOST/reconnect — Setup владеет радио после suspend (без Serial spam).
+    return;
+  }
+  if (!network.beginReconnect) {
+    Serial.printf("Lost connection, reconnecting to %s...\n", config.ssids[config.store.lastSSID - 1].ssid);
+    if (config.getMode() == PM_SDCARD) {
+      network.status = SDREADY;
       display.putRequest(NEWIP, 0);
-    }else{
+    } else {
       network.lostPlaying = player.isRunning();
-      if (network.lostPlaying) { player.lockOutput = true; player.sendCommand({PR_STOP, 0}); }
+      if (network.lostPlaying) {
+        player.lockOutput = true;
+        player.sendCommand({PR_STOP, 0});
+      }
       display.putRequest(NEWMODE, LOST);
     }
+    network.beginReconnect = true;
+    // S6V9D: only first STA_DISCONNECTED triggers WiFi.reconnect — avoids ESP-IDF "sta is connecting" storm.
+    // S6V9D: только первый disconnect вызывает reconnect; повторные события не дергают WiFi.reconnect().
+    WiFi.reconnect();
   }
-  network.beginReconnect = true;
-  WiFi.reconnect();
 }
 
 bool MyNetwork::wifiBegin(bool silent){
@@ -219,18 +230,38 @@ void searchWiFi(void * pvParameters){
 
 void MyNetwork::begin() {
   BOOTLOG("network.begin");
+  runtimeReconnectSuspendedForSetup = false;
   config.initNetwork();
   ctimer.detach();
   forceTimeSync = forceWeather = true;
   if (config.ssidsCount == 0 || DBGAP) {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    if (!DBGAP) {
+      // S6V9C: LVGL Recovery path — no automatic AP on boot; AP starts only on Hotspot page.
+      // S6V9C: LVGL — не поднимаем AP при старте; AP только при входе на Hotspot page.
+      Serial.println("[Network] Wi-Fi Recovery needed; AP not started");
+      status = FAILED;
+      Serial.println("##[BOOT]#\tdone");
+      return;
+    }
+#endif
     raiseSoftAP();
     return;
   }
   if(config.getMode()!=PM_SDCARD){
     if(!wifiBegin()){
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+      // S6V9C: LVGL Recovery path — no automatic AP on failed STA; AP starts only on Hotspot page.
+      // S6V9C: LVGL — не поднимаем AP при неудаче STA; AP только при входе на Hotspot page.
+      Serial.println("[Network] Wi-Fi Recovery needed; AP not started");
+      status = FAILED;
+      Serial.println("##[BOOT]#\tdone");
+      return;
+#else
       raiseSoftAP();
       Serial.println("##[BOOT]#\tdone");
       return;
+#endif
     }
     Serial.println(".");
     status = CONNECTED;
@@ -317,6 +348,33 @@ void MyNetwork::recoveryEnsureSoftAP() {
   }
   Serial.println("[Network] Open Hotspot mode active");
   raiseSoftAP();
+}
+
+void MyNetwork::recoveryStopSoftAP() {
+  // S6V9C: called when leaving LVGL Hotspot page (Back button) — stop SoftAP, cancel softapdelay.
+  // S6V9C: вызывается при выходе с LVGL Hotspot page — гасим AP, отменяем softapdelay.
+  rtimer.detach();  // cancel softapdelay reboot / отмена таймера перезагрузки
+  WiFi.softAPdisconnect(true);
+  // S6V9F: do not call WiFi.mode(WIFI_STA) here — redundant with softAPdisconnect(true) and can churn esp_netif
+  // (mDNS/Async stability); scan/connect paths set STA/AP_STA as needed. / Без лишнего mode(STA) — меньше netif-шторма.
+  Serial.println("[Network] Open Hotspot mode stopped");
+  if (WiFi.status() == WL_CONNECTED) {
+    status = CONNECTED;
+  } else {
+    status = FAILED;
+  }
+}
+
+void MyNetwork::recoverySuspendReconnectForSetup() {
+  // S6V9E: only from Display LOST→Recovery escalation (≥60s); not boot-fail, not first LOST tick.
+  // S6V9E: только из эскалации Display LOST→Recovery; не boot-fail, не первые 60s LOST.
+  Serial.println("[Network] Runtime reconnect suspended for Wi-Fi Recovery");
+  WiFi.setAutoReconnect(false);
+  beginReconnect = false;
+  runtimeReconnectSuspendedForSetup = true;
+  // STA-only for Recovery scan/connect; does not start SoftAP (S6V9C Hotspot path unchanged).
+  // Только STA для скана/коннекта; SoftAP не поднимаем.
+  WiFi.mode(WIFI_STA);
 }
 
 void MyNetwork::requestWeatherSync(){

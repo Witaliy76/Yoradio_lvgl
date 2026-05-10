@@ -15,8 +15,10 @@ namespace lvgl_ui {
 
 namespace {
 
-lv_obj_t* s_lost_root    = nullptr;
-lv_obj_t* s_update_root = nullptr;
+lv_obj_t* s_lost_root       = nullptr;
+// S6V8A + S6V9I: second label — reconnect hint + Recovery escalation copy (multiline OK). / Вторая строка LOST.
+lv_obj_t* s_lost_status_lbl = nullptr;
+lv_obj_t* s_update_root     = nullptr;
 
 static void copy_pgm_title(char* dst, size_t dst_sz, const char* pgm) {
     if (!dst || dst_sz == 0) return;
@@ -43,6 +45,9 @@ static void destroy_if_present(lv_obj_t** p) {
 
 void overlayHideAll() {
     screensaverHide();
+    // S6V8A: s_lost_status_lbl is a child of s_lost_root; lv_obj_del(s_lost_root) destroys it.
+    // S6V8A: s_lost_status_lbl — дочерний объект s_lost_root; уничтожается вместе с родителем.
+    s_lost_status_lbl = nullptr;
     destroy_if_present(&s_lost_root);
     destroy_if_present(&s_update_root);
 }
@@ -73,17 +78,57 @@ void overlayShowLost() {
     lv_obj_add_flag(s_lost_root, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(s_lost_root, LV_OBJ_FLAG_SCROLL_CHAIN);
 
-    lv_obj_t* lbl = lv_label_create(s_lost_root);
-    if (lbl) {
-        char line[48];
-        copy_pgm_title(line, sizeof(line), const_DlgLost);
-        lv_label_set_text(lbl, line);
-        lv_label_set_long_mode(lbl, LV_LABEL_LONG_WRAP);
-        lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-        lv_obj_set_style_text_color(lbl, pal.overlay_title_text, LV_PART_MAIN);
-        apply_overlay_title_font(lbl);
-        lv_obj_center(lbl);
+    // Container to hold both labels vertically centred together.
+    // Контейнер для вертикальной группировки двух label'ов по центру.
+    lv_obj_t* col = lv_obj_create(s_lost_root);
+    if (col) {
+        lv_obj_set_size(col, LV_PCT(90), LV_SIZE_CONTENT);
+        lv_obj_center(col);
+        lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(col, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_row(col, 10, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(col, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_border_width(col, 0, LV_PART_MAIN);
+        lv_obj_clear_flag(col, LV_OBJ_FLAG_SCROLLABLE);
+
+        lv_obj_t* lbl = lv_label_create(col);
+        if (lbl) {
+            char line[48];
+            copy_pgm_title(line, sizeof(line), const_DlgLost);
+            lv_label_set_text(lbl, line);
+            lv_label_set_long_mode(lbl, LV_LABEL_LONG_WRAP);
+            lv_obj_set_width(lbl, LV_PCT(100));
+            lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+            lv_obj_set_style_text_color(lbl, pal.overlay_title_text, LV_PART_MAIN);
+            apply_overlay_title_font(lbl);
+        }
+
+        // S6V8A + S6V9I: status sub-label — initially empty; Display sets multiline text at milestones.
+        // S6V8A + S6V9I: статусная строка — пусто до первого тика; Display задаёт многострочный текст.
+        s_lost_status_lbl = lv_label_create(col);
+        if (s_lost_status_lbl) {
+            lv_label_set_text(s_lost_status_lbl, "");
+            lv_label_set_long_mode(s_lost_status_lbl, LV_LABEL_LONG_WRAP);
+            lv_obj_set_width(s_lost_status_lbl, LV_PCT(100));
+            lv_obj_set_style_text_align(s_lost_status_lbl, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+            lv_obj_set_style_text_color(s_lost_status_lbl, pal.overlay_title_text, LV_PART_MAIN);
+            if (LV_ACTIVE_PROFILE.font_small) {
+                lv_obj_set_style_text_font(s_lost_status_lbl,
+                                           static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_small),
+                                           LV_PART_MAIN);
+            }
+        }
     }
+}
+
+// S6V8A: set LOST overlay status text; safe if overlay not shown; strcmp guard to avoid redraw.
+// S6V8A: задать текст статусной строки; безопасно без overlay; guard против лишнего redraw.
+void overlayLostSetStatusText(const char* text) {
+    if (!s_lost_status_lbl) return;
+    if (!text) text = "";
+    const char* cur = lv_label_get_text(s_lost_status_lbl);
+    if (cur && strcmp(cur, text) == 0) return;
+    lv_label_set_text(s_lost_status_lbl, text);
 }
 
 void overlayShowUpdating() {
@@ -134,6 +179,7 @@ namespace lvgl_ui {
 void overlayHideAll() {}
 void overlayShowLost() {}
 void overlayShowUpdating() {}
+void overlayLostSetStatusText(const char*) {}
 
 } // namespace lvgl_ui
 

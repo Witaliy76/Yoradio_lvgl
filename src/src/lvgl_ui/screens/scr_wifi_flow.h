@@ -6,8 +6,8 @@
 
 namespace lvgl_ui {
 
-// Wi-Fi 3A–6D + S6V7A + S6V7B: LVGL service shell — Home, Networks, Password, Saved (6B/6C), Hotspot, boot-fail idle→AP; S6V7B = open network connect from scan.
-// Wi-Fi 3A–6D + S6V7A + S6V7B: тот же shell; S6V7B — open network из Scan без Password panel, save+reboot как 6A.
+// Wi-Fi 3A–6D + S6V7A–S6V9C: LVGL service shell — S6V9C = strict Hotspot-only SoftAP (AP starts on Hotspot page, stops on Back via recoveryStopSoftAP).
+// Wi-Fi 3A–6D + S6V7A–S6V9C: тот же shell; S6V9C — AP только при Hotspot page, гасится через recoveryStopSoftAP() при Back.
 
 class LvglWifiFlowScreen final : public ILvglScreen {
 public:
@@ -81,7 +81,10 @@ private:
     static void on_reboot_timer(lv_timer_t* t);
 
     void disarm_boot_idle_timer();
-    void arm_boot_idle_if_home_bootfail();
+    // S6V9A/S6V9B: arm 60s idle→Hotspot when Recovery Home is the only visible panel (any entry path).
+    // S6V9A/S6V9B: армируем 60s простоя на Home Recovery, пока виден только Home (любой вход).
+    void arm_recovery_idle_if_home_only();
+    bool recovery_idle_ops_block() const;
     void process_boot_idle_timer_tick();
     bool is_recovery_home_only_visible() const;
 
@@ -97,6 +100,8 @@ private:
 
     lv_obj_t* _hdr_home   = nullptr;
     lv_obj_t* _sub_home   = nullptr;
+    // S6V9B: static auto-Hotspot notice label on Home (not on Hotspot button) / статичное уведомление на Home.
+    lv_obj_t* _lbl_recovery_idle_countdown = nullptr;
     lv_obj_t* _list_saved = nullptr;
 
     lv_obj_t* _hdr_net        = nullptr;
@@ -154,7 +159,11 @@ private:
     bool        _saving_in_progress = false;
     bool        _home_visible       = true;
     bool        _entered_from_boot_failure = false;
-    // Wi-Fi S6V7A: boot-fail Home idle → Hotspot panel (code-only constant) / таймер простоя только Home boot-fail.
+    // S6V8A: entered from runtime disconnect escalation (Back visible; subtitle differs from manual).
+    // S6V8A: вход через runtime disconnect escalation (Back виден; подзаголовок отличается от manual).
+    bool        _entered_from_runtime_disconnect = false;
+    // S6V7A/S6V9B: Recovery Home idle → Hotspot panel after WIFI_RECOVERY_IDLE_TO_AP_TIMEOUT_MS.
+    // S6V9B: arms on any Recovery Home idle / армируется на любом простое Home.
     bool        _boot_idle_armed         = false;
     uint32_t    _boot_idle_deadline_ms   = 0;
     // Wi-Fi 6B: saved network panel state / состояние Saved Network panel.

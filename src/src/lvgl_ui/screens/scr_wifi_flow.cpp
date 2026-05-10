@@ -1,8 +1,8 @@
 /*
- * LvglWifiFlowScreen — Wi-Fi 3A–S6V7B service shell (PageChain RebootRequired, not carousel page).
+ * LvglWifiFlowScreen — Wi-Fi 3A–S6V9C service shell (PageChain RebootRequired, not carousel page).
  * Home + Networks + Password + SavedNetworkPanel (6B/6C) + Hotspot (S6V7A) + open network from Scan (S6V7B).
  * 4B: connect; 5F: status lock; 6A: save+reboot; 6B: saved panel; 6C: Remove; 6D: glitch helpers; S6V7A: Hotspot/idle AP.
- * S6V7B: open row → connect with ""; mandatory save to wifi.csv + reboot; secured flow unchanged.
+ * S6V7B: open row; S6V9B: static notice; S6V9C: strict Hotspot-only SoftAP — AP starts on Hotspot page, stops on Back; S6V9H: NoNetwork UX text.
  */
 
 #include "scr_wifi_flow.h"
@@ -28,11 +28,15 @@ namespace lvgl_ui {
 namespace {
 
 constexpr uint32_t kPollMs = 200;
-// Wi-Fi S6V7A: boot-fail Recovery Home only — auto-open Hotspot panel after idle / только Home после boot-fail.
+// Wi-Fi S6V7A/S6V9B: Recovery Home idle — auto-open Hotspot panel after timeout (same 60s constant; AP backend unchanged).
+// Wi-Fi S6V7A/S6V9B: простой на Recovery Home — авто Hotspot panel (тот же 60s; backend AP не трогаем).
 constexpr uint32_t WIFI_RECOVERY_IDLE_TO_AP_TIMEOUT_MS = 60000U;
 // Legacy credential field is 40 bytes; allow 39 typed chars + room / legacy поле 40 байт, ввод ≤39.
 constexpr uint32_t kPasswordMaxInputChars = 39U;
 constexpr size_t   kMinPasswordLen        = 8U;
+
+// S6V9H: NoNetwork (e.g. phone hotspot not beaconing yet) — not wrong-password; prompt Rescan. / Не ошибка пароля.
+static const char kWifiOpsNoNetworkUserMsg[] = "Network not found. Wait, then Rescan.";
 
 // Wi-Fi S6V6D: compile-time glitch diagnostics (default off — zero Serial / minimal overhead).
 // Wi-Fi S6V6D: диагностика глитча только по флагу (по умолчанию выкл).
@@ -266,7 +270,7 @@ void LvglWifiFlowScreen::show_home_panel() {
     if (_panel_saved) lv_obj_add_flag(_panel_saved, LV_OBJ_FLAG_HIDDEN);
     if (_panel_hotspot) lv_obj_add_flag(_panel_hotspot, LV_OBJ_FLAG_HIDDEN);
     sync_home_boot_failure_ui();
-    arm_boot_idle_if_home_bootfail();
+    arm_recovery_idle_if_home_only();
 }
 
 bool LvglWifiFlowScreen::is_recovery_home_only_visible() const {
@@ -281,26 +285,42 @@ bool LvglWifiFlowScreen::is_recovery_home_only_visible() const {
 void LvglWifiFlowScreen::disarm_boot_idle_timer() {
     _boot_idle_armed       = false;
     _boot_idle_deadline_ms = 0;
+    if (_lbl_recovery_idle_countdown) {
+        wifi_flow_set_text_if_changed(_lbl_recovery_idle_countdown, "", WifiFlowDiagTextSlot::None);
+    }
 }
 
-void LvglWifiFlowScreen::arm_boot_idle_if_home_bootfail() {
-    if (!_entered_from_boot_failure || !is_recovery_home_only_visible()) {
+bool LvglWifiFlowScreen::recovery_idle_ops_block() const {
+    return _await_scan_ui || _await_connect_ui || _await_saved_connect_ui || _await_open_connect_ui || _saving_in_progress;
+}
+
+void LvglWifiFlowScreen::arm_recovery_idle_if_home_only() {
+    if (!is_recovery_home_only_visible() || recovery_idle_ops_block()) {
         disarm_boot_idle_timer();
         return;
     }
     _boot_idle_deadline_ms = millis() + WIFI_RECOVERY_IDLE_TO_AP_TIMEOUT_MS;
     _boot_idle_armed       = true;
+    // S6V9B: one LVGL write on arm only — avoids per-second full_refresh churn / один раз при арме, без 1 Hz.
+    if (_lbl_recovery_idle_countdown) {
+        wifi_flow_set_text_if_changed(
+            _lbl_recovery_idle_countdown, "Hotspot starts automatically in 60s", WifiFlowDiagTextSlot::None);
+    }
 }
 
 void LvglWifiFlowScreen::process_boot_idle_timer_tick() {
-    if (_await_open_connect_ui || _saving_in_progress) return;
-    if (!_boot_idle_armed || !_entered_from_boot_failure) return;
+    if (!_boot_idle_armed) return;
     if (!is_recovery_home_only_visible()) {
         disarm_boot_idle_timer();
         return;
     }
+    if (recovery_idle_ops_block()) {
+        disarm_boot_idle_timer();
+        return;
+    }
     const uint32_t now = millis();
-    if ((int32_t)(now - _boot_idle_deadline_ms) >= 0) {
+    const int32_t  remaining_ms = static_cast<int32_t>(_boot_idle_deadline_ms - now);
+    if (remaining_ms <= 0) {
         disarm_boot_idle_timer();
         Serial.println("[Network] Wi-Fi Recovery idle timeout; opening Hotspot panel");
         show_hotspot_panel();
@@ -350,6 +370,13 @@ void LvglWifiFlowScreen::sync_home_boot_failure_ui() {
                                       "Could not connect. Tap a saved network or Scan.",
                                       WifiFlowDiagTextSlot::SubHome);
         if (_btn_back_home) lv_obj_add_flag(_btn_back_home, LV_OBJ_FLAG_HIDDEN);
+    } else if (_entered_from_runtime_disconnect) {
+        // S6V8A/S6V9B: runtime disconnect — Back visible; same static auto-Hotspot notice as other entries.
+        // S6V8A/S6V9B: runtime disconnect — Back виден; то же статичное уведомление, что и для других входов.
+        wifi_flow_set_text_if_changed(_sub_home,
+                                      "Wi-Fi disconnected. Tap a saved network or Scan.",
+                                      WifiFlowDiagTextSlot::SubHome);
+        if (_btn_back_home) lv_obj_clear_flag(_btn_back_home, LV_OBJ_FLAG_HIDDEN);
     } else {
         wifi_flow_set_text_if_changed(_sub_home,
                                       "Tap a saved network, or Scan to choose another.",
@@ -809,8 +836,12 @@ void LvglWifiFlowScreen::handle_open_connect_finished() {
         return;
     case WifiOpsResult::AuthFailed:
     case WifiOpsResult::Timeout:
-    case WifiOpsResult::NoNetwork:
         wifi_flow_set_text_if_changed(_lbl_net_status, "Could not connect. Check signal.", WifiFlowDiagTextSlot::NetStatus);
+        lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
+        _open_status_terminal = true;
+        break;
+    case WifiOpsResult::NoNetwork:
+        wifi_flow_set_text_if_changed(_lbl_net_status, kWifiOpsNoNetworkUserMsg, WifiFlowDiagTextSlot::NetStatus);
         lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
         _open_status_terminal = true;
         break;
@@ -865,7 +896,7 @@ void LvglWifiFlowScreen::handle_connect_finished() {
         _pass_status_terminal = true;
         break;
     case WifiOpsResult::NoNetwork:
-        wifi_flow_set_text_if_changed(_lbl_pass_status, "Network not found / сеть не найдена", WifiFlowDiagTextSlot::PassStatus);
+        wifi_flow_set_text_if_changed(_lbl_pass_status, kWifiOpsNoNetworkUserMsg, WifiFlowDiagTextSlot::PassStatus);
         lv_obj_set_style_text_color(_lbl_pass_status, pal.text_secondary, LV_PART_MAIN);
         _pass_status_terminal = true;
         break;
@@ -1159,10 +1190,14 @@ void LvglWifiFlowScreen::handle_saved_connect_finished() {
         }
         return;
     }
+    case WifiOpsResult::NoNetwork:
+        wifi_flow_set_text_if_changed(_lbl_saved_status, kWifiOpsNoNetworkUserMsg, WifiFlowDiagTextSlot::SavedStatus);
+        lv_obj_set_style_text_color(_lbl_saved_status, pal.text_secondary, LV_PART_MAIN);
+        _saved_status_terminal = true;
+        break;
     case WifiOpsResult::Timeout:
     case WifiOpsResult::AuthFailed:
-    case WifiOpsResult::NoNetwork:
-        // Generic wording — ESP may report Timeout for wrong PSK / общий текст, т.к. неверный PSK → Timeout.
+        // Auth/timeout — password or signal; NoNetwork handled above / пароль или сигнал; NoNetwork отдельно.
         wifi_flow_set_text_if_changed(_lbl_saved_status,
                                       "Could not connect. Check password or signal.",
                                       WifiFlowDiagTextSlot::SavedStatus);
@@ -1245,6 +1280,16 @@ void LvglWifiFlowScreen::create() {
     }
     lv_label_set_long_mode(_sub_home, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(_sub_home, LV_PCT(100));
+
+    _lbl_recovery_idle_countdown = lv_label_create(_panel_home);
+    // S6V9B: static notice only on arm — no periodic text updates / только при arm, без периодических set_text.
+    wifi_flow_set_text_if_changed(_lbl_recovery_idle_countdown, "", WifiFlowDiagTextSlot::None);
+    lv_obj_set_style_text_color(_lbl_recovery_idle_countdown, pal.text_meta, LV_PART_MAIN);
+    if (LV_ACTIVE_PROFILE.font_small) {
+        lv_obj_set_style_text_font(_lbl_recovery_idle_countdown, static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_small), LV_PART_MAIN);
+    }
+    lv_label_set_long_mode(_lbl_recovery_idle_countdown, LV_LABEL_LONG_CLIP);
+    lv_obj_set_width(_lbl_recovery_idle_countdown, LV_PCT(100));
 
     _list_saved = lv_list_create(_panel_home);
     lv_obj_set_width(_list_saved, LV_PCT(100));
@@ -1513,12 +1558,16 @@ void LvglWifiFlowScreen::enter() {
     _remove_confirm_pending = false;
     _selectedSavedSlot      = 255;
     memset(_selectedSavedSsid, 0, sizeof(_selectedSavedSsid));
-    _entered_from_boot_failure = lvgl_ui::consumeWifiRecoveryEnteredFromBootFailure();
-    // Wi-Fi S6V7A: event log if boot path already raised softAP (hybrid C) / лог если AP уже поднят в фоне.
+    _entered_from_boot_failure         = lvgl_ui::consumeWifiRecoveryEnteredFromBootFailure();
+    // S6V8A: consume runtime disconnect entry context — mutually exclusive with boot-fail. / Контекст runtime эскалации.
+    // If neither flag is set (e.g. manual entry via InvertDisplay), both remain false. / Если ни один флаг — оба false.
+    _entered_from_runtime_disconnect   = lvgl_ui::consumeWifiRecoveryEnteredFromRuntimeDisconnect();
+    // S6V9C: in LVGL path boot-fail no longer raises AP immediately; AP starts only on Hotspot page.
+    // S6V9C: в LVGL path AP при boot-fail больше не поднимается; лог только если AP всё же активен (non-LVGL fallback).
     if (_entered_from_boot_failure && network.status == SOFT_AP) {
         const IPAddress ip = WiFi.softAPIP();
         if (static_cast<uint32_t>(ip) != 0U) {
-            Serial.println("[Network] Wi-Fi Recovery active; AP fallback active in background");
+            Serial.println("[Network] Wi-Fi Recovery active; AP was already active (unexpected in LVGL path)");
         }
     }
 #if WIFI_FLOW_DIAG_GLITCH
@@ -1526,7 +1575,7 @@ void LvglWifiFlowScreen::enter() {
 #endif
     rebuild_saved_list();
     sync_home_boot_failure_ui();
-    arm_boot_idle_if_home_bootfail();
+    arm_recovery_idle_if_home_only();
     if (!_poll_timer) {
         _poll_timer = lv_timer_create(on_poll_timer, kPollMs, this);
     }
@@ -1565,7 +1614,7 @@ void LvglWifiFlowScreen::destroy() {
         _screen = nullptr;
     }
     _panel_home = _panel_net = _panel_pass = _panel_saved = _panel_hotspot = nullptr;
-    _hdr_home = _sub_home = _list_saved = nullptr;
+    _hdr_home = _sub_home = _lbl_recovery_idle_countdown = _list_saved = nullptr;
     _hdr_net = _lbl_net_status = _list_scan = nullptr;
     _hdr_pass = _lbl_pass_ssid = _lbl_pass_hint = _ta_password = _lbl_pass_status = nullptr;
     _btn_connect = _btn_back_pass = _kbd = nullptr;
@@ -1652,7 +1701,12 @@ void LvglWifiFlowScreen::pollOpsSnapshot() {
         }
     }
 
-    if (snap.phase == WifiOpsPhase::Scanning || (snap.busy && snap.currentOp == WifiOpsOp::Scan)) {
+    // S6V9F: only treat scan-in-progress as blocking UI when Networks is relevant or user is awaiting scan results.
+    // S6V9F: иначе stale Scanning на Home после stop AP — вечный early-return и «мёртвый» Scan.
+    const bool scan_progress_blocks_ui =
+        net_visible || _await_scan_ui;
+    if (scan_progress_blocks_ui &&
+        (snap.phase == WifiOpsPhase::Scanning || (snap.busy && snap.currentOp == WifiOpsOp::Scan))) {
         if (_lbl_net_status) {
             wifi_flow_set_text_if_changed(_lbl_net_status, "Scanning...", WifiFlowDiagTextSlot::NetStatus);
             lv_obj_set_style_text_color(_lbl_net_status, pal.text_meta, LV_PART_MAIN);
@@ -1726,6 +1780,12 @@ void LvglWifiFlowScreen::on_btn_back_hotspot(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
     if (!self) return;
+    // S6V9C: stop SoftAP before returning Home (stops yoRadioAP, cancels softapdelay) / гасим AP до возврата Home.
+    network.recoveryStopSoftAP();
+    // S6V9F: radio/netif change can strand WiFiOps snapshot in Scanning — poll used to early-return and freeze Home UI.
+    // S6V9F: смена радио может оставить phase=Scanning — ранний return в poll блокировал кнопки на Home.
+    wifiOpsCancel();
+    self->_await_scan_ui = false;
     self->show_home_panel();
 }
 

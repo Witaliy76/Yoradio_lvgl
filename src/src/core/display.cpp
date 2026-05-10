@@ -537,6 +537,65 @@ void Display::_tryCompleteLvglWifiRecoveryHandoff() {
     // Wi‑Fi 5B: без on_display_player — не тянуть plugin/Main цепочку в режиме Recovery.
   }
 }
+
+// S6V8A + S6V9I: runtime LOST escalation — status sub-label (Trying to reconnect + Recovery milestones); open Recovery after 60 s.
+// S6V8A + S6V9I: эскалация LOST — текст статуса; открыть Recovery через 60 с.
+void Display::_tryCompleteLostEscalation() {
+  if (!_lost_escalation_armed) return;
+  if (_mode != LOST) { _lost_escalation_armed = false; return; }
+
+  // Race guard: if reconnect already succeeded (beginReconnect cleared by WiFiReconnected) — cancel.
+  // Гард гонки: если reconnect уже успешен (beginReconnect сброшен) — отменить.
+  if (!network.beginReconnect) {
+    _lost_escalation_armed     = false;
+    _lost_started_ms           = 0;
+    _lost_escalation_milestone = 0;
+    return;
+  }
+
+  const uint32_t elapsed = (uint32_t)(millis() - _lost_started_ms);
+
+  // Milestone 0 → 1: set initial status text on first tick after LOST.
+  // Milestone 0 → 1: установить начальный текст при первом тике после LOST.
+  if (_lost_escalation_milestone == 0) {
+    // S6V9I: explain reconnect attempt + Recovery countdown (two lines in one label). / Две строки в одном label.
+    lvgl_ui::overlayLostSetStatusText("Trying to reconnect...\nWi-Fi Recovery in 60s");
+    _lost_escalation_milestone = 1;
+  }
+
+  // Milestone 1 → 2: ~30 s.
+  if (_lost_escalation_milestone < 2 && elapsed >= 30000U) {
+    lvgl_ui::overlayLostSetStatusText("Trying to reconnect...\nWi-Fi Recovery in 30s");
+    _lost_escalation_milestone = 2;
+  }
+
+  // Milestone 2 → 3: ~50 s.
+  if (_lost_escalation_milestone < 3 && elapsed >= 50000U) {
+    lvgl_ui::overlayLostSetStatusText("Trying to reconnect...\nOpening Wi-Fi Recovery...");
+    _lost_escalation_milestone = 3;
+  }
+
+  // Timeout: 60 s → open LVGL Wi-Fi Recovery.
+  // Таймаут: 60 с → открываем LVGL Wi-Fi Recovery.
+  if (elapsed >= 60000U) {
+    // Race guard again before committing. / Ещё раз гард перед переходом.
+    if (!network.beginReconnect) {
+      _lost_escalation_armed     = false;
+      _lost_started_ms           = 0;
+      _lost_escalation_milestone = 0;
+      return;
+    }
+    // Disarm first — prevents repeated putRequest if loop re-enters before mode switch. / Сначала disarm.
+    _lost_escalation_armed     = false;
+    _lost_started_ms           = 0;
+    _lost_escalation_milestone = 0;
+    // S6V9E: after 60s — suspend ESP auto-reconnect + our beginReconnect; radio for Wi-Fi Setup (not before timeout).
+    // S6V9E: после 60s — стоп auto-reconnect и флага; радио для Setup (до таймаута не трогаем).
+    network.recoverySuspendReconnectForSetup();
+    lvgl_ui::notifyWifiRecoveryEnteredFromRuntimeDisconnect();
+    putRequest(NEWMODE, WIFI);
+  }
+}
 #endif
 
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
@@ -584,6 +643,17 @@ void Display::_swichMode(displayMode_e newmode) {
   // Wi‑Fi 4C: игнорировать LOST пока активен LVGL Wi‑Fi Setup — mode остаётся WIFI, без оверлея LOST.
   if (newmode == LOST && lvgl_ui::isWifiSetupFlowActive()) {
     return;
+  }
+  // S6V8A: arm or disarm runtime escalation timer based on new mode.
+  // S6V8A: взводим или сбрасываем таймер эскалации в зависимости от нового режима.
+  if (newmode == LOST) {
+    _lost_escalation_armed     = true;
+    _lost_started_ms           = millis();
+    _lost_escalation_milestone = 0;
+  } else {
+    _lost_escalation_armed     = false;
+    _lost_started_ms           = 0;
+    _lost_escalation_milestone = 0;
   }
 #endif
   // Wi-Fi 3A: allow WIFI while offline; allow return to PLAYER when leaving LVGL Wi-Fi shell.
@@ -1055,6 +1125,8 @@ void Display::loop() {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
   _tryCompleteLvglWifiRecoveryHandoff();
   _tryCompleteLvglPlayerHandoff();
+  // S6V8A: runtime LOST escalation polling (DspTask; millis-based milestones). / Polling эскалации LOST.
+  _tryCompleteLostEscalation();
 #endif
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
   if (lvgl_ui::isLvglBootActive()) {
