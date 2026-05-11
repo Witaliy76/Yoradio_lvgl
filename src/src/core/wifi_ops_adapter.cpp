@@ -184,6 +184,21 @@ static WifiOpsResult attempt_sta_connect(const char* ssid,
   } else if (WiFi.status() == WL_CONNECTED && allow_disc) {
     WiFi.disconnect(true);
     vTaskDelay(pdMS_TO_TICKS(120));
+  } else if (WiFi.status() == WL_NO_SSID_AVAIL) {
+    // S6V10C: When STA is stuck in WL_NO_SSID_AVAIL, ESP-IDF's internal AP cache is stale —
+    // WiFi.begin returns WL_NO_SSID_AVAIL immediately without scanning the air.
+    // A brief disconnect + blocking re-scan repopulates the cache so WiFi.begin can find
+    // the target AP on the first attempt instead of failing or needing multiple retries.
+    // Note: WiFi.scanDelete() frees the scan buffer; wifiOps s_results (copied earlier) is unaffected.
+    //
+    // S6V10C: STA застряла в WL_NO_SSID_AVAIL — кэш ESP-IDF устарел, WiFi.begin мгновенно
+    // возвращает WL_NO_SSID_AVAIL без реального скана эфира.
+    // Краткий disconnect + синхронный ресканирование обновляет кэш: WiFi.begin находит AP с первой попытки.
+    // WiFi.scanDelete() освобождает буфер скана; скопированный ранее wifiOps s_results не затрагивается.
+    WiFi.disconnect(false);
+    vTaskDelay(pdMS_TO_TICKS(150));
+    WiFi.scanNetworks(false);   // blocking re-scan ~2-4s, refreshes ESP-IDF AP cache / синхронный ресканирование
+    WiFi.scanDelete();           // release scan buffer / освободить буфер
   }
 
   const wifi_mode_t wm = WiFi.getMode();
@@ -201,7 +216,9 @@ static WifiOpsResult attempt_sta_connect(const char* ssid,
     return r;
   }
 
-  const uint32_t deadline = millis() + timeout_ms;
+  const uint32_t connect_start_ms = millis();
+  const uint32_t deadline         = connect_start_ms + timeout_ms;
+  constexpr uint32_t kNoSsidAvailPostBeginGraceMs = 5000;
 
   for (;;) {
     if (s_cancel_requested.load(std::memory_order_acquire)) {
@@ -231,6 +248,15 @@ static WifiOpsResult attempt_sta_connect(const char* ssid,
       return r;
     }
     if (st == WL_NO_SSID_AVAIL) {
+      if ((int32_t)(millis() - (connect_start_ms + kNoSsidAvailPostBeginGraceMs)) < 0) {
+        // S6V10D: right after WiFi.begin Arduino may still report stale WL_NO_SSID_AVAIL
+        // from the previous boot-fail attempt. Give ESP-IDF a short window to start
+        // association before treating it as a final "network not found" result.
+        // S6V10D: сразу после WiFi.begin Arduino может вернуть старый WL_NO_SSID_AVAIL
+        // от предыдущей boot-fail попытки. Даём ESP-IDF короткое окно на старт ассоциации.
+        vTaskDelay(pdMS_TO_TICKS(75));
+        continue;
+      }
       WiFi.disconnect(false);
       vTaskDelay(pdMS_TO_TICKS(50));
       WiFi.setAutoReconnect(prev_auto);
@@ -240,7 +266,13 @@ static WifiOpsResult attempt_sta_connect(const char* ssid,
     }
     if ((int32_t)(millis() - deadline) >= 0) {
       if (may_disconnect_for_abort) {
-        WiFi.disconnect(true);
+        // S6V10B: use wifioff=false so the radio stays ON after timeout.
+        // wifioff=true (former) would call esp_wifi_stop(), leaving mode=WIFI_OFF and
+        // making every subsequent connect attempt start from scratch.
+        // S6V10B: wifioff=false — радио остаётся включённым после таймаута.
+        // wifioff=true (ранее) вызывал esp_wifi_stop(), mode становился WIFI_OFF,
+        // и каждая следующая попытка стартовала с нуля.
+        WiFi.disconnect(false);
         vTaskDelay(pdMS_TO_TICKS(80));
       }
       WiFi.setAutoReconnect(prev_auto);

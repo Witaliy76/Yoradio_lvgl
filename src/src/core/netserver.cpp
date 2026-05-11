@@ -1,6 +1,7 @@
 #include "netserver.h"
 #include <LittleFS.h>
 #include <cstring>
+#include <cstdarg>
 
 #include "config.h"
 #include "save_manager.h"
@@ -284,6 +285,42 @@ const char *getFormat(BitrateFormat _format) {
 }
 
 char wsbuf[BUFLEN * 2];
+
+// S6V10A: Bounded formatting and safe WebSocket send helpers.
+// S6V10A: Ограниченное форматирование и безопасные хелперы отправки WebSocket.
+
+// Format wsbuf with vsnprintf; clear wsbuf and return false on truncation so callers
+// never send partial/malformed JSON. / Форматирует wsbuf через vsnprintf; сбрасывает wsbuf
+// и возвращает false при обрезке — частичный JSON не отправляется никогда.
+static bool wsbufFormat(const char* fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  int written = vsnprintf(wsbuf, sizeof(wsbuf), fmt, args);
+  va_end(args);
+  if (written < 0 || written >= (int)sizeof(wsbuf)) {
+    wsbuf[0] = '\0'; // drop truncated message — do not send partial JSON / сбрасываем обрезанное сообщение
+    return false;
+  }
+  return true;
+}
+
+// Skip textAll when there are no WebSocket clients — avoids AsyncWebSocket::makeBuffer
+// allocation under network/Wi-Fi-loss pressure. / Пропускаем textAll при отсутствии клиентов
+// — избегаем malloc makeBuffer при нестабильной сети.
+static void safeWsTextAll(const char* payload) {
+  if (!payload || payload[0] == '\0') return;
+  if (websocket.count() == 0) return;
+  websocket.textAll(payload);
+}
+
+// Skip per-client text() if the client has already disconnected.
+// Пропускаем text() если клиент уже отключился.
+static void safeWsTextClient(uint32_t clientId, const char* payload) {
+  if (!payload || payload[0] == '\0') return;
+  if (!websocket.hasClient(clientId)) return;
+  websocket.text(clientId, payload);
+}
+
 void NetServer::processQueue(){
   if(nsQueue==NULL) return;
   nsRequestParams_t request;
@@ -336,10 +373,10 @@ void NetServer::processQueue(){
             if (IR_PIN != 255 || dbgact)                        act += F("\"group_ir\",");
           }
                                                                 act = act.substring(0, act.length() - 1);
-          sprintf (wsbuf, "{\"act\":[%s]}", act.c_str());
+          wsbufFormat( "{\"act\":[%s]}", act.c_str());
           break;
         }
-      case GETMODE:       sprintf (wsbuf, "{\"pmode\":\"%s\"}", network.status == CONNECTED ? "player" : "ap"); break;
+      case GETMODE:       wsbufFormat( "{\"pmode\":\"%s\"}", network.status == CONNECTED ? "player" : "ap"); break;
       case GETINDEX:      {
           requestOnChange(STATION, clientId); 
           requestOnChange(TITLE, clientId); 
@@ -354,7 +391,7 @@ void NetServer::processQueue(){
           return; 
           break;
         }
-      case GETSYSTEM:     sprintf (wsbuf, "{\"sst\":%d,\"aif\":%d,\"vu\":%d,\"softr\":%d,\"vut\":%d,\"mdns\":\"%s\"}", 
+      case GETSYSTEM:     wsbufFormat( "{\"sst\":%d,\"aif\":%d,\"vu\":%d,\"softr\":%d,\"vut\":%d,\"mdns\":\"%s\"}", 
                                   config.store.smartstart != 2, 
                                   config.store.audioinfo, 
                                   config.store.vumeter, 
@@ -362,7 +399,7 @@ void NetServer::processQueue(){
                                   config.vuThreshold,
                                   config.store.mdnsname); 
                                   break;
-      case GETSCREEN:     sprintf (wsbuf, "{\"flip\":%d,\"inv\":%d,\"nump\":%d,\"tsf\":%d,\"tsd\":%d,\"dspon\":%d,\"br\":%d,\"con\":%d,\"scre\":%d,\"scrt\":%d,\"scrb\":%d,\"scrpe\":%d,\"scrpt\":%d,\"scrpb\":%d,\"sa\":%d}", 
+      case GETSCREEN:     wsbufFormat( "{\"flip\":%d,\"inv\":%d,\"nump\":%d,\"tsf\":%d,\"tsd\":%d,\"dspon\":%d,\"br\":%d,\"con\":%d,\"scre\":%d,\"scrt\":%d,\"scrb\":%d,\"scrpe\":%d,\"scrpt\":%d,\"scrpb\":%d,\"sa\":%d}", 
                                   config.store.flipscreen, 
                                   config.store.invertdisplay, 
                                   config.store.numplaylist, 
@@ -379,13 +416,13 @@ void NetServer::processQueue(){
                                   config.store.screensaverPlayingBlank,
                                   config.store.usespectrum);
                                   break;
-      case GETTIMEZONE:   sprintf (wsbuf, "{\"tzh\":%d,\"tzm\":%d,\"sntp1\":\"%s\",\"sntp2\":\"%s\"}", 
+      case GETTIMEZONE:   wsbufFormat( "{\"tzh\":%d,\"tzm\":%d,\"sntp1\":\"%s\",\"sntp2\":\"%s\"}", 
                                   config.store.tzHour, 
                                   config.store.tzMin, 
                                   config.store.sntp1, 
                                   config.store.sntp2); 
                                   break;
-      case GETWEATHER:    sprintf (wsbuf, "{\"wen\":%d,\"wlat\":\"%s\",\"wlon\":\"%s\",\"wkey\":\"%s\"}", 
+      case GETWEATHER:    wsbufFormat( "{\"wen\":%d,\"wlat\":\"%s\",\"wlon\":\"%s\",\"wkey\":\"%s\"}", 
                                   config.store.showweather, 
                                   config.store.weatherlat, 
                                   config.store.weatherlon, 
@@ -414,7 +451,7 @@ void NetServer::processQueue(){
                                   extern size_t aiPromptGetSize();
                                   bool prompt_loaded = aiPromptIsAvailable();
                                   size_t prompt_size = prompt_loaded ? aiPromptGetSize() : 0;
-                                  sprintf (wsbuf, "{\"aien\":%d,\"aihost\":\"%s\",\"aiport\":%d,\"aipath\":\"%s\",\"aitimeout\":%lu,\"aimodel\":\"%s\",\"aikey\":\"%s\",\"aiprompt_loaded\":%d,\"aiprompt_size\":%u}", 
+                                  wsbufFormat( "{\"aien\":%d,\"aihost\":\"%s\",\"aiport\":%d,\"aipath\":\"%s\",\"aitimeout\":%lu,\"aimodel\":\"%s\",\"aikey\":\"%s\",\"aiprompt_loaded\":%d,\"aiprompt_size\":%u}", 
                                   config.store.ai_enabled ? 1 : 0, 
                                   host_esc.c_str(),
                                   aicfg.port,
@@ -426,40 +463,41 @@ void NetServer::processQueue(){
                                   prompt_size); 
                                   break;
                                 }
-      case GETCONTROLS:   sprintf (wsbuf, "{\"vols\":%d,\"enca\":%d,\"irtl\":%d,\"skipup\":%d}", 
+      case GETCONTROLS:   wsbufFormat( "{\"vols\":%d,\"enca\":%d,\"irtl\":%d,\"skipup\":%d}", 
                                   config.store.volsteps, 
                                   config.store.encacc, 
                                   config.store.irtlp,
                                   config.store.skipPlaylistUpDown); 
                                   break;
-      case DSPON:         sprintf (wsbuf, "{\"dspontrue\":%d}", 1); break;
+      case DSPON:         wsbufFormat( "{\"dspontrue\":%d}", 1); break;
       case STATION:       requestOnChange(STATIONNAME, clientId); requestOnChange(ITEM, clientId); break;
-      case STATIONNAME:   sprintf (wsbuf, "{\"nameset\": \"%s\"}", config.station.name); break;
-      case ITEM:          sprintf (wsbuf, "{\"current\": %d}", config.lastStation()); break;
-      case TITLE:         sprintf (wsbuf, "{\"meta\": \"%s\"}", config.station.title); telnet.printf("##CLI.META#: %s\n> ", config.station.title); break;
-      case VOLUME:        sprintf (wsbuf, "{\"vol\": %d}", config.store.volume); telnet.printf("##CLI.VOL#: %d\n", config.store.volume); break;
-      case NRSSI:         sprintf (wsbuf, "{\"rssi\": %d}", rssi); /*rssi = 255;*/ break;
-      case SDPOS:         sprintf (wsbuf, "{\"sdpos\": %d,\"sdend\": %d,\"sdtpos\": %d,\"sdtend\": %d}", 
+      case STATIONNAME:   wsbufFormat( "{\"nameset\": \"%s\"}", config.station.name); break;
+      case ITEM:          wsbufFormat( "{\"current\": %d}", config.lastStation()); break;
+      case TITLE:         wsbufFormat( "{\"meta\": \"%s\"}", config.station.title); telnet.printf("##CLI.META#: %s\n> ", config.station.title); break;
+      case VOLUME:        wsbufFormat( "{\"vol\": %d}", config.store.volume); telnet.printf("##CLI.VOL#: %d\n", config.store.volume); break;
+      case NRSSI:         wsbufFormat( "{\"rssi\": %d}", rssi); /*rssi = 255;*/ break;
+      case SDPOS:         wsbufFormat( "{\"sdpos\": %d,\"sdend\": %d,\"sdtpos\": %d,\"sdtend\": %d}", 
                                   player.getFilePos(), 
                                   player.getFileSize(), 
                                   player.getAudioCurrentTime(), 
                                   player.getAudioFileDuration()); 
                                   break;
-      case SDLEN:         sprintf (wsbuf, "{\"sdmin\": %d,\"sdmax\": %d}", player.sd_min, player.sd_max); break;
-      case SDSNUFFLE:     sprintf (wsbuf, "{\"snuffle\": %d}", config.store.sdsnuffle); break;
-      case BITRATE:       sprintf (wsbuf, "{\"bitrate\": %d, \"format\": \"%s\"}", config.station.bitrate, getFormat(config.configFmt)); break;
-      case MODE:          sprintf (wsbuf, "{\"mode\": \"%s\"}", player.status() == PLAYING ? "playing" : "stopped"); telnet.info(); break;
-      case EQUALIZER:     sprintf (wsbuf, "{\"bass\": %d, \"middle\": %d, \"trebble\": %d}", config.store.bass, config.store.middle, config.store.trebble); break;
-      case BALANCE:       sprintf (wsbuf, "{\"balance\": %d}", config.store.balance); break;
-      case SDINIT:        sprintf (wsbuf, "{\"sdinit\": %d}", SDC_CS!=255); break;
-      case GETPLAYERMODE: sprintf (wsbuf, "{\"playermode\": \"%s\"}", config.getMode()==PM_SDCARD?"modesd":"modeweb"); break;
+      case SDLEN:         wsbufFormat( "{\"sdmin\": %d,\"sdmax\": %d}", player.sd_min, player.sd_max); break;
+      case SDSNUFFLE:     wsbufFormat( "{\"snuffle\": %d}", config.store.sdsnuffle); break;
+      case BITRATE:       wsbufFormat( "{\"bitrate\": %d, \"format\": \"%s\"}", config.station.bitrate, getFormat(config.configFmt)); break;
+      case MODE:          wsbufFormat( "{\"mode\": \"%s\"}", player.status() == PLAYING ? "playing" : "stopped"); telnet.info(); break;
+      case EQUALIZER:     wsbufFormat( "{\"bass\": %d, \"middle\": %d, \"trebble\": %d}", config.store.bass, config.store.middle, config.store.trebble); break;
+      case BALANCE:       wsbufFormat( "{\"balance\": %d}", config.store.balance); break;
+      case SDINIT:        wsbufFormat( "{\"sdinit\": %d}", SDC_CS!=255); break;
+      case GETPLAYERMODE: wsbufFormat( "{\"playermode\": \"%s\"}", config.getMode()==PM_SDCARD?"modesd":"modeweb"); break;
       #ifdef USE_SD
         case CHANGEMODE:    config.changeMode(newConfigMode); return; break;
       #endif
       default:          break;
     }
     if (strlen(wsbuf) > 0) {
-      if (clientId == 0) { websocket.textAll(wsbuf); }else{ websocket.text(clientId, wsbuf); }
+      // S6V10A: safe helpers skip send when no clients or client gone / safe helpers пропускают отправку если нет клиентов
+      if (clientId == 0) { safeWsTextAll(wsbuf); }else{ safeWsTextClient(clientId, wsbuf); }
   #ifdef MQTT_ROOT_TOPIC
       if (clientId == 0 && (request.type == STATION || request.type == ITEM || request.type == TITLE || request.type == MODE)) mqttPublishStatus();
       if (clientId == 0 && request.type == VOLUME) mqttPublishVolume();

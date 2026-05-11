@@ -153,6 +153,7 @@ bool MyNetwork::wifiBegin(bool silent){
   uint8_t ls = (config.store.lastSSID == 0 || config.store.lastSSID > config.ssidsCount) ? 0 : config.store.lastSSID - 1;
   uint8_t startedls = ls;
   uint8_t errcnt = 0;
+  bool attempted = false;
   WiFi.mode(WIFI_STA);
   // На время перебора сетей отключим авто-переподключение,
   // чтобы избегать состояния ESP_ERR_WIFI_STATE при смене SSID
@@ -173,9 +174,15 @@ bool MyNetwork::wifiBegin(bool silent){
       Serial.print("##[BOOT]#\t");
       display.putRequest(BOOTSTRING, ls);
     }
-    // Безопасно разорвём предыдущее соединение перед новой попыткой
-    WiFi.disconnect(true);
-    delay(100);
+    if (attempted) {
+      // S6V10E: boot saved-SSID iteration must not fully stop/deinit Wi-Fi between SSIDs.
+      // WiFi.disconnect(true) churns esp_netif registration and can hit ESP_ERR_WIFI_STOP_STATE (12308).
+      // S6V10E: при переборе SSID на boot не гасим Wi-Fi стек полностью между попытками.
+      // disconnect(true) пересоздаёт netif и может дать ESP_ERR_WIFI_STOP_STATE (12308).
+      WiFi.disconnect(false);
+      delay(150);
+    }
+    attempted = true;
     WiFi.begin(config.ssids[ls].ssid, config.ssids[ls].password);
     while (WiFi.status() != WL_CONNECTED) {
       if(!silent) Serial.print(".");
