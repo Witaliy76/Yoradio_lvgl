@@ -98,6 +98,10 @@ void installCarouselGesturesOnPageRoot(lv_obj_t* screen_root);
 // Этап 5.3: задел под screensaver; вызов из тапа/жеста, реализация позже.
 void notifyPageChainActivity();
 
+// Navigate carousel by slot index (PageChain::STATION_INDEX, SETTINGS_INDEX, …). DspTask / LVGL events only.
+// Переход по индексу карусели — только из DspTask / LVGL callbacks.
+void goToCarouselPage(int page_index);
+
 // True when LVGL carousel shows Info slot (index 0), even if display.mode() is still PLAYER (swipe path).
 // Карусель на слоте Info, хотя mode может оставаться PLAYER — путь свайпом.
 bool isLvglCarouselOnInfoSlot();

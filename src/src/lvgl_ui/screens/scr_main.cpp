@@ -38,6 +38,7 @@
 #include "../theme/lv_theme_yoradio.h"
 #include "../control_glyph_utf8.h"
 #include "lvgl_ui.h"
+#include "../lv_page_chain.h"
 #include "../../core/config.h"
 #include "../../core/display.h"
 #include "../../core/network.h"
@@ -284,6 +285,24 @@ static void main_transport_next_cb(lv_event_t* e) {
     if (display.mode() != PLAYER) return;
     if (network.status != CONNECTED && network.status != SDREADY) return;
     player.next();
+    notifyPageChainActivity();
+}
+
+// Main utility: List → Station page, Settings → Settings slot (LvglStationPage / LvglStubPage in PageChain).
+// Утилиты Main: список → Station, шестерёнка → слот Settings (карусель Stage 4.6 freeze).
+static void main_utility_station_cb(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    const displayMode_e m = display.mode();
+    if (m != PLAYER && m != VOL) return;
+    goToCarouselPage(PageChain::STATION_INDEX);
+    notifyPageChainActivity();
+}
+
+static void main_utility_settings_cb(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    const displayMode_e m = display.mode();
+    if (m != PLAYER && m != VOL) return;
+    goToCarouselPage(PageChain::SETTINGS_INDEX);
     notifyPageChainActivity();
 }
 
@@ -1083,13 +1102,16 @@ void LvglMainScreen::create() {
                 lv_obj_clear_flag(utility_left, LV_OBJ_FLAG_SCROLLABLE);
                 lv_obj_clear_flag(utility_left, LV_OBJ_FLAG_GESTURE_BUBBLE);
                 lv_obj_add_flag(utility_left, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
-                (void)main_create_control_icon_btn(
+                lv_obj_t* btn_list = main_create_control_icon_btn(
                     utility_left,
                     control_glyph_utf8_list(),
                     f_ctrl_transport, pal.text_secondary,
                     pad_tr, min_tr,
                     18,
                     k_ctrl_pressed_opa_utility);
+                if (btn_list) {
+                    lv_obj_add_event_cb(btn_list, main_utility_station_cb, LV_EVENT_CLICKED, nullptr);
+                }
             }
 
             lv_obj_t* transport_group = lv_obj_create(control_band);
@@ -1167,13 +1189,16 @@ void LvglMainScreen::create() {
                 lv_obj_clear_flag(utility_right, LV_OBJ_FLAG_GESTURE_BUBBLE);
                 lv_obj_add_flag(utility_right, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
 
-                (void)main_create_control_icon_btn(
+                lv_obj_t* btn_settings = main_create_control_icon_btn(
                     utility_right,
                     control_glyph_utf8_settings(),
                     f_ctrl_transport, pal.text_secondary,
                     pad_tr, min_tr,
                     18,
                     k_ctrl_pressed_opa_utility);
+                if (btn_settings) {
+                    lv_obj_add_event_cb(btn_settings, main_utility_settings_cb, LV_EVENT_CLICKED, nullptr);
+                }
             }
 
             // Equalize left/right slot widths so transport triad stays visually centered.

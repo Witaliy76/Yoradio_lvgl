@@ -98,7 +98,7 @@ static void ensurePageChainRegistered() {
     s_page_chain.registerPage(2, &s_stub_visual);
     s_page_chain.registerPage(PageChain::STATION_INDEX, &s_station_page);
     s_page_chain.registerPage(4, &s_stub_weather);
-    s_page_chain.registerPage(5, &s_stub_settings);
+    s_page_chain.registerPage(PageChain::SETTINGS_INDEX, &s_stub_settings);
     s_registered = true;
 }
 
@@ -543,6 +543,15 @@ void lvgl_ui::installCarouselGesturesOnPageRoot(lv_obj_t* screen_root) {
 void lvgl_ui::notifyPageChainActivity() {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     s_page_chain.onActivity();
+#endif
+}
+
+void lvgl_ui::goToCarouselPage(int page_index) {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    ensurePageChainRegistered();
+    s_page_chain.goTo(page_index);
+#else
+    (void)page_index;
 #endif
 }
 
