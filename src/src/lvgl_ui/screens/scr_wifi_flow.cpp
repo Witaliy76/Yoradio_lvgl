@@ -1285,12 +1285,12 @@ void LvglWifiFlowScreen::rebuild_scan_list() {
         if (!wifiOpsGetScanResult(i, &scan_row)) continue;
         const bool is_open = (scan_row.auth == WIFI_AUTH_OPEN);
         char line[96];
-        // One-line row only; grey RSSI needs multi-label — postponed (S6V11B-stylemem note).
-        // Одна строка; серый RSSI — отдельные label, откладываем до memory-safe row layout.
+        // S6V11C / S6V11C-rowsep2: U+2022 BULLET • (same glyph as Main meta row); wider padding than Main's k_meta_field_sep for scan readability.
+        // S6V11C-rowsep2: два пробела вокруг «•» — больше воздуха в строке скана.
         snprintf(
             line,
             sizeof(line),
-            is_open ? "%s  %d dBm  Open" : "%s  %d dBm  Lock",
+            is_open ? "%s  \xE2\x80\xA2  %d dBm  \xE2\x80\xA2  Open" : "%s  \xE2\x80\xA2  %d dBm  \xE2\x80\xA2  Lock",
             scan_row.ssid,
             static_cast<int>(scan_row.rssi));
 
