@@ -139,6 +139,7 @@ private:
     lv_obj_t* _btn_hotspot_back = nullptr;
 
     lv_obj_t* _btn_scan         = nullptr;
+    lv_obj_t* _btn_hotspot      = nullptr;
     lv_obj_t* _btn_back_home    = nullptr;
     lv_obj_t* _btn_rescan       = nullptr;
     lv_obj_t* _btn_cancel_scan  = nullptr;

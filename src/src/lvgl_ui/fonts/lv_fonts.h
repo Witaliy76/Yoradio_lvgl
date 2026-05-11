@@ -26,6 +26,9 @@ extern const lv_font_t lv_font_yora_montserrat_48_cyr;
 extern const lv_font_t lv_font_yora_status_icons_18;
 extern const lv_font_t lv_font_yora_status_icons_20;
 extern const lv_font_t lv_font_yora_status_icons_22;
+/* Tabler subset: Wi-Fi Flow header icon @ 24|36 px — lv_font_yora_wifi_flow_icons.md (per-row icons removed: heap). */
+extern const lv_font_t lv_font_yora_wifi_flow_icons_24;
+extern const lv_font_t lv_font_yora_wifi_flow_icons_36;
 /* Tabler-derived subset: OWM weather mini @ 18/20/22/24/28 px — Main bottom row (see lv_font_yora_weather_icons_22.md). */
 extern const lv_font_t lv_font_yora_weather_icons_18;
 extern const lv_font_t lv_font_yora_weather_icons_20;

@@ -3,6 +3,7 @@
  * Home + Networks + Password + SavedNetworkPanel (6B/6C) + Hotspot (S6V7A) + open network from Scan (S6V7B).
  * 4B: connect; 5F: status lock; 6A: save+reboot; 6B: saved panel; 6C: Remove; 6D: glitch helpers; S6V7A: Hotspot/idle AP.
  * S6V7B: open row; S6V9B: static notice; S6V9C: strict Hotspot-only SoftAP — AP starts on Hotspot page, stops on Back; S6V9H: NoNetwork UX text.
+ * S6V11B-stylemem: shared lv_style_t for footer/list rows — cuts local-style heap pressure (LV_MEM_SIZE 48K).
  */
 
 #include "scr_wifi_flow.h"
@@ -17,6 +18,8 @@
 #include "../../core/network.h"
 #include "../../core/wifi_credentials_store.h"
 #include "../../core/wifi_ops_adapter.h"
+#include "../fonts/lv_fonts.h"
+#include "../wifi_flow_glyph_utf8.h"
 #include "../lvgl_ui.h"
 #include "../profiles/lv_profile_select.h"
 #include "../theme/lv_theme_yoradio.h"
@@ -208,24 +211,256 @@ void style_service_panel(lv_obj_t* panel, const YoRadioPalette& pal) {
     lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_color(panel, pal.panel_border, LV_PART_MAIN);
     lv_obj_set_style_border_width(panel, 1, LV_PART_MAIN);
-    lv_obj_set_style_radius(panel, 8, LV_PART_MAIN);
+    // S6V11A-icons3: smaller radius → less rounded-rect mask pressure / меньше радиус — меньше lv_draw_mask OOM
+    lv_obj_set_style_radius(panel, 6, LV_PART_MAIN);
     lv_obj_set_style_pad_all(panel, static_cast<int32_t>(LV_ACTIVE_PROFILE.frame_padding), LV_PART_MAIN);
 }
 
+void wifi_set_font(lv_obj_t* obj, const void* font_slot) {
+    if (!obj || !font_slot) return;
+    lv_obj_set_style_text_font(obj, static_cast<const lv_font_t*>(font_slot), LV_PART_MAIN);
+}
+
+const void* wifi_title_font_slot() {
+    return (LV_ACTIVE_PROFILE.width <= 320u)
+               ? reinterpret_cast<const void*>(&lv_font_yora_montserrat_18_cyr)
+               : reinterpret_cast<const void*>(&lv_font_yora_montserrat_20_cyr);
+}
+
+const void* wifi_body_font_slot() {
+    if (LV_ACTIVE_PROFILE.font_normal) return LV_ACTIVE_PROFILE.font_normal;
+    return reinterpret_cast<const void*>(&lv_font_yora_montserrat_16_cyr);
+}
+
+// S6V11A-fix2: status/help lines — min 16px on 480+ (service-flow readability) / читаемость статуса
+const void* wifi_status_font_slot() {
+    if (LV_ACTIVE_PROFILE.width <= 320u) {
+        return reinterpret_cast<const void*>(&lv_font_yora_montserrat_14_cyr);
+    }
+    return reinterpret_cast<const void*>(&lv_font_yora_montserrat_16_cyr);
+}
+
+// S6V11A-fix2: list rows on 480+ — 18px; narrow keeps profile body / строки списка на широких
+const void* wifi_list_row_font_slot() {
+    if (LV_ACTIVE_PROFILE.width <= 320u) {
+        return wifi_body_font_slot();
+    }
+    return reinterpret_cast<const void*>(&lv_font_yora_montserrat_18_cyr);
+}
+
+// S6V11B: one header icon only (no per-row icons) / один акцентный icon в заголовке
+static const lv_font_t* wifi_header_icon_font() {
+    return (LV_ACTIVE_PROFILE.width <= 320u)
+               ? &lv_font_yora_wifi_flow_icons_24
+               : &lv_font_yora_wifi_flow_icons_36;
+}
+
+static lv_obj_t* wifi_create_header_row(lv_obj_t* parent) {
+    if (!parent) return nullptr;
+    lv_obj_t* row = lv_obj_create(parent);
+    if (!row) return nullptr;
+    lv_obj_set_width(row, LV_PCT(100));
+    lv_obj_set_height(row, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(row, 8, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(row, 0, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    return row;
+}
+
+enum class WifiBtnRole : uint8_t {
+    Primary = 0,
+    Secondary,
+    Ghost,
+    Destructive,
+};
+
+constexpr lv_style_selector_t wifi_sel(lv_part_t part, lv_state_t state) {
+    return static_cast<lv_style_selector_t>(part) | static_cast<lv_style_selector_t>(state);
+}
+
+// S6V11B-stylemem: one init per Wi-Fi Flow screen lifetime — shared props avoid per-button local_style heap.
+// S6V11B-stylemem: один init на жизненный цикл экрана — общие lv_style_t вместо десятков local props на кнопку.
+static bool                     s_wf_flow_styles_ready = false;
+static lv_style_t               s_wf_btn_base;
+static lv_style_t               s_wf_btn_pri_d;
+static lv_style_t               s_wf_btn_pri_p;
+static lv_style_t               s_wf_btn_sec_d;
+static lv_style_t               s_wf_btn_sec_p;
+static lv_style_t               s_wf_btn_gho_d;
+static lv_style_t               s_wf_btn_gho_p;
+static lv_style_t               s_wf_btn_des_d;
+static lv_style_t               s_wf_btn_des_p;
+static lv_style_t               s_wf_btn_dis;
+static lv_style_t               s_wf_lr_base;
+static lv_style_t               s_wf_lr_row_d;
+static lv_style_t               s_wf_lr_row_p;
+static lv_style_t               s_wf_lr_empty;
+
+static void wifi_flow_style_drop() {
+    if (!s_wf_flow_styles_ready) return;
+    lv_style_reset(&s_wf_btn_base);
+    lv_style_reset(&s_wf_btn_pri_d);
+    lv_style_reset(&s_wf_btn_pri_p);
+    lv_style_reset(&s_wf_btn_sec_d);
+    lv_style_reset(&s_wf_btn_sec_p);
+    lv_style_reset(&s_wf_btn_gho_d);
+    lv_style_reset(&s_wf_btn_gho_p);
+    lv_style_reset(&s_wf_btn_des_d);
+    lv_style_reset(&s_wf_btn_des_p);
+    lv_style_reset(&s_wf_btn_dis);
+    lv_style_reset(&s_wf_lr_base);
+    lv_style_reset(&s_wf_lr_row_d);
+    lv_style_reset(&s_wf_lr_row_p);
+    lv_style_reset(&s_wf_lr_empty);
+    s_wf_flow_styles_ready = false;
+}
+
+static void wifi_flow_style_ensure(const YoRadioPalette& pal) {
+    if (s_wf_flow_styles_ready) return;
+
+    const lv_coord_t btn_mh = (LV_ACTIVE_PROFILE.width <= 320u) ? 46 : 50;
+    const lv_coord_t lr_mh  = (LV_ACTIVE_PROFILE.width <= 320u) ? 46 : 48;
+    const lv_font_t* body   = static_cast<const lv_font_t*>(wifi_body_font_slot());
+    const lv_font_t* lr_f   = static_cast<const lv_font_t*>(wifi_list_row_font_slot());
+
+    lv_style_init(&s_wf_btn_base);
+    lv_style_set_min_height(&s_wf_btn_base, btn_mh);
+    lv_style_set_radius(&s_wf_btn_base, 6);
+    lv_style_set_border_width(&s_wf_btn_base, 1);
+    lv_style_set_pad_ver(&s_wf_btn_base, 8);
+    lv_style_set_pad_hor(&s_wf_btn_base, 10);
+    lv_style_set_text_font(&s_wf_btn_base, body);
+
+    lv_style_init(&s_wf_btn_pri_d);
+    lv_style_set_bg_color(&s_wf_btn_pri_d, pal.accent_soft);
+    lv_style_set_bg_opa(&s_wf_btn_pri_d, LV_OPA_COVER);
+    lv_style_set_border_color(&s_wf_btn_pri_d, pal.accent);
+    lv_style_set_text_color(&s_wf_btn_pri_d, pal.text_primary);
+    lv_style_init(&s_wf_btn_pri_p);
+    lv_style_set_bg_color(&s_wf_btn_pri_p, pal.accent);
+    lv_style_set_bg_opa(&s_wf_btn_pri_p, LV_OPA_70);
+    lv_style_set_border_color(&s_wf_btn_pri_p, pal.accent);
+    lv_style_set_text_color(&s_wf_btn_pri_p, pal.text_primary);
+
+    lv_style_init(&s_wf_btn_sec_d);
+    lv_style_set_bg_color(&s_wf_btn_sec_d, pal.panel_background);
+    lv_style_set_bg_opa(&s_wf_btn_sec_d, LV_OPA_70);
+    lv_style_set_border_color(&s_wf_btn_sec_d, pal.panel_border);
+    lv_style_set_text_color(&s_wf_btn_sec_d, pal.text_primary);
+    lv_style_init(&s_wf_btn_sec_p);
+    lv_style_set_bg_color(&s_wf_btn_sec_p, pal.accent_soft);
+    lv_style_set_bg_opa(&s_wf_btn_sec_p, LV_OPA_30);
+    lv_style_set_border_color(&s_wf_btn_sec_p, pal.accent);
+    lv_style_set_text_color(&s_wf_btn_sec_p, pal.text_primary);
+
+    lv_style_init(&s_wf_btn_gho_d);
+    lv_style_set_bg_opa(&s_wf_btn_gho_d, LV_OPA_TRANSP);
+    lv_style_set_border_color(&s_wf_btn_gho_d, pal.divider);
+    lv_style_set_text_color(&s_wf_btn_gho_d, pal.text_secondary);
+    lv_style_init(&s_wf_btn_gho_p);
+    lv_style_set_bg_color(&s_wf_btn_gho_p, pal.panel_background);
+    lv_style_set_bg_opa(&s_wf_btn_gho_p, LV_OPA_20);
+    lv_style_set_border_color(&s_wf_btn_gho_p, pal.panel_border);
+    lv_style_set_text_color(&s_wf_btn_gho_p, pal.text_primary);
+
+    lv_style_init(&s_wf_btn_des_d);
+    lv_style_set_bg_color(&s_wf_btn_des_d, pal.panel_background);
+    lv_style_set_bg_opa(&s_wf_btn_des_d, LV_OPA_70);
+    lv_style_set_border_color(&s_wf_btn_des_d, pal.live_indicator_text);
+    lv_style_set_text_color(&s_wf_btn_des_d, pal.live_indicator_text);
+    lv_style_init(&s_wf_btn_des_p);
+    lv_style_set_bg_color(&s_wf_btn_des_p, pal.live_indicator_text);
+    lv_style_set_bg_opa(&s_wf_btn_des_p, LV_OPA_20);
+    lv_style_set_border_color(&s_wf_btn_des_p, pal.live_indicator_text);
+    lv_style_set_text_color(&s_wf_btn_des_p, pal.text_primary);
+
+    lv_style_init(&s_wf_btn_dis);
+    lv_style_set_bg_color(&s_wf_btn_dis, pal.panel_background);
+    lv_style_set_bg_opa(&s_wf_btn_dis, LV_OPA_50);
+    lv_style_set_border_color(&s_wf_btn_dis, pal.divider);
+    lv_style_set_text_color(&s_wf_btn_dis, pal.text_secondary);
+
+    lv_style_init(&s_wf_lr_base);
+    lv_style_set_min_height(&s_wf_lr_base, lr_mh);
+    lv_style_set_radius(&s_wf_lr_base, 4);
+    lv_style_set_border_width(&s_wf_lr_base, 1);
+    lv_style_set_border_color(&s_wf_lr_base, pal.panel_border);
+    lv_style_set_text_font(&s_wf_lr_base, lr_f);
+
+    lv_style_init(&s_wf_lr_row_d);
+    lv_style_set_bg_color(&s_wf_lr_row_d, pal.panel_background);
+    lv_style_set_bg_opa(&s_wf_lr_row_d, LV_OPA_40);
+    lv_style_set_text_color(&s_wf_lr_row_d, pal.text_primary);
+
+    lv_style_init(&s_wf_lr_row_p);
+    lv_style_set_bg_color(&s_wf_lr_row_p, pal.accent_soft);
+    lv_style_set_bg_opa(&s_wf_lr_row_p, LV_OPA_30);
+    lv_style_set_border_color(&s_wf_lr_row_p, pal.accent);
+    lv_style_set_text_color(&s_wf_lr_row_p, pal.text_primary);
+
+    lv_style_init(&s_wf_lr_empty);
+    lv_style_set_bg_color(&s_wf_lr_empty, pal.panel_background);
+    lv_style_set_bg_opa(&s_wf_lr_empty, LV_OPA_40);
+    lv_style_set_text_color(&s_wf_lr_empty, pal.text_secondary);
+
+    s_wf_flow_styles_ready = true;
+}
+
+static void wifi_apply_list_row_normal(lv_obj_t* btn) {
+    if (!btn || !s_wf_flow_styles_ready) return;
+    lv_obj_add_style(btn, &s_wf_lr_base, LV_PART_MAIN);
+    lv_obj_add_style(btn, &s_wf_lr_row_d, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_style(btn, &s_wf_lr_row_p, LV_PART_MAIN | LV_STATE_PRESSED);
+}
+
+static void wifi_apply_list_row_empty(lv_obj_t* row) {
+    if (!row || !s_wf_flow_styles_ready) return;
+    lv_obj_add_style(row, &s_wf_lr_base, LV_PART_MAIN);
+    lv_obj_add_style(row, &s_wf_lr_empty, LV_PART_MAIN);
+}
+
+void wifi_apply_button_role(lv_obj_t* btn, const YoRadioPalette& /*pal*/, WifiBtnRole role) {
+    if (!btn || !s_wf_flow_styles_ready) return;
+
+    lv_obj_add_style(btn, &s_wf_btn_base, LV_PART_MAIN);
+    switch (role) {
+        case WifiBtnRole::Primary:
+            lv_obj_add_style(btn, &s_wf_btn_pri_d, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_add_style(btn, &s_wf_btn_pri_p, LV_PART_MAIN | LV_STATE_PRESSED);
+            break;
+        case WifiBtnRole::Secondary:
+            lv_obj_add_style(btn, &s_wf_btn_sec_d, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_add_style(btn, &s_wf_btn_sec_p, LV_PART_MAIN | LV_STATE_PRESSED);
+            break;
+        case WifiBtnRole::Ghost:
+            lv_obj_add_style(btn, &s_wf_btn_gho_d, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_add_style(btn, &s_wf_btn_gho_p, LV_PART_MAIN | LV_STATE_PRESSED);
+            break;
+        case WifiBtnRole::Destructive:
+            lv_obj_add_style(btn, &s_wf_btn_des_d, LV_PART_MAIN | LV_STATE_DEFAULT);
+            lv_obj_add_style(btn, &s_wf_btn_des_p, LV_PART_MAIN | LV_STATE_PRESSED);
+            break;
+    }
+    lv_obj_add_style(btn, &s_wf_btn_dis, LV_PART_MAIN | LV_STATE_DISABLED);
+}
+
 lv_obj_t* add_footer_button(lv_obj_t* row, const char* txt, const YoRadioPalette& pal, lv_event_cb_t cb, void* user) {
+    (void)pal;
+    if (!row) return nullptr;
     lv_obj_t* b = lv_btn_create(row);
     if (!b) return nullptr;
     lv_obj_set_flex_grow(b, 1);
     lv_obj_set_height(b, LV_SIZE_CONTENT);
-    lv_obj_set_style_min_height(b, 44, LV_PART_MAIN);
+    // min_height + colors: caller must wifi_apply_button_role(...) — avoids stacking Secondary+Primary styles.
+    // Высота/цвета: вызывающий обязан вызвать wifi_apply_button_role — без двойного Secondary+Primary.
     lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, user);
     lv_obj_t* l = lv_label_create(b);
     lv_label_set_text(l, txt);
     lv_obj_center(l);
-    lv_obj_set_style_text_color(l, pal.text_primary, LV_PART_MAIN);
-    if (LV_ACTIVE_PROFILE.font_normal) {
-        lv_obj_set_style_text_font(l, static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_normal), LV_PART_MAIN);
-    }
     return b;
 }
 
@@ -1013,7 +1248,11 @@ void LvglWifiFlowScreen::rebuild_saved_list() {
     lv_obj_clean(_list_saved);
     const uint8_t n = wifiCredStoreSavedCount();
     if (n == 0) {
-        lv_list_add_btn(_list_saved, LV_SYMBOL_LIST, "(none)");
+        // No LV_SYMBOL_* — Montserrat cannot render built-in symbol glyphs (U+F00B boxes) / без символов LVGL
+        lv_obj_t* empty = lv_list_add_btn(_list_saved, nullptr, "No saved networks");
+        if (empty) {
+            wifi_apply_list_row_empty(empty);
+        }
         return;
     }
     const uint8_t cap = (n > 5) ? 5 : n;
@@ -1022,9 +1261,15 @@ void LvglWifiFlowScreen::rebuild_saved_list() {
         if (!wifiCredStoreGetEntry(i, &v) || !v.ssid) continue;
         char line[40];
         snprintf(line, sizeof(line), "%u  %s", static_cast<unsigned>(i + 1U), v.ssid);
-        lv_obj_t* btn = lv_list_add_btn(_list_saved, LV_SYMBOL_LIST, line);
-        if (!btn) continue;
-        // Wi-Fi 6B: store slot+1 so slot 0 != nullptr; mirror scan list sentinel pattern / slot+1 как в scan.
+        lv_obj_t* btn = lv_list_add_btn(_list_saved, nullptr, line);
+        if (!btn) {
+            // Lightweight OOM guard: stop row creation gracefully / мягкий guard при нехватке памяти
+            if (_sub_home) {
+                wifi_flow_set_text_if_changed(_sub_home, "UI memory low. Reopen Wi-Fi screen.", WifiFlowDiagTextSlot::SubHome);
+            }
+            break;
+        }
+        wifi_apply_list_row_normal(btn);
         lv_obj_set_user_data(btn, reinterpret_cast<void*>(static_cast<uintptr_t>(static_cast<uint32_t>(i) + 1U)));
         lv_obj_add_event_cb(btn, on_saved_row_click, LV_EVENT_CLICKED, this);
     }
@@ -1036,24 +1281,38 @@ void LvglWifiFlowScreen::rebuild_scan_list() {
     WifiOpsSnapshot snap{};
     if (!wifiOpsGetSnapshot(&snap)) return;
     for (uint16_t i = 0; i < snap.scanCount; ++i) {
-        WifiOpsScanRow row{};
-        if (!wifiOpsGetScanResult(i, &row)) continue;
-        const bool is_open = (row.auth == WIFI_AUTH_OPEN);
+        WifiOpsScanRow scan_row{};
+        if (!wifiOpsGetScanResult(i, &scan_row)) continue;
+        const bool is_open = (scan_row.auth == WIFI_AUTH_OPEN);
         char line[96];
-        snprintf(line,
-                 sizeof(line),
-                 "%s  %ddBm  %s",
-                 row.ssid,
-                 static_cast<int>(row.rssi),
-                 is_open ? "open" : "lock");
-        lv_obj_t* btn = lv_list_add_btn(_list_scan, LV_SYMBOL_LIST, line);
-        if (!btn) continue;
-        // Wi‑Fi 5C: store idx+1 — idx 0 must not become nullptr user_data / индекс 0 ≠ nullptr.
+        // One-line row only; grey RSSI needs multi-label — postponed (S6V11B-stylemem note).
+        // Одна строка; серый RSSI — отдельные label, откладываем до memory-safe row layout.
+        snprintf(
+            line,
+            sizeof(line),
+            is_open ? "%s  %d dBm  Open" : "%s  %d dBm  Lock",
+            scan_row.ssid,
+            static_cast<int>(scan_row.rssi));
+
+        lv_obj_t* btn = lv_list_add_btn(_list_scan, nullptr, line);
+        if (!btn) {
+            // Lightweight OOM guard: stop row creation gracefully / мягкий guard при нехватке памяти
+            if (_lbl_net_status) {
+                const YoRadioPalette& pal = yoradio_palette();
+                wifi_flow_set_text_if_changed(_lbl_net_status, "UI memory low. Try Rescan.", WifiFlowDiagTextSlot::NetStatus);
+                lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
+            }
+            break;
+        }
+        wifi_apply_list_row_normal(btn);
         lv_obj_set_user_data(btn, reinterpret_cast<void*>(static_cast<uintptr_t>(static_cast<uint32_t>(i) + 1U)));
         lv_obj_add_event_cb(btn, on_scan_row_click, LV_EVENT_CLICKED, this);
     }
     if (snap.scanCount == 0) {
-        lv_list_add_btn(_list_scan, LV_SYMBOL_LIST, "(empty)");
+        lv_obj_t* empty = lv_list_add_btn(_list_scan, nullptr, "No networks found");
+        if (empty) {
+            wifi_apply_list_row_empty(empty);
+        }
     }
 }
 
@@ -1264,20 +1523,34 @@ void LvglWifiFlowScreen::create() {
     style_service_panel(_panel_saved, pal);
     style_service_panel(_panel_hotspot, pal);
 
-    _hdr_home = lv_label_create(_panel_home);
-    lv_label_set_text(_hdr_home, "Wi-Fi Setup");
-    lv_obj_set_style_text_color(_hdr_home, pal.text_primary, LV_PART_MAIN);
-    if (LV_ACTIVE_PROFILE.font_header) {
-        lv_obj_set_style_text_font(_hdr_home, static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_header), LV_PART_MAIN);
+    // S6V11B-stylemem: init shared styles once widgets exist; drop in destroy after lv_obj_del.
+    // S6V11B-stylemem: общие стили после панелей; сброс в destroy после удаления дерева.
+    wifi_flow_style_ensure(pal);
+
+    lv_obj_t* hdr_home_row = wifi_create_header_row(_panel_home);
+    if (hdr_home_row) {
+        lv_obj_t* ico_home = lv_label_create(hdr_home_row);
+        if (ico_home) {
+            lv_label_set_text(ico_home, wifi_flow_glyph_utf8_wifi_full());
+            lv_obj_set_style_text_font(ico_home, wifi_header_icon_font(), LV_PART_MAIN);
+            lv_obj_set_style_text_color(ico_home, pal.text_secondary, LV_PART_MAIN);
+        }
+        _hdr_home = lv_label_create(hdr_home_row);
+    } else {
+        // Fallback: keep title without icon when allocation is low / fallback: заголовок без иконки
+        _hdr_home = lv_label_create(_panel_home);
+    }
+    if (_hdr_home) {
+        lv_label_set_text(_hdr_home, "Wi-Fi Recovery");
+        lv_obj_set_style_text_color(_hdr_home, pal.text_primary, LV_PART_MAIN);
+        wifi_set_font(_hdr_home, wifi_title_font_slot());
     }
 
     _sub_home = lv_label_create(_panel_home);
     // Initial text is immediately overwritten by sync_home_boot_failure_ui() / перезаписывается при enter.
     wifi_flow_set_text_if_changed(_sub_home, "Tap a saved network, or Scan to choose another.", WifiFlowDiagTextSlot::SubHome);
     lv_obj_set_style_text_color(_sub_home, pal.text_secondary, LV_PART_MAIN);
-    if (LV_ACTIVE_PROFILE.font_small) {
-        lv_obj_set_style_text_font(_sub_home, static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_small), LV_PART_MAIN);
-    }
+    wifi_set_font(_sub_home, wifi_status_font_slot());
     lv_label_set_long_mode(_sub_home, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(_sub_home, LV_PCT(100));
 
@@ -1285,9 +1558,7 @@ void LvglWifiFlowScreen::create() {
     // S6V9B: static notice only on arm — no periodic text updates / только при arm, без периодических set_text.
     wifi_flow_set_text_if_changed(_lbl_recovery_idle_countdown, "", WifiFlowDiagTextSlot::None);
     lv_obj_set_style_text_color(_lbl_recovery_idle_countdown, pal.text_meta, LV_PART_MAIN);
-    if (LV_ACTIVE_PROFILE.font_small) {
-        lv_obj_set_style_text_font(_lbl_recovery_idle_countdown, static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_small), LV_PART_MAIN);
-    }
+    wifi_set_font(_lbl_recovery_idle_countdown, wifi_status_font_slot());
     lv_label_set_long_mode(_lbl_recovery_idle_countdown, LV_LABEL_LONG_CLIP);
     lv_obj_set_width(_lbl_recovery_idle_countdown, LV_PCT(100));
 
@@ -1296,34 +1567,49 @@ void LvglWifiFlowScreen::create() {
     lv_obj_set_flex_grow(_list_saved, 1);
     lv_obj_set_style_bg_opa(_list_saved, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(_list_saved, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(_list_saved, 6, LV_PART_MAIN);
     // S6V6D: hide scrollbar redraw on Home saved list; list stays scrollable if content exceeds viewport.
     // S6V6D: убираем полосу прокрутки (меньше мерцания), прокрутка списка сохраняется.
     lv_obj_set_scrollbar_mode(_list_saved, LV_SCROLLBAR_MODE_OFF);
 
     lv_obj_t* rowh = lv_obj_create(_panel_home);
-    lv_obj_set_width(rowh, LV_PCT(100));
-    lv_obj_set_height(rowh, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(rowh, LV_FLEX_FLOW_ROW);
-    lv_obj_set_style_pad_column(rowh, 8, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(rowh, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_border_width(rowh, 0, LV_PART_MAIN);
-    _btn_scan = add_footer_button(rowh, "Scan", pal, on_btn_scan, this);
-    add_footer_button(rowh, "Hotspot", pal, on_btn_hotspot, this);
-    _btn_back_home = add_footer_button(rowh, "Back", pal, on_btn_back_home, this);
+    if (rowh) {
+        lv_obj_set_width(rowh, LV_PCT(100));
+        lv_obj_set_height(rowh, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(rowh, LV_FLEX_FLOW_ROW);
+        lv_obj_set_style_pad_column(rowh, 10, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(rowh, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_border_width(rowh, 0, LV_PART_MAIN);
+        _btn_scan = add_footer_button(rowh, "Scan", pal, on_btn_scan, this);
+        _btn_hotspot = add_footer_button(rowh, "Hotspot", pal, on_btn_hotspot, this);
+        _btn_back_home = add_footer_button(rowh, "Back", pal, on_btn_back_home, this);
+        wifi_apply_button_role(_btn_scan, pal, WifiBtnRole::Primary);
+        wifi_apply_button_role(_btn_hotspot, pal, WifiBtnRole::Secondary);
+        wifi_apply_button_role(_btn_back_home, pal, WifiBtnRole::Ghost);
+    }
 
-    _hdr_net = lv_label_create(_panel_net);
-    lv_label_set_text(_hdr_net, "Available networks");
-    lv_obj_set_style_text_color(_hdr_net, pal.text_primary, LV_PART_MAIN);
-    if (LV_ACTIVE_PROFILE.font_header) {
-        lv_obj_set_style_text_font(_hdr_net, static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_header), LV_PART_MAIN);
+    lv_obj_t* hdr_net_row = wifi_create_header_row(_panel_net);
+    if (hdr_net_row) {
+        lv_obj_t* ico_net = lv_label_create(hdr_net_row);
+        if (ico_net) {
+            lv_label_set_text(ico_net, wifi_flow_glyph_utf8_wifi_full());
+            lv_obj_set_style_text_font(ico_net, wifi_header_icon_font(), LV_PART_MAIN);
+            lv_obj_set_style_text_color(ico_net, pal.text_secondary, LV_PART_MAIN);
+        }
+        _hdr_net = lv_label_create(hdr_net_row);
+    } else {
+        _hdr_net = lv_label_create(_panel_net);
+    }
+    if (_hdr_net) {
+        lv_label_set_text(_hdr_net, "Available networks");
+        lv_obj_set_style_text_color(_hdr_net, pal.text_primary, LV_PART_MAIN);
+        wifi_set_font(_hdr_net, wifi_title_font_slot());
     }
 
     _lbl_net_status = lv_label_create(_panel_net);
     wifi_flow_set_text_if_changed(_lbl_net_status, " ", WifiFlowDiagTextSlot::NetStatus);
     lv_obj_set_style_text_color(_lbl_net_status, pal.text_meta, LV_PART_MAIN);
-    if (LV_ACTIVE_PROFILE.font_small) {
-        lv_obj_set_style_text_font(_lbl_net_status, static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_small), LV_PART_MAIN);
-    }
+    wifi_set_font(_lbl_net_status, wifi_status_font_slot());
     lv_label_set_long_mode(_lbl_net_status, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(_lbl_net_status, LV_PCT(100));
 
@@ -1332,89 +1618,85 @@ void LvglWifiFlowScreen::create() {
     lv_obj_set_flex_grow(_list_scan, 1);
     lv_obj_set_style_bg_opa(_list_scan, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(_list_scan, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(_list_scan, 6, LV_PART_MAIN);
 
     lv_obj_t* rown = lv_obj_create(_panel_net);
-    lv_obj_set_width(rown, LV_PCT(100));
-    lv_obj_set_height(rown, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(rown, LV_FLEX_FLOW_ROW);
-    lv_obj_set_style_pad_column(rown, 8, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(rown, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_border_width(rown, 0, LV_PART_MAIN);
-    _btn_rescan = add_footer_button(rown, "Rescan", pal, on_btn_rescan, this);
-    _btn_cancel_scan = add_footer_button(rown, "Cancel", pal, on_btn_cancel_scan, this);
-    _btn_back_net    = add_footer_button(rown, "Home", pal, on_btn_back_net, this);
+    if (rown) {
+        lv_obj_set_width(rown, LV_PCT(100));
+        lv_obj_set_height(rown, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(rown, LV_FLEX_FLOW_ROW);
+        lv_obj_set_style_pad_column(rown, 10, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(rown, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_border_width(rown, 0, LV_PART_MAIN);
+        _btn_rescan = add_footer_button(rown, "Rescan", pal, on_btn_rescan, this);
+        _btn_cancel_scan = add_footer_button(rown, "Cancel", pal, on_btn_cancel_scan, this);
+        _btn_back_net    = add_footer_button(rown, "Home", pal, on_btn_back_net, this);
+        wifi_apply_button_role(_btn_rescan, pal, WifiBtnRole::Primary);
+        wifi_apply_button_role(_btn_cancel_scan, pal, WifiBtnRole::Secondary);
+        wifi_apply_button_role(_btn_back_net, pal, WifiBtnRole::Ghost);
+    }
 
     // Wi-Fi 4A: Password panel / панель пароля (UI only).
     _hdr_pass = lv_label_create(_panel_pass);
-    lv_label_set_text(_hdr_pass, "Wi-Fi password");
+    lv_label_set_text(_hdr_pass, "Wi-Fi Setup");
     lv_obj_set_style_text_color(_hdr_pass, pal.text_primary, LV_PART_MAIN);
-    if (LV_ACTIVE_PROFILE.font_header) {
-        lv_obj_set_style_text_font(_hdr_pass, static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_header), LV_PART_MAIN);
-    }
+    wifi_set_font(_hdr_pass, wifi_title_font_slot());
 
     _lbl_pass_ssid = lv_label_create(_panel_pass);
     lv_label_set_text(_lbl_pass_ssid, " ");
     lv_obj_set_style_text_color(_lbl_pass_ssid, pal.text_primary, LV_PART_MAIN);
-    if (LV_ACTIVE_PROFILE.font_normal) {
-        lv_obj_set_style_text_font(_lbl_pass_ssid, static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_normal), LV_PART_MAIN);
-    }
+    wifi_set_font(_lbl_pass_ssid, wifi_body_font_slot());
     lv_label_set_long_mode(_lbl_pass_ssid, LV_LABEL_LONG_DOT);
     lv_obj_set_width(_lbl_pass_ssid, LV_PCT(100));
 
     _lbl_pass_hint = lv_label_create(_panel_pass);
     lv_label_set_text(
         _lbl_pass_hint,
-        "Connect may disconnect current Wi-Fi (explicit) / подключение может разорвать текущий Wi-Fi (явное действие)");
+        "Enter the password for the selected network.");
     lv_obj_set_style_text_color(_lbl_pass_hint, pal.text_secondary, LV_PART_MAIN);
-    if (LV_ACTIVE_PROFILE.font_small) {
-        lv_obj_set_style_text_font(_lbl_pass_hint, static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_small), LV_PART_MAIN);
-    }
+    wifi_set_font(_lbl_pass_hint, wifi_status_font_slot());
     lv_label_set_long_mode(_lbl_pass_hint, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(_lbl_pass_hint, LV_PCT(100));
 
     _ta_password = lv_textarea_create(_panel_pass);
     lv_obj_set_width(_ta_password, LV_PCT(100));
-    lv_obj_set_style_min_height(_ta_password, 44, LV_PART_MAIN);
+    lv_obj_set_style_min_height(_ta_password, (LV_ACTIVE_PROFILE.width <= 320u) ? 46 : 50, LV_PART_MAIN);
     lv_textarea_set_one_line(_ta_password, true);
     lv_textarea_set_max_length(_ta_password, kPasswordMaxInputChars);
     lv_textarea_set_password_mode(_ta_password, true);
-    lv_obj_set_style_text_color(_ta_password, pal.text_primary, LV_PART_MAIN | LV_STATE_DEFAULT);
-    if (LV_ACTIVE_PROFILE.font_normal) {
-        lv_obj_set_style_text_font(_ta_password, static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_normal),
-                                   LV_PART_MAIN | LV_STATE_DEFAULT);
-    }
+    lv_obj_set_style_text_color(_ta_password, pal.text_primary, wifi_sel(LV_PART_MAIN, LV_STATE_DEFAULT));
+    wifi_set_font(_ta_password, wifi_body_font_slot());
+    // S6V11A-icons3: small radius on TA — cheaper rounded masks than theme default / меньше маска скругления
+    lv_obj_set_style_radius(_ta_password, 4, LV_PART_MAIN);
     lv_obj_add_event_cb(_ta_password, on_ta_password_changed, LV_EVENT_VALUE_CHANGED, this);
 
     lv_obj_t* rowp = lv_obj_create(_panel_pass);
-    lv_obj_set_width(rowp, LV_PCT(100));
-    lv_obj_set_height(rowp, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(rowp, LV_FLEX_FLOW_ROW);
-    lv_obj_set_style_pad_column(rowp, 8, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(rowp, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_border_width(rowp, 0, LV_PART_MAIN);
+    if (rowp) {
+        lv_obj_set_width(rowp, LV_PCT(100));
+        lv_obj_set_height(rowp, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(rowp, LV_FLEX_FLOW_ROW);
+        lv_obj_set_style_pad_column(rowp, 10, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(rowp, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_border_width(rowp, 0, LV_PART_MAIN);
 
-    _btn_connect = lv_btn_create(rowp);
-    if (_btn_connect) {
-        lv_obj_set_flex_grow(_btn_connect, 1);
-        lv_obj_set_style_min_height(_btn_connect, 44, LV_PART_MAIN);
-        wifi_flow_set_state_if_changed(_btn_connect, LV_STATE_DISABLED, true, WifiFlowDiagBtnSlot::PassConnect);
-        lv_obj_add_event_cb(_btn_connect, on_btn_connect, LV_EVENT_CLICKED, this);
-        lv_obj_t* lc = lv_label_create(_btn_connect);
-        lv_label_set_text(lc, "Connect");
-        lv_obj_center(lc);
-        lv_obj_set_style_text_color(lc, pal.text_secondary, LV_PART_MAIN);
-        if (LV_ACTIVE_PROFILE.font_normal) {
-            lv_obj_set_style_text_font(lc, static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_normal), LV_PART_MAIN);
+        _btn_connect = lv_btn_create(rowp);
+        if (_btn_connect) {
+            lv_obj_set_flex_grow(_btn_connect, 1);
+            wifi_apply_button_role(_btn_connect, pal, WifiBtnRole::Primary);
+            wifi_flow_set_state_if_changed(_btn_connect, LV_STATE_DISABLED, true, WifiFlowDiagBtnSlot::PassConnect);
+            lv_obj_add_event_cb(_btn_connect, on_btn_connect, LV_EVENT_CLICKED, this);
+            lv_obj_t* lc = lv_label_create(_btn_connect);
+            lv_label_set_text(lc, "Connect");
+            lv_obj_center(lc);
         }
+        _btn_back_pass = add_footer_button(rowp, "Back", pal, on_btn_back_pass, this);
+        wifi_apply_button_role(_btn_back_pass, pal, WifiBtnRole::Secondary);
     }
-    _btn_back_pass = add_footer_button(rowp, "Back", pal, on_btn_back_pass, this);
 
     _lbl_pass_status = lv_label_create(_panel_pass);
     wifi_flow_set_text_if_changed(_lbl_pass_status, " ", WifiFlowDiagTextSlot::PassStatus);
     lv_obj_set_style_text_color(_lbl_pass_status, pal.text_meta, LV_PART_MAIN);
-    if (LV_ACTIVE_PROFILE.font_small) {
-        lv_obj_set_style_text_font(_lbl_pass_status, static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_small), LV_PART_MAIN);
-    }
+    wifi_set_font(_lbl_pass_status, wifi_status_font_slot());
     lv_label_set_long_mode(_lbl_pass_status, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(_lbl_pass_status, LV_PCT(100));
 
@@ -1422,9 +1704,10 @@ void LvglWifiFlowScreen::create() {
     if (_kbd) {
         lv_obj_set_width(_kbd, LV_PCT(100));
         lv_obj_set_flex_grow(_kbd, 1);
-        lv_obj_set_style_min_height(_kbd, 120, LV_PART_MAIN);
+        lv_obj_set_style_min_height(_kbd, (LV_ACTIVE_PROFILE.width <= 320u) ? 120 : 140, LV_PART_MAIN);
         lv_keyboard_set_mode(_kbd, LV_KEYBOARD_MODE_TEXT_LOWER);
         lv_keyboard_set_textarea(_kbd, nullptr);
+        // Do not set Montserrat on _kbd — breaks LVGL symbol font on special keys / без смены шрифта клавиш
         lv_obj_add_event_cb(_kbd, on_keyboard_event, LV_EVENT_ALL, this);
     }
 
@@ -1435,59 +1718,60 @@ void LvglWifiFlowScreen::create() {
         _lbl_saved_ssid = lv_label_create(_panel_saved);
         wifi_flow_set_text_if_changed(_lbl_saved_ssid, " ", WifiFlowDiagTextSlot::None);
         lv_obj_set_style_text_color(_lbl_saved_ssid, pal.text_primary, LV_PART_MAIN);
-        if (LV_ACTIVE_PROFILE.font_header) {
-            lv_obj_set_style_text_font(_lbl_saved_ssid,
-                static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_header), LV_PART_MAIN);
-        }
+        wifi_set_font(_lbl_saved_ssid, wifi_title_font_slot());
         lv_label_set_long_mode(_lbl_saved_ssid, LV_LABEL_LONG_DOT);
         lv_obj_set_width(_lbl_saved_ssid, LV_PCT(100));
 
         _lbl_saved_sub = lv_label_create(_panel_saved);
         lv_label_set_text(_lbl_saved_sub, "Saved network. Use saved password or change it.");
         lv_obj_set_style_text_color(_lbl_saved_sub, pal.text_secondary, LV_PART_MAIN);
-        if (LV_ACTIVE_PROFILE.font_small) {
-            lv_obj_set_style_text_font(_lbl_saved_sub,
-                static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_small), LV_PART_MAIN);
-        }
+        wifi_set_font(_lbl_saved_sub, wifi_status_font_slot());
         lv_label_set_long_mode(_lbl_saved_sub, LV_LABEL_LONG_WRAP);
         lv_obj_set_width(_lbl_saved_sub, LV_PCT(100));
 
         _lbl_saved_status = lv_label_create(_panel_saved);
         wifi_flow_set_text_if_changed(_lbl_saved_status, " ", WifiFlowDiagTextSlot::SavedStatus);
         lv_obj_set_style_text_color(_lbl_saved_status, pal.text_meta, LV_PART_MAIN);
-        if (LV_ACTIVE_PROFILE.font_small) {
-            lv_obj_set_style_text_font(_lbl_saved_status,
-                static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_small), LV_PART_MAIN);
-        }
+        wifi_set_font(_lbl_saved_status, wifi_status_font_slot());
         lv_label_set_long_mode(_lbl_saved_status, LV_LABEL_LONG_WRAP);
         lv_obj_set_width(_lbl_saved_status, LV_PCT(100));
 
         // Wi-Fi 6C: normal row — Connect / Chg pwd / Remove / Back / нормальный ряд действий.
         _row_saved_normal = lv_obj_create(_panel_saved);
-        lv_obj_set_width(_row_saved_normal, LV_PCT(100));
-        lv_obj_set_height(_row_saved_normal, LV_SIZE_CONTENT);
-        lv_obj_set_flex_flow(_row_saved_normal, LV_FLEX_FLOW_ROW);
-        lv_obj_set_style_pad_column(_row_saved_normal, 8, LV_PART_MAIN);
-        lv_obj_set_style_bg_opa(_row_saved_normal, LV_OPA_TRANSP, LV_PART_MAIN);
-        lv_obj_set_style_border_width(_row_saved_normal, 0, LV_PART_MAIN);
+        if (_row_saved_normal) {
+            lv_obj_set_width(_row_saved_normal, LV_PCT(100));
+            lv_obj_set_height(_row_saved_normal, LV_SIZE_CONTENT);
+            lv_obj_set_flex_flow(_row_saved_normal, LV_FLEX_FLOW_ROW);
+            lv_obj_set_style_pad_column(_row_saved_normal, 8, LV_PART_MAIN);
+            lv_obj_set_style_bg_opa(_row_saved_normal, LV_OPA_TRANSP, LV_PART_MAIN);
+            lv_obj_set_style_border_width(_row_saved_normal, 0, LV_PART_MAIN);
 
-        _btn_saved_connect = add_footer_button(_row_saved_normal, "Connect", pal, on_btn_saved_connect, this);
-        _btn_saved_chpwd   = add_footer_button(_row_saved_normal, "Chg pwd", pal, on_btn_saved_chpwd,   this);
-        _btn_saved_remove  = add_footer_button(_row_saved_normal, "Remove",  pal, on_btn_saved_remove,  this);
-        _btn_saved_back    = add_footer_button(_row_saved_normal, "Back",    pal, on_btn_saved_back,    this);
+            _btn_saved_connect = add_footer_button(_row_saved_normal, "Connect", pal, on_btn_saved_connect, this);
+            _btn_saved_chpwd   = add_footer_button(_row_saved_normal, "Chg pwd", pal, on_btn_saved_chpwd,   this);
+            _btn_saved_remove  = add_footer_button(_row_saved_normal, "Remove",  pal, on_btn_saved_remove,  this);
+            _btn_saved_back    = add_footer_button(_row_saved_normal, "Back",    pal, on_btn_saved_back,    this);
+            wifi_apply_button_role(_btn_saved_connect, pal, WifiBtnRole::Primary);
+            wifi_apply_button_role(_btn_saved_chpwd, pal, WifiBtnRole::Secondary);
+            wifi_apply_button_role(_btn_saved_remove, pal, WifiBtnRole::Destructive);
+            wifi_apply_button_role(_btn_saved_back, pal, WifiBtnRole::Ghost);
+        }
 
         // Wi-Fi 6C: confirm row — Yes / No, hidden until Remove tapped / ряд подтверждения, скрыт по умолчанию.
         _row_saved_confirm = lv_obj_create(_panel_saved);
-        lv_obj_set_width(_row_saved_confirm, LV_PCT(100));
-        lv_obj_set_height(_row_saved_confirm, LV_SIZE_CONTENT);
-        lv_obj_set_flex_flow(_row_saved_confirm, LV_FLEX_FLOW_ROW);
-        lv_obj_set_style_pad_column(_row_saved_confirm, 8, LV_PART_MAIN);
-        lv_obj_set_style_bg_opa(_row_saved_confirm, LV_OPA_TRANSP, LV_PART_MAIN);
-        lv_obj_set_style_border_width(_row_saved_confirm, 0, LV_PART_MAIN);
+        if (_row_saved_confirm) {
+            lv_obj_set_width(_row_saved_confirm, LV_PCT(100));
+            lv_obj_set_height(_row_saved_confirm, LV_SIZE_CONTENT);
+            lv_obj_set_flex_flow(_row_saved_confirm, LV_FLEX_FLOW_ROW);
+            lv_obj_set_style_pad_column(_row_saved_confirm, 8, LV_PART_MAIN);
+            lv_obj_set_style_bg_opa(_row_saved_confirm, LV_OPA_TRANSP, LV_PART_MAIN);
+            lv_obj_set_style_border_width(_row_saved_confirm, 0, LV_PART_MAIN);
 
-        _btn_saved_yes = add_footer_button(_row_saved_confirm, "Yes", pal, on_btn_saved_yes, this);
-        _btn_saved_no  = add_footer_button(_row_saved_confirm, "No",  pal, on_btn_saved_no,  this);
-        lv_obj_add_flag(_row_saved_confirm, LV_OBJ_FLAG_HIDDEN);
+            _btn_saved_yes = add_footer_button(_row_saved_confirm, "Yes", pal, on_btn_saved_yes, this);
+            _btn_saved_no  = add_footer_button(_row_saved_confirm, "No",  pal, on_btn_saved_no,  this);
+            wifi_apply_button_role(_btn_saved_yes, pal, WifiBtnRole::Destructive);
+            wifi_apply_button_role(_btn_saved_no, pal, WifiBtnRole::Secondary);
+            lv_obj_add_flag(_row_saved_confirm, LV_OBJ_FLAG_HIDDEN);
+        }
     }
 
     lv_obj_add_flag(_panel_saved, LV_OBJ_FLAG_HIDDEN);
@@ -1497,10 +1781,7 @@ void LvglWifiFlowScreen::create() {
         _hdr_hotspot = lv_label_create(_panel_hotspot);
         lv_label_set_text(_hdr_hotspot, "Open Hotspot Mode");
         lv_obj_set_style_text_color(_hdr_hotspot, pal.text_primary, LV_PART_MAIN);
-        if (LV_ACTIVE_PROFILE.font_header) {
-            lv_obj_set_style_text_font(_hdr_hotspot, static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_header),
-                                       LV_PART_MAIN);
-        }
+        wifi_set_font(_hdr_hotspot, wifi_title_font_slot());
 
         _lbl_hotspot_ssid = lv_label_create(_panel_hotspot);
         _lbl_hotspot_pwd  = lv_label_create(_panel_hotspot);
@@ -1510,13 +1791,10 @@ void LvglWifiFlowScreen::create() {
         lv_obj_set_style_text_color(_lbl_hotspot_pwd, pal.text_primary, LV_PART_MAIN);
         lv_obj_set_style_text_color(_lbl_hotspot_ip, pal.text_primary, LV_PART_MAIN);
         lv_obj_set_style_text_color(_lbl_hotspot_help, pal.text_secondary, LV_PART_MAIN);
-        if (LV_ACTIVE_PROFILE.font_small) {
-            const lv_font_t* f = static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_small);
-            lv_obj_set_style_text_font(_lbl_hotspot_ssid, f, LV_PART_MAIN);
-            lv_obj_set_style_text_font(_lbl_hotspot_pwd, f, LV_PART_MAIN);
-            lv_obj_set_style_text_font(_lbl_hotspot_ip, f, LV_PART_MAIN);
-            lv_obj_set_style_text_font(_lbl_hotspot_help, f, LV_PART_MAIN);
-        }
+        wifi_set_font(_lbl_hotspot_ssid, wifi_body_font_slot());
+        wifi_set_font(_lbl_hotspot_pwd, wifi_body_font_slot());
+        wifi_set_font(_lbl_hotspot_ip, wifi_body_font_slot());
+        wifi_set_font(_lbl_hotspot_help, wifi_status_font_slot());
         lv_label_set_long_mode(_lbl_hotspot_help, LV_LABEL_LONG_WRAP);
         lv_obj_set_width(_lbl_hotspot_ssid, LV_PCT(100));
         lv_obj_set_width(_lbl_hotspot_pwd, LV_PCT(100));
@@ -1524,13 +1802,16 @@ void LvglWifiFlowScreen::create() {
         lv_obj_set_width(_lbl_hotspot_help, LV_PCT(100));
 
         lv_obj_t* row_ap = lv_obj_create(_panel_hotspot);
-        lv_obj_set_width(row_ap, LV_PCT(100));
-        lv_obj_set_height(row_ap, LV_SIZE_CONTENT);
-        lv_obj_set_flex_flow(row_ap, LV_FLEX_FLOW_ROW);
-        lv_obj_set_style_pad_column(row_ap, 8, LV_PART_MAIN);
-        lv_obj_set_style_bg_opa(row_ap, LV_OPA_TRANSP, LV_PART_MAIN);
-        lv_obj_set_style_border_width(row_ap, 0, LV_PART_MAIN);
-        _btn_hotspot_back = add_footer_button(row_ap, "Back to Recovery", pal, on_btn_back_hotspot, this);
+        if (row_ap) {
+            lv_obj_set_width(row_ap, LV_PCT(100));
+            lv_obj_set_height(row_ap, LV_SIZE_CONTENT);
+            lv_obj_set_flex_flow(row_ap, LV_FLEX_FLOW_ROW);
+            lv_obj_set_style_pad_column(row_ap, 8, LV_PART_MAIN);
+            lv_obj_set_style_bg_opa(row_ap, LV_OPA_TRANSP, LV_PART_MAIN);
+            lv_obj_set_style_border_width(row_ap, 0, LV_PART_MAIN);
+            _btn_hotspot_back = add_footer_button(row_ap, "Back to Recovery", pal, on_btn_back_hotspot, this);
+            wifi_apply_button_role(_btn_hotspot_back, pal, WifiBtnRole::Secondary);
+        }
     }
 
     sync_hotspot_panel_labels();
@@ -1613,12 +1894,15 @@ void LvglWifiFlowScreen::destroy() {
         lv_obj_del(_screen);
         _screen = nullptr;
     }
+    // Reset shared styles after objects freed — safe before next create().
+    // Сброс общих стилей после удаления объектов — безопасно перед следующим create().
+    wifi_flow_style_drop();
     _panel_home = _panel_net = _panel_pass = _panel_saved = _panel_hotspot = nullptr;
     _hdr_home = _sub_home = _lbl_recovery_idle_countdown = _list_saved = nullptr;
     _hdr_net = _lbl_net_status = _list_scan = nullptr;
     _hdr_pass = _lbl_pass_ssid = _lbl_pass_hint = _ta_password = _lbl_pass_status = nullptr;
     _btn_connect = _btn_back_pass = _kbd = nullptr;
-    _btn_scan = _btn_back_home = _btn_rescan = _btn_cancel_scan = _btn_back_net = nullptr;
+    _btn_scan = _btn_hotspot = _btn_back_home = _btn_rescan = _btn_cancel_scan = _btn_back_net = nullptr;
     // Wi-Fi 6B: null Saved Network panel widgets / обнуляем виджеты Saved Network panel.
     _lbl_saved_ssid = _lbl_saved_sub = _lbl_saved_status = nullptr;
     _btn_saved_connect = _btn_saved_chpwd = _btn_saved_back = nullptr;

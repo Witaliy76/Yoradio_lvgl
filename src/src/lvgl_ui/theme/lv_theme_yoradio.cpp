@@ -25,8 +25,9 @@ static const YoRadioPalette kPaletteDark = {
     lv_color_hex(0xFFFFFF), // text_primary
     lv_color_hex(0x808080), // text_secondary
     lv_color_hex(0x888888), // text_meta
-    lv_color_hex(0xE7D32A), // accent
-    lv_color_hex(0x5C5010), // accent_soft
+    // S6V11-theme-A: calm cold accent / focus (was station yellow+olive) / спокойный холодный акцент
+    lv_color_hex(0x5B94C9), // accent
+    lv_color_hex(0x243A4D), // accent_soft — soft primary fill on dark / мягкая заливка на тёмном
     lv_color_hex(0x444444), // divider
     lv_color_hex(0x202020), // overlay_scrim
     // §4.2 Main / player (volume/heap colors refined 6.1D-a2)
@@ -62,6 +63,7 @@ static const YoRadioPalette kPaletteDark = {
     lv_color_hex(0x000000), // boot_background
     lv_color_hex(0xCCCCCC), // boot_status_text
     lv_color_hex(0x333333), // boot_progress_track
+    // S6V11A-themeA1: boot bar keeps heritage gold / прогресс бут — отдельно от accent
     lv_color_hex(0xE7D32A), // boot_progress_fill
 };
 

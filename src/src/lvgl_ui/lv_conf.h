@@ -158,6 +158,9 @@
 #define LV_FONT_YORA_STATUS_ICONS_18 1
 #define LV_FONT_YORA_STATUS_ICONS_20 1
 #define LV_FONT_YORA_STATUS_ICONS_22 1
+/* Tabler subset: Wi-Fi Flow header icon only — 24 px (≤320) / 36 px (480+); see lv_font_yora_wifi_flow_icons.md. */
+#define LV_FONT_YORA_WIFI_FLOW_ICONS_24 1
+#define LV_FONT_YORA_WIFI_FLOW_ICONS_36 1
 /* Tabler subset: Main weather mini OWM glyphs (fonts/lv_font_yora_weather_icons_18|20|22|24|28.c). */
 #define LV_FONT_YORA_WEATHER_ICONS_18 1
 #define LV_FONT_YORA_WEATHER_ICONS_20 1
@@ -232,6 +235,8 @@
     extern const lv_font_t lv_font_yora_status_icons_18;                                      \
     extern const lv_font_t lv_font_yora_status_icons_20;                                      \
     extern const lv_font_t lv_font_yora_status_icons_22;                                      \
+    extern const lv_font_t lv_font_yora_wifi_flow_icons_24;                                      \
+    extern const lv_font_t lv_font_yora_wifi_flow_icons_36;                                      \
     extern const lv_font_t lv_font_yora_weather_icons_18;                                      \
     extern const lv_font_t lv_font_yora_weather_icons_20;                                      \
     extern const lv_font_t lv_font_yora_weather_icons_22;                                      \
