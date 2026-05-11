@@ -6,6 +6,10 @@
 #include "netserver.h"
 #include "player.h"
 #include "mqtt.h"
+#include "freertos/semphr.h"
+#include "lwip/dns.h"
+#include "lwip/ip_addr.h"
+#include "lwip/tcpip.h"
 
 #ifndef WIFI_ATTEMPTS
   #define WIFI_ATTEMPTS  16
@@ -18,6 +22,162 @@ TaskHandle_t syncTaskHandle;
 
 bool getWeather(char *wstr);
 void doSync(void * pvParameters);
+
+static constexpr uint32_t WEATHER_FIRST_SYNC_GRACE_MS = 30000;
+static uint32_t s_weather_ready_at_ms = 0;
+
+namespace {
+SemaphoreHandle_t s_dns_mutex = nullptr;
+SemaphoreHandle_t s_dns_done = nullptr;
+
+struct DnsResolveState {
+  volatile bool waiting = false;
+  volatile uint32_t activeGeneration = 0;
+  err_t err = ERR_VAL;
+  ip_addr_t addr{};
+};
+
+DnsResolveState s_dns_state;
+uint32_t s_dns_generation = 0;
+
+SemaphoreHandle_t dnsMutex() {
+  if (!s_dns_mutex) {
+    s_dns_mutex = xSemaphoreCreateMutex();
+  }
+  return s_dns_mutex;
+}
+
+SemaphoreHandle_t dnsDoneSemaphore() {
+  if (!s_dns_done) {
+    s_dns_done = xSemaphoreCreateBinary();
+  }
+  return s_dns_done;
+}
+
+uint32_t nextDnsGeneration() {
+  s_dns_generation++;
+  if (s_dns_generation == 0) {
+    s_dns_generation = 1;
+  }
+  return s_dns_generation;
+}
+
+void dnsFoundCallback(const char*, const ip_addr_t* ipaddr, void* arg) {
+  const uint32_t callbackGeneration = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(arg));
+  if (callbackGeneration == 0) return;
+  if (!s_dns_state.waiting || callbackGeneration != s_dns_state.activeGeneration) {
+    return;
+  }
+  if (ipaddr && IP_IS_V4(ipaddr)) {
+    s_dns_state.addr = *ipaddr;
+    s_dns_state.err = ERR_OK;
+  } else {
+    s_dns_state.err = ERR_VAL;
+  }
+  s_dns_state.waiting = false;
+  if (s_dns_done) {
+    xSemaphoreGive(s_dns_done);
+  }
+}
+
+bool ipAddrToArduino(const ip_addr_t& src, IPAddress& out) {
+  if (!IP_IS_V4_VAL(src)) return false;
+  const uint32_t raw = ip_addr_get_ip4_u32(&src);
+  if (raw == 0U) return false;
+  out = IPAddress(raw);
+  return true;
+}
+} // namespace
+
+bool networkResolveHostForConnect(const char* host, IPAddress& out, uint32_t timeoutMs) {
+  out = static_cast<uint32_t>(0);
+  if (!host || host[0] == '\0') return false;
+
+  IPAddress literal;
+  if (literal.fromString(host)) {
+    out = literal;
+    return true;
+  }
+
+  if (network.status != CONNECTED || WiFi.status() != WL_CONNECTED) {
+    return false;
+  }
+
+  SemaphoreHandle_t mutex = dnsMutex();
+  SemaphoreHandle_t done = dnsDoneSemaphore();
+  if (!mutex || !done) return false;
+
+  const TickType_t waitTicks = pdMS_TO_TICKS(timeoutMs);
+  if (xSemaphoreTake(mutex, waitTicks) != pdTRUE) {
+    Serial.printf("[DNS] resolve busy: %s\n", host);
+    return false;
+  }
+
+  while (xSemaphoreTake(done, 0) == pdTRUE) {}
+
+  const uint32_t generation = nextDnsGeneration();
+
+  s_dns_state.waiting = true;
+  s_dns_state.activeGeneration = generation;
+  s_dns_state.err = ERR_INPROGRESS;
+  ip_addr_set_zero_ip4(&s_dns_state.addr);
+
+  ip_addr_t resolved{};
+  err_t err;
+#if LWIP_TCPIP_CORE_LOCKING
+  LOCK_TCPIP_CORE();
+#endif
+  // Start raw lwIP DNS under the TCPIP core lock; wait for async answer after unlocking.
+  // Запуск raw DNS под core-lock; ожидание ответа уже без блокировки TCPIP core.
+  err = dns_gethostbyname_addrtype(host, &resolved, dnsFoundCallback,
+                                   reinterpret_cast<void*>(static_cast<uintptr_t>(generation)),
+                                   LWIP_DNS_ADDRTYPE_IPV4);
+#if LWIP_TCPIP_CORE_LOCKING
+  UNLOCK_TCPIP_CORE();
+#endif
+
+  bool ok = false;
+  if (err == ERR_OK) {
+    s_dns_state.waiting = false;
+    s_dns_state.activeGeneration = 0;
+    ok = ipAddrToArduino(resolved, out);
+  } else if (err == ERR_INPROGRESS) {
+    if (xSemaphoreTake(done, waitTicks) == pdTRUE && s_dns_state.err == ERR_OK) {
+      ok = ipAddrToArduino(s_dns_state.addr, out);
+      s_dns_state.activeGeneration = 0;
+    } else {
+      // Timeout: retire this generation; late callback is ignored by generation check.
+      // Timeout: поколение помечено stale; поздний callback не тронет новый resolve.
+      s_dns_state.waiting = false;
+      s_dns_state.activeGeneration = 0;
+    }
+  } else {
+    s_dns_state.waiting = false;
+    s_dns_state.activeGeneration = 0;
+  }
+
+  if (!ok) {
+    Serial.printf("[DNS] resolve failed: %s err=%d\n", host, (int)(err == ERR_INPROGRESS ? s_dns_state.err : err));
+  }
+  xSemaphoreGive(mutex);
+  return ok;
+}
+
+static void markWeatherReadyAfterConnect() {
+  s_weather_ready_at_ms = millis() + WEATHER_FIRST_SYNC_GRACE_MS;
+}
+
+static bool isWeatherEnabledForSync() {
+  return network.weatherBuf != nullptr &&
+         config.store.showweather &&
+         strlen(config.store.weatherkey) != 0 &&
+         network.status == CONNECTED;
+}
+
+static bool isWeatherGraceElapsed() {
+  return s_weather_ready_at_ms != 0 &&
+         (int32_t)(millis() - s_weather_ready_at_ms) >= 0;
+}
 
 void ticks() {
   if(!display.ready()) return; //waiting for SD is ready
@@ -37,7 +197,12 @@ void ticks() {
   weatherSyncTicks++;
   divrssi = !divrssi;
   if(network.status == CONNECTED){
-    if(network.forceTimeSync || network.forceWeather){
+    const bool weatherEnabled = isWeatherEnabledForSync();
+    if (!weatherEnabled) {
+      network.forceWeather = false;
+    }
+    const bool weatherSyncReady = network.forceWeather && weatherEnabled && isWeatherGraceElapsed();
+    if(network.forceTimeSync || weatherSyncReady){
       xTaskCreatePinnedToCore(doSync, "doSync", 1024 * 4, NULL, 0, &syncTaskHandle, 0);
     }
     if(timeSyncTicks >= timeSyncInterval){
@@ -46,7 +211,11 @@ void ticks() {
     }
     if(weatherSyncTicks >= weatherSyncInterval){
       weatherSyncTicks=0;
-      network.forceWeather = true;
+      if (weatherEnabled) {
+        network.forceWeather = true;
+      } else {
+        network.forceWeather = false;
+      }
     }
   }
 #ifndef DSP_LCD
@@ -108,6 +277,7 @@ void ticks() {
 void MyNetwork::WiFiReconnected(WiFiEvent_t event, WiFiEventInfo_t info){
   network.beginReconnect = false;
   network.runtimeReconnectSuspendedForSetup = false;
+  markWeatherReadyAfterConnect();
   player.lockOutput = false;
   delay(100);
   display.putRequest(NEWMODE, PLAYER);
@@ -228,6 +398,8 @@ void searchWiFi(void * pvParameters){
     netserver.begin(true);
     telnet.begin(true);
     network.setWifiParams();
+    markWeatherReadyAfterConnect();
+    network.forceWeather = isWeatherEnabledForSync();
     display.putRequest(NEWIP, 0);
   }
   vTaskDelete( NULL );
@@ -240,7 +412,8 @@ void MyNetwork::begin() {
   runtimeReconnectSuspendedForSetup = false;
   config.initNetwork();
   ctimer.detach();
-  forceTimeSync = forceWeather = true;
+  forceTimeSync = true;
+  forceWeather = false;
   if (config.ssidsCount == 0 || DBGAP) {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     if (!DBGAP) {
@@ -273,6 +446,8 @@ void MyNetwork::begin() {
     Serial.println(".");
     status = CONNECTED;
     setWifiParams();
+    markWeatherReadyAfterConnect();
+    forceWeather = isWeatherEnabledForSync();
   }else{
     status = SDREADY;
     xTaskCreatePinnedToCore(searchWiFi, "searchWiFi", 1024 * 4, NULL, 0, NULL, 0);
@@ -413,7 +588,15 @@ void doSync( void * pvParameters ) {
       }
     }
   }
-  if(network.weatherBuf && (strlen(config.store.weatherkey)!=0 && config.store.showweather) && network.forceWeather){
+  if (!isWeatherEnabledForSync()) {
+    // S6V10G: disabled weather must not reach DNS/NetworkClient path; keep time sync independent.
+    // S6V10G: при выключенной погоде не заходим в DNS/NetworkClient; синхронизация времени отдельно.
+    network.forceWeather = false;
+  } else if (!isWeatherGraceElapsed()) {
+    // S6V10H: keep first weather request pending until boot/connect pressure is over.
+    // S6V10H: первый запрос погоды ждёт grace, чтобы не пересекаться с ранним audio/Main preload.
+    network.forceWeather = true;
+  } else if(network.forceWeather){
     network.forceWeather = false;
     network.trueWeather=getWeather(network.weatherBuf);
   }
@@ -426,7 +609,7 @@ bool getWeather(char *wstr) {
   const char* host  = "api.openweathermap.org";
 
   IPAddress serverIP;
-  if (!WiFi.hostByName(host, serverIP)) {
+  if (!networkResolveHostForConnect(host, serverIP)) {
     Serial.println("##WEATHER###: DNS resolve failed");
     return false;
   }

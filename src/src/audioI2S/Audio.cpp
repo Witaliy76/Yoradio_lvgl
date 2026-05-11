@@ -18,6 +18,7 @@
 #if VS1053_CS==255
 #include "../core/config.h"
 #include "../core/mem_watchdog.h"
+#include "../core/network.h"
 #include "AudioEx.h"
 #include "aac_decoder/aac_decoder.h"
 #include "flac_decoder/flac_decoder.h"
@@ -736,7 +737,12 @@ bool Audio::connecttohost(const char* host, const char* user, const char* pwd) {
 
     AUDIO_INFO("connect to: \"%s\" on port %d path \"/%s\"", hwoe.get(), port, path.get());
     if(m_f_ssl) tlsPreconnectCleanup();
-    res = m_client->connect(hwoe.get(), port);
+    IPAddress resolvedIP;
+    if(networkResolveHostForConnect(hwoe.get(), resolvedIP, m_f_ssl ? m_timeout_ms_ssl : m_timeout_ms)) {
+        res = m_client->connect(resolvedIP, port);
+    } else {
+        res = false;
+    }
 
     m_expectedCodec = CODEC_NONE;
     m_expectedPlsFmt = FORMAT_NONE;
@@ -861,7 +867,9 @@ bool Audio::httpPrint(const char* host) {
         if(f_equal) AUDIO_INFO("The host has disconnected, reconnecting");
 
         if(m_f_ssl) tlsPreconnectCleanup();
-        if(!m_client->connect(hwoe.get(), port)) {
+        IPAddress resolvedIP;
+        if(!networkResolveHostForConnect(hwoe.get(), resolvedIP, m_f_ssl ? m_timeout_ms_ssl : m_timeout_ms) ||
+           !m_client->connect(resolvedIP, port)) {
             AUDIO_ERROR("connection lost %s", c_host.c_get());
 #ifdef MEM_WATCHDOG_AUTOREBOOT
             memWatchdog.record(MWEvent::CONN_LOST);
@@ -967,7 +975,9 @@ bool Audio::httpRange(uint32_t seek, uint32_t length){
     else        { m_client = static_cast<NetworkClient*>(&client); }
 
     if(m_f_ssl) tlsPreconnectCleanup();
-    if(!m_client->connect(hwoe.get(), port)) {
+    IPAddress resolvedIP;
+    if(!networkResolveHostForConnect(hwoe.get(), resolvedIP, m_f_ssl ? m_timeout_ms_ssl : m_timeout_ms) ||
+       !m_client->connect(resolvedIP, port)) {
         AUDIO_ERROR("connection lost %s", c_host.c_get());
 #ifdef MEM_WATCHDOG_AUTOREBOOT
         memWatchdog.record(MWEvent::CONN_LOST);

@@ -77,6 +77,7 @@ class Display {
     Ticker _returnTicker;
     uint8_t _bootStep;
     bool _suspendFlush;
+    bool _legacyPlayerWidgetsBuilt = false;
     lvgl_ui::UiBackend _activeBackend = lvgl_ui::UiBackend::LegacyCanvas;  // Stage 4.1: metadata only
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     bool _lvgl_player_handoff_pending = false;
@@ -108,6 +109,7 @@ class Display {
     void _setReturnTicker(uint8_t time_s);
     void _layoutChange(bool played);
     void _setRSSI(int rssi);
+    bool _legacyWidgetsAvailable() const;
     void _deactivateAllMeters();
     void _applyPendingAI();  // Apply pending AI interpretation when returning to PG_PLAYER
     // LVGL full-screen modes: turn off legacy pager widgets (footer/heapbar) so Canvas is LVGL-only.

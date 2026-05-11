@@ -54,6 +54,8 @@ class MyNetwork {
 
 extern MyNetwork network;
 
+bool networkResolveHostForConnect(const char* host, IPAddress& out, uint32_t timeoutMs = 5000);
+
 extern __attribute__((weak)) void network_on_connect();
 
 #endif

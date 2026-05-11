@@ -49,6 +49,8 @@ NetServer netserver;
 AsyncWebServer webserver(80);
 AsyncWebSocket websocket("/ws");
 AsyncUDP udp;
+static uint32_t s_ws_boot_guard_started_ms = 0;
+constexpr uint32_t kWsHeavyClientBootGuardMs = 12000;
 
 String processor(const String& var);
 void handleUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
@@ -91,6 +93,7 @@ bool NetServer::begin(bool quiet) {
   if(!quiet) Serial.print("##[BOOT]#\tnetserver.begin\t");
   importRequest = IMDONE;
   irRecordEnable = false;
+  s_ws_boot_guard_started_ms = millis();
   nsQueue = xQueueCreate( 20, sizeof( nsRequestParams_t ) );
   while(nsQueue==NULL){;}
   if(config.emptyFS){
@@ -310,6 +313,7 @@ static bool wsbufFormat(const char* fmt, ...) {
 static void safeWsTextAll(const char* payload) {
   if (!payload || payload[0] == '\0') return;
   if (websocket.count() == 0) return;
+  if (!websocket.availableForWriteAll()) return;
   websocket.textAll(payload);
 }
 
@@ -317,8 +321,60 @@ static void safeWsTextAll(const char* payload) {
 // Пропускаем text() если клиент уже отключился.
 static void safeWsTextClient(uint32_t clientId, const char* payload) {
   if (!payload || payload[0] == '\0') return;
-  if (!websocket.hasClient(clientId)) return;
-  websocket.text(clientId, payload);
+  AsyncWebSocketClient* client = websocket.client(clientId);
+  if (client == nullptr) return;
+  if (client->status() != WS_CONNECTED) return;
+  if (client->client() == nullptr) return;
+  if (!client->canSend()) return;
+  if (client->queueIsFull()) return;
+  if (!websocket.availableForWrite(clientId)) return;
+  client->text(payload, strlen(payload));
+}
+
+static bool isHeavyClientStateRequest(requestType_e type) {
+  switch (type) {
+    case GETMODE:
+      return false;
+    case GETINDEX:
+    case GETACTIVE:
+    case GETSYSTEM:
+    case GETSCREEN:
+    case GETTIMEZONE:
+    case GETWEATHER:
+    case GETAI:
+    case GETCONTROLS:
+    case PLAYLIST:
+    case PLAYLISTSAVED:
+    case STATION:
+    case STATIONNAME:
+    case ITEM:
+    case TITLE:
+    case VOLUME:
+    case NRSSI:
+    case BITRATE:
+    case MODE:
+    case EQUALIZER:
+    case BALANCE:
+    case SDPOS:
+    case SDLEN:
+    case SDSNUFFLE:
+    case SDINIT:
+    case GETPLAYERMODE:
+    case DSPON:
+      return true;
+    default:
+      return false;
+  }
+}
+
+static bool shouldDropEarlyClientState(requestType_e type, uint8_t clientId) {
+  if (clientId == 0) return false;
+  if (!isHeavyClientStateRequest(type)) return false;
+  if (s_ws_boot_guard_started_ms == 0) return false;
+  if ((uint32_t)(millis() - s_ws_boot_guard_started_ms) >= kWsHeavyClientBootGuardMs) return false;
+  // S6V10F: keep WebUI reachable, but drop heavy per-client initial state while boot/Main preload is still allocating.
+  // S6V10F: WebUI остаётся доступен, но тяжёлый per-client initial state дропаем во время ранних boot/Main malloc.
+  return true;
 }
 
 void NetServer::processQueue(){
@@ -327,6 +383,7 @@ void NetServer::processQueue(){
   if(xQueueReceive(nsQueue, &request, NS_QUEUE_TICKS)){
     memset(wsbuf, 0, BUFLEN * 2);
     uint8_t clientId = request.clientId;
+    if (shouldDropEarlyClientState(request.type, clientId)) return;
     switch (request.type) {
       case PLAYLIST:        getPlaylist(clientId); break;
       case PLAYLISTSAVED:   {

@@ -227,6 +227,17 @@ void Display::_deactivateLegacyPagerForLvgl() {
   }
 }
 
+bool Display::_legacyWidgetsAvailable() const {
+  // LVGL PLAYER no longer builds legacy widgets; legacy Canvas updates become no-ops.
+  // LVGL PLAYER больше не строит legacy widgets; legacy Canvas updates становятся заглушкой.
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+  if (_lvgl_player_handoff_pending || _activeBackend == lvgl_ui::UiBackend::Lvgl) {
+    return false;
+  }
+#endif
+  return _legacyPlayerWidgetsBuilt;
+}
+
 void Display::_buildPager(){
   Serial.println("[DEBUG] _buildPager() called");
   Serial.print("[DEBUG] usespectrum: ");
@@ -356,6 +367,7 @@ void Display::_buildPager(){
 #endif
 
   for(const auto& p: pages) _pager.addPage(p);
+  _legacyPlayerWidgetsBuilt = true;
 }
 
 void Display::_apScreen() {
@@ -446,13 +458,21 @@ void Display::_start() {
     //nextion.putcmd("page player");
     nextion.start();
   #endif
-  _buildPager();
+  lvgl_ui::UiBackend startBackend = lvgl_ui::getPreferredBackend(PLAYER);
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+  if (startBackend == lvgl_ui::UiBackend::Lvgl) {
+    Serial.println("[Display] Skipping legacy _buildPager for LVGL PLAYER backend");
+    _legacyPlayerWidgetsBuilt = false;
+  } else
+#endif
+  {
+    _buildPager();
+  }
   _mode = PLAYER;
   config.setTitle(const_PlReady);
 
   // Stage 5.5 guard: if PLAYER backend is LVGL, skip legacy player page setup.
   // Guard 5.5: если backend PLAYER = LVGL, пропускаем legacy подготовку страницы плейера.
-  lvgl_ui::UiBackend startBackend = lvgl_ui::getPreferredBackend(PLAYER);
   if (startBackend == lvgl_ui::UiBackend::Lvgl) {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     // Defer dismiss + Main until min Boot dwell (logo + indeterminate bar); completed in loop().
@@ -613,6 +633,7 @@ void Display::_tryCompleteLvglPlayerHandoff() {
 #endif
 
 void Display::_showDialog(const char *title){
+  if (!_legacyWidgetsAvailable()) return;
   dsp.setScrollId(NULL);
   _pager.setPage( pages[PG_DIALOG]);
   // Принудительно перерисовываем фон мета ПОСЛЕ переключения страницы (чтобы не затерся clearDsp)
@@ -748,7 +769,7 @@ void Display::_swichMode(displayMode_e newmode) {
 #else
     const bool lvgl_vol = false;
 #endif
-    if (!lvgl_vol) {
+    if (!lvgl_vol && _legacyWidgetsAvailable()) {
 #ifndef HIDE_VOLPAGE
 #ifndef HIDE_IP
         _showDialog(const_DlgVolume);
@@ -779,7 +800,7 @@ void Display::_swichMode(displayMode_e newmode) {
   if (newmode == WIFI) _showDialog(const_DlgNextion);
 #endif
   if (newmode == NUMBERS) _showDialog("");
-  if (newmode == STATIONS) {
+  if (newmode == STATIONS && _legacyWidgetsAvailable()) {
     _pager.setPage( pages[PG_PLAYLIST]);
     _plcurrent.setText("");
     currentPlItem = config.lastStation();
@@ -802,59 +823,60 @@ void Display::resetQueue(){
 }
 
 void Display::_drawPlaylist() {
+  if (!_legacyWidgetsAvailable()) return;
   dsp.drawPlaylist(currentPlItem);
   _setReturnTicker(10);
 }
 
 void Display::_drawNextStationNum(uint16_t num) {
+  if (!_legacyWidgetsAvailable()) return;
   _setReturnTicker(10);
   _meta.setText(config.stationByNum(num));
   _nums.setText(num, "%d");
 }
 
 void Display::printPLitem(uint8_t pos, const char* item, bool uppercase){
+  if (!_legacyWidgetsAvailable()) return;
   dsp.printPLitem(pos, item, _plcurrent, uppercase);
 }
 
 void Display::setAIInterpretation(const String& text) {
-  // AI interpretation widget / Виджет AI интерпретации
-  // Draw only on PG_PLAYER page, otherwise save to pending
-  if (!_ai_interpretation) return;
-  
-  // Runtime gate: если AI выключен, очищаем виджет и выходим до записи pending
-  // Runtime gate: if AI is disabled, clear widget and exit before writing pending
+  // AI interpretation: LVGL Main reads _aiPendingText via copyAIInterpretationForLvgl (DspTask).
+  // S6V10I-DIAG3: always refresh pending buffer when AI enabled; legacy Canvas only if built.
+  // AI: LVGL Main читает _aiPendingText; буфер всегда обновляем, Canvas — только если есть виджеты.
   if (!config.store.ai_enabled) {
-    _ai_interpretation->setText("");
-    _ai_interpretation->setActive(false, true);
     _aiPending = false;
     _aiPendingText[0] = '\0';
+    if (_ai_interpretation && _legacyWidgetsAvailable()) {
+      _ai_interpretation->setText("");
+      _ai_interpretation->setActive(false, true);
+    }
     return;
   }
-  
-  // Always update pending buffer
+
   const char* txt = (text.isEmpty() || text.c_str() == nullptr) ? "" : text.c_str();
   strlcpy(_aiPendingText, txt, sizeof(_aiPendingText));
   _aiPending = true;
-  
-  // Check if we're on PG_PLAYER page
-  Page* activePage = _pager.getActivePage();
-  bool isOnPlayerPage = (activePage == pages[PG_PLAYER]);
-  
-  if (!isOnPlayerPage) {
-    // Not on player page - just save to pending, don't draw
+
+  // No legacy PLAYER pager/widgets (e.g. LVGL PLAYER skipped _buildPager): data-only for LVGL
+  if (!_legacyWidgetsAvailable() || !_ai_interpretation) {
     return;
   }
-  
-  // On player page - apply text
+
+  Page* activePage = _pager.getActivePage();
+  const bool isOnPlayerPage = (activePage == pages[PG_PLAYER]);
+  if (!isOnPlayerPage) {
+    return;
+  }
+
   if (text.isEmpty()) {
-    // Clear text and hide widget
     _ai_interpretation->setText("");
-    _ai_interpretation->setActive(false, true);  // clr=true for explicit area clearing
+    _ai_interpretation->setActive(false, true);
   } else {
     _ai_interpretation->setText(text.c_str());
     _ai_interpretation->setActive(true);
   }
-  _aiPending = false;  // Clear pending flag after applying
+  _aiPending = false;
 }
 
 void Display::copyAIInterpretationForLvgl(char* buf, size_t cap) const {
@@ -995,6 +1017,14 @@ void Display::loop() {
 #endif
           break;
         case DBITRATE: {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+            if (!_legacyWidgetsAvailable()) {
+              if (_activeBackend == lvgl_ui::UiBackend::Lvgl && _mode == PLAYER) {
+                lvgl_ui::refreshMainScreen();
+              }
+              break;
+            }
+#endif
             char buf[20]; 
             snprintf(buf, 20, bitrateFmt, config.station.bitrate); 
             if(_bitrate) { _bitrate->setText(config.station.bitrate==0?"":buf); } 
@@ -1004,13 +1034,21 @@ void Display::loop() {
             } 
           }
           break;
-        case AUDIOINFO: if(_heapbar)  { _heapbar->lock(!config.store.audioinfo); _heapbar->setValue(player.inBufferFilled()); } break;
+        case AUDIOINFO:
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+          if (!_legacyWidgetsAvailable()) break;
+#endif
+          if(_heapbar)  { _heapbar->lock(!config.store.audioinfo); _heapbar->setValue(player.inBufferFilled()); }
+          break;
         case SHOWVUMETER: {
           // Переключение виджетов выполняется в _layoutChange()
           _layoutChange(player.isRunning());
           break;
         }
         case SHOWWEATHER: {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+          if (!_legacyWidgetsAvailable()) break;
+#endif
           if(_weather) _weather->lock(!config.store.showweather);
           if(!config.store.showweather){
             #ifndef HIDE_IP
@@ -1022,6 +1060,9 @@ void Display::loop() {
           break;
         }
         case NEWWEATHER: {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+          if (!_legacyWidgetsAvailable()) break;
+#endif
           if(_weather && network.weatherBuf) _weather->setText(network.weatherBuf);
           break;
         }
@@ -1086,10 +1127,16 @@ void Display::loop() {
           break;
         }
         case SDFILEINDEX: {
+          if (!_legacyWidgetsAvailable()) break;
           if(_mode == SDCHANGE) _nums.setText(request.payload, "%d");
           break;
         }
-        case DSPRSSI: if(_rssi){ _setRSSI(request.payload); } if (_heapbar && config.store.audioinfo) _heapbar->setValue(player.isRunning()?player.inBufferFilled():0); break;
+        case DSPRSSI:
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+          if (!_legacyWidgetsAvailable()) break;
+#endif
+          if(_rssi){ _setRSSI(request.payload); } if (_heapbar && config.store.audioinfo) _heapbar->setValue(player.isRunning()?player.inBufferFilled():0);
+          break;
         case PSTART: _layoutChange(true);   break;
         case PSTOP:  _layoutChange(false);  break;
         case DSP_START: 
@@ -1097,6 +1144,9 @@ void Display::loop() {
           _start();  
           break;
         case NEWIP: {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+          if (!_legacyWidgetsAvailable()) break;
+#endif
           #ifndef HIDE_IP
             if(_volip && network.status == CONNECTED) _volip->setText(WiFi.localIP().toString().c_str(), iptxtFmt);
           #endif
@@ -1206,6 +1256,7 @@ void Display::_setRSSI(int rssi) {
 }
 
 void Display::_station() {
+  if (!_legacyWidgetsAvailable()) return;
   config.vuThreshold = 0;
   _meta.setAlign(metaConf.widget.align);
   _meta.setText(config.station.name);
@@ -1224,30 +1275,33 @@ char *split(char *str, const char *delim) {
 }
 
 void Display::_title() {
-  if (strlen(config.station.title) > 0) {
-    char tmpbuf[strlen(config.station.title)+1];
-    strlcpy(tmpbuf, config.station.title, strlen(config.station.title)+1);
-    char *stitle = split(tmpbuf, " - ");
-    if(stitle && _title2){
-      _title1.setText(tmpbuf);
-      _title2->setText(stitle);
+  if (_legacyWidgetsAvailable()) {
+    if (strlen(config.station.title) > 0) {
+      char tmpbuf[strlen(config.station.title)+1];
+      strlcpy(tmpbuf, config.station.title, strlen(config.station.title)+1);
+      char *stitle = split(tmpbuf, " - ");
+      if(stitle && _title2){
+        _title1.setText(tmpbuf);
+        _title2->setText(stitle);
+      }else{
+        _title1.setText(config.station.title);
+        if(_title2) _title2->setText("");
+      }
+      /*#ifdef USE_NEXTION
+        nextion.newTitle(config.station.title);
+      #endif*/
+      
     }else{
-      _title1.setText(config.station.title);
+      _title1.setText("");
       if(_title2) _title2->setText("");
     }
-    /*#ifdef USE_NEXTION
-      nextion.newTitle(config.station.title);
-    #endif*/
-    
-  }else{
-    _title1.setText("");
-    if(_title2) _title2->setText("");
   }
   if (player_on_track_change) player_on_track_change();
   pm.on_track_change();
 }
 
 void Display::_time(bool redraw) {
+  if (!_legacyWidgetsAvailable()) return;
   
 #if LIGHT_SENSOR!=255
   if(config.store.dspon) {
@@ -1276,6 +1330,7 @@ void Display::_time(bool redraw) {
 }
 
 void Display::_volume() {
+  if (!_legacyWidgetsAvailable()) return;
   if(_volbar) _volbar->setValue(config.store.volume);
   #ifndef HIDE_VOL
     if(_voltxt) _voltxt->setText(config.store.volume, voltxtFmt);
