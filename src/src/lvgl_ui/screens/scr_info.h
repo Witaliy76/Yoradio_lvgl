@@ -17,10 +17,12 @@ public:
     void exit() override;
     void destroy() override;
     lv_obj_t* screen() override;
+    void liveReapplyTheme() override;
 
 private:
     lv_obj_t* _screen = nullptr;
     wgt_status_line::Instance _status_line{};
+    lv_obj_t* _lbl_info_title = nullptr;
 
     lv_obj_t* _val_ssid = nullptr;
     lv_obj_t* _val_ip = nullptr;

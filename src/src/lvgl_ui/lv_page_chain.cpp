@@ -296,6 +296,15 @@ void PageChain::onActivity() {
     config.screensaverPlayingTicks = SCREENSAVERSTARTUPDELAY;
 }
 
+void PageChain::reapplyThemeToCreatedPages() {
+    for (int i = 0; i < PAGE_COUNT; ++i) {
+        ILvglScreen* page = _pages[i];
+        if (!page) continue;
+        if (page->screen() == nullptr) continue;
+        page->liveReapplyTheme();
+    }
+}
+
 } // namespace lvgl_ui
 
 #endif // YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)

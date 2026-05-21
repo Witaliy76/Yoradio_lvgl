@@ -61,7 +61,11 @@ void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventTyp
 #if YORADIO_USE_LVGL
 void beginUploadBg(AsyncWebServerRequest *request);
 void handleUploadBg(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
+void beginUploadTheme(AsyncWebServerRequest* request);
+void handleUploadTheme(AsyncWebServerRequest* request, String filename, size_t index, uint8_t* data, size_t len, bool final);
+void handleRemoveThemeHttp(AsyncWebServerRequest* request);
 void handleRemoveBgHttp(AsyncWebServerRequest *request);
+void handleSetThemeHttp(AsyncWebServerRequest *request);
 // Station Art MVP: /upload_art, /remove_art, /art_status
 void beginUploadArt(AsyncWebServerRequest *request);
 void handleUploadArt(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
@@ -134,6 +138,13 @@ bool NetServer::begin(bool quiet) {
   // Main background .bin → /bg/main_{dark,light,custom}.bin (Stage 6.1F-d) / Фон Main в слоты LittleFS
   webserver.on("/upload_bg", HTTP_POST, beginUploadBg, handleUploadBg);
   webserver.on("/remove_bg", HTTP_POST, handleRemoveBgHttp);
+  // Stage 6.6R-B: runtime theme preset switch (enqueues SET_THEME_PRESET on DspTask; no LVGL here)
+  // Этап 6.6R-B: переключение пресета темы (очередь DspTask; LVGL здесь не вызывается)
+  webserver.on("/set_theme", HTTP_POST, handleSetThemeHttp);
+  // Stage 6.6R-F1: custom palette file /data/theme_custom.txt (not theme.dat)
+  // Этап 6.6R-F1: файл палитры Custom — отдельно от выбора пресета
+  webserver.on("/upload_theme", HTTP_POST, beginUploadTheme, handleUploadTheme);
+  webserver.on("/remove_theme", HTTP_POST, handleRemoveThemeHttp);
   // Station Art MVP: per-station art /logo/<key>.bin / Station Art MVP: арт станции
   webserver.on("/art_status", HTTP_GET, handleArtStatusHttp);
   webserver.on("/upload_art", HTTP_POST, beginUploadArt, handleUploadArt);
@@ -1478,7 +1489,207 @@ void handleRemoveBgHttp(AsyncWebServerRequest* request) {
   }
   request->send(200, "application/json", "{\"ok\":true}");
 }
+
+// ---------------------------------------------------------------------------
+// Stage 6.6R-F1: Custom theme palette file — POST /upload_theme, POST /remove_theme
+// /data/theme_custom.txt (key=#RRGGBB); does not change /data/theme.dat
+// ---------------------------------------------------------------------------
+static const char kThemeCustomTmpPath[] = "/data/.theme_custom.tmp";
+static const char kThemeCustomFinalPath[] = "/data/theme_custom.txt";
+static constexpr size_t kThemeCustomUploadMax = 4096u;
+
+static bool gThemeUploadArmed = false;
+static bool gThemeIoFatal = false;
+static size_t gThemeWrittenTotal = 0;
+static File gThemeUploadFile;
+
+void beginUploadTheme(AsyncWebServerRequest* request) {
+  (void)request;
+}
+
+void handleUploadTheme(AsyncWebServerRequest* request, String filename, size_t index, uint8_t* data, size_t len, bool final) {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+  if (index == 0) {
+    gThemeUploadArmed = false;
+    gThemeIoFatal = false;
+    gThemeWrittenTotal = 0;
+    if (gThemeUploadFile) {
+      gThemeUploadFile.close();
+    }
+    if (filename.length() > 0 && !filename.endsWith(".txt")) {
+      request->send(400, "application/json", "{\"ok\":false,\"error\":\"bad_extension\"}");
+      return;
+    }
+    if (LittleFS.exists(kThemeCustomTmpPath)) {
+      LittleFS.remove(kThemeCustomTmpPath);
+    }
+    gThemeUploadFile = LittleFS.open(kThemeCustomTmpPath, "w");
+    if (!gThemeUploadFile) {
+      gThemeIoFatal = true;
+    } else {
+      gThemeUploadArmed = true;
+    }
+  } else if (!gThemeUploadArmed) {
+    return;
+  }
+
+  if (gThemeIoFatal) {
+    if (final) {
+      gThemeUploadArmed = false;
+      if (gThemeUploadFile) {
+        gThemeUploadFile.close();
+      }
+      LittleFS.remove(kThemeCustomTmpPath);
+      request->send(500, "application/json", "{\"ok\":false,\"error\":\"open_failed\"}");
+    }
+    return;
+  }
+
+  if (len && gThemeUploadFile) {
+    if (gThemeWrittenTotal + len > kThemeCustomUploadMax) {
+      gThemeIoFatal = true;
+    } else {
+      const size_t n = gThemeUploadFile.write(data, len);
+      gThemeWrittenTotal += n;
+      if (n != len) {
+        gThemeIoFatal = true;
+      }
+    }
+  }
+
+  if (!final) {
+    return;
+  }
+
+  gThemeUploadArmed = false;
+  if (gThemeUploadFile) {
+    gThemeUploadFile.close();
+  }
+
+  if (gThemeIoFatal) {
+    LittleFS.remove(kThemeCustomTmpPath);
+    request->send(400, "application/json", "{\"ok\":false,\"error\":\"write_failed_or_too_large\"}");
+    gThemeIoFatal = false;
+    return;
+  }
+
+  File vf = LittleFS.open(kThemeCustomTmpPath, "r");
+  if (!vf) {
+    LittleFS.remove(kThemeCustomTmpPath);
+    request->send(500, "application/json", "{\"ok\":false,\"error\":\"read_failed\"}");
+    return;
+  }
+  const size_t sz = vf.size();
+  vf.close();
+  if (sz == 0 || sz > kThemeCustomUploadMax) {
+    LittleFS.remove(kThemeCustomTmpPath);
+    request->send(400, "application/json", "{\"ok\":false,\"error\":\"size_invalid\"}");
+    return;
+  }
+
+  if (LittleFS.exists(kThemeCustomFinalPath)) {
+    LittleFS.remove(kThemeCustomFinalPath);
+  }
+  if (!LittleFS.rename(kThemeCustomTmpPath, kThemeCustomFinalPath)) {
+    File src = LittleFS.open(kThemeCustomTmpPath, "r");
+    File dst = LittleFS.open(kThemeCustomFinalPath, "w");
+    if (!src || !dst) {
+      if (src) {
+        src.close();
+      }
+      if (dst) {
+        dst.close();
+      }
+      LittleFS.remove(kThemeCustomTmpPath);
+      request->send(500, "application/json", "{\"ok\":false,\"error\":\"commit_failed\"}");
+      return;
+    }
+    uint8_t buf[256];
+    while (src.available()) {
+      const size_t rd = src.read(buf, sizeof(buf));
+      if (rd && dst.write(buf, rd) != rd) {
+        src.close();
+        dst.close();
+        LittleFS.remove(kThemeCustomTmpPath);
+        LittleFS.remove(kThemeCustomFinalPath);
+        request->send(500, "application/json", "{\"ok\":false,\"error\":\"commit_copy\"}");
+        return;
+      }
+    }
+    src.close();
+    dst.close();
+    LittleFS.remove(kThemeCustomTmpPath);
+  }
+
+  // Stage 6.6R-F2: DspTask-only reload — NetServer does FS commit + queue (no palette parse here).
+  // Этап 6.6R-F2: парсинг/палитра только в DspTask; stats — через GET /bg_status после reload.
+  display.putRequest(CUSTOM_THEME_FILE_UPDATED, 0);
+
+  char okjson[256];
+  snprintf(okjson, sizeof(okjson),
+           "{\"ok\":true,\"path\":\"%s\",\"written_bytes\":%lu,\"final_size\":%lu,\"reload\":\"queued\"}",
+           kThemeCustomFinalPath,
+           (unsigned long)gThemeWrittenTotal,
+           (unsigned long)sz);
+  request->send(200, "application/json", okjson);
+#else
+  (void)request;
+  (void)filename;
+  (void)index;
+  (void)data;
+  (void)len;
+  if (final) {
+    request->send(501, "application/json", "{\"ok\":false,\"error\":\"lvgl_not_enabled\"}");
+  }
+#endif
+}
+
+void handleRemoveThemeHttp(AsyncWebServerRequest* request) {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+  if (LittleFS.exists(kThemeCustomFinalPath)) {
+    if (!LittleFS.remove(kThemeCustomFinalPath)) {
+      request->send(500, "application/json", "{\"ok\":false,\"error\":\"remove_failed\"}");
+      return;
+    }
+  }
+  display.putRequest(CUSTOM_THEME_FILE_UPDATED, 0);
+  request->send(200, "application/json",
+                 "{\"ok\":true,\"custom_theme_exists\":false,\"reload\":\"queued\"}");
+#else
+  (void)request;
+  request->send(501, "application/json", "{\"ok\":false,\"error\":\"lvgl_not_enabled\"}");
+#endif
+}
 #endif  // YORADIO_USE_LVGL
+
+// Stage 6.6R-B: POST /set_theme?preset=dark|light|custom — enqueue runtime preset switch on DspTask.
+// No persistence yet; reboot resets to Dark. LVGL APIs are never called here.
+// Этап 6.6R-B: поставить смену пресета темы в очередь DspTask. Без сохранения; reboot → Dark.
+void handleSetThemeHttp(AsyncWebServerRequest* request) {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+  if (!request->hasParam("preset")) {
+    request->send(400, "application/json", "{\"ok\":false,\"error\":\"missing_preset\"}");
+    return;
+  }
+  const String preset = request->getParam("preset")->value();
+  uint8_t pid = 255u;
+  if (preset == "dark")        pid = 0u;
+  else if (preset == "light")  pid = 1u;
+  else if (preset == "custom") pid = 2u;
+  if (pid > 2u) {
+    request->send(400, "application/json", "{\"ok\":false,\"error\":\"bad_preset\"}");
+    return;
+  }
+  display.putRequest(SET_THEME_PRESET, static_cast<int>(pid));
+  char buf[96];
+  snprintf(buf, sizeof(buf),
+           "{\"ok\":true,\"preset\":\"%s\",\"active_theme\":\"%s\"}",
+           preset.c_str(), preset.c_str());
+  request->send(200, "application/json", buf);
+#else
+  request->send(501, "application/json", "{\"ok\":false,\"error\":\"lvgl_not_enabled\"}");
+#endif
+}
 
 void handleBgStatusHttp(AsyncWebServerRequest* request) {
   // Main background slots on LittleFS — read-only, defensive / Слоты фона Main, только чтение
@@ -1514,18 +1725,65 @@ void handleBgStatusHttp(AsyncWebServerRequest* request) {
       break;
   }
 #endif
-  char buf[512];
+#if (YORADIO_LVGL_STAGE >= 2)
+  const lvgl_ui::ThemeCustomParseStats& cst = lvgl_ui::yoradio_theme_custom_parse_stats();
+  const bool custom_exists = lvgl_ui::yoradio_theme_custom_file_exists();
+  // FS size for WebUI — stats may lag until DspTask parses after upload (F2 dedupe).
+  // Размер с диска: applied_keys обновляется в DspTask, не в NetServer.
+  uint32_t custom_fs_size = 0u;
+  if (custom_exists && LittleFS.exists("/data/theme_custom.txt")) {
+    File cf = LittleFS.open("/data/theme_custom.txt", "r");
+    if (cf) {
+      custom_fs_size = static_cast<uint32_t>(cf.size());
+      cf.close();
+    }
+  }
+  const uint32_t custom_report_size =
+      (custom_fs_size > 0u) ? custom_fs_size : cst.file_size;
+#else
+  const bool custom_exists = false;
+#endif
+  char buf[768];
+#if (YORADIO_LVGL_STAGE >= 2)
   snprintf(buf, sizeof(buf),
            "{\"dsp_w\":%u,\"dsp_h\":%u,"
            "\"active_theme\":\"%s\","
            "\"bg_dark\":%s,\"bg_light\":%s,\"bg_custom\":%s,"
-           "\"bg_dark_size\":%lu,\"bg_light_size\":%lu,\"bg_custom_size\":%lu}",
+           "\"bg_dark_size\":%lu,\"bg_light_size\":%lu,\"bg_custom_size\":%lu,"
+           "\"custom_theme_exists\":%s,"
+           "\"custom_theme_size\":%lu,"
+           "\"custom_theme_applied_keys\":%u,"
+           "\"custom_theme_invalid_lines\":%u,"
+           "\"custom_theme_unknown_keys\":%u}",
+           (unsigned)dw, (unsigned)dh,
+           active_theme,
+           bgOk[0] ? "true" : "false",
+           bgOk[1] ? "true" : "false",
+           bgOk[2] ? "true" : "false",
+           (unsigned long)bgSz[0], (unsigned long)bgSz[1], (unsigned long)bgSz[2],
+           custom_exists ? "true" : "false",
+           (unsigned long)custom_report_size,
+           (unsigned)cst.applied_keys,
+           (unsigned)cst.invalid_lines,
+           (unsigned)cst.unknown_keys);
+#else
+  snprintf(buf, sizeof(buf),
+           "{\"dsp_w\":%u,\"dsp_h\":%u,"
+           "\"active_theme\":\"%s\","
+           "\"bg_dark\":%s,\"bg_light\":%s,\"bg_custom\":%s,"
+           "\"bg_dark_size\":%lu,\"bg_light_size\":%lu,\"bg_custom_size\":%lu,"
+           "\"custom_theme_exists\":false,"
+           "\"custom_theme_size\":0,"
+           "\"custom_theme_applied_keys\":0,"
+           "\"custom_theme_invalid_lines\":0,"
+           "\"custom_theme_unknown_keys\":0}",
            (unsigned)dw, (unsigned)dh,
            active_theme,
            bgOk[0] ? "true" : "false",
            bgOk[1] ? "true" : "false",
            bgOk[2] ? "true" : "false",
            (unsigned long)bgSz[0], (unsigned long)bgSz[1], (unsigned long)bgSz[2]);
+#endif
   request->send(200, "application/json", buf);
 #else
   request->send(200, "application/json",

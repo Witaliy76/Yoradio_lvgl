@@ -25,6 +25,11 @@ bool create(lv_obj_t* parent, Instance& out);
 // Только DspTask: Wi‑Fi, часы, погода — та же логика, что была в Main.
 void update(const Instance& inst);
 
+// Stage 6.6R-B: reapply palette colors to existing instance (DspTask only).
+// Updates icon/clock/weather text colors without layout changes.
+// Этап 6.6R-B: обновить цвета существующего экземпляра из текущей палитры (только DspTask).
+void reapplyTheme(Instance& inst);
+
 } // namespace wgt_status_line
 } // namespace lvgl_ui
 

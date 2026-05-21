@@ -16,7 +16,6 @@
 #include "Arduino.h"
 #include <cstring>
 #include "../profiles/lv_profile_select.h"
-#include "../theme/lv_theme_yoradio.h"
 #include "../assets/bootlogo_assets.h"
 
 namespace lvgl_ui {
@@ -50,6 +49,10 @@ constexpr int32_t kBarHeight = 5;
 // Ширина бегунка + длительность одного прохода LTR (ease in-out, без обратного хода — startIndeterminateAnim).
 constexpr unsigned kShuttleWidthPercent = 55;
 constexpr uint32_t kShuttleAnimMs = 1800;
+
+// Stage 6.6R-F2: Boot is branded lifecycle UI — fixed dark bg/text, not runtime theme / Boot не из yoradio_palette().
+static const lv_color_t kBootFixedBackground  = lv_color_hex(0x000000);
+static const lv_color_t kBootFixedStatusText = lv_color_hex(0xCCCCCC);
 
 // Use compact boot asset when panel width is at or below this (e.g. JC3248 320×480).
 // Компактный ассет при ширине экрана ≤ порога (JC3248 320×480).
@@ -221,11 +224,9 @@ void LvglBootScreen::create() {
     _screen = lv_obj_create(nullptr);
     if (!_screen) return;
 
-    // Stage 6.6C: themed bg + status only — track/shuttle/glow/progress stay local (accepted chrome).
-    // Этап 6.6C: только фон и статус из темы; дорожка/бегунок/glow/прогресс — локально (принятый chrome).
-    const YoRadioPalette& pal = yoradio_palette();
-
-    lv_obj_set_style_bg_color(_screen, pal.boot_background, LV_PART_MAIN);
+    // Stage 6.6R-F2: fixed dark boot — ignores Light/Custom runtime preset (logo on dark context).
+    // Этап 6.6R-F2: фиксированный тёмный Boot; track/shuttle/glow остаются локальными (принятый chrome).
+    lv_obj_set_style_bg_color(_screen, kBootFixedBackground, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(_screen, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_clear_flag(_screen, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scrollbar_mode(_screen, LV_SCROLLBAR_MODE_OFF);
@@ -280,7 +281,7 @@ void LvglBootScreen::create() {
         lv_label_set_long_mode(_lbl_status, LV_LABEL_LONG_DOT);
         lv_obj_set_scrollbar_mode(_lbl_status, LV_SCROLLBAR_MODE_OFF);
         lv_obj_set_style_text_align(_lbl_status, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-        lv_obj_set_style_text_color(_lbl_status, pal.boot_status_text, LV_PART_MAIN);
+        lv_obj_set_style_text_color(_lbl_status, kBootFixedStatusText, LV_PART_MAIN);
         boot_set_font(_lbl_status, LV_ACTIVE_PROFILE.font_header);
     }
 

@@ -513,6 +513,16 @@ static lv_obj_t* main_create_control_icon_btn(
     return btn;
 }
 
+// Stage 6.6R-B1: icon label color is set only in main_create_control_icon_btn(); reapply on theme switch.
+// Этап 6.6R-B1: цвет иконки задаётся при create(); обновляем label при liveReapplyTheme().
+static void main_reapply_control_icon_btn_fg(lv_obj_t* btn, lv_color_t fg) {
+    if (!btn) return;
+    lv_obj_t* lbl = lv_obj_get_child(btn, 0);
+    if (lbl) {
+        lv_obj_set_style_text_color(lbl, fg, LV_PART_MAIN);
+    }
+}
+
 ScreenType LvglMainScreen::screenType() const {
     return ScreenType::Page;
 }
@@ -552,6 +562,7 @@ void LvglMainScreen::_applyBgTheme(bool force) {
             _bg_psram_buf = nullptr;
             lv_img_set_src(_bg_img, nullptr);
             lv_obj_add_flag(_bg_img, LV_OBJ_FLAG_HIDDEN);
+            _syncBgImgLayout();
         }
         return; // No lv_img_set_src → no LVGL invalidation → no LFS read on next frame
     }
@@ -567,6 +578,7 @@ void LvglMainScreen::_applyBgTheme(bool force) {
     if (!LittleFS.exists(k_fs[slot])) {
         lv_img_set_src(_bg_img, nullptr);
         lv_obj_add_flag(_bg_img, LV_OBJ_FLAG_HIDDEN);
+        _syncBgImgLayout();
         return;
     }
 
@@ -578,6 +590,25 @@ void LvglMainScreen::_applyBgTheme(bool force) {
         lv_img_set_src(_bg_img, k_lvgl[slot]);
     }
     lv_obj_clear_flag(_bg_img, LV_OBJ_FLAG_HIDDEN);
+    _syncBgImgLayout();
+}
+
+void LvglMainScreen::_syncBgImgLayout() {
+    // Full-bleed bg under frame_padding: _screen has pad_all(frame_padding); LVGL child (0,0) is content origin.
+    // B1 restored size after lv_img_set_src but align(0,0) still inset ~frame_padding px — compensate here.
+    // Полноэкранный фон: pad на _screen сдвигает content area; отрицательный offset = физический (0,0).
+    if (!_screen) return;
+    const lv_coord_t W = static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.width);
+    const lv_coord_t H = static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.height);
+    const lv_coord_t frame_pad = static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.frame_padding);
+    if (_bg_img) {
+        lv_obj_set_size(_bg_img, W, H);
+        lv_obj_set_pos(_bg_img, -frame_pad, -frame_pad);
+    }
+    if (_bg_scrim) {
+        lv_obj_set_size(_bg_scrim, W, H);
+        lv_obj_set_pos(_bg_scrim, -frame_pad, -frame_pad);
+    }
 }
 
 void LvglMainScreen::create() {
@@ -609,8 +640,7 @@ void LvglMainScreen::create() {
         lv_obj_add_flag(_bg_img, LV_OBJ_FLAG_FLOATING);
         lv_obj_clear_flag(_bg_img, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_size(_bg_img, W, H);
-        lv_obj_align(_bg_img, LV_ALIGN_TOP_LEFT, 0, 0);
-        _applyBgTheme(true); // preload active theme .bin into PSRAM / предзагрузка в PSRAM
+        _applyBgTheme(true); // preload + _syncBgImgLayout() / предзагрузка + геометрия фона
 
         _bg_scrim = lv_obj_create(_screen);
         if (_bg_scrim) {
@@ -618,12 +648,12 @@ void LvglMainScreen::create() {
             lv_obj_clear_flag(_bg_scrim, LV_OBJ_FLAG_SCROLLABLE);
             lv_obj_clear_flag(_bg_scrim, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_set_size(_bg_scrim, W, H);
-            lv_obj_align(_bg_scrim, LV_ALIGN_TOP_LEFT, 0, 0);
             lv_obj_set_style_bg_color(_bg_scrim, lv_color_black(), LV_PART_MAIN);
             lv_obj_set_style_bg_opa(_bg_scrim, k_main_bg_scrim_opa_dark, LV_PART_MAIN);
             lv_obj_set_style_border_width(_bg_scrim, 0, LV_PART_MAIN);
             lv_obj_set_style_pad_all(_bg_scrim, 0, LV_PART_MAIN);
             main_sync_dark_bg_scrim(_bg_img, _bg_scrim);
+            _syncBgImgLayout();
         }
     }
 
@@ -959,7 +989,8 @@ void LvglMainScreen::create() {
         // Control band: list (left inset = pad_hor) | transport (grow, centered) | settings (right inset = pad_hor).
         // Symmetric slot widths keep the triad centered; list/settings no longer share one utility cluster.
         // Полка: list слева | транспорт по центру | settings справа; равные ширины боковых слотов — центр триады.
-        lv_obj_t* control_band = lv_obj_create(zone_bottom);
+        _control_band = lv_obj_create(zone_bottom);
+        lv_obj_t* control_band = _control_band;
         if (control_band) {
             // Shelf corner geometry — keep radius/border and rim-math in sync (glow right stop uses R−border).
             // Геометрия скругления полки — radius/border и расчёт правого inset из одних чисел.
@@ -1110,6 +1141,7 @@ void LvglMainScreen::create() {
                     18,
                     k_ctrl_pressed_opa_utility);
                 if (btn_list) {
+                    _ctrl_btn_list = btn_list;
                     lv_obj_add_event_cb(btn_list, main_utility_station_cb, LV_EVENT_CLICKED, nullptr);
                 }
             }
@@ -1143,6 +1175,7 @@ void LvglMainScreen::create() {
                     18,
                     k_ctrl_pressed_opa_transport);
                 if (btn_prev) {
+                    _ctrl_btn_prev = btn_prev;
                     lv_obj_add_event_cb(btn_prev, main_transport_prev_cb, LV_EVENT_CLICKED, nullptr);
                 }
                 lv_obj_t* btn_play = main_create_control_icon_btn(
@@ -1153,6 +1186,7 @@ void LvglMainScreen::create() {
                     18,
                     k_ctrl_pressed_opa_transport);
                 if (btn_play) {
+                    _ctrl_btn_play = btn_play;
                     lv_obj_add_event_cb(btn_play, main_transport_toggle_cb, LV_EVENT_CLICKED, nullptr);
                     // First child is the icon label — update glyph in update() when playback state changes.
                     // Первый ребёнок — label иконки; текст меняем в update() при смене PLAYING/STOPPED.
@@ -1166,6 +1200,7 @@ void LvglMainScreen::create() {
                     18,
                     k_ctrl_pressed_opa_transport);
                 if (btn_next) {
+                    _ctrl_btn_next = btn_next;
                     lv_obj_add_event_cb(btn_next, main_transport_next_cb, LV_EVENT_CLICKED, nullptr);
                 }
             }
@@ -1197,6 +1232,7 @@ void LvglMainScreen::create() {
                     18,
                     k_ctrl_pressed_opa_utility);
                 if (btn_settings) {
+                    _ctrl_btn_settings = btn_settings;
                     lv_obj_add_event_cb(btn_settings, main_utility_settings_cb, LV_EVENT_CLICKED, nullptr);
                 }
             }
@@ -1748,6 +1784,100 @@ void LvglMainScreen::update() {
     _reloadArtIfNeeded();
 }
 
+void LvglMainScreen::liveReapplyTheme() {
+    // Stage 6.6R-B: update all palette-bound and local chrome colors without recreating the screen.
+    // Called from DspTask after yoradio_theme_set_preset() + yoradio_theme_reinit().
+    // Layout/structure is preserved; only colors are updated.
+    // Known follow-up: rim glow gradient (static local in create()) is not updated here.
+    //
+    // Этап 6.6R-B: обновить palette-цвета + local chrome без пересоздания экрана.
+    // Из DspTask после смены пресета + реинит LVGL темы. Layout не меняется.
+    // Follow-up: glow-градиент (static local в create()) не обновляется.
+    if (!_screen) return;
+
+    const YoRadioPalette& pal = yoradio_palette();
+    const ThemePreset preset = yoradio_theme_active_preset();
+    const bool lightScheme = (preset == ThemePreset::Light);
+
+    // Root screen background / Фон корневого экрана
+    lv_obj_set_style_bg_color(_screen, pal.device_background, LV_PART_MAIN);
+
+    // Center text stack / Центральный стек текста
+    if (_lbl_station_name) lv_obj_set_style_text_color(_lbl_station_name, pal.station_name_text, LV_PART_MAIN);
+    if (_lbl_track)        lv_obj_set_style_text_color(_lbl_track,        pal.track_text,         LV_PART_MAIN);
+    if (_lbl_artist)       lv_obj_set_style_text_color(_lbl_artist,       pal.artist_text,        LV_PART_MAIN);
+
+    // Stream/meta row / Строка потока
+    if (_lbl_stream_info)  lv_obj_set_style_text_color(_lbl_stream_info,  pal.text_meta,          LV_PART_MAIN);
+
+    // AI line / Строка AI
+    if (_lbl_ai_line)      lv_obj_set_style_text_color(_lbl_ai_line,      pal.bottom_ai_text,     LV_PART_MAIN);
+
+    // Volume label (text_secondary; update() also does this per-tick, here for immediate visual)
+    // Vol label — text_secondary; update() синхронизирует его каждый тик, здесь — немедленно.
+    if (_lbl_volume)       lv_obj_set_style_text_color(_lbl_volume,       pal.text_secondary,     LV_PART_MAIN);
+
+    // Volume bar groove + indicator / Канавка + заливка volume bar
+    if (_bar_volume) {
+        lv_obj_set_style_bg_color(_bar_volume,   pal.volume_bar_track, LV_PART_MAIN);
+        lv_obj_set_style_border_color(_bar_volume, pal.panel_border,   LV_PART_MAIN);
+        const lv_color_t g0 = lv_color_mix(pal.volume_bar_fill, pal.volume_bar_track, LV_OPA_50);
+        lv_obj_set_style_bg_color(_bar_volume,      g0,                    LV_PART_INDICATOR);
+        lv_obj_set_style_bg_grad_color(_bar_volume, pal.volume_bar_fill,   LV_PART_INDICATOR);
+    }
+
+    // Buffer meter (lower divider) / Нижний divider/meter
+    if (_bar_buffer) {
+        lv_obj_set_style_bg_color(_bar_buffer, pal.divider,           LV_PART_MAIN);
+        lv_obj_set_style_bg_color(_bar_buffer, pal.buffer_meter_fill, LV_PART_INDICATOR);
+    }
+
+    // Volume popup (floating label during drag) / Плавающий label громкости при drag
+    if (_lbl_vol_popup) {
+        lv_obj_set_style_text_color(_lbl_vol_popup, pal.text_primary,    LV_PART_MAIN);
+        lv_obj_set_style_bg_color(_lbl_vol_popup,   pal.panel_background, LV_PART_MAIN);
+    }
+
+    // Art slot frame (Main chrome: same color family as control_band border) / Рамка арта
+    if (_art_slot) {
+        const lv_color_t frame_col = lightScheme ? lv_color_hex(0x98AAB8) : lv_color_hex(0x6B7D8F);
+        lv_obj_set_style_border_color(_art_slot, frame_col, LV_PART_MAIN);
+    }
+
+    // Control band bg/border (Main chrome — glow gradient follow-up) / Полка транспорта: bg/border
+    // Glow gradient strips not updated here (static lv_grad_dsc_t local to create()).
+    // Glow-градиент не обновляется (static local в create()) — follow-up после 6.6R-B.
+    if (_control_band) {
+        if (lightScheme) {
+            lv_obj_set_style_bg_color(_control_band,     lv_color_hex(0xDCE2E9), LV_PART_MAIN);
+            lv_obj_set_style_border_color(_control_band, lv_color_hex(0x98AAB8), LV_PART_MAIN);
+        } else {
+            lv_obj_set_style_bg_color(_control_band,     lv_color_hex(0x252D38), LV_PART_MAIN);
+            lv_obj_set_style_border_color(_control_band, lv_color_hex(0x6B7D8F), LV_PART_MAIN);
+        }
+    }
+
+    // Control icon buttons: fg was set in create() only — reapply palette text colors.
+    // Иконки полки: цвет задавался в create(); обновляем при runtime theme switch.
+    main_reapply_control_icon_btn_fg(_ctrl_btn_list,     pal.text_secondary);
+    main_reapply_control_icon_btn_fg(_ctrl_btn_prev,     pal.text_primary);
+    main_reapply_control_icon_btn_fg(_ctrl_btn_play,     pal.text_primary);
+    main_reapply_control_icon_btn_fg(_ctrl_btn_next,     pal.text_primary);
+    main_reapply_control_icon_btn_fg(_ctrl_btn_settings, pal.text_secondary);
+
+    // Status line widget colors / Цвета виджета status line
+    wgt_status_line::reapplyTheme(_status_line);
+
+    // Background image slot: reload for new preset (PSRAM free + reload from LittleFS slot).
+    // Scrim: preset-aware visibility (Dark-only; handled by main_sync_dark_bg_scrim).
+    // Фоновый слот: перезагрузить для нового пресета. Scrim: только Dark.
+    _applyBgTheme(true);
+    if (_bg_scrim) main_sync_dark_bg_scrim(_bg_img, _bg_scrim);
+
+    // Trigger full redraw / Принудительный перерисов
+    lv_obj_invalidate(_screen);
+}
+
 void LvglMainScreen::destroy() {
     // Single lv_obj_del(_screen) drops full tree; null handles to avoid stale pointers.
     // Удаляем экран целиком; обнуляем указатели.
@@ -1770,7 +1900,9 @@ void LvglMainScreen::destroy() {
     if (_bg_psram_buf) { free(_bg_psram_buf); _bg_psram_buf = nullptr; }
     _bg_img = nullptr;
     _bg_scrim = nullptr;
-    _art_slot  = nullptr; // deleted with _screen tree / удалено вместе с деревом
+    _control_band = nullptr; // deleted with _screen tree / удалено вместе с деревом
+    _ctrl_btn_list = _ctrl_btn_prev = _ctrl_btn_play = _ctrl_btn_next = _ctrl_btn_settings = nullptr;
+    _art_slot  = nullptr;
     _art_img   = nullptr;
     _cont_mid  = nullptr;
     _cont_text = nullptr;

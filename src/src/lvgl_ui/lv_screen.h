@@ -35,6 +35,11 @@ public:
     virtual void exit() = 0;
     virtual void destroy() = 0;
     virtual lv_obj_t* screen() = 0;
+
+    // Stage 6.6R-B: default no-op — screens that support live theme reapply override this.
+    // Boot / Wi-Fi Flow / Stub remain no-op (excluded from runtime theme contract).
+    // Этап 6.6R-B: заглушка; экраны с live reapply переопределяют. Boot/Wi-Fi/Stub — без реализации.
+    virtual void liveReapplyTheme() {}
 };
 
 } // namespace lvgl_ui

@@ -19,6 +19,7 @@ public:
     void exit() override;
     void destroy() override;
     lv_obj_t* screen() override;
+    void liveReapplyTheme() override;
 
 private:
     const char* _titleUtf8;

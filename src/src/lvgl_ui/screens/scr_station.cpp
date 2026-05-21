@@ -109,6 +109,19 @@ static void add_thin_divider(lv_obj_t* parent, const YoRadioPalette& pal) {
     lv_obj_clear_flag(div, LV_OBJ_FLAG_SCROLLABLE);
 }
 
+static void station_reapply_dividers(lv_obj_t* obj, const YoRadioPalette& pal) {
+    if (!obj) return;
+    const uint32_t n = lv_obj_get_child_cnt(obj);
+    for (uint32_t i = 0; i < n; ++i) {
+        lv_obj_t* ch = lv_obj_get_child(obj, i);
+        if (!ch) continue;
+        if (lv_obj_get_height(ch) == 1 && lv_obj_get_style_bg_opa(ch, LV_PART_MAIN) == LV_OPA_COVER) {
+            lv_obj_set_style_bg_color(ch, pal.divider, LV_PART_MAIN);
+        }
+        station_reapply_dividers(ch, pal);
+    }
+}
+
 } // namespace
 
 ScreenType LvglStationPage::screenType() const {
@@ -145,11 +158,11 @@ void LvglStationPage::create() {
         lv_obj_set_flex_align(header, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         style_transparent(header);
 
-        lv_obj_t* title = lv_label_create(header);
-        if (title) {
-            lv_label_set_text(title, "STATIONS");
-            station_set_font(title, reinterpret_cast<const void*>(&lv_font_yora_montserrat_20_cyr));
-            lv_obj_set_style_text_color(title, pal.text_primary, LV_PART_MAIN);
+        _lbl_title = lv_label_create(header);
+        if (_lbl_title) {
+            lv_label_set_text(_lbl_title, "STATIONS");
+            station_set_font(_lbl_title, reinterpret_cast<const void*>(&lv_font_yora_montserrat_20_cyr));
+            lv_obj_set_style_text_color(_lbl_title, pal.text_primary, LV_PART_MAIN);
         }
 
         _lbl_count = lv_label_create(header);
@@ -220,16 +233,16 @@ void LvglStationPage::create() {
             lv_obj_set_style_pad_column(hint_row, 10, LV_PART_MAIN);
             style_transparent(hint_row);
 
-            lv_obj_t* ico = lv_label_create(hint_row);
-            if (ico) {
-                lv_label_set_text(ico, station_glyph_utf8_hand_click());
-                station_set_font(ico, reinterpret_cast<const void*>(&lv_font_yora_station_icons_20));
-                lv_obj_set_style_text_color(ico, pal.text_secondary, LV_PART_MAIN);
-                lv_obj_set_style_text_align(ico, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+            _lbl_hint_icon = lv_label_create(hint_row);
+            if (_lbl_hint_icon) {
+                lv_label_set_text(_lbl_hint_icon, station_glyph_utf8_hand_click());
+                station_set_font(_lbl_hint_icon, reinterpret_cast<const void*>(&lv_font_yora_station_icons_20));
+                lv_obj_set_style_text_color(_lbl_hint_icon, pal.text_secondary, LV_PART_MAIN);
+                lv_obj_set_style_text_align(_lbl_hint_icon, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
             }
 
-            lv_obj_t* lbl_hint = lv_label_create(hint_row);
-            if (lbl_hint) {
+            _lbl_hint_text = lv_label_create(hint_row);
+            if (_lbl_hint_text) {
                 {
                     // One buffer in create() — kMetaFieldSepUtf8 matches scr_main k_meta_field_sep byte-for-byte.
                     char hint_buf[80];
@@ -238,17 +251,17 @@ void LvglStationPage::create() {
                         sizeof(hint_buf),
                         "Swipe up/down to scroll%sTap a station to play",
                         kMetaFieldSepUtf8);
-                    lv_label_set_text(lbl_hint, hint_buf);
+                    lv_label_set_text(_lbl_hint_text, hint_buf);
                 }
-                station_set_font(lbl_hint, reinterpret_cast<const void*>(&lv_font_yora_montserrat_16_cyr));
-                lv_obj_set_style_text_color(lbl_hint, pal.text_secondary, LV_PART_MAIN);
-                lv_obj_set_style_text_align(lbl_hint, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
+                station_set_font(_lbl_hint_text, reinterpret_cast<const void*>(&lv_font_yora_montserrat_16_cyr));
+                lv_obj_set_style_text_color(_lbl_hint_text, pal.text_secondary, LV_PART_MAIN);
+                lv_obj_set_style_text_align(_lbl_hint_text, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
                 // Single line: clip if band too narrow / одна строка, без переноса.
-                lv_label_set_long_mode(lbl_hint, LV_LABEL_LONG_CLIP);
+                lv_label_set_long_mode(_lbl_hint_text, LV_LABEL_LONG_CLIP);
                 const lv_coord_t max_w = static_cast<lv_coord_t>(
                     LV_ACTIVE_PROFILE.width - 2u * static_cast<uint32_t>(LV_ACTIVE_PROFILE.frame_padding) - 32 - 20 - 40);
                 if (max_w > 80) {
-                    lv_obj_set_width(lbl_hint, max_w);
+                    lv_obj_set_width(_lbl_hint_text, max_w);
                 }
             }
         }
@@ -457,11 +470,11 @@ void LvglStationPage::_layoutMarkerForCurrentStation(uint16_t current_station) {
         lv_label_set_long_mode(_current_marker, LV_LABEL_LONG_CLIP);
         lv_label_set_text(_current_marker, station_glyph_utf8_volume_2());
         station_set_font(_current_marker, reinterpret_cast<const void*>(&lv_font_yora_station_icons_22));
-        lv_obj_set_style_text_color(_current_marker, pal.accent, LV_PART_MAIN);
         lv_obj_set_style_text_align(_current_marker, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
         lv_obj_clear_flag(_current_marker, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_clear_flag(_current_marker, LV_OBJ_FLAG_CLICKABLE);
     }
+    lv_obj_set_style_text_color(_current_marker, pal.accent, LV_PART_MAIN);
     lv_obj_set_pos(_current_marker, mx, y + kMarkerY);
 
     lv_obj_move_foreground(_lbl_list);
@@ -862,13 +875,48 @@ void LvglStationPage::_releaseListTextBuffer() {
 
 void LvglStationPage::exit() {}
 
+void LvglStationPage::liveReapplyTheme() {
+    if (!_screen) return;
+
+    const YoRadioPalette& pal = yoradio_palette();
+    lv_obj_set_style_bg_color(_screen, pal.device_background, LV_PART_MAIN);
+    wgt_status_line::reapplyTheme(_status_line);
+
+    if (_lbl_title) lv_obj_set_style_text_color(_lbl_title, pal.text_primary, LV_PART_MAIN);
+    if (_lbl_count) lv_obj_set_style_text_color(_lbl_count, pal.text_secondary, LV_PART_MAIN);
+    if (_lbl_list) lv_obj_set_style_text_color(_lbl_list, pal.list_row_text, LV_PART_MAIN);
+
+    if (_hint_area) {
+        lv_obj_set_style_bg_color(_hint_area, pal.panel_background, LV_PART_MAIN);
+        lv_obj_set_style_border_color(_hint_area, pal.divider, LV_PART_MAIN);
+    }
+    if (_lbl_hint_icon) lv_obj_set_style_text_color(_lbl_hint_icon, pal.text_secondary, LV_PART_MAIN);
+    if (_lbl_hint_text) lv_obj_set_style_text_color(_lbl_hint_text, pal.text_secondary, LV_PART_MAIN);
+
+    station_reapply_dividers(_screen, pal);
+
+    // Focus/marker chrome only — positions unchanged; no list rebuild / scroll / playlist.
+    // Только цвета оверлеев; позиции и scroll не трогаем.
+    if (_focus_row_bg && station_list_adapter::is_valid_station_num(_focus_station_num)) {
+        _layoutFocusChrome(_focus_station_num);
+    }
+    if (_current_marker) {
+        lv_obj_set_style_text_color(_current_marker, pal.accent, LV_PART_MAIN);
+    }
+
+    lv_obj_invalidate(_screen);
+}
+
 void LvglStationPage::destroy() {
     if (_screen) {
         lv_obj_del(_screen);
         _screen = nullptr;
     }
     _status_line = {};
+    _lbl_title = nullptr;
     _lbl_count = nullptr;
+    _lbl_hint_icon = nullptr;
+    _lbl_hint_text = nullptr;
     _list_area = nullptr;
     _lbl_list = nullptr;
     _focus_row_bg = nullptr;

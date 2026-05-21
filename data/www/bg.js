@@ -21,6 +21,16 @@
     return root.getAttribute('data-bg-api-status') || '/bg_status';
   }
 
+  /** Cache-bust GET /bg_status after theme change / Сброс кэша после смены темы */
+  function statusUrl() {
+    var p = statusPath();
+    var sep = p.indexOf('?') >= 0 ? '&' : '?';
+    return apiBase() + p + sep + '_ts=' + Date.now();
+  }
+
+  /** Stale /bg_status must not undo a newer theme click / Защита от устаревшего active_theme */
+  var themeUiGen = 0;
+
   function uploadPath() {
     return root.getAttribute('data-bg-api-upload') || '/upload_bg';
   }
@@ -123,7 +133,7 @@
     }
   }
 
-  /** Highlight active theme preset from /bg_status.active_theme (read-only) / Активный пресет с устройства */
+  /** Highlight active theme preset from /bg_status.active_theme / Выделить активный пресет */
   function applyThemeShell(activeTheme) {
     var shell = document.getElementById('appearance-theme-shell');
     if (!shell) {
@@ -141,9 +151,276 @@
     }
   }
 
-  function refreshAppearanceFromStatus(data) {
+  /**
+   * Stage 6.6R-B: POST /set_theme?preset=... — runtime theme switch (no persistence).
+   * Этап 6.6R-B: отправить запрос смены темы; без сохранения.
+   */
+  function wireThemeSelector() {
+    var shell = document.getElementById('appearance-theme-shell');
+    if (!shell) return;
+    var opts = shell.querySelectorAll('.appearance-theme-opt');
+    var i;
+    for (i = 0; i < opts.length; i++) {
+      (function (opt) {
+        opt.addEventListener('click', function () {
+          if (opt.classList.contains('is-busy')) return;
+          var preset = opt.getAttribute('data-theme-preset');
+          if (!preset) return;
+          var gen = ++themeUiGen;
+          /* Optimistic highlight before network — fixes stale /bg_status on first click */
+          applyThemeShell(preset);
+          var all = shell.querySelectorAll('.appearance-theme-opt');
+          var j;
+          for (j = 0; j < all.length; j++) all[j].classList.add('is-busy');
+          function clearBusy() {
+            var all2 = shell.querySelectorAll('.appearance-theme-opt');
+            var k;
+            for (k = 0; k < all2.length; k++) all2[k].classList.remove('is-busy');
+          }
+          fetch(apiBase() + '/set_theme?preset=' + encodeURIComponent(preset), { method: 'POST' })
+            .then(function (r) { return r.json(); })
+            .then(function (d) {
+              if (gen !== themeUiGen) return;
+              if (d && d.ok) {
+                var confirmed = (d.active_theme || d.preset || preset);
+                applyThemeShell(String(confirmed));
+              }
+              return fetch(statusUrl(), { cache: 'no-store' })
+                .then(function (r2) { return r2.ok ? r2.json() : Promise.reject(); })
+                .then(function (data) {
+                  if (gen !== themeUiGen) return;
+                  refreshAppearanceFromStatus(data, { themeExpected: preset });
+                })
+                .catch(function () {});
+            })
+            .catch(function () {
+              if (gen !== themeUiGen) return;
+              return fetch(statusUrl(), { cache: 'no-store' })
+                .then(function (r2) { return r2.ok ? r2.json() : Promise.reject(); })
+                .then(function (data) { refreshAppearanceFromStatus(data); })
+                .catch(function () {});
+            })
+            .then(clearBusy);
+        });
+      })(opts[i]);
+    }
+  }
+
+  /** FS line: is theme_custom.txt on device? / Файл на устройстве (из /bg_status) */
+  function formatCustomThemeFsLine(data) {
+    if (!data) {
+      return 'On device: unknown';
+    }
+    /* Old www on device: /bg_status OK but this script never updates #custom-theme-fs */
+    if (typeof data.custom_theme_exists === 'undefined' && typeof data.custom_theme_applied_keys === 'undefined') {
+      return 'On device: — (run uploadfs + hard refresh; firmware may be old)';
+    }
+    var exists = data.custom_theme_exists === true || data.custom_theme_exists === 'true';
+    if (!exists) {
+      return 'On device: no file — built-in Custom palette';
+    }
+    var sz = parseInt(data.custom_theme_size, 10) || 0;
+    var applied = parseInt(data.custom_theme_applied_keys, 10) || 0;
+    var invalid = parseInt(data.custom_theme_invalid_lines, 10) || 0;
+    var unknown = parseInt(data.custom_theme_unknown_keys, 10) || 0;
+    var line = 'On device: theme_custom.txt';
+    if (sz > 0) {
+      line += ' · ' + sz + ' B';
+    }
+    if (applied > 0) {
+      line += ' · ' + applied + ' color' + (applied === 1 ? '' : 's') + ' loaded';
+    } else if (sz > 0) {
+      line += ' · applying on device (refresh in a moment)';
+    } else {
+      line += ' · no valid colors (fallback)';
+    }
+    if (invalid + unknown > 0) {
+      line += ' · ' + (invalid + unknown) + ' line(s) ignored';
+    }
+    return line;
+  }
+
+  function setCustomThemeActionStatus(text, kind) {
+    var el = document.getElementById('custom-theme-status');
+    if (!el) {
+      return;
+    }
+    el.textContent = text;
+    el.className = 'appearance-custom-theme-status' + (kind ? ' ' + kind : '');
+  }
+
+  function applyCustomThemeDeviceStatus(data, opts) {
+    opts = opts || {};
+    var fsEl = document.getElementById('custom-theme-fs');
+    if (fsEl) {
+      fsEl.textContent = formatCustomThemeFsLine(data);
+    }
+    if (opts.skipActionLine) {
+      return;
+    }
+    if (!data) {
+      setCustomThemeActionStatus('Choose a .txt file, then Upload.', '');
+      return;
+    }
+    var exists = data.custom_theme_exists === true || data.custom_theme_exists === 'true';
+    var applied = parseInt(data.custom_theme_applied_keys, 10) || 0;
+    if (exists && applied > 0) {
+      setCustomThemeActionStatus('Palette file on device. Choose file + Upload to replace.', '');
+    } else if (exists && (parseInt(data.custom_theme_size, 10) || 0) > 0) {
+      setCustomThemeActionStatus('Palette applying on device — wait or reload page.', '');
+    } else if (exists) {
+      setCustomThemeActionStatus('File on device but no valid colors — check .txt format.', 'error');
+    } else {
+      setCustomThemeActionStatus('Choose a .txt file, then Upload.', '');
+    }
+  }
+
+  function wireCustomThemeFile() {
+    var block = document.getElementById('appearance-custom-theme');
+    if (!block) {
+      return;
+    }
+    var fileInput = document.getElementById('custom-theme-file');
+    var btnChoose = document.getElementById('custom-theme-choose');
+    var btnUpload = document.getElementById('custom-theme-upload');
+    var btnRemove = document.getElementById('custom-theme-remove');
+    if (!fileInput || !btnChoose || !btnUpload || !btnRemove) {
+      return;
+    }
+    var uploadPathTheme = block.getAttribute('data-theme-upload') || '/upload_theme';
+    var removePathTheme = block.getAttribute('data-theme-remove') || '/remove_theme';
+    var pendingFile = null;
+
+    function pullStatus(opts) {
+      opts = opts || {};
+      return fetch(statusUrl())
+        .then(function (r) {
+          return r.ok ? r.json() : Promise.reject();
+        })
+        .then(function (d) {
+          refreshAppearanceFromStatus(d, opts);
+          return d;
+        });
+    }
+
+    /** After upload/remove DspTask parses async (F2) — poll until applied_keys or timeout */
+    function pullStatusAfterReload(attempt) {
+      attempt = attempt || 0;
+      return pullStatus({ skipCustomActionLine: attempt > 0 }).then(function (d) {
+        var exists = d && (d.custom_theme_exists === true || d.custom_theme_exists === 'true');
+        var applied = d ? parseInt(d.custom_theme_applied_keys, 10) || 0 : 0;
+        var sz = d ? parseInt(d.custom_theme_size, 10) || 0 : 0;
+        if (exists && applied === 0 && sz > 0 && attempt < 12) {
+          setCustomThemeActionStatus('Applying palette on device…', '');
+          return new Promise(function (resolve) {
+            setTimeout(function () {
+              resolve(pullStatusAfterReload(attempt + 1));
+            }, 200);
+          });
+        }
+        applyCustomThemeDeviceStatus(d);
+        return d;
+      });
+    }
+
+    btnChoose.addEventListener('click', function () {
+      fileInput.click();
+    });
+
+    fileInput.addEventListener('change', function () {
+      pendingFile = fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
+      btnUpload.disabled = !pendingFile;
+      if (pendingFile) {
+        setCustomThemeActionStatus('Ready to upload: ' + pendingFile.name, '');
+      } else if (fileInput.files && fileInput.files.length === 0) {
+        pullStatus().catch(function () {
+          setCustomThemeActionStatus('Choose a .txt file, then Upload.', '');
+        });
+      }
+    });
+
+    btnUpload.addEventListener('click', function () {
+      if (!pendingFile) {
+        return;
+      }
+      setCustomThemeActionStatus('Uploading to device…', '');
+      btnUpload.disabled = true;
+      var fd = new FormData();
+      fd.append('file', pendingFile, pendingFile.name || 'theme_custom.txt');
+      fetch(apiBase() + uploadPathTheme, { method: 'POST', body: fd })
+        .then(function (r) {
+          return r.text().then(function (t) {
+            return { ok: r.ok, text: t };
+          });
+        })
+        .then(function (res) {
+          var j = {};
+          try {
+            j = JSON.parse(res.text);
+          } catch (e) {}
+          if (res.ok && j.ok !== false) {
+            pendingFile = null;
+            fileInput.value = '';
+            return pullStatusAfterReload(0);
+          }
+          setCustomThemeActionStatus('Upload error: ' + (j.error || res.text || 'failed'), 'error');
+        })
+        .catch(function () {
+          setCustomThemeActionStatus('Upload error', 'error');
+        })
+        .then(function () {
+          btnUpload.disabled = !pendingFile;
+        });
+    });
+
+    btnRemove.addEventListener('click', function () {
+      setCustomThemeActionStatus('Removing file from device…', '');
+      btnRemove.disabled = true;
+      fetch(apiBase() + removePathTheme, { method: 'POST' })
+        .then(function (r) {
+          return r.text().then(function (t) {
+            return { ok: r.ok, text: t };
+          });
+        })
+        .then(function (res) {
+          var j = {};
+          try {
+            j = JSON.parse(res.text);
+          } catch (e) {}
+          if (res.ok && j.ok !== false) {
+            pendingFile = null;
+            fileInput.value = '';
+            btnUpload.disabled = true;
+            setCustomThemeActionStatus('File removed from device.', '');
+            return pullStatusAfterReload(0);
+          }
+          setCustomThemeActionStatus('Remove error: ' + (j.error || res.text || 'failed'), 'error');
+        })
+        .catch(function () {
+          setCustomThemeActionStatus('Remove error', 'error');
+        })
+        .then(function () {
+          btnRemove.disabled = false;
+        });
+    });
+  }
+
+  function refreshAppearanceFromStatus(data, opts) {
+    opts = opts || {};
     applyBgStatusToSlots(data);
-    applyThemeShell(data && data.active_theme ? String(data.active_theme) : null);
+    applyCustomThemeDeviceStatus(data, { skipActionLine: opts.skipCustomActionLine });
+    if (opts.skipTheme) {
+      return;
+    }
+    var at = data && data.active_theme ? String(data.active_theme) : null;
+    if (opts.themeExpected) {
+      /* Device may still report old preset until DspTask runs — do not revert highlight */
+      if (at === opts.themeExpected) {
+        applyThemeShell(at);
+      }
+    } else {
+      applyThemeShell(at);
+    }
   }
 
   /** Apply /bg_status JSON to all .bg-slot-fs lines / Строки FS по ответу бэкенда */
@@ -328,8 +605,10 @@
   }
 
   function init() {
+    wireThemeSelector();
+    wireCustomThemeFile();
     var dimEl = document.getElementById('bg-device-dim');
-    fetch(apiBase() + statusPath())
+    fetch(statusUrl())
       .then(function (r) {
         if (!r.ok) {
           return Promise.reject(new Error('http_' + r.status));

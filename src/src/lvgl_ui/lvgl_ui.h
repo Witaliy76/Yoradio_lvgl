@@ -59,6 +59,17 @@ void onMainBackgroundSlotCommitted(uint8_t slot);
 // Station Art MVP: после upload_art / remove_art — принудительно перезагрузить арт на Main (только DspTask).
 void onStationArtCommitted();
 
+// Stage 6.6R-B: apply runtime theme preset change (DspTask queue handler only).
+// preset_id: 0=Dark 1=Light 2=Custom (matches ThemePreset enum value).
+// Never call LVGL APIs from NetServer/WebUI — enqueue SET_THEME_PRESET instead.
+// Этап 6.6R-B: применить смену пресета темы. Только из обработчика очереди DspTask.
+void onThemePresetChanged(uint8_t preset_id);
+
+// Stage 6.6R-F1: reload /data/theme_custom.txt into runtime Custom palette (DspTask only).
+// Live LVGL reinit only when active preset is Custom; does not change theme.dat.
+// Этап 6.6R-F1: перезагрузка custom palette file; live UI только при активном Custom.
+void onCustomThemeFileUpdated();
+
 // Stage 3.2: backend selection stub (no behavior change yet).
 // Stage 3.2: заглушка выбора backend'а (без изменения поведения).
 enum class UiBackend {

@@ -65,6 +65,10 @@ public:
     void tick();
     void onActivity(); // Screensaver hook (Stage 5) / заглушка под screensaver (этап 5)
 
+    // Stage 6.6R-C: live palette on carousel pages that already called create() (screen() != nullptr).
+    // Этап 6.6R-C: live reapply темы на созданных страницах карусели.
+    void reapplyThemeToCreatedPages();
+
 private:
     enum class SpecialMode : uint8_t {
         None,

@@ -51,6 +51,18 @@ void LvglStubPage::update() {}
 
 void LvglStubPage::exit() {}
 
+void LvglStubPage::liveReapplyTheme() {
+    // Stage 6.6R-C1: colors set only in create(); PageChain calls this on runtime theme switch.
+    // Этап 6.6R-C1: цвета задавались в create(); PageChain вызывает при смене темы.
+    if (!_screen) return;
+    const YoRadioPalette& pal = yoradio_palette();
+    lv_obj_set_style_bg_color(_screen, pal.device_background, LV_PART_MAIN);
+    if (_lbl) {
+        lv_obj_set_style_text_color(_lbl, pal.text_primary, LV_PART_MAIN);
+    }
+    lv_obj_invalidate(_screen);
+}
+
 void LvglStubPage::destroy() {
     if (_screen) {
         lv_obj_del(_screen);

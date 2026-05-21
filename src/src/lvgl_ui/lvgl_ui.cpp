@@ -9,6 +9,9 @@
 
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
 #include "lvgl.h"
+#if LV_USE_PERF_MONITOR
+#include <cstring>
+#endif
 #include "esp_timer.h"
 #include "Arduino.h"
 #include "lv_page_chain.h"
@@ -154,6 +157,34 @@ static bool lvgl_page_refresh_allowed() {
     return m != SCREENBLANK && m != SCREENSAVER && m != WIFI;
 }
 
+#if LV_USE_PERF_MONITOR
+// Stock LVGL perf label uses lv_obj_align(..., LV_USE_PERF_MONITOR_POS, 0, 0) — no x/y ofs in lv_conf.
+// Move overlay right of Wi‑Fi (left status column) so it does not cover weather (right column). / Встроенный
+// perf label без смещения в lv_conf — сдвигаем вправо от Wi‑Fi, чтобы не перекрывать погоду справа.
+static void repositionBuiltinLvglPerfMonitorOnce() {
+    static bool s_done = false;
+    if (s_done) return;
+    lv_obj_t* sys = lv_layer_sys();
+    if (!sys) return;
+    const uint32_t n = lv_obj_get_child_cnt(sys);
+    for (uint32_t i = 0; i < n; ++i) {
+        lv_obj_t* ch = lv_obj_get_child(sys, i);
+        if (!ch || lv_obj_get_class(ch) != &lv_label_class) continue;
+        const char* txt = lv_label_get_text(ch);
+        if (!txt || std::strstr(txt, "FPS") == nullptr) continue;
+
+        lv_disp_t* d = lv_disp_get_default();
+        const lv_coord_t w =
+            d ? static_cast<lv_coord_t>(lv_disp_get_hor_res(d)) : static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.width);
+        const lv_coord_t x_est = (w * 12) / 100;
+        const lv_coord_t x0   = x_est > 40 ? x_est : 40;
+        lv_obj_align(ch, LV_ALIGN_TOP_LEFT, x0, 2);
+        s_done = true;
+        break;
+    }
+}
+#endif
+
 #endif
 
 void lvgl_ui::refreshInfoScreen() {
@@ -190,6 +221,61 @@ void lvgl_ui::onStationArtCommitted() {
     // Force art reload on Main after WebUI upload_art / remove_art (DspTask queue handler only).
     // Принудительная перезагрузка арта после upload_art / remove_art из обработчика очереди DspTask.
     s_main_screen.reloadStationArtFromLittlefs();
+#endif
+}
+
+void lvgl_ui::onCustomThemeFileUpdated() {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    (void)yoradio_theme_load_custom_palette_file(nullptr);
+    if (yoradio_theme_active_preset() != ThemePreset::Custom) {
+        return;
+    }
+    yoradio_theme_reinit(s_disp);
+    ensurePageChainRegistered();
+    s_page_chain.reapplyThemeToCreatedPages();
+    if (screensaverIsVisible()) {
+        screensaverHide();
+        screensaverShow();
+    }
+#else
+    (void)0;
+#endif
+}
+
+void lvgl_ui::onThemePresetChanged(uint8_t preset_id) {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    // Clamp to valid range; unknown preset falls back to Dark / Некорректный ID → Dark.
+    if (preset_id > 2u) preset_id = 0u;
+
+    const ThemePreset next = static_cast<ThemePreset>(preset_id);
+
+    // 1. Switch palette state — all subsequent yoradio_palette() calls return new preset.
+    // 1. Переключить палитру — все вызовы yoradio_palette() вернут новый пресет.
+    yoradio_theme_set_preset(next);
+
+    // Stage 6.6R-E: persist preset name to /data/theme.dat (LittleFS, not NVS/config_t).
+    // Этап 6.6R-E: сохранить пресет в /data/theme.dat.
+    (void)yoradio_theme_save_persisted_preset(next);
+
+    // 2. Reinit LVGL default theme with new accent/dark flag.
+    //    lv_theme_default_init() reuses existing allocation, resets styles, auto-propagates.
+    // 2. Пересоздать базовую тему LVGL с новым акцентом/dark-флагом.
+    //    lv_theme_default_init() переиспользует блок, сбрасывает стили, автопропагирует.
+    yoradio_theme_reinit(s_disp);
+
+    // 3. Live reapply palette-bound overrides on all created carousel pages (Main/Info/Station/…).
+    // 3. Live reapply на всех созданных страницах карусели (Main/Info/Station/…).
+    ensurePageChainRegistered();
+    s_page_chain.reapplyThemeToCreatedPages();
+
+    // 4. Screensaver: palette-safe by design (destroy+show = auto new palette); just refresh if visible.
+    // 4. Screensaver: всегда palette-safe (destroy+show = новая палитра); обновить если открыт.
+    if (screensaverIsVisible()) {
+        screensaverHide();
+        screensaverShow();
+    }
+#else
+    (void)preset_id;
 #endif
 }
 
@@ -282,6 +368,9 @@ void lvgl_ui::taskHandler() {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     s_page_chain.tick();
     lv_timer_handler();
+#if LV_USE_PERF_MONITOR
+    repositionBuiltinLvglPerfMonitorOnce();
+#endif
 #endif
 }
 

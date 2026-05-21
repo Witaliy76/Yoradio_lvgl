@@ -28,6 +28,7 @@ public:
     void exit() override;
     void destroy() override;
     lv_obj_t* screen() override;
+    void liveReapplyTheme() override;
 
     // 6.3D-b1: DspTask-only hooks from displayQueue (NEWSTATION / optional DRAWPLAYLIST).
     void refreshCurrentStationVisuals();
@@ -37,7 +38,10 @@ private:
     lv_obj_t* _screen = nullptr;
     wgt_status_line::Instance _status_line{};
 
+    lv_obj_t* _lbl_title = nullptr;
     lv_obj_t* _lbl_count = nullptr;
+    lv_obj_t* _lbl_hint_icon = nullptr;
+    lv_obj_t* _lbl_hint_text = nullptr;
     lv_obj_t* _list_area = nullptr;
     lv_obj_t* _lbl_list = nullptr;
     lv_obj_t* _focus_row_bg = nullptr;

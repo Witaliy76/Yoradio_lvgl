@@ -4,6 +4,8 @@
  * 4B: connect; 5F: status lock; 6A: save+reboot; 6B: saved panel; 6C: Remove; 6D: glitch helpers; S6V7A: Hotspot/idle AP.
  * S6V7B: open row; S6V9B: static notice; S6V9C: strict Hotspot-only SoftAP — AP starts on Hotspot page, stops on Back; S6V9H: NoNetwork UX text.
  * S6V11B-stylemem: shared lv_style_t for footer/list rows — cuts local-style heap pressure (LV_MEM_SIZE 48K).
+ * Stage 6.6R-F2: uses yoradio_palette_service() (factory Dark) — not user Custom; no liveReapplyTheme.
+ * Этап 6.6R-F2: сервисная палитра Dark; произвольный Custom не влияет на recovery UI.
  */
 
 #include "scr_wifi_flow.h"
@@ -598,7 +600,7 @@ void LvglWifiFlowScreen::sync_home_boot_failure_ui() {
     ++g_diag_sync_home_boot_failure_ui_calls;
 #endif
     if (!_sub_home) return;
-    const YoRadioPalette& pal = yoradio_palette();
+    const YoRadioPalette& pal = yoradio_palette_service();
     // Wi-Fi 6B: saved rows are interactive — remove "read-only" wording / строки кликабельны, убираем "read-only".
     if (_entered_from_boot_failure) {
         wifi_flow_set_text_if_changed(_sub_home,
@@ -683,7 +685,7 @@ void LvglWifiFlowScreen::open_saved_network(uint8_t slot) {
                                       WifiFlowDiagTextSlot::None);
     }
     if (_lbl_saved_status) {
-        const YoRadioPalette& pal = yoradio_palette();
+        const YoRadioPalette& pal = yoradio_palette_service();
         wifi_flow_set_text_if_changed(_lbl_saved_status, " ", WifiFlowDiagTextSlot::SavedStatus);
         lv_obj_set_style_text_color(_lbl_saved_status, pal.text_meta, LV_PART_MAIN);
     }
@@ -720,7 +722,7 @@ void LvglWifiFlowScreen::open_password_entry(const char* ssid_utf8) {
     lv_textarea_set_text(_ta_password, "");
     lv_keyboard_set_textarea(_kbd, _ta_password);
     if (_lbl_pass_status) {
-        const YoRadioPalette& pal = yoradio_palette();
+        const YoRadioPalette& pal = yoradio_palette_service();
         wifi_flow_set_text_if_changed(_lbl_pass_status, "Enter password / введите пароль", WifiFlowDiagTextSlot::PassStatus);
         lv_obj_set_style_text_color(_lbl_pass_status, pal.text_meta, LV_PART_MAIN);
     }
@@ -825,7 +827,7 @@ void LvglWifiFlowScreen::on_reboot_timer(lv_timer_t* t) {
 // Wi-Fi 6A: сохраняем учётные данные после успешного connect, затем перезагружаем.
 void LvglWifiFlowScreen::handle_successful_connect_persist() {
     if (!_lbl_pass_status) return;
-    const YoRadioPalette& pal = yoradio_palette();
+    const YoRadioPalette& pal = yoradio_palette_service();
 
     // Case E: SSID or candidate password does not fit legacy csv constraints.
     // Case E: SSID или пароль не проходят проверку формата legacy csv.
@@ -943,7 +945,7 @@ void LvglWifiFlowScreen::start_open_connect_from_user(const char* ssid) {
 
     WifiOpsSnapshot cur{};
     if (wifiOpsGetSnapshot(&cur) && cur.busy) {
-        const YoRadioPalette& pal = yoradio_palette();
+        const YoRadioPalette& pal = yoradio_palette_service();
         wifi_flow_set_text_if_changed(_lbl_net_status, "Wi-Fi error. Try again.", WifiFlowDiagTextSlot::NetStatus);
         lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
         memset(_selectedOpenSsid, 0, sizeof(_selectedOpenSsid));
@@ -953,7 +955,7 @@ void LvglWifiFlowScreen::start_open_connect_from_user(const char* ssid) {
     static const char kEmptyPass[] = "";
     const bool       started = wifiOpsRequestConnectWithPassword(_selectedOpenSsid, kEmptyPass, true);
     if (!started) {
-        const YoRadioPalette& pal = yoradio_palette();
+        const YoRadioPalette& pal = yoradio_palette_service();
         wifi_flow_set_text_if_changed(_lbl_net_status, "Wi-Fi error. Try again.", WifiFlowDiagTextSlot::NetStatus);
         lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
         memset(_selectedOpenSsid, 0, sizeof(_selectedOpenSsid));
@@ -961,7 +963,7 @@ void LvglWifiFlowScreen::start_open_connect_from_user(const char* ssid) {
     }
 
     _await_open_connect_ui = true;
-    const YoRadioPalette& pal = yoradio_palette();
+    const YoRadioPalette& pal = yoradio_palette_service();
     wifi_flow_set_text_if_changed(_lbl_net_status, "Connecting to open network...", WifiFlowDiagTextSlot::NetStatus);
     lv_obj_set_style_text_color(_lbl_net_status, pal.text_meta, LV_PART_MAIN);
     set_networks_panel_connecting_ui(true);
@@ -970,7 +972,7 @@ void LvglWifiFlowScreen::start_open_connect_from_user(const char* ssid) {
 // Wi-Fi S6V7B: persist open network after Success (Cases A–E) / сохранение open сети после Success.
 void LvglWifiFlowScreen::handle_open_network_success_persist() {
     if (!_lbl_net_status) return;
-    const YoRadioPalette& pal = yoradio_palette();
+    const YoRadioPalette& pal = yoradio_palette_service();
     static const char    kEmptyPass[] = "";
 
     if (!wifiCredStoreEntryFitsLegacyFile(_selectedOpenSsid, kEmptyPass)) {
@@ -1057,7 +1059,7 @@ void LvglWifiFlowScreen::handle_open_connect_finished() {
     if (!wifiOpsGetSnapshot(&snap)) return;
 
     _await_open_connect_ui = false;
-    const YoRadioPalette& pal = yoradio_palette();
+    const YoRadioPalette& pal = yoradio_palette_service();
 
     if (!_lbl_net_status) {
         set_networks_panel_connecting_ui(false);
@@ -1105,7 +1107,7 @@ void LvglWifiFlowScreen::handle_connect_finished() {
     if (!wifiOpsGetSnapshot(&snap)) return;
 
     _await_connect_ui = false;
-    const YoRadioPalette& pal = yoradio_palette();
+    const YoRadioPalette& pal = yoradio_palette_service();
     set_password_panel_connecting_ui(false);
 
     if (!_lbl_pass_status) return;
@@ -1172,7 +1174,7 @@ void LvglWifiFlowScreen::start_connect_from_user() {
 
     WifiOpsSnapshot cur{};
     if (wifiOpsGetSnapshot(&cur) && cur.busy) {
-        const YoRadioPalette& pal = yoradio_palette();
+        const YoRadioPalette& pal = yoradio_palette_service();
         wifi_flow_set_text_if_changed(_lbl_pass_status, "Wi-Fi busy / занято", WifiFlowDiagTextSlot::PassStatus);
         lv_obj_set_style_text_color(_lbl_pass_status, pal.text_secondary, LV_PART_MAIN);
         return;
@@ -1181,7 +1183,7 @@ void LvglWifiFlowScreen::start_connect_from_user() {
     const char* pw_in = lv_textarea_get_text(_ta_password);
     const size_t plen = pw_in ? strlen(pw_in) : 0U;
     if (plen < kMinPasswordLen) {
-        const YoRadioPalette& pal = yoradio_palette();
+        const YoRadioPalette& pal = yoradio_palette_service();
         wifi_flow_set_text_if_changed(_lbl_pass_status, "Min 8 characters / минимум 8 символов", WifiFlowDiagTextSlot::PassStatus);
         lv_obj_set_style_text_color(_lbl_pass_status, pal.text_secondary, LV_PART_MAIN);
         return;
@@ -1196,7 +1198,7 @@ void LvglWifiFlowScreen::start_connect_from_user() {
     const bool started = wifiOpsRequestConnectWithPassword(_selectedSsid, tmp, true);
     memset(tmp, 0, sizeof(tmp));
 
-    const YoRadioPalette& pal = yoradio_palette();
+    const YoRadioPalette& pal = yoradio_palette_service();
     if (!started) {
         memset(_connectCandidatePass, 0, sizeof(_connectCandidatePass));
         WifiOpsSnapshot after{};
@@ -1224,13 +1226,13 @@ void LvglWifiFlowScreen::start_scan_from_user() {
     WifiOpsSnapshot cur{};
     if (wifiOpsGetSnapshot(&cur) &&
         (cur.phase == WifiOpsPhase::Scanning || (cur.busy && cur.currentOp == WifiOpsOp::Scan))) {
-        const YoRadioPalette& pal = yoradio_palette();
+        const YoRadioPalette& pal = yoradio_palette_service();
         wifi_flow_set_text_if_changed(_lbl_net_status, "Scan in progress... / уже идёт", WifiFlowDiagTextSlot::NetStatus);
         lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
         return;
     }
     if (!wifiOpsRequestScan()) {
-        const YoRadioPalette& pal = yoradio_palette();
+        const YoRadioPalette& pal = yoradio_palette_service();
         wifi_flow_set_text_if_changed(_lbl_net_status, "Scan not started (busy?) / не стартовало", WifiFlowDiagTextSlot::NetStatus);
         lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
         return;
@@ -1298,7 +1300,7 @@ void LvglWifiFlowScreen::rebuild_scan_list() {
         if (!btn) {
             // Lightweight OOM guard: stop row creation gracefully / мягкий guard при нехватке памяти
             if (_lbl_net_status) {
-                const YoRadioPalette& pal = yoradio_palette();
+                const YoRadioPalette& pal = yoradio_palette_service();
                 wifi_flow_set_text_if_changed(_lbl_net_status, "UI memory low. Try Rescan.", WifiFlowDiagTextSlot::NetStatus);
                 lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
             }
@@ -1370,7 +1372,7 @@ void LvglWifiFlowScreen::start_connect_from_saved() {
     WifiOpsSnapshot cur{};
     if (wifiOpsGetSnapshot(&cur) && cur.busy) {
         if (_lbl_saved_status) {
-            const YoRadioPalette& pal = yoradio_palette();
+            const YoRadioPalette& pal = yoradio_palette_service();
             wifi_flow_set_text_if_changed(_lbl_saved_status, "Wi-Fi busy. Try again.", WifiFlowDiagTextSlot::SavedStatus);
             lv_obj_set_style_text_color(_lbl_saved_status, pal.text_secondary, LV_PART_MAIN);
             _saved_status_terminal = true;
@@ -1383,7 +1385,7 @@ void LvglWifiFlowScreen::start_connect_from_saved() {
     if (!wifiCredStoreResolvePasswordForSlot(_selectedSavedSlot, tmpPass, sizeof(tmpPass))) {
         memset(tmpPass, 0, sizeof(tmpPass));
         if (_lbl_saved_status) {
-            const YoRadioPalette& pal = yoradio_palette();
+            const YoRadioPalette& pal = yoradio_palette_service();
             wifi_flow_set_text_if_changed(_lbl_saved_status, "Wi-Fi error. Try again.", WifiFlowDiagTextSlot::SavedStatus);
             lv_obj_set_style_text_color(_lbl_saved_status, pal.text_secondary, LV_PART_MAIN);
             _saved_status_terminal = true;
@@ -1396,7 +1398,7 @@ void LvglWifiFlowScreen::start_connect_from_saved() {
 
     if (!started) {
         if (_lbl_saved_status) {
-            const YoRadioPalette& pal = yoradio_palette();
+            const YoRadioPalette& pal = yoradio_palette_service();
             wifi_flow_set_text_if_changed(_lbl_saved_status, "Wi-Fi error. Try again.", WifiFlowDiagTextSlot::SavedStatus);
             lv_obj_set_style_text_color(_lbl_saved_status, pal.text_secondary, LV_PART_MAIN);
             _saved_status_terminal = true;
@@ -1407,7 +1409,7 @@ void LvglWifiFlowScreen::start_connect_from_saved() {
     _await_saved_connect_ui = true;
     _saved_status_terminal  = false;
     if (_lbl_saved_status) {
-        const YoRadioPalette& pal = yoradio_palette();
+        const YoRadioPalette& pal = yoradio_palette_service();
         wifi_flow_set_text_if_changed(_lbl_saved_status, "Connecting...", WifiFlowDiagTextSlot::SavedStatus);
         lv_obj_set_style_text_color(_lbl_saved_status, pal.text_meta, LV_PART_MAIN);
     }
@@ -1421,7 +1423,7 @@ void LvglWifiFlowScreen::handle_saved_connect_finished() {
     if (!wifiOpsGetSnapshot(&snap)) return;
 
     _await_saved_connect_ui = false;
-    const YoRadioPalette& pal = yoradio_palette();
+    const YoRadioPalette& pal = yoradio_palette_service();
     set_saved_panel_connecting_ui(false);
 
     if (!_lbl_saved_status) return;
@@ -1479,7 +1481,7 @@ void LvglWifiFlowScreen::handle_saved_connect_finished() {
 void LvglWifiFlowScreen::create() {
     if (_screen) return;
 
-    const YoRadioPalette& pal = yoradio_palette();
+    const YoRadioPalette& pal = yoradio_palette_service();
     const int32_t         pad = static_cast<int32_t>(LV_ACTIVE_PROFILE.frame_padding);
 
     _screen = lv_obj_create(nullptr);
@@ -1928,7 +1930,7 @@ void LvglWifiFlowScreen::pollOpsSnapshot() {
 
     process_boot_idle_timer_tick();
 
-    const YoRadioPalette& pal = yoradio_palette();
+    const YoRadioPalette& pal = yoradio_palette_service();
 
     const bool pass_visible  = _panel_pass  && !lv_obj_has_flag(_panel_pass,  LV_OBJ_FLAG_HIDDEN);
     // Wi-Fi 6B: track saved panel visibility for connect polling / видимость Saved panel для polling.
@@ -2140,7 +2142,7 @@ void LvglWifiFlowScreen::on_ta_password_changed(lv_event_t* e) {
 
     const char* t = lv_textarea_get_text(self->_ta_password);
     const size_t  n = t ? strlen(t) : 0U;
-    const YoRadioPalette& pal = yoradio_palette();
+    const YoRadioPalette& pal = yoradio_palette_service();
 
     // Wi-Fi 5F: ignore one empty TA event after Success clears password / одно пустое событие после успеха.
     if (self->_skip_next_ta_pass_status_sync) {
@@ -2281,7 +2283,7 @@ void LvglWifiFlowScreen::on_btn_saved_remove(lv_event_t* e) {
 
     self->_remove_confirm_pending = true;
     if (self->_lbl_saved_status) {
-        const YoRadioPalette& pal = yoradio_palette();
+        const YoRadioPalette& pal = yoradio_palette_service();
         char msg[80];
         snprintf(msg, sizeof(msg), "Remove \"%s\"? Cannot be undone.", self->_selectedSavedSsid);
         wifi_flow_set_text_if_changed(self->_lbl_saved_status, msg, WifiFlowDiagTextSlot::SavedStatus);
@@ -2300,7 +2302,7 @@ void LvglWifiFlowScreen::on_btn_saved_no(lv_event_t* e) {
     self->_remove_confirm_pending = false;
     self->_saved_status_terminal  = false;
     if (self->_lbl_saved_status) {
-        const YoRadioPalette& pal = yoradio_palette();
+        const YoRadioPalette& pal = yoradio_palette_service();
         wifi_flow_set_text_if_changed(self->_lbl_saved_status, " ", WifiFlowDiagTextSlot::SavedStatus);
         lv_obj_set_style_text_color(self->_lbl_saved_status, pal.text_meta, LV_PART_MAIN);
     }
@@ -2314,7 +2316,7 @@ void LvglWifiFlowScreen::on_btn_saved_yes(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
     if (!self) return;
-    const YoRadioPalette& pal = yoradio_palette();
+    const YoRadioPalette& pal = yoradio_palette_service();
 
     // Guard: validate slot before any mutation / проверка слота перед мутацией.
     if (self->_selectedSavedSlot == 255 ||

@@ -37,6 +37,12 @@ public:
     // Station Art MVP: после upload_art / remove_art — принудительно перезагрузить арт (только DspTask).
     void reloadStationArtFromLittlefs();
 
+    // Stage 6.6R-B: update all palette-bound colors on already-created Main (DspTask only).
+    // Does not recreate the screen; layout/structure is preserved.
+    // Glow gradient chrome is a known follow-up (static local in create()).
+    // Этап 6.6R-B: обновить palette-цвета уже созданного Main без пересоздания. Только DspTask.
+    void liveReapplyTheme() override;
+
 private:
     lv_obj_t* _screen = nullptr;
 
@@ -54,6 +60,10 @@ private:
     // Apply bg from PSRAM (force=true: reload; force=false: skip if slot unchanged and buf present).
     // Применить фон из PSRAM. force=true — перезагрузить; false — пропустить если слот и буфер не изменились.
     void _applyBgTheme(bool force);
+
+    // Stage 6.6R-B1/B2: full-bleed bg/scrim — compensate _screen frame_padding + restore size after lv_img_set_src.
+    // Этап 6.6R-B1/B2: фон на весь экран — offset −frame_padding, размер после смены src.
+    void _syncBgImgLayout();
 
     // Top status strip: Wi‑Fi + weather glance + clock (experimental). / Верх: Wi‑Fi, погода, часы.
     wgt_status_line::Instance _status_line{};
@@ -94,6 +104,20 @@ private:
     // Нижний разделитель, превращающийся в meter буфера при audioinfo == true.
     lv_obj_t* _bar_buffer = nullptr;
     lv_obj_t* _lbl_ai_line = nullptr;
+
+    // Stage 6.6R-B: control band (transport shelf) — stored for live chrome reapply.
+    // Glow gradient strips are static locals in create() — not stored; follow-up for 6.6R polish.
+    // Этап 6.6R-B: полка управления — для обновления chrome при смене темы.
+    // Glow-градиент — static local в create(); обновление — follow-up.
+    lv_obj_t* _control_band = nullptr;
+
+    // Stage 6.6R-B1: control icon buttons — colors set only in create(); reapply on theme switch.
+    // Этап 6.6R-B1: кнопки полки — цвета иконок обновляются в liveReapplyTheme().
+    lv_obj_t* _ctrl_btn_list     = nullptr;
+    lv_obj_t* _ctrl_btn_prev     = nullptr;
+    lv_obj_t* _ctrl_btn_play     = nullptr;
+    lv_obj_t* _ctrl_btn_next     = nullptr;
+    lv_obj_t* _ctrl_btn_settings = nullptr;
 
     // Left Art slot (6.1E-visual v1): hidden when no local asset (Mode A); visible when asset present (Mode B).
     // Dynamic collapse: LVGL v8 flex skips HIDDEN children — cont_text auto-expands in Mode A.

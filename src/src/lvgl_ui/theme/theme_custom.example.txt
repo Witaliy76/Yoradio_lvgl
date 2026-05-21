@@ -1,0 +1,84 @@
+# Custom theme EXAMPLE — WebUI upload, max 4096 B / пример для Upload
+# Choose file → Upload → select Custom. Canonical: src/src/lvgl_ui/theme/theme_custom.example.txt
+# theme_dark=true|false — metadata only (LVGL mode), NOT a color / не цвет
+# key=#RRGGBB — YoRadioPalette names; Custom only; does not change preset or Dark/Light
+# boot_* parsed; Boot/Wi-Fi ignore file (fixed dark / service Dark)
+theme_dark=true
+# device_background — screen backdrop / фон экрана
+device_background=#0D0221
+# panel_background — cards, panels / фон панелей
+panel_background=#1B1035
+# panel_border — panel outlines / рамки
+panel_border=#5C3D8A
+# text_primary — main titles / основной текст
+text_primary=#F5E6FF
+# text_secondary — hints / вторичный текст
+text_secondary=#B8A4D4
+# text_meta — meta captions / мета
+text_meta=#9B7EC8
+# accent — focus UI / акцент
+accent=#FF2E97
+# accent_soft — soft fills / мягкий акцент
+accent_soft=#4A1942
+# divider — separators / разделители
+divider=#3D2660
+# overlay_scrim — modal dim / затемнение
+overlay_scrim=#18082E
+# status_line_text — status row / статус-строка
+status_line_text=#D4C4F0
+# status_line_meta — status meta / мета статуса
+status_line_meta=#A78BFA
+# status_weather_icon — weather icon / погода (верх)
+status_weather_icon=#7DD3FC
+# status_weather_temp — weather temp / °C
+status_weather_temp=#5EEAD4
+# status_line_bg — status strip bg / фон статуса
+status_line_bg=#150A28
+# clock_text — Main clock / часы
+clock_text=#E9D5FF
+# live_indicator_text — LIVE / индикатор LIVE
+live_indicator_text=#FB7185
+# station_name_text — station name / станция
+station_name_text=#5EEAD4
+# artist_text — artist / исполнитель
+artist_text=#C4B5FD
+# track_text — track title / трек
+track_text=#F0ABFC
+# meta_row_text — genre/bitrate / мета-строка
+meta_row_text=#A78BFA
+# volume_bar_track — volume track / фон громкости
+volume_bar_track=#2A1445
+# volume_bar_fill — volume fill / заливка громкости
+volume_bar_fill=#A855F7
+# buffer_meter_fill — buffer meter / буфер
+buffer_meter_fill=#22D3EE
+# bottom_weather_text — bottom weather / погода внизу
+bottom_weather_text=#BAE6FD
+# bottom_ai_text — bottom AI / AI внизу
+bottom_ai_text=#DDD6FE
+# list_row_text — list row / список
+list_row_text=#EDE9FE
+# list_row_selected_bg — selected bg / выбранная строка
+list_row_selected_bg=#6D28D9
+# list_row_selected_text — selected text / текст выбранной
+list_row_selected_text=#FAF5FF
+# list_row_separator — row separator / разделитель
+list_row_separator=#4C1D95
+# overlay_card_bg — overlay card / карточка
+overlay_card_bg=#2E1065
+# overlay_title_text — overlay title / заголовок
+overlay_title_text=#F5E6FF
+# overlay_body_text — overlay body / текст
+overlay_body_text=#DDD6FE
+# screensaver_background — saver bg / заставка
+screensaver_background=#0D0221
+# screensaver_clock_text — saver clock / часы заставки
+screensaver_clock_text=#E879F9
+# boot_background — parser only / парсер (Boot fixed)
+boot_background=#0D0221
+# boot_status_text — parser only / парсер
+boot_status_text=#DDD6FE
+# boot_progress_track — parser only / парсер
+boot_progress_track=#4C1D95
+# boot_progress_fill — parser only / парсер
+boot_progress_fill=#F472B6

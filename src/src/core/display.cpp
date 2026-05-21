@@ -1167,6 +1167,22 @@ void Display::loop() {
 #endif
           break;
         }
+        case SET_THEME_PRESET: {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+          // Stage 6.6R-B: NetServer enqueued /set_theme request — apply on DspTask only (LVGL thread-safe).
+          // Этап 6.6R-B: NetServer поставил запрос /set_theme в очередь — только DspTask.
+          lvgl_ui::onThemePresetChanged(static_cast<uint8_t>(request.payload));
+#endif
+          break;
+        }
+        case CUSTOM_THEME_FILE_UPDATED: {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+          // Stage 6.6R-F1: /upload_theme or /remove_theme — reload palette + live UI if Custom active.
+          // Этап 6.6R-F1: обновление theme_custom.txt — только DspTask, без lv_* в NetServer.
+          lvgl_ui::onCustomThemeFileUpdated();
+#endif
+          break;
+        }
         default: break;
       }
     DisplayEvent evt = { request.type, &request, _mode };

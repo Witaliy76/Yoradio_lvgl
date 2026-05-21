@@ -5,18 +5,20 @@
  * Source of truth for LVGL colors lives here, not in config.theme / mytheme.h.
  * Источник цветов LVGL здесь, не в legacy theme.
  *
- * Stage 6.6A: first slice — full struct compatible with Bible token names; screens
- * use a subset. Base LVGL theme is applied once after display registration.
+ * Stage 6.6R: Dark/Light = factory const; Custom = runtime file-backed (theme_custom.txt).
+ * theme_dark is metadata in that file, NOT a struct field. Boot/Wi-Fi use fixed/service palettes.
+ * Этап 6.6R: Custom — runtime из файла; theme_dark — metadata, не поле палитры.
  */
 
 #ifndef LV_THEME_YORADIO_H
 #define LV_THEME_YORADIO_H
 
+#include <stdint.h>
 #include "lvgl.h"
 
 namespace lvgl_ui {
 
-/// Named presets / Именованные пресеты (Custom = slot for future persistence).
+/// Named presets / Именованные пресеты (Custom may load /data/theme_custom.txt at runtime).
 enum class ThemePreset : uint8_t {
     Dark = 0,
     Light = 1,
@@ -25,7 +27,9 @@ enum class ThemePreset : uint8_t {
 
 /**
  * Semantic colors aligned with docs/YoRadio_LVGL_Theme_Bible.txt §4.1–§4.6.
- * Values are filled per preset in lv_theme_yoradio.cpp (Dark / Light / Custom).
+ * Dark/Light: const factory tables. Custom: kPaletteCustomBuiltin + optional file overrides.
+ * boot_* fields exist for parser/fallback; Boot screen uses fixed dark (scr_boot.cpp), not pal.
+ * Main control-band chrome is NOT in this struct (scr_main.cpp local colors).
  */
 struct YoRadioPalette {
     // §4.1 Foundation
@@ -73,20 +77,40 @@ struct YoRadioPalette {
     lv_color_t screensaver_background;
     lv_color_t screensaver_clock_text;
 
-    // §4.6 Boot (minimal integration in later sub-stages)
+    // §4.6 Boot (parsed in custom file; runtime Boot screen is fixed dark — see scr_boot.cpp)
     lv_color_t boot_background;
     lv_color_t boot_status_text;
     lv_color_t boot_progress_track;
     lv_color_t boot_progress_fill;
 };
 
+// Stage 6.6R-F1: last parse of /data/theme_custom.txt (for WebUI /bg_status).
+// Этап 6.6R-F1: статистика последнего разбора custom theme file.
+struct ThemeCustomParseStats {
+    uint16_t applied_keys   = 0;
+    uint16_t invalid_lines  = 0;
+    uint16_t unknown_keys   = 0;
+    bool     file_exists    = false;
+    uint32_t file_size      = 0;
+};
+
 ThemePreset yoradio_theme_active_preset();
 
-/// Switch active preset (Custom may mirror Dark until storage exists). / Смена пресета.
+/// Switch active preset (persisted in /data/theme.dat from WebUI). / Смена пресета.
 void yoradio_theme_set_preset(ThemePreset p);
 
 /// Active palette for the current preset. / Активная палитра для текущего пресета.
 const YoRadioPalette& yoradio_palette();
+
+/**
+ * LVGL default-theme dark flag per preset (lv_theme_default_init).
+ * Custom: from theme_dark metadata in theme_custom.txt (default true).
+ * Тёмный режим LVGL: Custom — metadata theme_dark (по умолчанию true).
+ */
+bool yoradio_theme_is_dark(ThemePreset preset);
+
+/** Service/recovery UI palette — factory Dark, not user Custom. / Палитра сервисных экранов. */
+const YoRadioPalette& yoradio_palette_service();
 
 /**
  * Initialize default LVGL theme + YoRadio palette binding. Idempotent.
@@ -94,6 +118,29 @@ const YoRadioPalette& yoradio_palette();
  * Инициализация базовой темы LVGL; только после успешной регистрации дисплея.
  */
 void yoradio_theme_init(lv_disp_t* disp);
+
+/**
+ * Re-apply LVGL default theme with the current active preset's accent/dark flag.
+ * Safe to call repeatedly — vendored lv_theme_default_init() reuses existing allocation,
+ * resets all styles, and auto-propagates via lv_obj_report_style_change(NULL).
+ * Call only from DspTask; does not touch s_theme_inited guard.
+ *
+ * Повторная привязка базовой темы LVGL к текущему пресету — safe, без утечек.
+ * Только из DspTask. Не трогает guard первой инициализации.
+ */
+void yoradio_theme_reinit(lv_disp_t* disp);
+
+// Stage 6.6R-E: LittleFS preset persistence (/data/theme.dat) — not config_t / NVS.
+// Этап 6.6R-E: сохранение пресета в LittleFS, не config_t / NVS.
+bool yoradio_theme_load_persisted_preset(ThemePreset* out);
+bool yoradio_theme_save_persisted_preset(ThemePreset preset);
+
+// Stage 6.6R-F1: /data/theme_custom.txt — Custom preset color overrides (not theme.dat).
+// Этап 6.6R-F1: переопределения цветов Custom; выбор пресета — отдельно в theme.dat.
+void yoradio_theme_reset_custom_palette();
+bool yoradio_theme_load_custom_palette_file(ThemeCustomParseStats* out);
+bool yoradio_theme_custom_file_exists();
+const ThemeCustomParseStats& yoradio_theme_custom_parse_stats();
 
 } // namespace lvgl_ui
 

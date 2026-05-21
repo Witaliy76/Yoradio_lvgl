@@ -227,6 +227,18 @@ void update(const Instance& inst) {
     }
 }
 
+void reapplyTheme(Instance& inst) {
+    // Stage 6.6R-B: update text colors on existing objects from current palette (DspTask only).
+    // No layout changes; safe to call on any created Instance.
+    // Этап 6.6R-B: обновить цвета из текущей палитры — без layout-изменений, только DspTask.
+    if (!inst.root) return;
+    const YoRadioPalette& pal = yoradio_palette();
+    if (inst.lbl_wifi)          lv_obj_set_style_text_color(inst.lbl_wifi,          pal.status_line_text,    LV_PART_MAIN);
+    if (inst.lbl_clock)         lv_obj_set_style_text_color(inst.lbl_clock,         pal.clock_text,          LV_PART_MAIN);
+    if (inst.lbl_weather_glyph) lv_obj_set_style_text_color(inst.lbl_weather_glyph, pal.status_weather_icon, LV_PART_MAIN);
+    if (inst.lbl_weather_temp)  lv_obj_set_style_text_color(inst.lbl_weather_temp,  pal.status_weather_temp, LV_PART_MAIN);
+}
+
 } // namespace wgt_status_line
 } // namespace lvgl_ui
 

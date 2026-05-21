@@ -245,6 +245,39 @@ static void info_mb_one_decimal(uint32_t bytes, unsigned& out_whole, unsigned& o
     out_tenth = static_cast<unsigned>(tenths % 10u);
 }
 
+// Stage 6.6R-C: walk Info tree — dividers + KV/rail labels (tokenized at create; no layout change).
+// Этап 6.6R-C: обход дерева Info — dividers и label-цвета без пересоздания экрана.
+static void info_reapply_tree_colors(lv_obj_t* obj, const YoRadioPalette& pal, lv_obj_t* skip_subtree) {
+    if (!obj) return;
+    const uint32_t child_cnt = lv_obj_get_child_cnt(obj);
+    for (uint32_t i = 0; i < child_cnt; ++i) {
+        lv_obj_t* ch = lv_obj_get_child(obj, i);
+        if (!ch || ch == skip_subtree) continue;
+        if (lv_obj_check_type(ch, &lv_label_class)) {
+            const lv_font_t* f = lv_obj_get_style_text_font(ch, LV_PART_MAIN);
+            if (f == static_cast<const lv_font_t*>(k_info_section_icon_font)) {
+                lv_obj_set_style_text_color(ch, pal.text_secondary, LV_PART_MAIN);
+            } else {
+                lv_obj_t* parent = lv_obj_get_parent(ch);
+                const lv_flex_flow_t flow =
+                    parent ? lv_obj_get_style_flex_flow(parent, LV_PART_MAIN) : LV_FLEX_FLOW_ROW;
+                if (parent && flow == LV_FLEX_FLOW_ROW && lv_obj_get_child(parent, 0) == ch) {
+                    lv_obj_set_style_text_color(ch, pal.text_secondary, LV_PART_MAIN);
+                } else if (parent && flow == LV_FLEX_FLOW_COLUMN) {
+                    lv_obj_set_style_text_color(ch, pal.text_secondary, LV_PART_MAIN);
+                } else {
+                    lv_obj_set_style_text_color(ch, pal.text_primary, LV_PART_MAIN);
+                }
+            }
+        } else if (lv_obj_get_height(ch) == 1) {
+            if (lv_obj_get_style_bg_opa(ch, LV_PART_MAIN) == LV_OPA_COVER) {
+                lv_obj_set_style_bg_color(ch, pal.divider, LV_PART_MAIN);
+            }
+        }
+        info_reapply_tree_colors(ch, pal, skip_subtree);
+    }
+}
+
 static void info_format_display_product_line(char* buf, size_t cap) {
     if (!buf || cap == 0u) {
         return;
@@ -290,13 +323,13 @@ void LvglInfoPage::create() {
 
     add_thin_divider(_screen, pal);
 
-    lv_obj_t* info_title = lv_label_create(_screen);
-    if (info_title) {
-        lv_label_set_text(info_title, "INFO");
+    _lbl_info_title = lv_label_create(_screen);
+    if (_lbl_info_title) {
+        lv_label_set_text(_lbl_info_title, "INFO");
         // ~+2 px vs font_normal (16): existing bundled 18 cyr, calmer than font_large (22).
-        info_set_font(info_title, reinterpret_cast<const void*>(&lv_font_yora_montserrat_18_cyr));
-        lv_obj_set_style_text_color(info_title, pal.text_primary, LV_PART_MAIN);
-        lv_obj_set_style_text_align(info_title, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
+        info_set_font(_lbl_info_title, reinterpret_cast<const void*>(&lv_font_yora_montserrat_18_cyr));
+        lv_obj_set_style_text_color(_lbl_info_title, pal.text_primary, LV_PART_MAIN);
+        lv_obj_set_style_text_align(_lbl_info_title, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
     }
 
     lv_obj_t* content = lv_obj_create(_screen);
@@ -329,7 +362,7 @@ void LvglInfoPage::create() {
             reinterpret_cast<const char*>(u8"\uEF8E"),
             pal);
         if (dc_sys) {
-            add_kv_row(dc_sys, "Firmware", "--", &_val_firmware, pal);
+            add_kv_row(dc_sys, "Firmware", "--", &_val_firmware, pal, InfoKvValueLongMode::ScrollCircular);
             add_kv_row(dc_sys, "Build", "--", &_val_build, pal);
             add_kv_row(dc_sys, "Chip", "--", &_val_chip, pal);
             add_kv_row(dc_sys, "CPU", "--", &_val_cpu, pal);
@@ -502,12 +535,26 @@ void LvglInfoPage::update() {
 #endif
 }
 
+void LvglInfoPage::liveReapplyTheme() {
+    if (!_screen) return;
+
+    const YoRadioPalette& pal = yoradio_palette();
+    lv_obj_set_style_bg_color(_screen, pal.device_background, LV_PART_MAIN);
+    wgt_status_line::reapplyTheme(_status_line);
+    if (_lbl_info_title) {
+        lv_obj_set_style_text_color(_lbl_info_title, pal.text_primary, LV_PART_MAIN);
+    }
+    info_reapply_tree_colors(_screen, pal, _status_line.root);
+    lv_obj_invalidate(_screen);
+}
+
 void LvglInfoPage::destroy() {
     if (_screen) {
         lv_obj_del(_screen);
         _screen = nullptr;
     }
     _status_line = {};
+    _lbl_info_title = nullptr;
     _val_ssid = _val_ip = _val_wifi = _val_mac = nullptr;
     _val_firmware = _val_build = _val_chip = _val_cpu = _val_uptime = nullptr;
     _val_display = _val_lvgl = nullptr;
