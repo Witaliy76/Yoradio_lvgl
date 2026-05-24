@@ -415,10 +415,7 @@ void Config::changeMode(int newmode){
   _SDplaylistFS = getMode()==PM_SDCARD?&sdman:(true?&LittleFS:_SDplaylistFS);
   if(getMode()==PM_SDCARD){
     if(pir) player.sendCommand({PR_STOP, 0});
-    display.putRequest(NEWMODE, SDCHANGE);
-    while(display.mode()!=SDCHANGE)
-      delay(10);
-    delay(50);
+    // Block 8-E8: no SDCHANGE UI wait — sdman.start() above; playlist via initPlaylistMode().
   }
   if(getMode()==PM_WEB) {
     if(network.status==SDREADY) ESP.restart();

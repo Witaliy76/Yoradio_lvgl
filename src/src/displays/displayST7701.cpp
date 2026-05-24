@@ -32,6 +32,9 @@ extern const uint8_t st7701_type9_init_operations[];
 
 #include "esp_timer.h"
 #include "esp_rom_sys.h"
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+#include "lvgl.h"
+#endif
 
 #include "driver/adc.h"
 #include "esp_adc_cal.h"
@@ -271,6 +274,13 @@ void DspCore::displayOff() {
 
 void DspCore::drawLogo(uint16_t top) 
 { 
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    // Block 8-E11: LVGL Boot uses scr_boot assets; never paint bootlogo2 into shared Canvas.
+    // Block 8-E11: при LVGL Boot / lv_disp — не пишем в Canvas (E5C shared buffer).
+    if (lvgl_ui::isLvglBootActive() || lv_disp_get_default() != nullptr) {
+        return;
+    }
+#endif
     Serial.println("[ST7701] drawLogo call");
     
     if (!gfx) {

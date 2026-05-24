@@ -683,12 +683,24 @@ bool lvgl_ui::consumeWifiRecoveryEnteredFromRuntimeDisconnect() {
 
 void lvgl_ui::dismissBootForApLegacyHandoff() {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    // Block 8-E10: unused on LVGL Wi‑Fi fail path; kept for any external/legacy callers until 8-E16.
     overlayHideAll();
     if (s_lvgl_boot_active) {
         s_page_chain.dismissBoot();
         s_lvgl_boot_active = false;
     }
     if (s_default_screen) lv_scr_load(s_default_screen);
+#endif
+}
+
+void lvgl_ui::showWifiRecoveryFlowFromDisplayStart() {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    // Block 8-E10: same RebootRequired shell as 5B; no Hotspot policy change / без auto-Hotspot.
+    overlayHideAll();
+    ensurePageChainRegistered();
+    if (!isWifiSetupFlowActive()) {
+        s_page_chain.showRebootRequired(&s_wifi_flow_screen);
+    }
 #endif
 }
 

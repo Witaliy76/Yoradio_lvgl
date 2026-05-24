@@ -138,7 +138,7 @@ void loopControls() {
     touchscreen.init();
   }
 #endif
-  if(display.mode()==UPDATING || display.mode()==SDCHANGE) return;
+  if(display.mode()==UPDATING) return;
   if(SDC_CS==255 && display.mode()==LOST) return;
   if(ctrls_on_loop) ctrls_on_loop();
 #if ENC_BTNL!=255
@@ -234,15 +234,35 @@ void irBlink() {
   }
 }
 
+// Block 8-E9: direct station index via IR digits — no NUMBERS display mode / LegacyCanvas.
+// Follow-up: optional LVGL typed-number hint on Main (not Block 8); no auto-play per digit.
+static void irClearDirectStationAccumulator() {
+  display.numOfNextStation = 0;
+}
+
+static bool irConfirmDirectStationPlay() {
+  const uint16_t n = display.numOfNextStation;
+  if (n == 0) {
+    return false;
+  }
+  if (n > config.store.countStation) {
+    irClearDirectStationAccumulator();
+    return false;
+  }
+  player.sendCommand({PR_PLAY, n});
+  irClearDirectStationAccumulator();
+  return true;
+}
+
 void irNumber(uint8_t num) {
   uint16_t s;
   if (display.numOfNextStation == 0 && num == 0) return;
-  display.putRequest(NEWMODE, NUMBERS);
   if (display.numOfNextStation > UINT16_MAX / 10) return;
   s = display.numOfNextStation * 10 + num;
   if (s > config.store.countStation) return;
   display.numOfNextStation = s;
-  display.putRequest(NEXTSTATION, s);
+  // Block 8-E9: confirm on IR PLAY only; no NEWMODE NUMBERS / NEXTSTATION (legacy UI).
+  // Not restored: legacy 10s returnPlayer ticker (was tied to _drawNextStationNum).
 }
 
 void irLoop() {
@@ -282,10 +302,7 @@ void irLoop() {
           switch (target){
             case IR_PLAY: {
                 irBlink();
-                if (display.mode() == NUMBERS) {
-                  display.putRequest(NEWMODE, PLAYER);
-                  player.sendCommand({PR_PLAY, display.numOfNextStation});
-                  display.numOfNextStation = 0;
+                if (irConfirmDirectStationPlay()) {
                   break;
                 }
                 onBtnClick(1);
@@ -310,9 +327,8 @@ void irLoop() {
                 break;
               }
             case IR_HASH: {
-                if (display.mode() == NUMBERS) {
-                  display.putRequest(NEWMODE, PLAYER);
-                  display.numOfNextStation = 0;
+                if (display.numOfNextStation > 0) {
+                  irClearDirectStationAccumulator();
                   break;
                 }
                 display.putRequest(NEWMODE, display.mode() == PLAYER ? STATIONS : PLAYER);
@@ -463,9 +479,8 @@ void onBtnDuringLongPress(int id) {
 }
 
 void controlsEvent(bool toRight, int8_t volDelta) {
-  if (display.mode() == NUMBERS) {
+  if (display.numOfNextStation > 0) {
     display.numOfNextStation = 0;
-    display.putRequest(NEWMODE, PLAYER);
   }
   if (display.mode() != STATIONS && !display.isStationsChanging()) {
     #if !defined(DUMMYDISPLAY) || defined(USE_NEXTION)
@@ -504,9 +519,8 @@ void onBtnClick(int id) {
     case EVT_BTNCENTER:
     case EVT_ENCBTNB:
     case EVT_ENC2BTNB: {
-        if (display.mode() == NUMBERS) {
+        if (display.numOfNextStation > 0) {
           display.numOfNextStation = 0;
-          display.putRequest(NEWMODE, PLAYER);
         }
         if (display.mode() == PLAYER) {
           player.toggle();

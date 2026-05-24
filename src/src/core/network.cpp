@@ -264,7 +264,8 @@ void ticks() {
       display.putRequest(DSPRSSI, netserver.getRSSI());
     }
 #ifdef USE_SD
-    if(display.mode()!=SDCHANGE) player.sendCommand({PR_CHECKSD, 0});
+    // Block 8-E8: SDCHANGE mode removed — always allow SD check when connected.
+    player.sendCommand({PR_CHECKSD, 0});
 #endif
     player.sendCommand({PR_VUTONUS, 0});
   }

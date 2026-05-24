@@ -314,16 +314,9 @@ void TouchScreen::loop(){
                         
                         if (display.mode() == PLAYER && !modeChangeInProgress) {
                             modeChangeInProgress = true;
-                            display.putRequest(NEWMODE, SDCHANGE);
-                            while(display.mode() != SDCHANGE) {
-                                delay(10);
-                            }
-                            delay(TOUCH_MODE_DELAY/2);
-                            
+                            // Block 8-E8: WEB/SD mode switch without SDCHANGE legacy UI.
                             config.changeMode();
-                            
                             delay(TOUCH_MODE_DELAY);
-                            
                             if (pir) {
                                 player.sendCommand({PR_PLAY, config.getMode()==PM_WEB?config.store.lastStation:config.store.lastSdStation});
                             }
@@ -371,16 +364,9 @@ void TouchScreen::loop(){
                         
                         if (display.mode() == PLAYER && !modeChangeInProgress) {
                             modeChangeInProgress = true;
-                            display.putRequest(NEWMODE, SDCHANGE);
-                            while(display.mode() != SDCHANGE) {
-                                delay(10);
-                            }
-                            delay(TOUCH_MODE_DELAY/2);
-                            
+                            // Block 8-E8: WEB/SD mode switch without SDCHANGE legacy UI.
                             config.changeMode();
-                            
                             delay(TOUCH_MODE_DELAY);
-                            
                             if (pir) {
                                 player.sendCommand({PR_PLAY, config.getMode()==PM_WEB?config.store.lastStation:config.store.lastSdStation});
                             }

@@ -112,7 +112,9 @@ void recordLvglDirectPanelFlush();
 // Будущая страница Settings может включить slide-анимацию (ESP32-P4 и др.).
 void setPageTransitionAnimationEnabled(bool enabled);
 bool isPageTransitionAnimationEnabled();
-void dismissBootForApLegacyHandoff();
+void dismissBootForApLegacyHandoff(); // Pre-8-E10; Display no longer calls on LVGL Wi‑Fi fail
+// Block 8-E10: DSP_START Wi‑Fi fail when LVGL Boot already gone — show Recovery shell without legacy AP.
+void showWifiRecoveryFlowFromDisplayStart();
 void bootScreenSetStatusUtf8(const char* text);
 void bootScreenNotifyBootSignal();
 

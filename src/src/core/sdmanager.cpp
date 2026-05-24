@@ -208,7 +208,7 @@ void SDManager::listSD(File &plSDfile, File &plSDindex, const char* dirname, uin
                 plSDfile.printf("%s\t%s\t0\n", fn, filePath);
                 plSDindex.write((uint8_t*)&pos, 4);
                 Serial.print(".");
-                if(display.mode()==SDCHANGE) display.putRequest(SDFILEINDEX, _sdFCount+1);
+                // Block 8-E8: SDFILEINDEX was legacy SDCHANGE progress only — removed.
                 _sdFCount++;
                 if (_sdFCount % 64 == 0) Serial.println();
             }

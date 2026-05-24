@@ -170,8 +170,14 @@ void Display::init() {
     delay(10); 
   }
   
-  // Создаем загрузочный экран
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+  // Block 8-E11: LVGL Boot is shown from DspTask (tryPresentLvglBootOnFirstDspLoop); no legacy Pager boot.
+  // Block 8-E11: Boot только LVGL из DspTask; legacy _bootScreen() не вызываем на product path.
+  Serial.println("[Boot] LVGL product path; legacy _bootScreen skipped in init");
+#else
+  // Создаем загрузочный экран / Legacy boot screen
   _bootScreen();
+#endif
   
   Serial.println("done");
 }
@@ -201,6 +207,8 @@ void Display::_deactivateAllMeters(){
   sdog.giveMutex();
 }
 
+// Block 8-E11: legacy Pager boot — unreachable on 4848 LVGL product path; body kept until 8-E16/E17.
+// Block 8-E11: legacy boot — на LVGL product path не вызывается; удаление позже.
 void Display::_bootScreen(){
   if (!gfx) {
     Serial.println("[Display] gfx is nullptr in _bootScreen!");
@@ -385,6 +393,8 @@ void Display::_buildPager(){
   _legacyPlayerWidgetsBuilt = true;
 }
 
+// Block 8-E10: legacy Pager AP UI — must not run on 4848 LVGL product (_start routes to Wi‑Fi Flow).
+// Block 8-E10: legacy AP — на LVGL не вызывается; тело до удаления в 8-E16.
 void Display::_apScreen() {
   _suspendFlush = false;  // Разрешаем обновления экрана в AP режиме / Enable screen updates in AP mode
   Serial.println("[Display] _apScreen() called");
@@ -443,9 +453,10 @@ void Display::_start() {
   #endif
   if (network.status != CONNECTED && network.status != SDREADY) {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-    // Wi‑Fi 5A: LVGL Boot + Wi‑Fi fail → Recovery shell (AP still raised in network.begin hybrid C).
-    // Wi‑Fi 5A: при активном LVGL Boot не показывать legacy AP как основной экран.
+    // Block 8-E10: LVGL product — Wi‑Fi Recovery only; never legacy _apScreen / Pager AP (Hotspot panel in scr_wifi_flow).
+    // Block 8-E10: только LVGL Wi‑Fi Flow; без Canvas AP; политика Hotspot/AP lifecycle не меняется (S6V9C).
     if (lvgl_ui::isLvglBootActive()) {
+      // Wi‑Fi 5A/5B: Boot dwell + Opening… → dismissBootForWifiRecoveryHandoff (unchanged).
       _mode = PLAYER; // coherent nominal mode until WIFI takes over / номинальный режим до перехода в WIFI
       lvgl_ui::bootScreenSetStatusUtf8(
           (config.ssidsCount == 0) ? "No saved Wi-Fi networks" : "Could not connect to saved networks");
@@ -457,8 +468,24 @@ void Display::_start() {
       Serial.println("[Display] Wi-Fi 5A: LVGL Recovery handoff pending");
       return;
     }
-    lvgl_ui::dismissBootForApLegacyHandoff(); // blank LVGL screen; AP uses legacy pager / пустой LVGL, AP на legacy
-#endif
+    // Edge: LVGL Boot not active at DSP_START — still Recovery shell, not _apScreen (8-E10A).
+    Serial.println("[AP] LVGL Wi-Fi Recovery handoff; legacy _apScreen skipped");
+    lvgl_ui::notifyWifiRecoveryEnteredFromBootFailure();
+    lvgl_ui::showWifiRecoveryFlowFromDisplayStart();
+    {
+      const displayMode_e prev_mode = _mode;
+      _mode                         = WIFI;
+      lvgl_ui::UiBackend backend    = lvgl_ui::getPreferredBackend(WIFI);
+      _activeBackend                = backend;
+      lvgl_ui::onModeChanged(WIFI, backend, prev_mode);
+      if (backend == lvgl_ui::UiBackend::Lvgl) {
+        _deactivateLegacyPagerForLvgl();
+      }
+    }
+    _bootStep     = 2;
+    _suspendFlush = false;
+    return;
+#else
     _suspendFlush = false; // разрешаем flush в AP режиме / enable flush in AP mode
     Serial.println("[Display] Going to AP mode");
     _apScreen();
@@ -468,6 +495,7 @@ void Display::_start() {
     _bootStep = 2;
     Serial.println("[Display] _bootStep set to 2 in AP mode");
     return;
+#endif
   }
   #ifdef USE_NEXTION
     //nextion.putcmd("page player");
@@ -670,6 +698,16 @@ void Display::_swichMode(displayMode_e newmode) {
     nextion.putRequest({NEWMODE, newmode});
   #endif
   if (newmode == _mode) return;
+  // Block 8-E8: SDCHANGE legacy Canvas UI removed — do not enter mode or LegacyCanvas handoff.
+  // Block 8-E8: режим SDCHANGE удалён — без диалога и без переключения backend.
+  if (newmode == SDCHANGE) {
+    return;
+  }
+  // Block 8-E9: NUMBERS legacy UI removed — no mode switch, no LegacyCanvas, no _showDialog.
+  // Block 8-E9: режим NUMBERS удалён; прямой набор станции — IR accumulator + PR_PLAY (controls).
+  if (newmode == NUMBERS) {
+    return;
+  }
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
   // Wi‑Fi 4C: ignore LOST while LVGL Wi‑Fi Setup owns the screen — keeps display.mode() WIFI so
   // legacy LOST path (overlay + controls gating) does not cover the password/connect UI.
@@ -800,7 +838,6 @@ void Display::_swichMode(displayMode_e newmode) {
   if (newmode == LOST && !lvgl_lost)      _showDialog(const_DlgLost);
   if (newmode == UPDATING && !lvgl_upd)  _showDialog(const_DlgUpdate);
   if (newmode == SLEEPING)  _showDialog("SLEEPING");
-  if (newmode == SDCHANGE)  _showDialog(const_waitForSD);
   if (newmode == INFO || newmode == SETTINGS || newmode == TIMEZONE) _showDialog(const_DlgNextion);
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
   if (newmode == WIFI && lvgl_ui::getPreferredBackend(WIFI) != lvgl_ui::UiBackend::Lvgl) {
@@ -809,7 +846,6 @@ void Display::_swichMode(displayMode_e newmode) {
 #else
   if (newmode == WIFI) _showDialog(const_DlgNextion);
 #endif
-  if (newmode == NUMBERS) _showDialog("");
   if (newmode == STATIONS && _legacyWidgetsAvailable()) {
     _pager.setPage( pages[PG_PLAYLIST]);
     _plcurrent.setText("");
@@ -839,6 +875,7 @@ void Display::_drawPlaylist() {
 }
 
 void Display::_drawNextStationNum(uint16_t num) {
+  // Block 8-E9: NEXTSTATION queue neutralized on LVGL path; legacy-only if widgets built (8-E16).
   if (!_legacyWidgetsAvailable()) return;
   _setReturnTicker(10);
   _meta.setText(config.stationByNum(num));
@@ -974,17 +1011,22 @@ void Display::loop() {
   if(_bootStep==0) {
     _pager.begin();
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-    // Stage 5.4: LVGL Boot from DspTask only (preflight); legacy boot if LVGL display missing.
-    // Этап 5.4: LVGL Boot только из DspTask; legacy boot если дисплей LVGL не поднялся.
+    // Block 8-E11: LVGL Boot only — no legacy _bootScreen() / drawLogo fallback on product path.
+    // Block 8-E11: только LVGL Boot; без legacy Canvas boot при сбое tryPresent (retry в следующих loop).
     if (lvgl_ui::tryPresentLvglBootOnFirstDspLoop()) {
       s_any_boot_ui_shown = true;
       _bootStep = 1;
       _suspendFlush = false;
-    } else
-#endif
-    {
-      _bootScreen();
+    } else {
+      static bool s_lvgl_boot_present_fail_logged = false;
+      if (!s_lvgl_boot_present_fail_logged) {
+        Serial.println("[Boot] LVGL Boot presentation failed; legacy Canvas boot disabled");
+        s_lvgl_boot_present_fail_logged = true;
+      }
     }
+#else
+    _bootScreen();
+#endif
     // Не выходим сразу — нужен рендер (pager или LVGL taskHandler ниже).
     // Don't return immediately — rendering happens in _pager.loop() or lvgl taskHandler below.
   }
@@ -1012,7 +1054,10 @@ void Display::loop() {
           break;
         case NEWTITLE: _title(); break;
         case NEWSTATION: _station(); break;
-        case NEXTSTATION: _drawNextStationNum(request.payload); break;
+        case NEXTSTATION: {
+          // Block 8-E9: legacy numbers UI removed — no _drawNextStationNum on LVGL product.
+          break;
+        }
         case DRAWPLAYLIST: _drawPlaylist(); break;
         case DRAWVOL:
           _volume();
@@ -1134,8 +1179,7 @@ void Display::loop() {
           break;
         }
         case SDFILEINDEX: {
-          if (!_legacyWidgetsAvailable()) break;
-          if(_mode == SDCHANGE) _nums.setText(request.payload, "%d");
+          // Block 8-E8: legacy SDCHANGE index counter UI removed (was _nums on SDCHANGE mode).
           break;
         }
         case DSPRSSI:
