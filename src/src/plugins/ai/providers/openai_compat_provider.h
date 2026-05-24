@@ -25,9 +25,7 @@
  */
 class OpenAICompatProvider : public LLMProvider {
 private:
-    HTTPClient _http;  // HTTP клиент / HTTP client
-    WiFiClientSecure _wifiSecureClient;  // HTTPS клиент / HTTPS client
-    WiFiClient _wifiClient;  // HTTP клиент / HTTP client (for port=80)
+    // Per-request local HTTPClient/TLS (no member transport pointer) / Локальный HTTPClient+TLS на запрос
     
     // Вспомогательные методы / Helper methods
     bool _makeHTTPRequest(
@@ -46,7 +44,7 @@ private:
     );
     
     String _buildRequestJSON(const String& model, const String& prompt);
-    bool _readHTTPResponse(String& response_body);
+    bool _readHTTPResponse(String& response_body, HTTPClient& http);
     
     // Удаление UTF-8 BOM из строки / Remove UTF-8 BOM from string
     String _removeBOM(const String& str);

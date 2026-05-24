@@ -10,6 +10,7 @@
 #include "../lvgl_ui/lvgl_ui.h"
 #include "../lvgl_ui/lv_screensaver.h"
 #include "../lvgl_ui/lv_ui_events.h"
+#include "../plugins/ai_subsystem.h"
 extern Arduino_Canvas* gfx;
 
 // Глобальный флаг "кадр грязный" для dirty-based flush
@@ -485,7 +486,6 @@ void Display::_start() {
     _deactivateLegacyPagerForLvgl();
     _bootStep = 2;
     _suspendFlush = false;
-    pm.on_display_player();
     return;
 #endif
   }
@@ -520,7 +520,6 @@ void Display::_start() {
   _time(false);
   _bootStep = 2;
   _suspendFlush = false; // разрешаем flush после полной подготовки
-  pm.on_display_player();
 }
 
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
@@ -553,8 +552,8 @@ void Display::_tryCompleteLvglWifiRecoveryHandoff() {
     }
     _bootStep       = 2;
     _suspendFlush = false;
-    // Wi‑Fi 5B: do not call pm.on_display_player() — plugins/Main hooks are PLAYER-oriented; recovery stays WIFI-only.
-    // Wi‑Fi 5B: без on_display_player — не тянуть plugin/Main цепочку в режиме Recovery.
+    // Wi‑Fi 5B: recovery handoff stays WIFI-only (no legacy PLAYER page setup here).
+    // Wi‑Fi 5B: handoff Recovery остаётся в WIFI — без legacy PLAYER page setup.
   }
 }
 
@@ -628,7 +627,6 @@ void Display::_tryCompleteLvglPlayerHandoff() {
   _deactivateLegacyPagerForLvgl();
   _bootStep = 2;
   _suspendFlush = false;
-  pm.on_display_player();
 }
 #endif
 
@@ -704,7 +702,6 @@ void Display::_swichMode(displayMode_e newmode) {
     // Stage 5.5 guard: LVGL Main screen — skip legacy PLAYER page setup.
     // Guard 5.5: LVGL Main — пропускаем legacy подготовку страницы плейера.
     if (lvgl_ui::getPreferredBackend(PLAYER) == lvgl_ui::UiBackend::Lvgl) {
-      pm.on_display_player();
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
       // SCREENBLANK called setDspOn(false); legacy PLAYER path always runs setDspOn(dspon) — LVGL path skipped it.
       // SCREENBLANK гасит панель; у legacy PLAYER есть setDspOn — у LVGL Main его не было → wakeup не вызывался.
@@ -732,7 +729,6 @@ void Display::_swichMode(displayMode_e newmode) {
       }
       _meta.setText(config.station.name);
       config.setDspOn(config.store.dspon, false);
-      pm.on_display_player();
       _applyPendingAI();
       _layoutChange(player.isRunning());
     }
@@ -983,10 +979,7 @@ void Display::loop() {
   // Сначала обработаем входящие запросы рендера, затем нарисуем и выполнем flush
   requestParams_t request;
   if(xQueueReceive(displayQueue, &request, DSP_QUEUE_TICKS)){
-    bool pm_result = true;
-    pm.on_display_queue(request, pm_result);
-    if(pm_result)
-      switch (request.type){
+    switch (request.type){
         case NEWMODE: _swichMode((displayMode_e)request.payload); break;
         case CLOCK:
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
@@ -1313,7 +1306,7 @@ void Display::_title() {
     }
   }
   if (player_on_track_change) player_on_track_change();
-  pm.on_track_change();
+  aiSubsystem.onTrackChange();
 }
 
 void Display::_time(bool redraw) {

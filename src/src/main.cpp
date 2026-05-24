@@ -14,8 +14,8 @@
 // Spectrum Analyzer
 #include "displays/tools/spectrum_analyzer.h"
 
-// Plugins
-#include "plugins/AIPlugin.h"
+// AI subsystem (Stage 6.0) / AI-подсистема
+#include "plugins/ai_subsystem.h"
 
 #if DSP_HSPI || TS_HSPI || VS_HSPI
 SPIClass  SPI2(HOOPSENb);
@@ -23,20 +23,15 @@ SPIClass  SPI2(HOOPSENb);
 
 extern __attribute__((weak)) void yoradio_on_setup();
 
-// Создаём экземпляр AI-плагина (не static для доступа из netserver.cpp)
-// Create AI plugin instance (not static for access from netserver.cpp)
-AIPlugin aiPluginInstance;
-
 void setup() {
   Serial.begin(115200);
   if(REAL_LEDBUILTIN!=255) pinMode(REAL_LEDBUILTIN, OUTPUT);
   if (yoradio_on_setup) yoradio_on_setup();
   
-  // Регистрируем плагины явно перед вызовом pm.on_setup()
-  // Register plugins explicitly before calling pm.on_setup()
-  aiPluginInstance.init();
-  
-  pm.on_setup();
+  // AI subsystem: explicit init before config (same order as former AIPlugin path)
+  // AI-подсистема: явный init до config (тот же порядок, что у AIPlugin)
+  aiSubsystem.init();
+  aiSubsystem.onSetup();
   config.init();
 #ifdef MEM_WATCHDOG_AUTOREBOOT
   memWatchdog.onBoot();
@@ -85,7 +80,6 @@ void setup() {
   if (config.getMode()==PM_SDCARD) player.initHeaders(config.station.url);
   player.lockOutput=false;
   if (config.store.smartstart == 1) player.sendCommand({PR_PLAY, config.lastStation()});
-  pm.on_end_setup();
 }
 
 void loop() {

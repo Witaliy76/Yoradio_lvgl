@@ -167,7 +167,6 @@ void Player::_stop(bool alreadyStopped){
   if(!alreadyStopped) stopSong();
   if(!lockOutput) stopInfo();
   if (player_on_stop_play) player_on_stop_play();
-  pm.on_stop_play();
 }
 
 void Player::initHeaders(const char *file) {
@@ -202,7 +201,6 @@ void Player::loop() {
         Serial.printf("🎵 [PLAYER] Calling _play() with stationId: %d\n", (uint16_t)abs(requestP.payload));
         _play((uint16_t)abs(requestP.payload)); 
         if (player_on_station_change) player_on_station_change(); 
-        pm.on_station_change();
         break;
       }
       case PR_VOL: {
@@ -321,7 +319,6 @@ void Player::_play(uint16_t stationId) {
     display.putRequest(NEWMODE, PLAYER);
     display.putRequest(PSTART);
     if (player_on_start_play) player_on_start_play();
-    pm.on_start_play();
   }else{
     telnet.printf("##ERROR#:\tError connecting to %s\n", config.station.url);
     SET_PLAY_ERROR("Error connecting to %s", config.station.url);
@@ -350,7 +347,6 @@ void Player::browseUrl(){
     setOutputPins(true);
     display.putRequest(PSTART);
     if (player_on_start_play) player_on_start_play();
-    pm.on_start_play();
   }else{
     telnet.printf("##ERROR#:\tError connecting to %s\n", burl);
     SET_PLAY_ERROR("Error connecting to %s", burl);

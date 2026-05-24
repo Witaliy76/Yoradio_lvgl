@@ -1,12 +1,12 @@
-/**
- * AIPlugin.cpp - AI Layer plugin implementation for yoRadio
+﻿/**
+ * ai_subsystem.cpp - AI subsystem implementation for yoRadio
  * Description: Core AI Layer logic, event handling, layer coordination
  * Author: W76W, 4pda.to
  * Date: 21.12.2025
  * Version: Yoradio RGB Panel v0.9.434m-r2
  */
 
-#include "AIPlugin.h"
+#include "ai_subsystem.h"
 #include "ai/utils/utf8_casefold_search.h"
 #include "ai/ai_log.h"  // AI Layer logging macros
 #include "../core/network.h"
@@ -18,31 +18,28 @@ extern Config config;
 extern MyNetwork network;
 extern Player player;
 
-AIPlugin::AIPlugin() : _initialized(false) {
-    // Не регистрируем плагин в конструкторе - регистрация будет явной в setup()
-    // Don't register plugin in constructor - registration will be explicit in setup()
+AISubsystem::AISubsystem() : _initialized(false) {
 }
 
-AIPlugin::~AIPlugin() {
+AISubsystem::~AISubsystem() {
     // Деструктор для очистки ресурсов (если понадобится)
     // Destructor for resource cleanup (if needed)
 }
 
-void AIPlugin::init() {
-    // Явная регистрация плагина
-    // Explicit plugin registration
-    registerPlugin();
+void AISubsystem::init() {
+    // Stage 6.0A: explicit subsystem init only — no pluginsManager / только явный init
+    // Task/layer setup stays in onSetup() (same timing as former AIPlugin::on_setup)
 }
 
-void AIPlugin::on_setup() {
-    AI_DLOG("[AIPlugin] on_setup() called - AI plugin initialized");
-    AI_DLOG("[AIPlugin] MVP-2: Architecture ready with LLM provider integration");
-    AI_DLOG("[AIPlugin] Runtime Manifest: AI is optional, silence is valid");
+void AISubsystem::onSetup() {
+    AI_DLOG("[AISubsystem] onSetup() called - AI subsystem initialized");
+    AI_DLOG("[AISubsystem] MVP-2: Architecture ready with LLM provider integration");
+    AI_DLOG("[AISubsystem] Runtime Manifest: AI is optional, silence is valid");
     
     // Инициализация AI Task Manager для асинхронного выполнения HTTPS запросов
     // Initialize AI Task Manager for asynchronous HTTPS request execution
     if (!_aiTaskManager.begin(&_provider)) {
-        AI_LOG("[AIPlugin] WARNING: AI Task Manager initialization failed");
+        AI_LOG("[AISubsystem] WARNING: AI Task Manager initialization failed");
     }
     
     // Передаём Task Manager в InterpretationLayer
@@ -65,7 +62,7 @@ void AIPlugin::on_setup() {
     _initialized = true;
 }
 
-void AIPlugin::_parseTrackTitle(const String& track_title, String& artist, String& song) {
+void AISubsystem::_parseTrackTitle(const String& track_title, String& artist, String& song) {
     artist = "";
     song = "";
     
@@ -88,7 +85,7 @@ void AIPlugin::_parseTrackTitle(const String& track_title, String& artist, Strin
     }
 }
 
-void AIPlugin::_buildContext(AIContext& context) {
+void AISubsystem::_buildContext(AIContext& context) {
     // Музыка/радио / Music/radio
     context.station_name = String(config.station.name);
     context.is_playing = player.isRunning();
@@ -113,7 +110,7 @@ void AIPlugin::_buildContext(AIContext& context) {
     context.uptime_ms = millis();
 }
 
-void AIPlugin::_pumpResults() {
+void AISubsystem::_pumpResults() {
     // Периодическая обработка результатов AI Task (независимо от смены трека)
     // Periodic processing of AI Task results (independent of track change)
     uint32_t current_time = millis();
@@ -136,18 +133,18 @@ void AIPlugin::_pumpResults() {
         // LAST GUARD: проверяем, не был ли AI выключен после dequeue
         // LAST GUARD: check if AI was disabled after dequeue
         if (!config.store.ai_enabled) {
-            AI_LOG("[AIPlugin] Dropping result because AI disabled");
+            AI_LOG("[AISubsystem] Dropping result because AI disabled");
             continue;  // Не обрабатываем результат если AI выключен / Don't process result if AI disabled
         }
         
         // Диагностический лог: результат получен из очереди (показываем raw данные)
         // Diagnostic log: result dequeued (show raw data)
-        AI_DLOG("[AIPlugin] Dequeued result: ok=%d mode=%s track_id=%u current=%u conf=%.2f",
+        AI_DLOG("[AISubsystem] Dequeued result: ok=%d mode=%s track_id=%u current=%u conf=%.2f",
                       result.ok, result.mode, result.track_id, _current_track_id, result.confidence);
         
         // Проверяем, не устарел ли результат / Check if result is stale
         if (result.track_id != _current_track_id) {
-            AI_DLOG("[AIPlugin] Stale result dropped: result_id=%u current_id=%u", 
+            AI_DLOG("[AISubsystem] Stale result dropped: result_id=%u current_id=%u", 
                           result.track_id, _current_track_id);
             continue;  // Пропускаем устаревший результат / Skip stale result
         }
@@ -155,12 +152,12 @@ void AIPlugin::_pumpResults() {
         // Latch: если решение уже принято для этого трека - игнорируем результат
         // Latch: if decision already made for this track - ignore result
         if (_ai_decided_for_track) {
-            AI_DLOG("[AIPlugin] Decision already made for this track, ignoring result");
+            AI_DLOG("[AISubsystem] Decision already made for this track, ignoring result");
             continue;
         }
         
         if (!result.ok) {
-            AI_LOG("[AIPlugin] Coordinator reject reason: not_ok");
+            AI_LOG("[AISubsystem] Coordinator reject reason: not_ok");
             // ok=false - молчим, решение принято (silence is valid)
             // ok=false - silence, decision made (silence is valid)
             _ai_decided_for_track = true;
@@ -168,7 +165,7 @@ void AIPlugin::_pumpResults() {
         }
         
         if (strlen(result.text) == 0) {
-            AI_LOG("[AIPlugin] Coordinator reject reason: empty");
+            AI_LOG("[AISubsystem] Coordinator reject reason: empty");
             // Пустой текст - молчим, решение принято (silence is valid)
             // Empty text - silence, decision made (silence is valid)
             _ai_decided_for_track = true;
@@ -254,20 +251,20 @@ void AIPlugin::_pumpResults() {
             // Apply downgrade only for "fact"
             if (confidence < required_conf) {
                 // Логируем с куском текста для диагностики
-                AI_LOG("[AIPlugin] RiskScore=%d (A=%d B1=%d B2=%d B3=%d) required_conf=%.2f, got=%.2f -> downgrade fact->listen text=\"%.100s\"",
+                AI_LOG("[AISubsystem] RiskScore=%d (A=%d B1=%d B2=%d B3=%d) required_conf=%.2f, got=%.2f -> downgrade fact->listen text=\"%.100s\"",
                               riskScore, hitA?1:0, hitB1?1:0, hitB2?1:0, hitB3?1:0, required_conf, confidence, result.text);
                 mode = "listen";
                 confidence = 0.5f;
                 was_downgraded = true;
             } else {
-                AI_DLOG("[AIPlugin] RiskScore=%d required_conf=%.2f, got=%.2f -> fact allowed",
+                AI_DLOG("[AISubsystem] RiskScore=%d required_conf=%.2f, got=%.2f -> fact allowed",
                               riskScore, required_conf, confidence);
             }
         }
         
         // Расширенный диагностический лог с effective_mode и was_downgraded
         // Extended diagnostic log with effective_mode and was_downgraded
-        AI_DLOG("[AIPlugin] Processed result: original_mode=%s effective_mode=%s was_downgraded=%d",
+        AI_DLOG("[AISubsystem] Processed result: original_mode=%s effective_mode=%s was_downgraded=%d",
                       result.mode, mode.c_str(), was_downgraded ? 1 : 0);
         
         // Если был downgrade fact → listen: не показываем (silence is valid по манифесту)
@@ -277,7 +274,7 @@ void AIPlugin::_pumpResults() {
             // Don't show downgraded listen to avoid spamming the same line
             // MVP-1: Очищаем виджет при downgrade / MVP-1: Clear widget on downgrade
             display.setAIInterpretation("");
-            AI_LOG("[AIPlugin] Coordinator reject reason: downgraded_fact_to_listen (silence is valid)");
+            AI_LOG("[AISubsystem] Coordinator reject reason: downgraded_fact_to_listen (silence is valid)");
             // Решение принято: молчим / Decision made: silence
             _ai_decided_for_track = true;
             continue;  // Пропускаем этот результат / Skip this result
@@ -304,7 +301,7 @@ void AIPlugin::_pumpResults() {
             // LAST GUARD: проверяем, не был ли AI выключен перед показом
             // LAST GUARD: check if AI was disabled before showing
             if (!config.store.ai_enabled) {
-                AI_LOG("[AIPlugin] Dropping result because AI disabled (before show)");
+                AI_LOG("[AISubsystem] Dropping result because AI disabled (before show)");
                 continue;  // Не показываем результат если AI выключен / Don't show result if AI disabled
             }
             
@@ -319,7 +316,7 @@ void AIPlugin::_pumpResults() {
             } else {
                 AI_LOG("##AI.LISTEN#: %s", candidate.text.c_str());  // mode == "listen"
             }
-            AI_DLOG("[AIPlugin] Coordinator: show");
+            AI_DLOG("[AISubsystem] Coordinator: show");
             // Решение принято: текст показан / Decision made: text shown
             _ai_decided_for_track = true;
             // Отмечаем что для этого трека показан AI.FACT или AI.LISTEN / Mark that AI.FACT or AI.LISTEN was shown for this track
@@ -328,7 +325,7 @@ void AIPlugin::_pumpResults() {
         } else {
             // Coordinator отклонил - логируем причину (будет видно в shouldShow если добавим детализацию)
             // Coordinator rejected - log reason (will be visible in shouldShow if we add details)
-            AI_DLOG("[AIPlugin] Coordinator reject reason: rate_limit_or_duplicate");
+            AI_DLOG("[AISubsystem] Coordinator reject reason: rate_limit_or_duplicate");
             // НЕ выставляем latch здесь - это может быть промежуточный результат
             // Если это финальный результат для трека, latch выставится при следующем невалидном результате
             // DON'T set latch here - this may be intermediate result
@@ -337,19 +334,19 @@ void AIPlugin::_pumpResults() {
     }
 }
 
-bool AIPlugin::_processLayers(const AIContext& context) {
+bool AISubsystem::_processLayers(const AIContext& context) {
     // СТРОГАЯ ПРОВЕРКА: не обрабатываем слои если AI не активирован
     // STRICT CHECK: don't process layers if AI not activated
     bool ai_activated = _isAIActivated(context, false);
     if (!ai_activated) {
-        AI_LOG("[AIPlugin] Skip AI: ai_activated=false");
+        AI_LOG("[AISubsystem] Skip AI: ai_activated=false");
         return false;
     }
     
     // СТРОГАЯ ПРОВЕРКА: не обрабатываем слои если track_title невалиден (пустой или системный)
     // STRICT CHECK: don't process layers if track_title invalid (empty or system)
-    // Примечание: диагностическое логирование уже выполнено в _isAIActivated() или on_track_change()
-    // Note: diagnostic logging already done in _isAIActivated() or on_track_change()
+    // Примечание: диагностическое логирование уже выполнено в _isAIActivated() или onTrackChange()
+    // Note: diagnostic logging already done in _isAIActivated() or onTrackChange()
     if (!_isValidTrackTitleForAI(context.track_title)) {
         // Логируем только если еще не залогировано / Log only if not already logged
         _logTrackTitleValidation(_current_track_id, context.track_title, false);
@@ -368,7 +365,7 @@ bool AIPlugin::_processLayers(const AIContext& context) {
     // Latch: если решение уже принято для текущего трека - не обрабатываем слои
     // Latch: if decision already made for current track - don't process layers
     if (_ai_decided_for_track) {
-        AI_DLOG("[AIPlugin] Decision already made for track, skipping layer processing");
+        AI_DLOG("[AISubsystem] Decision already made for track, skipping layer processing");
         return false;
     }
     
@@ -416,14 +413,14 @@ bool AIPlugin::_processLayers(const AIContext& context) {
     return enqueued_any;
 }
 
-bool AIPlugin::_isAIActivated(const AIContext& context, bool log_state_change) {
+bool AISubsystem::_isAIActivated(const AIContext& context, bool log_state_change) {
     // Runtime Manifest Section 1: AI activation conditions
     // Все условия должны выполняться одновременно / All conditions must be met simultaneously
     
     // 0. AI включён в настройках / AI enabled in settings
     if (!config.store.ai_enabled) {
         if (log_state_change) {
-            AI_LOG("[AIPlugin] _isAIActivated: ai_enabled=false");
+            AI_LOG("[AISubsystem] _isAIActivated: ai_enabled=false");
         }
         return false;
     }
@@ -431,7 +428,7 @@ bool AIPlugin::_isAIActivated(const AIContext& context, bool log_state_change) {
     // 1. Wi‑Fi подключён / Wi‑Fi connected
     if (network.status != CONNECTED || WiFi.status() != WL_CONNECTED) {
         if (log_state_change) {
-            AI_LOG("[AIPlugin] _isAIActivated: WiFi not connected");
+            AI_LOG("[AISubsystem] _isAIActivated: WiFi not connected");
         }
         return false;
     }
@@ -440,7 +437,7 @@ bool AIPlugin::_isAIActivated(const AIContext& context, bool log_state_change) {
     IPAddress ip = WiFi.localIP();
     if (ip == IPAddress(0, 0, 0, 0)) {
         if (log_state_change) {
-            AI_LOG("[AIPlugin] _isAIActivated: No IP address");
+            AI_LOG("[AISubsystem] _isAIActivated: No IP address");
         }
         return false;
     }
@@ -448,7 +445,7 @@ bool AIPlugin::_isAIActivated(const AIContext& context, bool log_state_change) {
     // 3. Провайдер LLM настроен / LLM provider configured
     if (config.store.llm_provider == LLM_NONE) {
         if (log_state_change) {
-            AI_LOG("[AIPlugin] _isAIActivated: llm_provider=LLM_NONE");
+            AI_LOG("[AISubsystem] _isAIActivated: llm_provider=LLM_NONE");
         }
         return false;
     }
@@ -459,7 +456,7 @@ bool AIPlugin::_isAIActivated(const AIContext& context, bool log_state_change) {
     bool has_model = (strlen(config.store.ai_model) > 0);
     if (!has_api_key || !has_model) {
         if (log_state_change) {
-            AI_LOG("[AIPlugin] _isAIActivated: API key or model empty");
+            AI_LOG("[AISubsystem] _isAIActivated: API key or model empty");
         }
         return false;
     }
@@ -474,7 +471,7 @@ bool AIPlugin::_isAIActivated(const AIContext& context, bool log_state_change) {
             _logTrackTitleValidation(_current_track_id, context.track_title, false);
             
             // Конкретная причина валидации / Specific validation reason
-            String msg = "[AIPlugin] _isAIActivated: Invalid context - ";
+            String msg = "[AISubsystem] _isAIActivated: Invalid context - ";
             if (_last_tt_reason == TrackTitleValidationReason::TT_EMPTY) {
                 msg += "empty track_title";
             } else if (_last_tt_reason == TrackTitleValidationReason::TT_HARD_DENY_URL) {
@@ -504,12 +501,12 @@ bool AIPlugin::_isAIActivated(const AIContext& context, bool log_state_change) {
     
     // Все условия выполнены / All conditions met
     if (log_state_change) {
-        AI_DLOG("[AIPlugin] _isAIActivated: All conditions met");
+        AI_DLOG("[AISubsystem] _isAIActivated: All conditions met");
     }
     return true;
 }
 
-bool AIPlugin::_isLLMReady() const {
+bool AISubsystem::_isLLMReady() const {
     // Проверка готовности LLM без требования track_title
     // Check LLM readiness without track_title requirement
     // Используется для enqueue после debounce в тикере
@@ -625,7 +622,7 @@ static bool _hasWordBoundary(const String& text_lower, const char* word) {
     return false;  // Не найдено как отдельное слово / Not found as standalone word
 }
 
-bool AIPlugin::_isValidTrackTitleForAI(const String& t) {
+bool AISubsystem::_isValidTrackTitleForAI(const String& t) {
     // Score-based валидация track_title для AI / Score-based validation of track_title for AI
     // Проверка валидности track_title (фильтрация системных/станционных/мусорных строк)
     // Check if track_title is valid (filter system/station/garbage strings)
@@ -800,7 +797,7 @@ bool AIPlugin::_isValidTrackTitleForAI(const String& t) {
             breakdown.trim();
             breakdown += " => ";
             breakdown += score;
-            String breakdown_msg = "[AIPlugin] TT score details: ";
+            String breakdown_msg = "[AISubsystem] TT score details: ";
             breakdown_msg += breakdown;
             // Используем _logOncePerTrack вместо AI_DLOG чтобы избежать переполнения WebSocket очереди
             // Use _logOncePerTrack instead of AI_DLOG to avoid WebSocket queue overflow
@@ -845,7 +842,7 @@ static const char* _ttReasonToString(TrackTitleValidationReason reason) {
     }
 }
 
-bool AIPlugin::_logOncePerTrack(uint32_t track_id, const char* message) {
+bool AISubsystem::_logOncePerTrack(uint32_t track_id, const char* message) {
     // Helper для логов один раз на track_id / Helper for logs once per track_id
     if (_ai_context_logged_track_id != track_id) {
         AI_DLOG("%s", message);
@@ -856,7 +853,7 @@ bool AIPlugin::_logOncePerTrack(uint32_t track_id, const char* message) {
 }
 
 // Helper: диагностическое логирование валидации track_title / Helper: diagnostic logging of track_title validation
-void AIPlugin::_logTrackTitleValidation(uint32_t track_id, const String& title, bool is_valid) {
+void AISubsystem::_logTrackTitleValidation(uint32_t track_id, const String& title, bool is_valid) {
     // Логируем один раз на track_id / Log once per track_id
     if (_tt_validation_logged_track_id == track_id) {
         return;  // Уже залогировано / Already logged
@@ -869,23 +866,23 @@ void AIPlugin::_logTrackTitleValidation(uint32_t track_id, const String& title, 
     
     if (is_valid) {
         // Валидный track_title / Valid track_title
-        AI_LOG("[AIPlugin] TrackTitle valid: score=%d title=\"%s\"", 
+        AI_LOG("[AISubsystem] TrackTitle valid: score=%d title=\"%s\"", 
                  _last_tt_score, title_short.c_str());
         _tt_validation_logged_track_id = track_id;
     } else {
         // Невалидный track_title / Invalid track_title
         const char* reason_str = _ttReasonToString(_last_tt_reason);
-        AI_LOG("[AIPlugin] TrackTitle invalid: reason=%s score=%d title=\"%s\"", 
+        AI_LOG("[AISubsystem] TrackTitle invalid: reason=%s score=%d title=\"%s\"", 
                  reason_str, _last_tt_score, title_short.c_str());
         _tt_validation_logged_track_id = track_id;
     }
 }
 
-void AIPlugin::on_track_change() {
+void AISubsystem::onTrackChange() {
     // Инкрементируем ID трека при валидной смене трека
     // Increment track ID on valid track change
     _current_track_id++;
-    AI_LOG("[AIPlugin] Track changed, new track_id: %u", _current_track_id);
+    AI_LOG("[AISubsystem] Track changed, new track_id: %u", _current_track_id);
     
     // Сбрасываем флаг принятия решения для нового трека
     // Reset decision flag for new track
@@ -916,7 +913,7 @@ void AIPlugin::on_track_change() {
     display.setAIInterpretation("");
     
     if (!_initialized) {
-        AI_DLOG("[AIPlugin] on_track_change() called but not initialized");
+        AI_DLOG("[AISubsystem] onTrackChange() called but not initialized");
         return;
     }
 
@@ -929,7 +926,7 @@ void AIPlugin::on_track_change() {
     // Унифицированная проверка через strlen() / Unified check via strlen()
     bool has_api_key = (strlen(config.store.ai_api_key) > 0);
     bool has_model = (strlen(config.store.ai_model) > 0);
-    AI_DLOG("[AIPlugin] on_track_change() - ai_enabled=%d, llm_provider=%d, has_api_key=%d, has_model=%d, track_title=\"%s\"",
+    AI_DLOG("[AISubsystem] onTrackChange() - ai_enabled=%d, llm_provider=%d, has_api_key=%d, has_model=%d, track_title=\"%s\"",
             config.store.ai_enabled, config.store.llm_provider, has_api_key ? 1 : 0, has_model ? 1 : 0, context.track_title.c_str());
     
     // РАННИЙ ABORT: проверяем валидность track_title до активации AI
@@ -943,7 +940,7 @@ void AIPlugin::on_track_change() {
         _enqueued_for_track_id = _current_track_id;  // Помечаем что попытка была / Mark attempt as made
         
         // AI молчит для невалидного track_title / AI silent for invalid track_title
-        AI_LOG("[AIPlugin] TrackTitle invalid - aborting, AI silent");
+        AI_LOG("[AISubsystem] TrackTitle invalid - aborting, AI silent");
         return;
     }
     
@@ -954,7 +951,7 @@ void AIPlugin::on_track_change() {
     // Runtime Manifest: AI activates only when all conditions are met
     bool ai_activated = _isAIActivated(context, true);  // Логируем состояние при track_change / Log state on track_change
     if (!ai_activated) {
-        AI_LOG("[AIPlugin] AI not activated - skipping");
+        AI_LOG("[AISubsystem] AI not activated - skipping");
         _last_ai_activated_state = false;  // Обновляем кеш состояния / Update state cache
         return;
     }
@@ -962,12 +959,12 @@ void AIPlugin::on_track_change() {
     // Обновляем кеш состояния активации чтобы избежать дубля в on_ticker / Update activation state cache to avoid duplicate in on_ticker
     _last_ai_activated_state = true;
     
-    AI_LOG("[AIPlugin] AI activated - debounce scheduled, will process layers after 4s");
+    AI_LOG("[AISubsystem] AI activated - debounce scheduled, will process layers after 4s");
     // НЕ вызываем _processLayers() сразу - запрос уйдет через тикер после debounce
     // DON'T call _processLayers() immediately - request will be sent via ticker after debounce
 }
 
-void AIPlugin::on_ticker() {
+void AISubsystem::onTicker() {
     // Вызывается из ticks() каждую секунду / Called from ticks() every second
     // Вызываем _pumpResults() для периодической обработки результатов AI Task
     // Call _pumpResults() for periodic processing of AI Task results
@@ -995,7 +992,7 @@ void AIPlugin::on_ticker() {
         // СТРОГАЯ ПРОВЕРКА: debounce не должен проходить если ai_activated=false или track_title пустой
         // STRICT CHECK: debounce should not pass if ai_activated=false or track_title empty
         if (!ai_activated) {
-            AI_LOG("[AIPlugin] Debounce aborted: ai_activated=false");
+            AI_LOG("[AISubsystem] Debounce aborted: ai_activated=false");
             _enqueued_for_track_id = _current_track_id;  // Помечаем что попытка была / Mark attempt as made
             _enqueue_at_ms = 0;  // Сбрасываем debounce таймер / Reset debounce timer
             return;  // Не обрабатываем слои / Don't process layers
@@ -1006,19 +1003,19 @@ void AIPlugin::on_ticker() {
         if (!_isValidTrackTitleForAI(context.track_title)) {
             // Диагностическое логирование невалидного track_title / Diagnostic logging of invalid track_title
             _logTrackTitleValidation(_current_track_id, context.track_title, false);
-            _logOncePerTrack(_current_track_id, "[AIPlugin] Debounce aborted: invalid track_title");
+            _logOncePerTrack(_current_track_id, "[AISubsystem] Debounce aborted: invalid track_title");
             _enqueued_for_track_id = _current_track_id;  // Помечаем что попытка была / Mark attempt as made
             _enqueue_at_ms = 0;  // Сбрасываем debounce таймер / Reset debounce timer
             return;  // Не обрабатываем слои / Don't process layers
         }
         
         // Диагностический лог перед enqueue (вместо повторного "All conditions met") / Diagnostic log before enqueue (instead of repeated "All conditions met")
-        AI_DLOG("[AIPlugin] Debounce check: track_title_len=%d llm_ready=%d ai_activated=%d",
+        AI_DLOG("[AISubsystem] Debounce check: track_title_len=%d llm_ready=%d ai_activated=%d",
                  context.track_title.length(), llm_ready ? 1 : 0, ai_activated ? 1 : 0);
         
         // Debounce прошел, отправляем запрос один раз для текущего трека
         // Debounce passed, send request once for current track
-        AI_LOG("[AIPlugin] Debounce passed, processing layers to enqueue LLM request");
+        AI_LOG("[AISubsystem] Debounce passed, processing layers to enqueue LLM request");
         bool enqueued = _processLayers(context);
         
         // ВСЕГДА выставляем флаги после попытки (строго 1 attempt per track)
@@ -1027,12 +1024,12 @@ void AIPlugin::on_ticker() {
         _enqueue_at_ms = 0;  // Сбрасываем debounce таймер / Reset debounce timer
         
         if (enqueued) {
-            AI_LOG("[AIPlugin] LLM request enqueued successfully");
+            AI_LOG("[AISubsystem] LLM request enqueued successfully");
         } else {
             // Различаем причины неудачного enqueue / Distinguish reasons for failed enqueue
             // Если track_title пустой - это уже обработано выше, здесь только busy/rate limit
             // If track_title empty - already handled above, here only busy/rate limit
-            AI_LOG("[AIPlugin] LLM enqueue attempt failed (rate limit/busy) -> silence for this track");
+            AI_LOG("[AISubsystem] LLM enqueue attempt failed (rate limit/busy) -> silence for this track");
         }
     }
     
@@ -1052,7 +1049,7 @@ void AIPlugin::on_ticker() {
         // Блокируем MomentLayer если для этого трека уже показан AI.FACT или AI.LISTEN
         // Block MomentLayer if AI.FACT or AI.LISTEN already shown for this track
         if (_ai_output_shown && _ai_output_track_id == _current_track_id) {
-            AI_DLOG("[AIPlugin] Moment blocked: AI output already shown for track");
+            AI_DLOG("[AISubsystem] Moment blocked: AI output already shown for track");
             _moment_decided = true;  // Решение принято: блокировка / Decision made: blocked
             _moment_decided_track_id = _current_track_id;
             return;  // Не показываем Moment / Don't show Moment
@@ -1077,7 +1074,7 @@ void AIPlugin::on_ticker() {
             // Логируем напрямую (не через _logOncePerTrack) чтобы избежать конфликтов с другими логами
             // Log directly (not via _logOncePerTrack) to avoid conflicts with other logs
             if (!_moment_decided || _moment_decided_track_id != _current_track_id) {
-                AI_LOG("[AIPlugin] Moment fallback: LLM silent, showing moment");
+                AI_LOG("[AISubsystem] Moment fallback: LLM silent, showing moment");
             }
             AICandidate moment_candidate;
             if (_momentLayer.process(context, moment_candidate)) {
@@ -1121,7 +1118,7 @@ void AIPlugin::on_ticker() {
 // Пока вызывается только из _processLayers() при смене трека
 // Currently called only from _processLayers() on track change
 
-void AIPlugin::onAiEnabledChanged(bool enabled) {
+void AISubsystem::onEnabledChanged(bool enabled) {
     // Проверяем, не изменилось ли состояние на самом деле / Check if state actually changed
     // Избегаем повторных вызовов для одного и того же состояния / Avoid repeated calls for the same state
     if (enabled == config.store.ai_enabled) {
@@ -1131,7 +1128,7 @@ void AIPlugin::onAiEnabledChanged(bool enabled) {
     
     if (!enabled) {
         // AI выключен - отменяем все операции / AI disabled - cancel all operations
-        AI_LOG("[AIPlugin] AI disabled: canceling timers, clearing queues, clearing display");
+        AI_LOG("[AISubsystem] AI disabled: canceling timers, clearing queues, clearing display");
         
         // Сбрасываем внутренние флаги / Reset internal flags
         _enqueue_at_ms = 0;  // Отменяем debounce timer / Cancel debounce timer
@@ -1154,6 +1151,8 @@ void AIPlugin::onAiEnabledChanged(bool enabled) {
         }
     } else {
         // AI включён - логируем / AI enabled - log
-        AI_LOG("[AIPlugin] AI enabled");
+        AI_LOG("[AISubsystem] AI enabled");
     }
 }
+
+AISubsystem aiSubsystem;

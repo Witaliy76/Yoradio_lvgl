@@ -9,7 +9,6 @@
 #include "options.h"
 #include "save_manager.h"
 #include "rtcsupport.h"
-#include "../pluginsManager/pluginsManager.h"
 
 /* Emulated EEPROM blob size (NVS). Must be >= EEPROM_START + sizeof(config_t): Arduino-ESP32
  * EEPROM.put skips memcpy entirely when address+sizeof(value) exceeds this → silent no persistence. */

@@ -1,4 +1,5 @@
 #include "network.h"
+#include "../plugins/ai_subsystem.h"
 #include "display.h"
 #include "options.h"
 #include "config.h"
@@ -181,7 +182,7 @@ static bool isWeatherGraceElapsed() {
 
 void ticks() {
   if(!display.ready()) return; //waiting for SD is ready
-  pm.on_ticker();
+  aiSubsystem.onTicker();
   static const uint16_t weatherSyncInterval=1800;
   //static const uint16_t weatherSyncIntervalFail=10;
 #if RTCSUPPORTED
@@ -465,7 +466,6 @@ void MyNetwork::begin() {
 #endif
   ctimer.attach(1, ticks);
   if (network_on_connect) network_on_connect();
-  pm.on_connect();
 }
 
 void MyNetwork::setWifiParams(){

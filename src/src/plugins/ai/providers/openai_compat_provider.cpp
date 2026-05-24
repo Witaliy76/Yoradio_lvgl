@@ -16,13 +16,46 @@
 #ifdef ESP_PLATFORM
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <esp_heap_caps.h>
 #endif
 
+// Per-request TLS client setup / Настройка TLS-клиента на один запрос
+static void configureHttpsClient(WiFiClientSecure& client, uint32_t timeout_ms) {
+    client.setInsecure();
+    client.setTimeout(30);
+    unsigned long hs_sec = timeout_ms / 1000;
+    if (hs_sec < 10) {
+        hs_sec = 10;
+    }
+    if (hs_sec > 30) {
+        hs_sec = 30;
+    }
+    client.setHandshakeTimeout(hs_sec);
+}
+
+#ifdef ESP_PLATFORM
+// TLS heap guard: skip HTTPS when internal largest block too small for mbedTLS
+// TLS heap guard: не вызывать HTTPS при нехватке internal heap
+static constexpr size_t AI_TLS_MIN_INTERNAL_LARGEST = 50000;
+static constexpr int HTTPC_ERROR_TLS_HEAP_GUARD = -9001;
+
+static void aiHttpsTlsHeapGuardLogSkip(size_t largest, size_t free_sz, size_t min_heap) {
+    Serial.printf("[AI HTTPS] skipped: TLS heap guard largest=%u free=%u min=%u\n",
+                  (unsigned)largest, (unsigned)free_sz, (unsigned)min_heap);
+}
+
+#if AI_LAYER_DEBUG
+static void logTlsLastErrorDebug(WiFiClientSecure& client) {
+    char buf[96];
+    buf[0] = '\0';
+    const int err = client.lastError(buf, sizeof(buf));
+    AI_DLOG("[OpenAICompatProvider] tls lastError=%d (%s)", err, buf[0] ? buf : "n/a");
+}
+#endif
+#endif  // ESP_PLATFORM
+
 OpenAICompatProvider::OpenAICompatProvider() {
-    // Инициализация HTTPS клиента (игнорируем проверку сертификатов для ESP32)
-    // Initialize HTTPS client (ignore certificate validation for ESP32)
-    _wifiSecureClient.setInsecure();
-    _wifiSecureClient.setTimeout(30);  // Максимальный таймаут в секундах / Maximum timeout in seconds
+    // Per-request HTTPClient/TLS in _makeHTTPRequest() / HTTPClient+TLS создаются на запрос
 }
 
 // Нормализация пути к /chat/completions / Normalize path to /chat/completions
@@ -155,13 +188,13 @@ String OpenAICompatProvider::_buildRequestJSON(const String& model, const String
     return json_request;
 }
 
-bool OpenAICompatProvider::_readHTTPResponse(String& response_body) {
+bool OpenAICompatProvider::_readHTTPResponse(String& response_body, HTTPClient& http) {
     // Используем HTTPClient для чтения ответа / Use HTTPClient to read response
-    response_body = _http.getString();
+    response_body = http.getString();
     
     if (response_body.length() == 0) {
         AI_DLOG("[OpenAICompatProvider] getString() returned empty, trying getStreamPtr()");
-        WiFiClient* stream = _http.getStreamPtr();
+        WiFiClient* stream = http.getStreamPtr();
         if (stream && stream->available()) {
             response_body = stream->readString();
             AI_DLOG("[OpenAICompatProvider] Read from stream, length: %u", response_body.length());
@@ -216,10 +249,6 @@ bool OpenAICompatProvider::_makeHTTPRequest(
         AI_DLOG("[OpenAICompatProvider] Timeout clamped to 30000ms (was too high)");
     }
     
-    // Закрываем предыдущее соединение если было
-    // Close previous connection if exists
-    _http.end();
-    
     String prompt = _buildPrompt(station_name, artist, song, track_title);
     
     // СТРОГАЯ ПРОВЕРКА: если промпт пустой (не загружен), abort / STRICT CHECK: if prompt empty (not loaded), abort
@@ -229,6 +258,7 @@ bool OpenAICompatProvider::_makeHTTPRequest(
     }
     
     String json_request = _buildRequestJSON(model, prompt);
+    prompt = String();  // Release prompt RAM before TLS / Освободить prompt до TLS
     
     // Нормализация пути / Normalize path
     String normalized_path = normalizeChatCompletionsPath(cfg.path);
@@ -246,28 +276,68 @@ bool OpenAICompatProvider::_makeHTTPRequest(
         url = protocol + String(cfg.host) + ":" + String(cfg.port) + normalized_path;
     }
     
+    const bool use_https = (cfg.port != 80);
+
     AI_DLOG("[OpenAICompatProvider] URL: %s", url.c_str());
     AI_DLOG("[OpenAICompatProvider] Timeout: %u ms", timeout_ms);
-    
-    // Выбор клиента (HTTP или HTTPS) / Select client (HTTP or HTTPS)
-    if (cfg.port == 80) {
-        // HTTP / HTTP
-        AI_DLOG("[OpenAICompatProvider] Using HTTP (port=80)");
-        _http.begin(_wifiClient, url);
-    } else {
-        // HTTPS / HTTPS
-        AI_DLOG("[OpenAICompatProvider] Using HTTPS");
-        _http.begin(_wifiSecureClient, url);
+
+#ifdef ESP_PLATFORM
+    if (use_https) {
+        const size_t int_largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+        if (int_largest < AI_TLS_MIN_INTERNAL_LARGEST) {
+            aiHttpsTlsHeapGuardLogSkip(int_largest,
+                                       heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                                       ESP.getMinFreeHeap());
+            httpCode_out = HTTPC_ERROR_TLS_HEAP_GUARD;
+            AI_LOG("[OpenAICompatProvider] HTTPS skipped: tls_internal_heap_too_low");
+#if AI_LAYER_DEBUG
+            AI_DLOG("[OpenAICompatProvider] stage=memory_guard err=\"tls_internal_heap_too_low\" code=%d",
+                    HTTPC_ERROR_TLS_HEAP_GUARD);
+#endif
+            return false;
+        }
     }
-    
-    _http.setTimeout(timeout_ms);
-    _http.addHeader("Authorization", "Bearer " + api_key);
-    _http.addHeader("Content-Type", "application/json");
-    
-    // Отправляем POST запрос / Send POST request
-    int httpCode = _http.POST(json_request);
-    
+#endif
+
+    int httpCode = 0;
+
+    // Per-request HTTPClient + transport lifetime (same scope) / Локальный HTTPClient+transport в одном scope
+    WiFiClient plainClient;
+    WiFiClientSecure tlsClient;
+    HTTPClient http;
+
+    if (!use_https) {
+        plainClient.stop();
+        http.begin(plainClient, url);
+    } else {
+        configureHttpsClient(tlsClient, timeout_ms);
+        http.begin(tlsClient, url);
+    }
+
+    http.setTimeout(timeout_ms);
+    http.addHeader("Authorization", "Bearer " + api_key);
+    http.addHeader("Content-Type", "application/json");
+
+    httpCode = http.POST(json_request);
+    json_request = String();  // Release JSON before read/TLS teardown / Освободить JSON после POST
+
     AI_LOG("[OpenAICompatProvider] HTTP POST completed, code: %d", httpCode);
+#if AI_LAYER_DEBUG
+    if (httpCode <= 0 && use_https) {
+        AI_DLOG("[OpenAICompatProvider] HTTPClient::errorToString(%d)=\"%s\"",
+                httpCode, http.errorToString(httpCode).c_str());
+        logTlsLastErrorDebug(tlsClient);
+    }
+#endif
+
+    auto endHttpAndTransport = [&]() {
+        http.end();
+        if (use_https) {
+            tlsClient.stop();
+        } else {
+            plainClient.stop();
+        }
+    };
     
     // Проверяем код ответа / Check response code
     if (httpCode <= 0) {
@@ -280,17 +350,17 @@ bool OpenAICompatProvider::_makeHTTPRequest(
             const char* err_text = "";
             
             // Mapping для определения stage по коду ошибки / Mapping to determine stage by error code
-            // HTTPClient error codes (ESP32 Arduino core 3.x):
-            // -1 = HTTPC_ERROR_CONNECTION_FAILED
+            // HTTPClient error codes (ESP32 Arduino 3.3.x, see HTTPClient.h):
+            // -1 = HTTPC_ERROR_CONNECTION_REFUSED (connect() failed in sendRequest)
             // -2 = HTTPC_ERROR_SEND_HEADER_FAILED
             // -3 = HTTPC_ERROR_SEND_PAYLOAD_FAILED
             // -4 = HTTPC_ERROR_NOT_CONNECTED
             // -5 = HTTPC_ERROR_CONNECTION_LOST
             // -11 = HTTPC_ERROR_READ_TIMEOUT
             switch (httpCode) {
-                case -1:  // HTTPC_ERROR_CONNECTION_FAILED
+                case -1:  // HTTPC_ERROR_CONNECTION_REFUSED (upstream name)
                     stage = "connect";
-                    err_text = "connection_failed";
+                    err_text = "connection_refused_or_failed";
                     break;
                 case -2:  // HTTPC_ERROR_SEND_HEADER_FAILED
                     stage = "send_header";
@@ -327,38 +397,36 @@ bool OpenAICompatProvider::_makeHTTPRequest(
             }
             
             AI_DLOG("[OpenAICompatProvider] HTTP %d debug: https=%d timeout=%ums host=%s:%d path=%s stage=%s err=\"%s\"",
-                     httpCode, (cfg.port != 80) ? 1 : 0, timeout_ms, cfg.host, cfg.port, normalized_path.c_str(), stage, err_text);
+                     httpCode, use_https ? 1 : 0, timeout_ms, cfg.host, cfg.port, normalized_path.c_str(), stage, err_text);
         }
         
-        _http.end();
+        endHttpAndTransport();
         return false;
     }
     
     if (httpCode != HTTP_CODE_OK && httpCode != HTTP_CODE_CREATED) {
         AI_LOG("[OpenAICompatProvider] HTTP error, code: %d", httpCode);
-        response_body = _http.getString();
-        _http.end();
+        response_body = http.getString();
+        endHttpAndTransport();
         return false;
     }
     
     // Читаем ответ / Read response
-    bool success = _readHTTPResponse(response_body);
+    bool success = _readHTTPResponse(response_body, http);
     
     if (!success) {
-        _http.end();
+        endHttpAndTransport();
         return false;
     }
     
     // Сохраняем заголовки перед закрытием / Save headers before closing
     httpCode_out = httpCode;
-    content_type_out = _http.hasHeader("Content-Type") ? _http.header("Content-Type") : "";
-    content_length_out = _http.hasHeader("Content-Length") ? _http.header("Content-Length") : "";
-    transfer_encoding_out = _http.hasHeader("Transfer-Encoding") ? _http.header("Transfer-Encoding") : "";
-    content_encoding_out = _http.hasHeader("Content-Encoding") ? _http.header("Content-Encoding") : "";
+    content_type_out = http.hasHeader("Content-Type") ? http.header("Content-Type") : "";
+    content_length_out = http.hasHeader("Content-Length") ? http.header("Content-Length") : "";
+    transfer_encoding_out = http.hasHeader("Transfer-Encoding") ? http.header("Transfer-Encoding") : "";
+    content_encoding_out = http.hasHeader("Content-Encoding") ? http.header("Content-Encoding") : "";
     
-    // Закрываем соединение / Close connection
-    _http.end();
-    
+    endHttpAndTransport();
     return true;
 }
 

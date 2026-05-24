@@ -495,7 +495,6 @@ void controlsEvent(bool toRight, int8_t volDelta) {
 void onBtnClick(int id) {
   bool passBnCenter = (controlEvt_e)id==EVT_BTNCENTER || (controlEvt_e)id==EVT_ENCBTNB || (controlEvt_e)id==EVT_ENC2BTNB;
   controlEvt_e btnid = static_cast<controlEvt_e>(id);
-  pm.on_btn_click(btnid);
   if (network.status != CONNECTED && network.status!=SDREADY && (controlEvt_e)id!=EVT_BTNMODE && !passBnCenter) return;
   switch (btnid) {
     case EVT_BTNLEFT: {

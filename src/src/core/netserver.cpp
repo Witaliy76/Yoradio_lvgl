@@ -21,7 +21,7 @@
 #include "../lvgl_ui/theme/lv_theme_yoradio.h"
 #endif
 #endif
-#include "../plugins/AIPlugin.h"
+#include "../plugins/ai_subsystem.h"
 #include "../plugins/ai/ai_log.h"  // AI Layer logging macros
 
 // Forward declarations for AI config functions from config.cpp / Forward объявления для функций AI config из config.cpp
@@ -860,11 +860,10 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
         }
         
         aiSaveToFS(aicfg);
-        // Notify AIPlugin BEFORE applying to store / Уведомляем AIPlugin ДО применения к store
+        // Notify AISubsystem BEFORE applying to store / Уведомляем AISubsystem ДО применения к store
         // (чтобы функция могла сравнить с текущим состоянием / so function can compare with current state)
         if (old_store_enabled != aicfg.enabled) {
-          extern AIPlugin aiPluginInstance;
-          aiPluginInstance.onAiEnabledChanged(aicfg.enabled);
+          aiSubsystem.onEnabledChanged(aicfg.enabled);
         }
         aiApplyToStore(aicfg);
         return;
@@ -880,10 +879,9 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
           aicfg.enabled = false;
         }
         aiSaveToFS(aicfg);
-        // Notify AIPlugin BEFORE applying to store if enabled state changed / Уведомляем AIPlugin ДО применения к store если состояние enabled изменилось
+        // Notify AISubsystem BEFORE applying to store if enabled state changed / Уведомляем AISubsystem ДО применения к store если состояние enabled изменилось
         if (was_enabled != aicfg.enabled || old_store_enabled != aicfg.enabled) {
-          extern AIPlugin aiPluginInstance;
-          aiPluginInstance.onAiEnabledChanged(aicfg.enabled);
+          aiSubsystem.onEnabledChanged(aicfg.enabled);
         }
         aiApplyToStore(aicfg);
         return;
@@ -902,10 +900,9 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
           aicfg.enabled = false;
         }
         aiSaveToFS(aicfg);
-        // Notify AIPlugin BEFORE applying to store if enabled state changed / Уведомляем AIPlugin ДО применения к store если состояние enabled изменилось
+        // Notify AISubsystem BEFORE applying to store if enabled state changed / Уведомляем AISubsystem ДО применения к store если состояние enabled изменилось
         if (was_enabled != aicfg.enabled || old_store_enabled != aicfg.enabled) {
-          extern AIPlugin aiPluginInstance;
-          aiPluginInstance.onAiEnabledChanged(aicfg.enabled);
+          aiSubsystem.onEnabledChanged(aicfg.enabled);
         }
         aiApplyToStore(aicfg);
         return;
@@ -921,10 +918,9 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
           aicfg.enabled = false;
         }
         aiSaveToFS(aicfg);
-        // Notify AIPlugin BEFORE applying to store if enabled state changed / Уведомляем AIPlugin ДО применения к store если состояние enabled изменилось
+        // Notify AISubsystem BEFORE applying to store if enabled state changed / Уведомляем AISubsystem ДО применения к store если состояние enabled изменилось
         if (was_enabled != aicfg.enabled || old_store_enabled != aicfg.enabled) {
-          extern AIPlugin aiPluginInstance;
-          aiPluginInstance.onAiEnabledChanged(aicfg.enabled);
+          aiSubsystem.onEnabledChanged(aicfg.enabled);
         }
         aiApplyToStore(aicfg);
         return;
@@ -951,10 +947,9 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
           aicfg.enabled = false;
         }
         aiSaveToFS(aicfg);
-        // Notify AIPlugin BEFORE applying to store if enabled state changed / Уведомляем AIPlugin ДО применения к store если состояние enabled изменилось
+        // Notify AISubsystem BEFORE applying to store if enabled state changed / Уведомляем AISubsystem ДО применения к store если состояние enabled изменилось
         if (was_enabled != aicfg.enabled || old_store_enabled != aicfg.enabled) {
-          extern AIPlugin aiPluginInstance;
-          aiPluginInstance.onAiEnabledChanged(aicfg.enabled);
+          aiSubsystem.onEnabledChanged(aicfg.enabled);
         }
         aiApplyToStore(aicfg);
         return;
@@ -970,10 +965,9 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
           aicfg.enabled = false;
         }
         aiSaveToFS(aicfg);
-        // Notify AIPlugin BEFORE applying to store if enabled state changed / Уведомляем AIPlugin ДО применения к store если состояние enabled изменилось
+        // Notify AISubsystem BEFORE applying to store if enabled state changed / Уведомляем AISubsystem ДО применения к store если состояние enabled изменилось
         if (was_enabled != aicfg.enabled || old_store_enabled != aicfg.enabled) {
-          extern AIPlugin aiPluginInstance;
-          aiPluginInstance.onAiEnabledChanged(aicfg.enabled);
+          aiSubsystem.onEnabledChanged(aicfg.enabled);
         }
         aiApplyToStore(aicfg);
         return;
@@ -1044,10 +1038,9 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
           extern void aiPromptResetCache();
           aiPromptResetCache();
           
-          // Notify AIPlugin BEFORE applying to store if state changed / Уведомляем AIPlugin ДО применения к store если состояние изменилось
+          // Notify AISubsystem BEFORE applying to store if state changed / Уведомляем AISubsystem ДО применения к store если состояние изменилось
           if (old_store_enabled != false) {
-            extern AIPlugin aiPluginInstance;
-            aiPluginInstance.onAiEnabledChanged(false);
+            aiSubsystem.onEnabledChanged(false);
           }
           aiApplyToStore(aicfg);
           requestOnChange(GETAI, clientId);
