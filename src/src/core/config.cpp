@@ -5,7 +5,7 @@
 #include "player.h"
 #include "network.h"
 #include "netserver.h"
-#include "../plugins/ai/ai_log.h"  // AI Layer logging macros
+#include "../ai/ai_log.h"  // AI Layer logging macros
 #ifdef USE_SD
 #include "sdmanager.h"
 #endif

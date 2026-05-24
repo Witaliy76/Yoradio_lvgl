@@ -8,7 +8,7 @@
 
 #include "openai_compat_provider.h"
 #include "../ai_log.h"  // AI Layer logging macros
-#include "../../../core/config.h"  // Для aiGetRuntimeConfig / For aiGetRuntimeConfig
+#include "../../core/config.h"  // Для aiGetRuntimeConfig / For aiGetRuntimeConfig
 #include "../ai_prompt.h"  // Для загрузки промптов из SPIFFS / For loading prompts from SPIFFS (aiPromptGet, aiPromptIsAvailable)
 #include <ArduinoJson.h>
 #include <WiFi.h>

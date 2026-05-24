@@ -7,7 +7,7 @@
  */
 
 #include "moment_layer.h"
-#include "../../../core/options.h"  // Для L10N_LANGUAGE / For L10N_LANGUAGE
+#include "../../core/options.h"  // Для L10N_LANGUAGE / For L10N_LANGUAGE
 
 // Предустановленные фразы для MomentLayer (без LLM) / Predefined phrases for MomentLayer (no LLM)
 // Русские фразы / Russian phrases
@@ -34,8 +34,8 @@ static const size_t kMomentPhrasesCount = sizeof(kMomentPhrases) / sizeof(kMomen
 MomentLayer::MomentLayer() : _enabled(true) {
     // Fallback-слой: срабатывает только после неуспешного LLM результата на валидном треке
     // Fallback layer: triggers only after unsuccessful LLM result on valid track
-    // Интервал контролируется в AIPlugin через _moment_decided (one-shot на track_id)
-    // Interval is controlled in AIPlugin via _moment_decided (one-shot per track_id)
+    // Интервал контролируется в AISubsystem через _moment_decided (one-shot на track_id)
+    // Interval is controlled in AISubsystem via _moment_decided (one-shot per track_id)
 }
 
 bool MomentLayer::process(const AIContext& context, AICandidate& out) {
@@ -52,8 +52,8 @@ bool MomentLayer::process(const AIContext& context, AICandidate& out) {
         return false;  // Нет валидного трека - молчим / No valid track - silent
     }
     
-    // ПРИМЕЧАНИЕ: Интервал контролируется в AIPlugin через _moment_decided (one-shot на track_id)
-    // NOTE: Interval is controlled in AIPlugin via _moment_decided (one-shot per track_id)
+    // ПРИМЕЧАНИЕ: Интервал контролируется в AISubsystem через _moment_decided (one-shot на track_id)
+    // NOTE: Interval is controlled in AISubsystem via _moment_decided (one-shot per track_id)
     // Для fallback-слоя интервал не нужен - он должен срабатывать для каждого нового трека когда LLM молчит
     // For fallback layer interval is not needed - it should trigger for each new track when LLM is silent
     
@@ -66,7 +66,7 @@ bool MomentLayer::process(const AIContext& context, AICandidate& out) {
     // Build candidate
     out.text = String(kMomentPhrases[phrase_index]);
     out.source_layer = LAYER_MOMENT;
-    out.min_interval_ms = 0;  // Интервал контролируется в AIPlugin / Interval controlled in AIPlugin
+    out.min_interval_ms = 0;  // Интервал контролируется в AISubsystem / Interval controlled in AISubsystem
     out.confidence = 1.0f;  // Всегда уверены в предустановленных фразах / Always confident in predefined phrases
     
     // Диагностика: длина текста перед возвратом / Diagnostics: text length before return

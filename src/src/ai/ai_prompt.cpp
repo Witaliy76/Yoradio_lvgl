@@ -9,7 +9,7 @@
 #include "ai_prompt.h"
 #include "ai_log.h"  // AI Layer logging macros
 #include <LittleFS.h>
-#include "../../core/config.h"   // Для fsIsReady() / For fsIsReady()
+#include "../core/config.h"   // Для fsIsReady() / For fsIsReady()
 
 // Maximum prompt file size in bytes / Максимальный размер файла промпта в байтах
 // Single source of truth for prompt size limit / Единый источник истины для лимита размера промпта

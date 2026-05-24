@@ -8,7 +8,7 @@
 
 #pragma once
 #include <Arduino.h>
-#include "../../core/options.h"  // Для доступа к myoptions.h / For access to myoptions.h
+#include "../core/options.h"  // Для доступа к myoptions.h / For access to myoptions.h
 
 #ifndef AI_LAYER_DEBUG
   #define AI_LAYER_DEBUG 0
@@ -32,7 +32,7 @@ inline void aiLogSetBootDone(bool v) {
  * AI_LOG - Always print (class A logs)
  * AI_LOG - Всегда печатать (логи класса A)
  * 
- * Usage: AI_LOG("[AIPlugin] Track changed, new track_id: %u", track_id);
+ * Usage: AI_LOG("[AISubsystem] Track changed, new track_id: %u", track_id);
  * 
  * Note: Long strings (>200 chars) are truncated to prevent Serial buffer overflow / Примечание: Длинные строки (>200 символов) обрезаются для предотвращения переполнения буфера Serial
  */
@@ -54,7 +54,7 @@ inline void aiLogSetBootDone(bool v) {
  * AI_DLOG - Print only if AI_LAYER_DEBUG == 1 AND boot is done (class B logs)
  * AI_DLOG - Печатать только если AI_LAYER_DEBUG == 1 И boot завершён (логи класса B)
  * 
- * Usage: AI_DLOG("[AIPlugin] TT score details: %s", breakdown.c_str());
+ * Usage: AI_DLOG("[AISubsystem] TT score details: %s", breakdown.c_str());
  * 
  * Note: Compiles to nothing when AI_LAYER_DEBUG == 0 (no overhead)
  *       Suppressed during boot banner to avoid interleaving

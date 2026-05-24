@@ -10,13 +10,13 @@
  */
 
 #include "../core/config.h"
-#include "ai/ai_types.h"
-#include "ai/ai_coordinator.h"
-#include "ai/ai_layer.h"
-#include "ai/layers/interpretation_layer.h"
-#include "ai/layers/moment_layer.h"
-#include "ai/providers/openai_compat_provider.h"
-#include "ai/ai_task.h"
+#include "ai_types.h"
+#include "ai_coordinator.h"
+#include "ai_layer.h"
+#include "layers/interpretation_layer.h"
+#include "layers/moment_layer.h"
+#include "providers/openai_compat_provider.h"
+#include "ai_task.h"
 
 /**
  * Причины валидации track_title / Track title validation reasons
@@ -36,14 +36,14 @@ enum class TrackTitleValidationReason {
  * AISubsystem - явная AI-подсистема yoRadio (не Plugin)
  * AISubsystem - explicit AI subsystem for yoRadio (not a Plugin)
  *
- * Orchestrates plugins/ai/* core; core events call aiSubsystem directly.
+ * Orchestrates src/ai/* core; core events call aiSubsystem directly.
  */
 class AISubsystem {
 public:
     AISubsystem();
     ~AISubsystem();
 
-    // Explicit lifecycle — no pluginsManager registration / Явный lifecycle без pm
+    // Explicit lifecycle — direct hooks, no plugin manager / Явный lifecycle без pm
     void init();
 
     void onSetup();

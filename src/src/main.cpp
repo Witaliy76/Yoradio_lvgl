@@ -12,10 +12,10 @@
 #include "core/mem_watchdog.h"
 
 // Spectrum Analyzer
-#include "displays/tools/spectrum_analyzer.h"
+//#include "displays/tools/spectrum_analyzer.h"
 
 // AI subsystem (Stage 6.0) / AI-подсистема
-#include "plugins/ai_subsystem.h"
+#include "ai/ai_subsystem.h"
 
 #if DSP_HSPI || TS_HSPI || VS_HSPI
 SPIClass  SPI2(HOOPSENb);

@@ -7,8 +7,8 @@
  */
 
 #include "ai_subsystem.h"
-#include "ai/utils/utf8_casefold_search.h"
-#include "ai/ai_log.h"  // AI Layer logging macros
+#include "utils/utf8_casefold_search.h"
+#include "ai_log.h"  // AI Layer logging macros
 #include "../core/network.h"
 #include "../core/player.h"
 #include "../core/display.h"
@@ -27,8 +27,8 @@ AISubsystem::~AISubsystem() {
 }
 
 void AISubsystem::init() {
-    // Stage 6.0A: explicit subsystem init only — no pluginsManager / только явный init
-    // Task/layer setup stays in onSetup() (same timing as former AIPlugin::on_setup)
+    // Stage 6.0A: explicit subsystem init only — no plugin manager / только явный init
+    // Task/layer setup stays in onSetup() (same timing as former plugin-era setup path)
 }
 
 void AISubsystem::onSetup() {

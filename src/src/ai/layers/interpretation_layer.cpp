@@ -9,7 +9,7 @@
 #include "interpretation_layer.h"
 #include "../ai_log.h"  // AI Layer logging macros
 #include "../utils/utf8_truncate.h"
-#include "../../../core/config.h"
+#include "../../core/config.h"
 #ifdef ESP_PLATFORM
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -126,8 +126,8 @@ bool InterpretationLayer::process(const AIContext& context, AICandidate& out) {
     
     const uint32_t now = millis();
     
-    // Debounce теперь обрабатывается в AIPlugin, здесь не нужен
-    // Debounce is now handled in AIPlugin, not needed here
+    // Debounce обрабатывается в AISubsystem, здесь не нужен
+    // Debounce is handled in AISubsystem, not needed here
     
     // Строго 1 запрос на трек / Strictly 1 request per track
     if (_last_enqueued_track_id == _track_id) {

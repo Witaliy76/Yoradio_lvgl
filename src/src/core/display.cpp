@@ -10,7 +10,7 @@
 #include "../lvgl_ui/lvgl_ui.h"
 #include "../lvgl_ui/lv_screensaver.h"
 #include "../lvgl_ui/lv_ui_events.h"
-#include "../plugins/ai_subsystem.h"
+#include "../ai/ai_subsystem.h"
 extern Arduino_Canvas* gfx;
 
 // Глобальный флаг "кадр грязный" для dirty-based flush

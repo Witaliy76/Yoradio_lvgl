@@ -24,8 +24,8 @@
 class MomentLayer : public AILayer {
 private:
     bool _enabled;
-    // ПРИМЕЧАНИЕ: _last_shown_ms удален - интервал контролируется в AIPlugin через _moment_decided
-    // NOTE: _last_shown_ms removed - interval is controlled in AIPlugin via _moment_decided
+    // ПРИМЕЧАНИЕ: _last_shown_ms удален - интервал контролируется в AISubsystem через _moment_decided
+    // NOTE: _last_shown_ms removed - interval is controlled in AISubsystem via _moment_decided
     
 public:
     MomentLayer();

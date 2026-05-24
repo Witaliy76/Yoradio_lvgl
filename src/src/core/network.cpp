@@ -1,5 +1,5 @@
 #include "network.h"
-#include "../plugins/ai_subsystem.h"
+#include "../ai/ai_subsystem.h"
 #include "display.h"
 #include "options.h"
 #include "config.h"

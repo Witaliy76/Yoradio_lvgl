@@ -21,8 +21,8 @@
 #include "../lvgl_ui/theme/lv_theme_yoradio.h"
 #endif
 #endif
-#include "../plugins/ai_subsystem.h"
-#include "../plugins/ai/ai_log.h"  // AI Layer logging macros
+#include "../ai/ai_subsystem.h"
+#include "../ai/ai_log.h"  // AI Layer logging macros
 
 // Forward declarations for AI config functions from config.cpp / Forward объявления для функций AI config из config.cpp
 // AIConfig structure is now defined in config.h (included above)

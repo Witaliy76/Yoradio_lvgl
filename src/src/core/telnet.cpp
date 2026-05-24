@@ -5,7 +5,7 @@
 #include "player.h"
 #include "network.h"
 #include "telnet.h"
-#include "../plugins/ai/ai_log.h"  // Для aiLogSetBootDone / For aiLogSetBootDone
+#include "../ai/ai_log.h"  // Для aiLogSetBootDone / For aiLogSetBootDone
 
 Telnet telnet;
 
