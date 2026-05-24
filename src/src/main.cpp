@@ -12,7 +12,7 @@
 #include "core/mem_watchdog.h"
 
 // Spectrum Analyzer
-//#include "displays/tools/spectrum_analyzer.h"
+#include "displays/tools/spectrum_analyzer.h"
 
 // AI subsystem (Stage 6.0) / AI-подсистема
 #include "ai/ai_subsystem.h"

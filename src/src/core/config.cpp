@@ -831,10 +831,8 @@ uint8_t Config::fillPlMenu(int from, uint8_t count, bool fromNextion) {
   while (true) {
     if (ls < 1) {
       ls++;
-      if(!fromNextion) display.printPLitem(c, "", playlistConf.uppercase);
-  #ifdef USE_NEXTION
-    if(fromNextion) nextion.printPLitem(c, "");
-  #endif
+      display.printPLitem(c, "", playlistConf.uppercase);
+      (void)fromNextion;
       c++;
       continue;
     }
@@ -852,10 +850,8 @@ uint8_t Config::fillPlMenu(int from, uint8_t count, bool fromNextion) {
       String stationName = playlist.readStringUntil('\n');
       stationName = stationName.substring(0, stationName.indexOf('\t'));
       if(config.store.numplaylist && stationName.length()>0) stationName = String(from+c)+" "+stationName;
-      if(!fromNextion) display.printPLitem(c, stationName.c_str(), playlistConf.uppercase);
-      #ifdef USE_NEXTION
-        if(fromNextion) nextion.printPLitem(c, stationName.c_str());
-      #endif
+      display.printPLitem(c, stationName.c_str(), playlistConf.uppercase);
+      (void)fromNextion;
       c++;
       if (c >= count) break;
     }
@@ -1018,17 +1014,6 @@ void Config::setBrightness(bool dosave){
     saveValue(&store.dspon, store.dspon, true, true);
   }
 #endif
-#ifdef USE_NEXTION
-  nextion.wake();
-  char cmd[15];
-  snprintf(cmd, 15, "dims=%d", store.brightness);
-  nextion.putcmd(cmd);
-  if(!store.dspon) store.dspon = true;
-  if(dosave){
-    saveValue(&store.brightness, store.brightness, false, true);
-    saveValue(&store.dspon, store.dspon, true, true);
-  }
-#endif
 }
 
 void Config::setDspOn(bool dspon, bool saveval){
@@ -1036,10 +1021,6 @@ void Config::setDspOn(bool dspon, bool saveval){
     store.dspon = dspon;
     saveValue(&store.dspon, store.dspon, true, true);
   }
-#ifdef USE_NEXTION
-  if(!dspon) nextion.sleep();
-  else nextion.wake();
-#endif
   if(!dspon){
 #if BRIGHTNESS_PIN!=255
   analogWrite(BRIGHTNESS_PIN, 0);
@@ -1056,9 +1037,6 @@ void Config::setDspOn(bool dspon, bool saveval){
 void Config::doSleep(){
   if(BRIGHTNESS_PIN!=255) analogWrite(BRIGHTNESS_PIN, 0);
   display.deepsleep();
-#ifdef USE_NEXTION
-  nextion.sleep();
-#endif
 #if !defined(ARDUINO_ESP32C3_DEV)
   if(WAKE_PIN!=255) esp_sleep_enable_ext0_wakeup((gpio_num_t)WAKE_PIN, LOW);
   esp_sleep_enable_timer_wakeup(config.sleepfor * 60 * 1000000ULL);
@@ -1069,9 +1047,6 @@ void Config::doSleep(){
 void Config::doSleepW(){
   if(BRIGHTNESS_PIN!=255) analogWrite(BRIGHTNESS_PIN, 0);
   display.deepsleep();
-#ifdef USE_NEXTION
-  nextion.sleep();
-#endif
 #if !defined(ARDUINO_ESP32C3_DEV)
   if(WAKE_PIN!=255) esp_sleep_enable_ext0_wakeup((gpio_num_t)WAKE_PIN, LOW);
   esp_deep_sleep_start();

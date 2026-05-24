@@ -153,9 +153,6 @@ void Player::_stop(bool alreadyStopped){
   config.station.stream_sample_rate_hz   = 0;
   config.station.stream_bits_per_sample = 0;
   config.setBitrateFormat(BF_UNCNOWN);
-  #ifdef USE_NEXTION
-    nextion.bitrate(config.station.bitrate);
-  #endif
   netserver.requestOnChange(BITRATE, 0);
   display.putRequest(DBITRATE);
   display.putRequest(PSTOP);

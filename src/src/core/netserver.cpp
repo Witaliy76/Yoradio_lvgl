@@ -275,7 +275,7 @@ void NetServer::chunkedHtmlPage(const String& contentType, AsyncWebServerRequest
 #else
   #define DSP_CAN_FLIPPED false
 #endif
-#if !defined(HIDE_WEATHER) && (!defined(DUMMYDISPLAY) && !defined(USE_NEXTION))
+#if !defined(HIDE_WEATHER) && !defined(DUMMYDISPLAY)
   #define SHOW_WEATHER  true
 #else
   #define SHOW_WEATHER  false
@@ -411,16 +411,11 @@ void NetServer::processQueue(){
         getPlaylist(clientId); break;
       }
       case GETACTIVE: {
-          bool dbgact = false, nxtn=false;
+          bool dbgact = false;
           String act = F("\"group_wifi\",");
           if (network.status == CONNECTED) {
                                                                 act += F("\"group_system\",");
             if (BRIGHTNESS_PIN != 255 || DSP_CAN_FLIPPED || DSP_MODEL == DSP_NOKIA5110 || dbgact)    act += F("\"group_display\",");
-          #ifdef USE_NEXTION
-                                                                act += F("\"group_nextion\",");
-            if (!SHOW_WEATHER || dbgact)                        act += F("\"group_weather\",");
-            nxtn=true;
-          #endif
                                                               #if defined(LCD_I2C) || defined(DSP_OLED)
                                                                 act += F("\"group_oled\",");
                                                               #endif

@@ -36,9 +36,6 @@ void lvgl_ui::recordLvglDirectPanelFlush() {
 }
 
 Display display;
-#ifdef USE_NEXTION
-Nextion nextion;
-#endif
 
 #ifndef DUMMYDISPLAY
 //============================================================================================================================
@@ -120,10 +117,6 @@ void loopDspTask(void * pvParameters){
 
 void Display::init() {
   Serial.print("##[BOOT]#\tdisplay.init\t");
-  
-#ifdef USE_NEXTION
-  nextion.begin();
-#endif
 
 #if LIGHT_SENSOR!=255
   analogSetAttenuation(ADC_0db);
@@ -448,9 +441,6 @@ void Display::_start() {
 #else
   if (_boot) _pager.removePage(_boot);
 #endif
-  #ifdef USE_NEXTION
-    nextion.wake();
-  #endif
   if (network.status != CONNECTED && network.status != SDREADY) {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     // Block 8-E10: LVGL product — Wi‑Fi Recovery only; never legacy _apScreen / Pager AP (Hotspot panel in scr_wifi_flow).
@@ -489,18 +479,11 @@ void Display::_start() {
     _suspendFlush = false; // разрешаем flush в AP режиме / enable flush in AP mode
     Serial.println("[Display] Going to AP mode");
     _apScreen();
-    #ifdef USE_NEXTION
-      nextion.apScreen();
-    #endif
     _bootStep = 2;
     Serial.println("[Display] _bootStep set to 2 in AP mode");
     return;
 #endif
   }
-  #ifdef USE_NEXTION
-    //nextion.putcmd("page player");
-    nextion.start();
-  #endif
   lvgl_ui::UiBackend startBackend = lvgl_ui::getPreferredBackend(PLAYER);
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
   if (startBackend == lvgl_ui::UiBackend::Lvgl) {
@@ -693,10 +676,6 @@ void Display::_setReturnTicker(uint8_t time_s){
 }
 
 void Display::_swichMode(displayMode_e newmode) {
-  #ifdef USE_NEXTION
-    //nextion.swichMode(newmode);
-    nextion.putRequest({NEWMODE, newmode});
-  #endif
   if (newmode == _mode) return;
   // Block 8-E8: SDCHANGE legacy Canvas UI removed — do not enter mode or LegacyCanvas handoff.
   // Block 8-E8: режим SDCHANGE удалён — без диалога и без переключения backend.
@@ -708,6 +687,20 @@ void Display::_swichMode(displayMode_e newmode) {
   if (newmode == NUMBERS) {
     return;
   }
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+  // Block 8-E13: TIMEZONE legacy dialog removed on LVGL product path — no mode switch, no LegacyCanvas.
+  // TZ/SNTP config remains via WebUI; no LVGL Timezone screen in this fork.
+  // Block 8-E13: режим TIMEZONE не входим — конфиг через WebUI; LVGL-экрана часового пояса нет.
+  if (newmode == TIMEZONE) {
+    return;
+  }
+  // Block 8-E14: SLEEPING legacy dialog removed on LVGL product — no mode switch, no LegacyCanvas.
+  // Deep sleep APIs (doSleepW/doSleep/sleepForAfter) and SCREENSAVER/BLANK unchanged.
+  // Block 8-E14: режим SLEEPING не входим — без PG_DIALOG и без lv_scr_load(s_default_screen).
+  if (newmode == SLEEPING) {
+    return;
+  }
+#endif
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
   // Wi‑Fi 4C: ignore LOST while LVGL Wi‑Fi Setup owns the screen — keeps display.mode() WIFI so
   // legacy LOST path (overlay + controls gating) does not cover the password/connect UI.
@@ -837,8 +830,17 @@ void Display::_swichMode(displayMode_e newmode) {
 #endif
   if (newmode == LOST && !lvgl_lost)      _showDialog(const_DlgLost);
   if (newmode == UPDATING && !lvgl_upd)  _showDialog(const_DlgUpdate);
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+  // Block 8-E14: SLEEPING no-op on LVGL product path (early return above); legacy _showDialog only in #else.
+#else
   if (newmode == SLEEPING)  _showDialog("SLEEPING");
+#endif
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+  // Block 8-E13: INFO/SETTINGS use Lvgl onModeChanged; TIMEZONE blocked above; no PG_DIALOG / const_DlgNextion.
+  // Block 8-E13: на LVGL product path — без legacy _showDialog для INFO/SETTINGS/TIMEZONE.
+#else
   if (newmode == INFO || newmode == SETTINGS || newmode == TIMEZONE) _showDialog(const_DlgNextion);
+#endif
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
   if (newmode == WIFI && lvgl_ui::getPreferredBackend(WIFI) != lvgl_ui::UiBackend::Lvgl) {
     _showDialog(const_DlgNextion);
@@ -846,11 +848,18 @@ void Display::_swichMode(displayMode_e newmode) {
 #else
   if (newmode == WIFI) _showDialog(const_DlgNextion);
 #endif
-  if (newmode == STATIONS && _legacyWidgetsAvailable()) {
-    _pager.setPage( pages[PG_PLAYLIST]);
-    _plcurrent.setText("");
+  if (newmode == STATIONS) {
     currentPlItem = config.lastStation();
-    _drawPlaylist();
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    // Block 8-E12: LvglStationPage via onModeChanged; no PG_PLAYLIST / _drawPlaylist on product path.
+    // Block 8-E12: список станций — LVGL карусель; legacy Canvas playlist не вызываем.
+#else
+    if (_legacyWidgetsAvailable()) {
+      _pager.setPage(pages[PG_PLAYLIST]);
+      _plcurrent.setText("");
+      _drawPlaylist();
+    }
+#endif
   }
 
   // Stage 4.1: store active backend for current mode (metadata only; no hot-path change).
@@ -956,9 +965,6 @@ void Display::putRequest(displayRequestType_e type, int payload){
     }
   }
   xQueueSend(displayQueue, &request, DSQ_SEND_DELAY);
-  #ifdef USE_NEXTION
-    nextion.putRequest(request);
-  #endif
 }
 
 void Display::_layoutChange(bool played){
@@ -1047,10 +1053,6 @@ void Display::loop() {
           if (_mode == PLAYER || _mode == SCREENSAVER) {
             _time();
           }
-          /*#ifdef USE_NEXTION
-            if(_mode==TIMEZONE) nextion.localTime(network.timeinfo);
-            if(_mode==INFO)     nextion.rssi();
-          #endif*/
           break;
         case NEWTITLE: _title(); break;
         case NEWSTATION: _station(); break;
@@ -1146,11 +1148,6 @@ void Display::loop() {
             lvgl_ui::bootScreenNotifyBootSignal();
           }
 #endif
-          /*#ifdef USE_NEXTION
-            char buf[50];
-            snprintf(buf, 50, bootstrFmt, config.ssids[request.payload].ssid);
-            nextion.bootString(buf);
-          #endif*/
           break;
         }
         case WAITFORSD: {
@@ -1299,9 +1296,6 @@ void Display::loop() {
       s_panel_last_gfx_flush_ms = lastFlushMs;
     }
   }
-#ifdef USE_NEXTION
-  nextion.loop();
-#endif
   dsp.loop();
   #if I2S_DOUT==255
   player.computeVUlevel();
@@ -1329,11 +1323,6 @@ void Display::_station() {
   config.vuThreshold = 0;
   _meta.setAlign(metaConf.widget.align);
   _meta.setText(config.station.name);
-/*#ifdef USE_NEXTION
-  nextion.newNameset(config.station.name);
-  nextion.bitrate(config.station.bitrate);
-  nextion.bitratePic(ICON_NA);
-#endif*/
 }
 
 char *split(char *str, const char *delim) {
@@ -1356,10 +1345,6 @@ void Display::_title() {
         _title1.setText(config.station.title);
         if(_title2) _title2->setText("");
       }
-      /*#ifdef USE_NEXTION
-        nextion.newTitle(config.station.title);
-      #endif*/
-      
     }else{
       _title1.setText("");
       if(_title2) _title2->setText("");
@@ -1393,9 +1378,6 @@ void Display::_time(bool redraw) {
     if (minY < maxY) _clock.moveTo({clockConf.left, ft, 0});
   }
   _clock.draw();
-  /*#ifdef USE_NEXTION
-    nextion.printClock(network.timeinfo);
-  #endif*/
 }
 
 void Display::_volume() {
@@ -1408,9 +1390,6 @@ void Display::_volume() {
     _setReturnTicker(3);
     _nums.setText(config.store.volume, numtxtFmt);
   }
-  /*#ifdef USE_NEXTION
-    nextion.setVol(config.store.volume, _mode == VOL);
-  #endif*/
 }
 
 void Display::flip(){ dsp.flip(); }
@@ -1541,30 +1520,7 @@ size_t Display::diagSnapshot(char* out, size_t len) const {
 }
 
 //============================================================================================================================
-#else // !DUMMYDISPLAY
+#else // DUMMYDISPLAY — DSP_DUMMY headless path removed with Nextion (Block 8-E15)
 //============================================================================================================================
-void Display::init(){
-  #ifdef USE_NEXTION
-  nextion.begin(true);
-  #endif
-}
-void Display::_start(){
-  #ifdef USE_NEXTION
-  //nextion.putcmd("page player");
-  nextion.start();
-  #endif
-  config.setTitle(const_PlReady);
-}
-void Display::putRequest(displayRequestType_e type, int payload){
-  if(type==DSP_START) _start();
-  #ifdef USE_NEXTION
-    requestParams_t request;
-    request.type = type;
-    request.payload = payload;
-    nextion.putRequest(request);
-  #else
-    if(type==NEWMODE) mode((displayMode_e)payload);
-  #endif
-}
-//============================================================================================================================
+#error "DSP_DUMMY / DUMMYDISPLAY is unsupported in this LVGL RGB fork after Block 8-E15 Nextion removal"
 #endif // DUMMYDISPLAY

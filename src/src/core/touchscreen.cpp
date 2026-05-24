@@ -537,7 +537,6 @@ void TouchScreen::loop(){
             wasSwiped = true;
             touchLongPress = millis();
             if(display.mode()==PLAYER || display.mode()==STATIONS){
-                  display.putRequest(NEWMODE, STATIONS);
                   // Вверх-вниз для выбора станций / Up-down for station selection
                   #if TS_MODEL==TS_MODEL_AXS15231B
                   bool nextStation = totalX < 0;  // AXS15231B: после swap используем totalX (вертикаль)
@@ -548,8 +547,18 @@ void TouchScreen::loop(){
                   if (config.store.dbgtouch) {
                     Serial.printf("[TS] Station: %s (totalX=%d totalY=%d)\n", nextStation ? "NEXT" : "PREV", totalX, totalY);
                   }
-                  
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+                  // Block 8-E12A: Main vertical swipe must NOT switch stations (no next/prev, no Station Page).
+                  // Stage 6.4 Preset / fixed-stations overlay is not in this tree — follow-up; safe no-op here.
+                  // Block 8-E12A: вертикальный свайп на Main не меняет станцию; Preset overlay — позже.
+                  (void)nextStation;
+                  if (config.store.dbgtouch) {
+                    Serial.println("[TS] Station swipe ignored on LVGL Main (8-E12A no-op)");
+                  }
+#else
+                  display.putRequest(NEWMODE, STATIONS);
                   controlsEvent(nextStation);
+#endif
                   lastProcessedY = touchY;
                   lastSwipeTime = currentTime;
             }
@@ -588,7 +597,11 @@ void TouchScreen::loop(){
                         onBtnClick(EVT_BTNCENTER);
                     }
                 } else {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+          lvgl_ui::toggleStationListUiFromProductInput();
+#else
           display.putRequest(NEWMODE, display.mode() == PLAYER ? STATIONS : PLAYER);
+#endif
         }
       }
       direct = TSD_STAY;

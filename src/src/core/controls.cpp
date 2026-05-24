@@ -182,7 +182,7 @@ void encodersLoop(yoEncoder *enc, bool first){
   if (encoderDelta!=0)
   {
     uint8_t encBtnState = digitalRead(first?ENC_BTNB:ENC2_BTNB);
-#   if defined(DUMMYDISPLAY) && !defined(USE_NEXTION)
+#   if defined(DUMMYDISPLAY)
     first = first?(first && encBtnState):(!encBtnState);
     if(first){
       int nv = config.store.volume+encoderDelta;
@@ -201,7 +201,11 @@ void encodersLoop(yoEncoder *enc, bool first){
           if(encoderDelta > 0) player.next(); else player.prev();
           return;
         }
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+        lvgl_ui::openStationPageFromProductInput();
+#else
         display.putRequest(NEWMODE, STATIONS);
+#endif
         while(display.mode() != STATIONS) {delay(10);}
       }
       controlsEvent(encoderDelta > 0, encoderDelta);
@@ -331,7 +335,11 @@ void irLoop() {
                   irClearDirectStationAccumulator();
                   break;
                 }
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+                lvgl_ui::toggleStationListUiFromProductInput();
+#else
                 display.putRequest(NEWMODE, display.mode() == PLAYER ? STATIONS : PLAYER);
+#endif
                 break;
               }
             case IR_0: {
@@ -400,14 +408,18 @@ void onBtnLongPressStart(int id) {
       }
     case EVT_BTNCENTER:
     case EVT_ENCBTNB: {
-#       if defined(DUMMYDISPLAY) && !defined(USE_NEXTION)
+#       if defined(DUMMYDISPLAY)
         break;
 #       endif
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+        lvgl_ui::toggleStationListUiFromProductInput();
+#else
         display.putRequest(NEWMODE, display.mode() == PLAYER ? STATIONS : PLAYER);
+#endif
         break;
       }
     case EVT_ENC2BTNB: {
-#       if defined(DUMMYDISPLAY) && !defined(USE_NEXTION)
+#       if defined(DUMMYDISPLAY)
         break;
 #       endif
         display.putRequest(NEWMODE, display.mode() == PLAYER ? VOL : PLAYER);
@@ -465,11 +477,17 @@ void onBtnDuringLongPress(int id) {
       case EVT_BTNUP:
       case EVT_BTNDOWN: {
           if (display.mode() == PLAYER) {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+            lvgl_ui::openStationPageFromProductInput();
+#else
             display.putRequest(NEWMODE, STATIONS);
+#endif
           }
+#if !(YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2))
           if (display.mode() == STATIONS) {
             controlsEvent(id == EVT_BTNDOWN);
           }
+#endif
           break;
         }
       default:
@@ -483,7 +501,7 @@ void controlsEvent(bool toRight, int8_t volDelta) {
     display.numOfNextStation = 0;
   }
   if (display.mode() != STATIONS && !display.isStationsChanging()) {
-    #if !defined(DUMMYDISPLAY) || defined(USE_NEXTION)
+    #if !defined(DUMMYDISPLAY)
       if(!display.isVolumeChanging()) {
       display.putRequest(NEWMODE, VOL);
       }
@@ -498,12 +516,17 @@ void controlsEvent(bool toRight, int8_t volDelta) {
     }
   }
   if (display.mode() == STATIONS) {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    // Block 8-E12: no legacy currentPlItem / DRAWPLAYLIST navigation on LVGL product path.
+    return;
+#else
     display.resetQueue();
     int p = toRight ? display.currentPlItem + 1 : display.currentPlItem - 1;
     if (p < 1) p = config.store.countStation;
     if (p > config.store.countStation) p = 1;
     display.currentPlItem = p;
     display.putRequest(DRAWPLAYLIST, p);
+#endif
   }
 }
 
@@ -534,6 +557,10 @@ void onBtnClick(int id) {
           #endif
         }
         if (display.mode() == STATIONS) {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+          display.putRequest(NEWMODE, PLAYER);
+          player.sendCommand({PR_PLAY, display.currentPlItem});
+#else
           Serial.printf("🎮 [UI] Play button clicked in STATIONS mode, currentPlItem: %d\n", display.currentPlItem);
           display.putRequest(NEWMODE, PLAYER);
           #ifdef DSP_LCD
@@ -541,6 +568,7 @@ void onBtnClick(int id) {
           #endif
           Serial.printf("🎮 [UI] Sending PR_PLAY command with station: %d\n", display.currentPlItem);
           player.sendCommand({PR_PLAY, display.currentPlItem});
+#endif
         }
         if(network.status==SOFT_AP || display.mode()==LOST){
           #ifdef USE_SD
@@ -570,12 +598,18 @@ void onBtnClick(int id) {
                 player.next();
               }
             }else{
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+              lvgl_ui::openStationPageFromProductInput();
+#else
               display.putRequest(NEWMODE, STATIONS);
+#endif
             }
           }
+#if !(YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2))
           if (display.mode() == STATIONS) {
             controlsEvent(id == EVT_BTNDOWN);
           }
+#endif
         }
         break;
       }

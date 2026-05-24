@@ -475,7 +475,7 @@ void MyNetwork::setWifiParams(){
   WiFi.onEvent(WiFiLostConnection, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
   weatherBuf=NULL;
   trueWeather = false;
-  #if (DSP_MODEL!=DSP_DUMMY || defined(USE_NEXTION)) && !defined(HIDE_WEATHER)
+  #if (DSP_MODEL!=DSP_DUMMY) && !defined(HIDE_WEATHER)
     weatherBuf = (char *) malloc(sizeof(char) * WEATHER_STRING_L);
     memset(weatherBuf, 0, WEATHER_STRING_L);
   #endif
@@ -605,7 +605,7 @@ void doSync( void * pvParameters ) {
 }
 
 bool getWeather(char *wstr) {
-#if (DSP_MODEL!=DSP_DUMMY || defined(USE_NEXTION)) && !defined(HIDE_WEATHER)
+#if (DSP_MODEL!=DSP_DUMMY) && !defined(HIDE_WEATHER)
   WiFiClient client;
   const char* host  = "api.openweathermap.org";
 
@@ -791,27 +791,6 @@ bool getWeather(char *wstr) {
   strlcpy(stanc, tmps, tmpe - tmps + 1);		// ������� � stanc ������������
 //    Serial.printf("#CONTROL#: station: %s\n", stanc);
   
-  #ifdef USE_NEXTION
-    nextion.putcmdf("press_txt.txt=\"%dmm\"", pressi);
-    nextion.putcmdf("hum_txt.txt=\"%d%%\"", atoi(hum));
-    char cmd[30];
-    snprintf(cmd, sizeof(cmd)-1,"temp_txt.txt=\"%.1f\"", tempf);
-    nextion.putcmd(cmd);
-    int iconofset;
-    if(strstr(icon,"01")!=NULL)      iconofset = 0;
-    else if(strstr(icon,"02")!=NULL) iconofset = 1;
-    else if(strstr(icon,"03")!=NULL) iconofset = 2;
-    else if(strstr(icon,"04")!=NULL) iconofset = 3;
-    else if(strstr(icon,"09")!=NULL) iconofset = 4;
-    else if(strstr(icon,"10")!=NULL) iconofset = 5;
-    else if(strstr(icon,"11")!=NULL) iconofset = 6;
-    else if(strstr(icon,"13")!=NULL) iconofset = 7;
-    else if(strstr(icon,"50")!=NULL) iconofset = 8;
-    else                             iconofset = 9;
-    nextion.putcmd("cond_img.pic", 50+iconofset);
-    nextion.weatherVisible(1);
-  #endif
-  
   Serial.printf("##WEATHER###: descr.: %s, temp.: %+.1f*C (feels like %+.0f*C) \007 press.: %d mm \007 hum.: %s%% \007 wind %s %.0f%s m/s (st. %s)\n", desc, tempf, tempfl, pressi, hum, wind[wind_deg], wind_speed, gust, stanc);
 //  Serial.printf("##WEATHER###: description: %s, temp:%+.1f C, pressure:%dmmHg, humidity:%s%%\n", desc, tempf, pressi, hum);
   strlcpy(network.weatherOwmIcon, icon, sizeof(network.weatherOwmIcon));
@@ -828,6 +807,6 @@ bool getWeather(char *wstr) {
   #endif
   network.requestWeatherSync();
   return true;
-#endif // if (DSP_MODEL!=DSP_DUMMY || defined(USE_NEXTION)) && !defined(HIDE_WEATHER)
+#endif // if (DSP_MODEL!=DSP_DUMMY) && !defined(HIDE_WEATHER)
   return false;
 }

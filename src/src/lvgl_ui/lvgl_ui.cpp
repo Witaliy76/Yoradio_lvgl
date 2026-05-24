@@ -506,7 +506,11 @@ void lvgl_ui::onDisplayEvent(const DisplayEvent& evt) {
 // Stage 5.5 + 5.7 + 5.6: LVGL — INFO, PLAYER, LOST, UPDATING, VOL, оверлей SCREENSAVER, коорд. SCREENBLANK.
 lvgl_ui::UiBackend lvgl_ui::getPreferredBackend(displayMode_e mode) {
     if (mode == INFO || mode == PLAYER || mode == LOST || mode == UPDATING || mode == VOL || mode == WIFI ||
-        mode == SCREENSAVER || mode == SCREENBLANK) {
+        mode == SCREENSAVER || mode == SCREENBLANK
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+        || mode == STATIONS || mode == SETTINGS
+#endif
+        ) {
         return UiBackend::Lvgl;
     }
     return UiBackend::LegacyCanvas;
@@ -562,6 +566,16 @@ void lvgl_ui::onModeChanged(displayMode_e mode, UiBackend backend, displayMode_e
             overlayHideAll();
             s_page_chain.goTo(PageChain::MAIN_INDEX);
             refreshMainScreen();
+        } else if (mode == STATIONS) {
+            // Block 8-E12: legacy STATIONS → existing LvglStationPage (no Canvas PG_PLAYLIST).
+            // Block 8-E12: режим STATIONS → карусель Station, без legacy playlist.
+            overlayHideAll();
+            s_page_chain.goTo(PageChain::STATION_INDEX);
+        } else if (mode == SETTINGS) {
+            // Block 8-E13: legacy SETTINGS → existing LvglStubPage Settings slot (no const_DlgNextion).
+            // Block 8-E13: режим SETTINGS → карусель Settings, без legacy PG_DIALOG.
+            overlayHideAll();
+            s_page_chain.goTo(PageChain::SETTINGS_INDEX);
         }
     } else {
         overlayHideAll();
@@ -746,6 +760,35 @@ void lvgl_ui::goToCarouselPage(int page_index) {
 bool lvgl_ui::isLvglCarouselOnInfoSlot() {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     return s_page_chain.currentIndex() == PageChain::INFO_INDEX;
+#else
+    return false;
+#endif
+}
+
+void lvgl_ui::openStationPageFromProductInput() {
+    display.putRequest(NEWMODE, STATIONS);
+}
+
+void lvgl_ui::openSettingsPageFromProductInput() {
+    display.putRequest(NEWMODE, SETTINGS);
+}
+
+void lvgl_ui::toggleStationListUiFromProductInput() {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    ensurePageChainRegistered();
+    if (s_page_chain.currentIndex() == PageChain::STATION_INDEX || display.mode() == STATIONS) {
+        display.putRequest(NEWMODE, PLAYER);
+    } else {
+        openStationPageFromProductInput();
+    }
+#else
+    display.putRequest(NEWMODE, display.mode() == PLAYER ? STATIONS : PLAYER);
+#endif
+}
+
+bool lvgl_ui::isLvglCarouselOnStationSlot() {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    return s_page_chain.currentIndex() == PageChain::STATION_INDEX;
 #else
     return false;
 #endif

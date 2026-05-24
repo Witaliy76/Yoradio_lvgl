@@ -129,9 +129,20 @@ void notifyPageChainActivity();
 // Переход по индексу карусели — только из DspTask / LVGL callbacks.
 void goToCarouselPage(int page_index);
 
+// Block 8-E12: product inputs that meant “open station list” → PageChain Station slot (not LegacyCanvas STATIONS).
+// Block 8-E12: открыть список станций — LvglStationPage, без Canvas playlist.
+void openStationPageFromProductInput();
+void toggleStationListUiFromProductInput();
+
+// Block 8-E13: NEWMODE SETTINGS → Lvgl Settings carousel stub (Main button may use goToCarouselPage directly).
+// Block 8-E13: открыть Settings — слот карусели, без legacy const_DlgNextion.
+void openSettingsPageFromProductInput();
+
 // True when LVGL carousel shows Info slot (index 0), even if display.mode() is still PLAYER (swipe path).
 // Карусель на слоте Info, хотя mode может оставаться PLAYER — путь свайпом.
 bool isLvglCarouselOnInfoSlot();
+// Block 8-E12: carousel on Station slot (List button / NEWMODE STATIONS / swipe).
+bool isLvglCarouselOnStationSlot();
 
 // Wi-Fi 3A: cancel ops, dismiss RebootRequired shell, return display mode to PLAYER (DspTask only).
 // Wi-Fi 3A: cancel ops, снять RebootRequired, режим PLAYER (только DspTask).

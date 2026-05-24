@@ -116,7 +116,12 @@
 #define LV_ASSERT_HANDLER while(1);
 
 /*--- Others ---*/
-#define LV_USE_PERF_MONITOR 0
+/* Temporary diagnostic: LVGL built-in FPS + CPU overlay — disable after testing / Временная диагностика: встроенный overlay FPS+CPU — выключить после тестов. */
+#define LV_USE_PERF_MONITOR 1
+#if LV_USE_PERF_MONITOR
+    /* LVGL aligns with (0,0) ofs only — YoRadio shifts the label in lvgl_ui::taskHandler() next to Wi‑Fi. / LVGL только (0,0) — сдвиг в lvgl_ui::taskHandler() у Wi‑Fi. */
+    #define LV_USE_PERF_MONITOR_POS LV_ALIGN_TOP_RIGHT
+#endif
 #define LV_USE_MEM_MONITOR 0
 #define LV_USE_REFR_DEBUG 0
 #define LV_SPRINTF_CUSTOM 0

@@ -160,6 +160,12 @@
 /* ===============================================
    DISPLAY OPTIONS
    =============================================== */
+// Block 8-E5C: carousel PageChain slide (MOVE_LEFT/RIGHT). Boot fade unchanged.
+// Block 8-E5C: slide-анимация карусели при свайпе. 0 = мгновенно (partial 4848); 1 = slide 300 ms.
+// Future Settings / ESP32-P4 may enable 1 at runtime; not stored in NVS yet.
+// Будущие Settings / быстрые платы — runtime; в NVS пока не сохраняется.
+#define YORADIO_LVGL_PAGE_TRANSITION_ANIM_DEFAULT 0
+
 // Day of week uppercase (true = uppercase, false = lowercase)
 //#define DOW_UPPERCASE true                     // Uncomment and set to true/false if needed
 

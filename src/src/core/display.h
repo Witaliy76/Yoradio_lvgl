@@ -12,11 +12,6 @@
 #include "../displays/tools/spectrum_analyzer.h"
 #include "../displays/tools/spectrum_widget.h"
 
-#if NEXTION_RX!=255 && NEXTION_TX!=255
-  #define USE_NEXTION
-  #include "../displays/nextion.h"
-#endif
-
 #ifndef DUMMYDISPLAY
   #include "../lvgl_ui/lvgl_ui.h"
   void loopDspTask(void * pvParameters);

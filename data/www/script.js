@@ -511,7 +511,7 @@ function submitPlaylist(){
     let ovol = inputs[3].value;
     if(ovol < -30) ovol = -30;
     if(ovol > 30) ovol = 30;
-    output+=inputs[1].value+"\t"+inputs[2].value+"\t"+inputs[3].value+"\n";
+    output+=inputs[1].value+"\t"+inputs[2].value+"\t"+ovol+"\n";
   }
   let file = new File([output], "tempplaylist.csv",{type:"text/plain;charset=utf-8", lastModified:new Date().getTime()});
   let container = new DataTransfer();
