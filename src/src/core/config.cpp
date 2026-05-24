@@ -819,7 +819,7 @@ char * Config::stationByNum(uint16_t num){
   return _stationBuf;
 }
 
-uint8_t Config::fillPlMenu(int from, uint8_t count, bool fromNextion) {
+uint8_t Config::fillPlMenu(int from, uint8_t count) {
   int     ls      = from;
   uint8_t c       = 0;
   bool    finded  = false;
@@ -831,8 +831,8 @@ uint8_t Config::fillPlMenu(int from, uint8_t count, bool fromNextion) {
   while (true) {
     if (ls < 1) {
       ls++;
-      display.printPLitem(c, "", playlistConf.uppercase);
-      (void)fromNextion;
+      // Block 8-E16.1: playlist row paint removed from Display; LVGL Station Page owns UI (drivers: E17).
+      // Block 8-E16.1: отрисовка строк в Display убрана; UI — LvglStationPage (драйверы: E17).
       c++;
       continue;
     }
@@ -850,8 +850,7 @@ uint8_t Config::fillPlMenu(int from, uint8_t count, bool fromNextion) {
       String stationName = playlist.readStringUntil('\n');
       stationName = stationName.substring(0, stationName.indexOf('\t'));
       if(config.store.numplaylist && stationName.length()>0) stationName = String(from+c)+" "+stationName;
-      display.printPLitem(c, stationName.c_str(), playlistConf.uppercase);
-      (void)fromNextion;
+      (void)stationName;
       c++;
       if (c >= count) break;
     }
@@ -955,7 +954,7 @@ bool Config::parseSsid(const char* line, char* ssid, char* pass) {
   return true;
 }
 
-bool Config::saveWifiFromNextion(const char* post){
+bool Config::saveWifiFromPost(const char* post){
   File file = LittleFS.open(SSIDS_PATH, "w");
   if (!file) {
     return false;

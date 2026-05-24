@@ -109,7 +109,7 @@ bool NetServer::begin(bool quiet) {
         memset(buf, 0, BUFLEN);
         snprintf(buf, BUFLEN, "%s\t%s", request->arg("ssid").c_str(), request->arg("pass").c_str());
         request->redirect("/");
-        config.saveWifiFromNextion(buf);
+        config.saveWifiFromPost(buf);
         return;
       }
       request->redirect("/"); 

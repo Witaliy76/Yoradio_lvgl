@@ -458,7 +458,7 @@ void Telnet::on_input(const char* str, uint8_t clientId) {
     printf(clientId, "...REBOOTING...\n> ");
     memset(buf, 0, BUFLEN);
     snprintf(buf, BUFLEN, "%s\t%s", newssid, newpass);
-    config.saveWifiFromNextion(buf);
+    config.saveWifiFromPost(buf);
     return;
   }
   if (strcmp(str, "wifi.status") == 0 || strcmp(str, "status") == 0) {

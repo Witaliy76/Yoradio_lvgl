@@ -244,7 +244,7 @@ class Config {
     void loadStation(uint16_t station);
     bool initNetwork();
     bool saveWifi();
-    bool saveWifiFromNextion(const char* post);
+    bool saveWifiFromPost(const char* post);
     void setSmartStart(uint8_t ss);
     void setBitrateFormat(BitrateFormat fmt) { configFmt = fmt; }
     void initPlaylist();
@@ -260,7 +260,7 @@ class Config {
       if(getMode()==PM_WEB) saveValue(&store.lastStation, newstation);
       else saveValue(&store.lastSdStation, newstation);
     }
-    uint8_t fillPlMenu(int from, uint8_t count, bool fromNextion=false);
+    uint8_t fillPlMenu(int from, uint8_t count);
     char * stationByNum(uint16_t num);
     void setTimezone(int8_t tzh, int8_t tzm);
     void setTimezoneOffset(uint16_t tzo);

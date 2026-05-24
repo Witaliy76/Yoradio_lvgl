@@ -53,10 +53,8 @@ const char* const wind[]    PROGMEM = { wn_N, wn_NE, wn_NE, wn_E, wn_E, wn_SE, w
 const char    const_PlReady[]    PROGMEM = "[готов]";
 const char  const_PlStopped[]    PROGMEM = "[остановлено]";
 const char  const_PlConnect[]    PROGMEM = "[соединение]";
-const char  const_DlgVolume[]    PROGMEM = "ГРОМКОСТЬ";
 const char    const_DlgLost[]    PROGMEM = "ОТКЛЮЧЕНО";
 const char  const_DlgUpdate[]    PROGMEM = "ОБНОВЛЕНИЕ";
-const char const_DlgNextion[]    PROGMEM = "NEXTION";
 const char const_getWeather[]    PROGMEM = "";
 const char  const_waitForSD[]    PROGMEM = "ИНДЕКС SD";
 

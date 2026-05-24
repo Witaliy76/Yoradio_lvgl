@@ -40,7 +40,6 @@ class Display {
     bool deepsleep();
     void wakeup();
     void setContrast();
-    void printPLitem(uint8_t pos, const char* item, bool uppercase);
     void setAIInterpretation(const String& text);  // AI interpretation widget / Виджет AI интерпретации
     // Stage 6.1C: read-only snapshot for LVGL Main AI line (DspTask); no AI logic change.
     // 6.1C: снимок строки для LVGL Main — только чтение, логика AI не трогается.
@@ -95,13 +94,10 @@ class Display {
     void _time(bool redraw = false);
     void _apScreen();
     void _swichMode(displayMode_e newmode);
-    void _drawPlaylist();
     void _volume();
     void _title();
     void _station();
-    void _drawNextStationNum(uint16_t num);
     void _createDspTask();
-    void _showDialog(const char *title);
     void _buildPager();
     void _bootScreen();
     void _setReturnTicker(uint8_t time_s);
@@ -141,7 +137,6 @@ class Display {
     void setContrast(){}
     bool deepsleep(){return true;}
     void wakeup(){}
-    void printPLitem(uint8_t pos, const char* item, bool uppercase){}
     void setAIInterpretation(const String& text){}  // AI interpretation widget / Виджет AI интерпретации
     void copyAIInterpretationForLvgl(char* buf, size_t cap) const {
         if (buf && cap) buf[0] = '\0';
