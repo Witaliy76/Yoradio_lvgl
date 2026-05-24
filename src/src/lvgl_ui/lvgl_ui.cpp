@@ -7,6 +7,8 @@
 #include "theme/lv_theme_yoradio.h"
 #include "lv_fs_littlefs.h"
 
+#include <cstdarg>
+
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
 #include "lvgl.h"
 #if LV_USE_PERF_MONITOR
@@ -24,6 +26,11 @@
 #include "../displays/tools/GFX_Canvas_screen.h"
 #include "../core/config.h"
 #include "../core/display.h"
+#include "../core/options.h"
+#include "../core/spidog.h"
+#if DSP_MODEL == DSP_ST7701
+#include <Arduino_GFX.h>  // flush() on Arduino_GFX; getOutputDisplay() returns Arduino_G*
+#endif
 #include "../core/network.h"
 #include "../core/wifi_ops_adapter.h"
 
@@ -120,10 +127,74 @@ static lv_color_t*        s_disp_buf1 = nullptr;
 static lv_disp_drv_t      s_disp_drv;
 static lv_disp_t*         s_disp = nullptr;
 
-// Flush callback: blit LVGL area into Arduino_Canvas and mark frame dirty.
-// Flush callback: копирует область LVGL в Arduino_Canvas и помечает кадр как грязный.
+#if DSP_MODEL == DSP_ST7701
+// Block 8-E5: partial PSRAM stripe height for diag (0 until initDisplayDriver).
+// Block 8-E5: высота полосы partial-буфера для diag (0 до init).
+static uint16_t s_disp_buf_partial_h = 0;
+#endif
+
+// Block 8-E1: flush stats for one-shot diag only (no Serial in hot path).
+// Block 8-E1: счётчики flush только для diag по запросу.
+static uint32_t s_lvgl_flush_count = 0;
+static uint32_t s_lvgl_last_flush_ms = 0;
+
+#if DSP_MODEL == DSP_ST7701
+// Block 8-E3 (4848S040): LVGL → output_display directly; Canvas stays allocated for Phase 2 legacy.
+// Block 8-E3: LVGL → output_display напрямую; Canvas не трогаем на LVGL-пути (удаление — Phase 2).
+static void lvgl_flush_direct_panel(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *color_p) {
+    Arduino_G* panel_g = dsp.getOutputDisplay();
+    if (!panel_g || !color_p || !area) {
+        lv_disp_flush_ready(drv);
+        return;
+    }
+    Arduino_GFX* panel = static_cast<Arduino_GFX*>(panel_g);
+
+    int32_t x1 = area->x1;
+    int32_t y1 = area->y1;
+    int32_t x2 = area->x2;
+    int32_t y2 = area->y2;
+    if (x2 < x1 || y2 < y1) {
+        lv_disp_flush_ready(drv);
+        return;
+    }
+
+    const int32_t hor = static_cast<int32_t>(drv->hor_res);
+    const int32_t ver = static_cast<int32_t>(drv->ver_res);
+    if (x1 >= hor || y1 >= ver) {
+        lv_disp_flush_ready(drv);
+        return;
+    }
+    if (x2 >= hor) x2 = hor - 1;
+    if (y2 >= ver) y2 = ver - 1;
+
+    const int32_t w = x2 - x1 + 1;
+    const int32_t h = y2 - y1 + 1;
+    const int32_t src_stride = area->x2 - area->x1 + 1;
+    uint16_t* px = reinterpret_cast<uint16_t*>(color_p);
+    if (x1 != area->x1 || y1 != area->y1) {
+        px += static_cast<int32_t>(y1 - area->y1) * src_stride + (x1 - area->x1);
+    }
+
+    sdog.takeMutex();
+    panel_g->draw16bitRGBBitmap(x1, y1, px, w, h);
+    panel->flush();
+    sdog.giveMutex();
+
+    s_lvgl_flush_count++;
+    s_lvgl_last_flush_ms = millis();
+    lvgl_ui::recordLvglDirectPanelFlush();
+
+    lv_disp_flush_ready(drv);
+}
+#endif
+
+// Flush callback: M0 Canvas path (non-ST7701) or legacy markFrameDirty + Display::loop flush.
+// Flush callback: M0 через Canvas; на ST7701 — см. lvgl_flush_direct_panel (8-E3).
 static void lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *color_p) {
-    (void)drv;
+#if DSP_MODEL == DSP_ST7701
+    lvgl_flush_direct_panel(drv, area, color_p);
+    return;
+#endif
 
     if (!gfx || !color_p || !area) {
         lv_disp_flush_ready(drv);
@@ -143,9 +214,10 @@ static void lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t 
     int32_t w = x2 - x1 + 1;
     int32_t h = y2 - y1 + 1;
 
-    // Use existing Canvas helper which clips to bounds and marks frame dirty.
-    // Используем существующий helper Canvas, который клипует по границам и помечает кадр грязным.
     gfxDrawBitmap(gfx, x1, y1, reinterpret_cast<const uint16_t*>(color_p), w, h);
+
+    s_lvgl_flush_count++;
+    s_lvgl_last_flush_ms = millis();
 
     lv_disp_flush_ready(drv);
 }
@@ -328,29 +400,44 @@ void lvgl_ui::initDisplayDriver(uint16_t hor_res, uint16_t ver_res) {
     if (s_disp) return;
     if (hor_res == 0 || ver_res == 0) return;
 
+#if DSP_MODEL == DSP_ST7701
+    // Block 8-E5B (4848S040): partial stripe 480×160 (was 80 in 8-E5A); 3 full-screen chunks.
+    // Block 8-E5B: полоса 160 строк — тест chunk count для переходов/Station (без UI redesign).
+    constexpr uint32_t kPartialLines = 160;
+    const uint32_t px_count = static_cast<uint32_t>(hor_res) * kPartialLines;
+    s_disp_buf_partial_h = static_cast<uint16_t>(kPartialLines);
+    s_disp_buf1 = static_cast<lv_color_t*>(ps_malloc(px_count * sizeof(lv_color_t)));
+    if (!s_disp_buf1) {
+        s_disp_buf_partial_h = 0;
+        Serial.println("[LVGL] partial draw buffer PSRAM alloc failed, LVGL display disabled");
+        return;
+    }
+    lv_disp_draw_buf_init(&s_disp_draw_buf, s_disp_buf1, nullptr, px_count);
+#else
     // Full-frame draw buffer + full_refresh: partial stripes on a shared Arduino_Canvas caused
-    // visible “black rectangles” / tearing during Boot→Main and label updates (strip flush ≠ full screen).
-    // Полный кадр + full_refresh: полосовой flush на общем Canvas давал чёрные прямоугольники/рвань при Boot→Main.
-    // Matches PROJECT_RULES_LVGL: single full-frame buffer in PSRAM (strip mode was an optimization only).
-    // Соответствует правилам: один полноразмерный буфер в PSRAM (полосы — только как оптимизация).
+    // visible “black rectangles” / tearing during Boot→Main (M0 Canvas path; not ST7701 post-8-E3).
+    // Полный кадр + full_refresh: на старом Canvas-пути полосы давали артефакты (не ST7701 после 8-E3).
     const uint32_t lines = ver_res;
     const uint32_t px_count = static_cast<uint32_t>(hor_res) * lines;
     s_disp_buf1 = static_cast<lv_color_t*>(ps_malloc(px_count * sizeof(lv_color_t)));
     if (!s_disp_buf1) {
-        // If allocation fails, skip driver registration to keep system stable.
-        // При неудаче аллокации не регистрируем драйвер, чтобы не рисковать стабильностью.
         Serial.println("[LVGL] draw buffer PSRAM alloc failed, LVGL display disabled");
         return;
     }
-
     lv_disp_draw_buf_init(&s_disp_draw_buf, s_disp_buf1, nullptr, px_count);
+#endif
 
     lv_disp_drv_init(&s_disp_drv);
     s_disp_drv.hor_res = hor_res;
     s_disp_drv.ver_res = ver_res;
     s_disp_drv.flush_cb = lvgl_flush_cb;
     s_disp_drv.draw_buf = &s_disp_draw_buf;
+#if DSP_MODEL == DSP_ST7701
+    s_disp_drv.full_refresh = 0;
+#else
     s_disp_drv.full_refresh = 1;
+#endif
+    s_disp_drv.direct_mode = 0;
 
     s_disp = lv_disp_drv_register(&s_disp_drv);
     if (!s_disp) {
@@ -669,4 +756,97 @@ void lvgl_ui::dismissWifiFlowReturnToPlayer() {
     s_page_chain.dismissRebootRequired();
     display.putRequest(NEWMODE, PLAYER);
 #endif
+}
+
+void lvgl_ui::setPageTransitionAnimationEnabled(bool enabled) {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    PageChain::setCarouselTransitionAnimationEnabled(enabled);
+#else
+    (void)enabled;
+#endif
+}
+
+bool lvgl_ui::isPageTransitionAnimationEnabled() {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    return PageChain::isCarouselTransitionAnimationEnabled();
+#else
+    return false;
+#endif
+}
+
+size_t lvgl_ui::appendDisplayDiag(char* out, size_t len, size_t offset, bool* truncated_out) {
+    if (!out || len == 0 || offset >= len) return offset;
+
+    auto append_line = [&](const char* fmt, ...) -> bool {
+        if (offset >= len) {
+            if (truncated_out) *truncated_out = true;
+            return false;
+        }
+        va_list ap;
+        va_start(ap, fmt);
+        const int n = vsnprintf(out + offset, len - offset, fmt, ap);
+        va_end(ap);
+        if (n < 0) return false;
+        if ((size_t)n >= len - offset) {
+            if (truncated_out) *truncated_out = true;
+            offset = len - 1;
+            out[offset] = '\0';
+            return false;
+        }
+        offset += (size_t)n;
+        return true;
+    };
+
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+    if (!s_disp) {
+        append_line("lvgl.display: not_registered\n");
+        return offset;
+    }
+
+    lv_mem_monitor_t mon;
+    lv_mem_monitor(&mon);
+    append_line("lvgl.mem.total_size: %u\n", (unsigned)mon.total_size);
+    append_line("lvgl.mem.free_size: %u\n", (unsigned)mon.free_size);
+    append_line("lvgl.mem.free_biggest_size: %u\n", (unsigned)mon.free_biggest_size);
+    append_line("lvgl.mem.used_pct: %u\n", (unsigned)mon.used_pct);
+    append_line("lvgl.mem.frag_pct: %u\n", (unsigned)mon.frag_pct);
+
+    append_line("lvgl.flush.full_refresh: %d\n", s_disp_drv.full_refresh ? 1 : 0);
+    append_line("lvgl.flush.direct_mode: %d\n", s_disp_drv.direct_mode ? 1 : 0);
+#if DSP_MODEL == DSP_ST7701
+    append_line("lvgl.flush_target: output_display_direct\n");
+#else
+    append_line("lvgl.flush_target: canvas_mark_dirty\n");
+#endif
+    if (s_disp_buf1 && s_disp_drv.hor_res > 0) {
+#if DSP_MODEL == DSP_ST7701
+        if (s_disp_buf_partial_h > 0) {
+            append_line("lvgl.draw_buf: partial_psram_single (%ux%u)\n",
+                        (unsigned)s_disp_drv.hor_res, (unsigned)s_disp_buf_partial_h);
+        } else {
+            append_line("lvgl.draw_buf: partial_psram_single (uninitialized)\n");
+        }
+#else
+        append_line("lvgl.draw_buf: full_frame_psram_single (%ux%u)\n",
+                    (unsigned)s_disp_drv.hor_res, (unsigned)s_disp_drv.ver_res);
+#endif
+    } else {
+        append_line("lvgl.draw_buf: unknown\n");
+    }
+
+    append_line("lvgl.page_transition_anim: %d\n",
+                PageChain::isCarouselTransitionAnimationEnabled() ? 1 : 0);
+
+    const uint32_t now = millis();
+    append_line("lvgl.flush_count: %lu\n", (unsigned long)s_lvgl_flush_count);
+    if (s_lvgl_last_flush_ms != 0) {
+        append_line("lvgl.last_flush_ms_ago: %lu\n",
+                    (unsigned long)(now - s_lvgl_last_flush_ms));
+    } else {
+        append_line("lvgl.last_flush_ms_ago: never\n");
+    }
+#else
+    append_line("lvgl: disabled\n");
+#endif
+    return offset;
 }

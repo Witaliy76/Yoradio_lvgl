@@ -1,5 +1,7 @@
 #include "options.h"
 
+#include <cstdarg>
+#include "esp_heap_caps.h"
 #include "WiFi.h"
 #include "time.h"
 #include "display.h"
@@ -16,9 +18,21 @@ extern Arduino_Canvas* gfx;
 // Глобальный флаг "кадр грязный" для dirty-based flush
 static volatile bool g_frameDirty = false;
 
+// Block 8-E1: panel flush stats for one-shot diag (updated only when gfxFlushScreen runs).
+// Block 8-E1: счётчики panel flush для diag (только при реальном gfxFlushScreen).
+static uint32_t s_panel_gfx_flush_count = 0;
+static uint32_t s_panel_last_gfx_flush_ms = 0;
+
 // Helper-функция для установки флага dirty (вызывается из функций рисования)
 void markFrameDirty() {
     g_frameDirty = true;
+}
+
+// Block 8-E3: panel flush counter when LVGL bypasses Canvas (ST7701 direct path).
+// Block 8-E3: счётчик panel flush при прямом LVGL→output_display (без g_frameDirty).
+void lvgl_ui::recordLvglDirectPanelFlush() {
+    s_panel_gfx_flush_count++;
+    s_panel_last_gfx_flush_ms = millis();
 }
 
 Display display;
@@ -1237,6 +1251,8 @@ void Display::loop() {
       sdog.giveMutex();
       g_frameDirty = false; // Сбрасываем флаг после flush
       lastFlushMs = millis();
+      s_panel_gfx_flush_count++;
+      s_panel_last_gfx_flush_ms = lastFlushMs;
     }
   }
 #ifdef USE_NEXTION
@@ -1384,6 +1400,102 @@ void Display::wakeup(){
   dsp.wake();
 #endif
 }
+
+namespace {
+
+const char* displayModeName(displayMode_e mode) {
+  switch (mode) {
+    case PLAYER: return "PLAYER";
+    case VOL: return "VOL";
+    case STATIONS: return "STATIONS";
+    case NUMBERS: return "NUMBERS";
+    case LOST: return "LOST";
+    case UPDATING: return "UPDATING";
+    case INFO: return "INFO";
+    case SETTINGS: return "SETTINGS";
+    case TIMEZONE: return "TIMEZONE";
+    case WIFI: return "WIFI";
+    case CLEAR: return "CLEAR";
+    case SLEEPING: return "SLEEPING";
+    case SDCHANGE: return "SDCHANGE";
+    case SCREENSAVER: return "SCREENSAVER";
+    case SCREENBLANK: return "SCREENBLANK";
+    default: return "UNKNOWN";
+  }
+}
+
+const char* uiBackendName(lvgl_ui::UiBackend backend) {
+  return (backend == lvgl_ui::UiBackend::Lvgl) ? "Lvgl" : "LegacyCanvas";
+}
+
+} // namespace
+
+size_t Display::diagSnapshot(char* out, size_t len) const {
+  if (!out || len == 0) return 0;
+  out[0] = '\0';
+  size_t off = 0;
+  bool snap_truncated = false;
+
+  auto append_line = [&](const char* fmt, ...) -> bool {
+    if (off >= len) {
+      snap_truncated = true;
+      return false;
+    }
+    va_list ap;
+    va_start(ap, fmt);
+    const int n = vsnprintf(out + off, len - off, fmt, ap);
+    va_end(ap);
+    if (n < 0) return false;
+    if ((size_t)n >= len - off) {
+      snap_truncated = true;
+      off = len - 1;
+      out[off] = '\0';
+      return false;
+    }
+    off += (size_t)n;
+    return true;
+  };
+
+  append_line("heap.free: %u\n", (unsigned)ESP.getFreeHeap());
+  append_line("heap.internal_largest: %u\n",
+              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+  append_line("heap.psram_free: %u\n", (unsigned)ESP.getFreePsram());
+  append_line("heap.psram_largest: %u\n",
+              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
+
+  off = lvgl_ui::appendDisplayDiag(out, len, off, &snap_truncated);
+
+  append_line("display.mode: %s\n", displayModeName(_mode));
+  append_line("display.backend_active: %s\n", uiBackendName(_activeBackend));
+  append_line("display.backend_preferred_player: %s\n",
+              uiBackendName(lvgl_ui::getPreferredBackend(PLAYER)));
+
+  append_line("display.legacy_widgets_available: %d\n",
+              _legacyWidgetsAvailable() ? 1 : 0);
+  append_line("display.legacy_player_widgets_built: %d\n",
+              _legacyPlayerWidgetsBuilt ? 1 : 0);
+  append_line("display.suspend_flush: %d\n", _suspendFlush ? 1 : 0);
+  append_line("g_frameDirty: %d\n", g_frameDirty ? 1 : 0);
+
+  const uint32_t now = millis();
+  append_line("panel.gfx_flush_count: %lu\n", (unsigned long)s_panel_gfx_flush_count);
+  if (s_panel_last_gfx_flush_ms != 0) {
+    append_line("panel.last_gfx_flush_ms_ago: %lu\n",
+                (unsigned long)(now - s_panel_last_gfx_flush_ms));
+  } else {
+    append_line("panel.last_gfx_flush_ms_ago: never\n");
+  }
+
+  if (DspTask != nullptr) {
+    append_line("dsp_task.stack_hwm_words: %u\n",
+                (unsigned)uxTaskGetStackHighWaterMark(DspTask));
+  }
+
+  append_line("diag.truncated: %d\n", snap_truncated ? 1 : 0);
+
+  return off;
+}
+
 //============================================================================================================================
 #else // !DUMMYDISPLAY
 //============================================================================================================================

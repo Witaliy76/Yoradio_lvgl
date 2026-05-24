@@ -4,10 +4,22 @@
 #include "config.h"
 #include "player.h"
 #include "network.h"
+#include "display.h"
 #include "telnet.h"
 #include "../ai/ai_log.h"  // Для aiLogSetBootDone / For aiLogSetBootDone
 
 Telnet telnet;
+
+void Telnet::printDiagBody(uint8_t clientId, const char* body) {
+  if (!body || body[0] == '\0') return;
+  if (clientId > MAX_TLN_CLIENTS) {
+    Serial.print(body);
+    return;
+  }
+  if (clients[clientId] && clients[clientId].connected()) {
+    clients[clientId].print(body);
+  }
+}
 
 bool Telnet::_isIPSet(IPAddress ip) {
   return ip.toString() == "0.0.0.0";
@@ -467,6 +479,20 @@ void Telnet::on_input(const char* str, uint8_t clientId) {
     printf(clientId, "Free heap:\t%d bytes\n> ", xPortGetFreeHeapSize());
     return;
   }
+#ifndef DUMMYDISPLAY
+  // Block 8-E1: one-shot display topology / memory snapshot (no periodic logging).
+  // Block 8-E1: однократный снимок дисплея / памяти (без периодических логов).
+  if (strcmp(str, "diag display") == 0 || strcmp(str, "displaydiag") == 0) {
+    static char s_diag_display_buf[1024];
+    const size_t n = display.diagSnapshot(s_diag_display_buf, sizeof(s_diag_display_buf));
+    printf(clientId, "##DIAG.DISPLAY#\n");
+    if (n > 0) {
+      printDiagBody(clientId, s_diag_display_buf);
+    }
+    printf(clientId, "##DIAG.DISPLAY#\n> ");
+    return;
+  }
+#endif
   if (strcmp(str, "wifi.discon") == 0 || strcmp(str, "discon") == 0 || strcmp(str, "disconnect") == 0) {
     printf(clientId, "#WIFI.DISCON#\tdisconnected...\n> ");
     WiFi.disconnect();

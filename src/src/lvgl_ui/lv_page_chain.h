@@ -35,6 +35,12 @@ public:
     void swipeRight();
     void goTo(int index);
 
+    // Block 8-E5C: carousel slide animation policy (runtime; default from YORADIO_LVGL_PAGE_TRANSITION_ANIM_DEFAULT).
+    // Not persisted — future Settings / faster boards (e.g. ESP32-P4) may enable. Boot fade unchanged.
+    // Block 8-E5C: политика анимации карусели; не в NVS; Settings позже.
+    static void setCarouselTransitionAnimationEnabled(bool enabled);
+    static bool isCarouselTransitionAnimationEnabled();
+
     // Temporary = Preset only (product); timeout default 20s → dismissTemporary → Main.
     // Temporary — только Preset; таймаут по умолчанию 20 с → Main.
     void showTemporary(ILvglScreen* scr, uint32_t timeout_ms = 20000);

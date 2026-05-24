@@ -18,6 +18,8 @@ class Telnet {
     void printf(const char *format, ...);
     void cleanupClients();
     void info();
+    // Block 8-E1: full diag body (bypasses printf MAX_PRINTF_LEN cap).
+    void printDiagBody(uint8_t clientId, const char* body);
   protected:
     WiFiServer server = WiFiServer(23);
     WiFiClient clients[MAX_TLN_CLIENTS];

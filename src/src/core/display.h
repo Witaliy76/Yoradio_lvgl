@@ -53,6 +53,9 @@ class Display {
     // Stage 5.5a: lets DspCore skip legacy CPU widget when PLAYER is LVGL-owned.
     // Stage 5.5a: для DspCore — не рисовать legacy CPU, если PLAYER на LVGL.
     lvgl_ui::UiBackend activeBackend() const { return _activeBackend; }
+    // Block 8 / 8-E1: one-shot display diagnostics (telnet "diag display"); no heap alloc.
+    // Block 8 / 8-E1: однократный снимок дисплея (telnet); без выделения heap.
+    size_t diagSnapshot(char* out, size_t len) const;
   private:
     ScrollWidget _meta, _title1, _plcurrent;
     ScrollWidget *_weather;

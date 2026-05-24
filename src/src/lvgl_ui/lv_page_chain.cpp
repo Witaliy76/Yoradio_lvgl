@@ -12,9 +12,14 @@ namespace lvgl_ui {
 namespace {
 
 constexpr uint32_t kPageAnimMs = 300;
-// Boot → Main only (dismissBoot); other transitions keep kPageAnimMs.
-// Только Boot → Main (dismissBoot); остальные переходы — kPageAnimMs.
+// Boot → Main only (dismissBoot); carousel goTo uses policy below when animation enabled.
+// Только Boot → Main (dismissBoot); карусель goTo — по политике ниже.
 constexpr uint32_t kBootHandoffFadeMs = 600;
+
+// Block 8-E5C: compile-time default + runtime override (no NVS yet).
+// Block 8-E5C: дефолт из options.h; runtime без сохранения в config.
+bool g_carousel_transition_anim_enabled =
+    (YORADIO_LVGL_PAGE_TRANSITION_ANIM_DEFAULT != 0);
 
 void loadScreenAnim(lv_obj_t* scr, lv_scr_load_anim_t anim, uint32_t time_ms) {
     if (!scr) return;
@@ -96,6 +101,14 @@ void PageChain::init() {
     if (s) lv_scr_load(s);
 }
 
+void PageChain::setCarouselTransitionAnimationEnabled(bool enabled) {
+    g_carousel_transition_anim_enabled = enabled;
+}
+
+bool PageChain::isCarouselTransitionAnimationEnabled() {
+    return g_carousel_transition_anim_enabled;
+}
+
 void PageChain::swipeLeft() {
     if (navigationBlocked()) return;
     const int n = findNextPageIndex(_currentIndex);
@@ -131,7 +144,17 @@ void PageChain::goTo(int index) {
     next->create();
     next->enter();
     _currentIndex = index;
-    loadScreenAnim(next->screen(), anim, kPageAnimMs);
+
+    lv_obj_t* next_scr = next->screen();
+    if (!next_scr) return;
+
+    if (g_carousel_transition_anim_enabled) {
+        loadScreenAnim(next_scr, anim, kPageAnimMs);
+    } else {
+        // Instant carousel switch — avoids jerky partial-buffer slide (~5 FPS on 4848 E5B).
+        // Мгновенное переключение карусели — без рваной slide-анимации на partial-буфере.
+        lv_scr_load(next_scr);
+    }
 }
 
 void PageChain::showTemporary(ILvglScreen* scr, uint32_t timeout_ms) {

@@ -1,6 +1,7 @@
 #ifndef LVGL_UI_H
 #define LVGL_UI_H
 
+#include <stddef.h>
 #include <stdint.h>
 #include "../core/common.h"
 
@@ -98,6 +99,19 @@ void dismissBootForWifiRecoveryHandoff();
 bool dismissBootForMainHandoffWhenDue();
 // Wi‑Fi 5A: min Boot dwell elapsed (same threshold as dismissBootWhenDue).
 bool isLvglBootMinDwellElapsed();
+
+// Block 8 / 8-E1: append LVGL mem + flush model lines to diag buffer (DspTask/telnet only).
+// Block 8 / 8-E1: дописать в буфер diag строки LVGL (только по запросу, не из hot path).
+size_t appendDisplayDiag(char* out, size_t len, size_t offset, bool* truncated_out = nullptr);
+// Block 8-E3: ST7701 direct panel flush stats (called from lvgl_flush_cb; DspTask only).
+// Block 8-E3: учёт panel flush при прямом выводе LVGL (только DspTask).
+void recordLvglDirectPanelFlush();
+
+// Block 8-E5C: carousel PageChain transition animation (goTo swipe); not persisted / не в NVS.
+// Future Settings page may expose this runtime flag. Default: YORADIO_LVGL_PAGE_TRANSITION_ANIM_DEFAULT.
+// Будущая страница Settings может включить slide-анимацию (ESP32-P4 и др.).
+void setPageTransitionAnimationEnabled(bool enabled);
+bool isPageTransitionAnimationEnabled();
 void dismissBootForApLegacyHandoff();
 void bootScreenSetStatusUtf8(const char* text);
 void bootScreenNotifyBootSignal();
