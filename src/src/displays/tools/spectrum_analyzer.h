@@ -1,6 +1,9 @@
 #ifndef SPECTRUM_ANALYZER_H
 #define SPECTRUM_ANALYZER_H
 
+// Block 8-E18D: class/TU kept for future LVGL spectrum widget; product does not call init/processAudio.
+// Block 8-E18D: класс сохранён для будущего LVGL-виджета; product path не вызывает init/processAudio.
+
 // Спектр-анализатор оптимизирован для RGB Panel ESP32-4848S040
 // Поддерживает 480x480 разрешение с плавной анимацией
 

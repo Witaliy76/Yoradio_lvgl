@@ -12,7 +12,6 @@
 #include "../core/config.h"
 #include "../core/network.h"
 #include "../core/display.h"
-#include "../Perfmon/esp32_perfmon.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -171,12 +170,6 @@ void DspCore::initDisplay() {
     delay(100);
     Serial.println("[ST7701] Backlight enabled");
 
-#ifdef CPU_LOAD
-    cpuWidget.init(cpuConf, 20, false, config.theme.rssi, config.theme.background);
-    cpuWidget.setActive(true);
-    perfmon_start();
-#endif
-
     Serial.print("[ST7701] Canvas ptr: ");
     Serial.println((uintptr_t)gfx, HEX);
 
@@ -266,23 +259,7 @@ void DspCore::endWrite(void) {
     GIVE_MUTEX();
 }
 
-#ifdef CPU_LOAD
-uint32_t DspCore::_calculateCpuUsage() {
-    static uint32_t lastUpdate = 0;
-    if (millis() - lastUpdate >= 500) {
-        lastUpdate = millis();
-        return perfmon_get_cpu_usage(0);
-    }
-    return 0;
-}
-#endif
-
 void DspCore::loop(bool force) {
-#ifdef CPU_LOAD
-    static uint32_t lastCpuUpdate = 0;
-    static uint32_t lastValue = 0;
-#endif
-
 #ifndef BATTERY_OFF
     static uint32_t lastBatteryUpdate = 0;
     if (millis() - lastBatteryUpdate >= 1000) {
@@ -291,35 +268,7 @@ void DspCore::loop(bool force) {
     }
 #endif
 
-#ifdef CPU_LOAD
-    extern Display display;
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-    const bool cpu_on_legacy_player =
-        (display.mode() == PLAYER) &&
-        (display.activeBackend() == lvgl_ui::UiBackend::LegacyCanvas) &&
-        !lvgl_ui::isLvglBootActive();
-#else
-    const bool cpu_on_legacy_player = (display.mode() == PLAYER);
-#endif
-    if (cpu_on_legacy_player) {
-        if (millis() - lastCpuUpdate >= 1000) {
-            uint32_t cpuUsage = _calculateCpuUsage();
-            if (cpuUsage != lastValue || force) {
-                char buf[20];
-                snprintf(buf, sizeof(buf), "CPU: %d%%", cpuUsage);
-                cpuWidget.setText(buf);
-                lastValue = cpuUsage;
-                if (force) {
-                    cpuWidget.setActive(true);
-                }
-            }
-            lastCpuUpdate = millis();
-        }
-        cpuWidget.setActive(true);
-    } else {
-        cpuWidget.setActive(false);
-    }
-#endif
+    (void)force;
 }
 
 void DspCore::flip() {

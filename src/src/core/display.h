@@ -8,10 +8,6 @@
 #include "common.h"
 #include "../displays/dspcore.h"
 
-// Spectrum Analyzer (FFT data; LVGL Main uses profile layout, not legacy Canvas widget).
-// Спектроанализатор (данные FFT; LVGL Main — layout из profile, не legacy Canvas widget).
-#include "../displays/tools/spectrum_analyzer.h"
-
 #ifndef DUMMYDISPLAY
   #include "../lvgl_ui/lvgl_ui.h"
   void loopDspTask(void * pvParameters);

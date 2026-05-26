@@ -1,1276 +1,148 @@
+// Legacy Canvas widgets removed in Block 8-E18D. LVGL is the only product UI.
+// Legacy Canvas widgets удалены в Block 8-E18D. Продуктовый UI — только LVGL.
+
 #include "../dspcore.h"
-#ifdef __cplusplus
-extern "C" {
-#endif
-#include "../tools/utf8RusGFX.h"
-#ifdef __cplusplus
-}
-#endif
-#if DSP_MODEL!=DSP_DUMMY
+#if DSP_MODEL != DSP_DUMMY
 
 #include "widgets.h"
-#include "../../core/player.h"    //  for VU widget
-#include <algorithm>
-#include <cstring>
-#include <cstdio>
-#include <cstdlib>
-#include <cmath>
 
-#include "../tools/GFX_Canvas_screen.h"
-#include "Arduino_GFX_Library.h"
-#include "../../core/display.h"
-extern Arduino_Canvas* gfx;
-
-// === НАСТРАИВАЕМЫЕ ПАРАМЕТРЫ ДЛЯ ПОДБОРА ===
-//НАСТРОЙКИ ШКАЛА VU-МЕТРА
-const float redZonePos = 0.78f; // Доля шкалы, где начинается красная зона и деление 0 (подбирай от того что VU метр показывает!)
-const int scaleHeightLong = 8; // длинные деления шкалы пикс
-const int scaleHeightShort = 4; // короткие деления шкалы пикс
-const int scaleThickness = 2; // толщина линии пикс
-const int fontSize = 1; // минимальный шрифт
-const int labelOffsetTop = -11;    // отступ верхней подписи от шкалы (отрицательное — вверх)
-const int labelOffsetBottom = 4;   // отступ нижней подписи от шкалы (положительное — вниз)
-const int labelLeftmostOffset = 9; // сдвиг самой левой подписи ('-30')
-//VU-МЕТР EXPERIMENTAL
-const int vuChannelGap = 44; // расстояние между каналами VU-метра в пикселях
-static uint32_t holdTimeL = 1500; // время удержания пика для левого канала (мс, шаг 500 мс)
-static uint32_t holdTimeR = 1500; // время удержания пика для правого канала (мс, шаг 500 мс)
-// === КОНЕЦ НАСТРАИВАЕМЫХ ПАРАМЕТРОВ ===
-
-// Дополнительные настраиваемые константы для VU/Peak Hold (всё в одном месте)
-const bool  vuInvertInput = true;   // инверсия уровня ПОСЛЕ сглаживания, после замены библиотеки уровень начал передаваться на Vu метр инверсивно, поэтому надо инвертировать еще раз
-const float vuPeakMinFade = 0.20f;  // минимальная яркость затухающего пика (0..1)
-
-/************************
-      FILL WIDGET
- ************************/
-void FillWidget::init(FillConfig conf, uint16_t bgcolor) {
-  Widget::init(conf.widget, bgcolor, bgcolor);
-  _width = conf.width;
-  _height = conf.height;
-  _lastDraw.valid = false;
-}
-
-void FillWidget::_fastFillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color) {
-    if (!gfx) return;
-    
-    // Проверяем, нужно ли вообще что-то рисовать
-    if (w <= 0 || h <= 0) return;
-    
-    // Проверяем, не рисуем ли мы то же самое
-    if (_lastDraw.valid && 
-        _lastDraw.x == x && 
-        _lastDraw.y == y && 
-        _lastDraw.w == w && 
-        _lastDraw.h == h && 
-        _lastDraw.color == color) {
-        return;
-    }
-    
-    // Используем оптимизированную отрисовку
-    gfx->fillRect(x, y, w, h, color);
-    
-    // Сохраняем параметры последней отрисовки
-    _lastDraw.x = x;
-    _lastDraw.y = y;
-    _lastDraw.w = w;
-    _lastDraw.h = h;
-    _lastDraw.color = color;
-    _lastDraw.valid = true;
-}
-
-void FillWidget::_draw() {
-    if(!_active || !gfx) return;
-    _fastFillRect(_config.left, _config.top, _width, _height, _bgcolor);
-}
-
-void FillWidget::_clear() {
-    if (!gfx) return;
-    // Сбрасываем кэш перед очисткой, чтобы гарантировать перерисовку
-    _lastDraw.valid = false;
-    _fastFillRect(_config.left, _config.top, _width, _height, _bgcolor);
-}
-
-void FillWidget::setHeight(uint16_t newHeight) {
-    _height = newHeight;
-    _lastDraw.valid = false;
-}
-
-/************************
-      TEXT WIDGET
- ************************/
 TextWidget::TextCache* TextWidget::_textCache = nullptr;
 size_t TextWidget::_cacheSize = 0;
 
-char* TextWidget::_getCachedText(const char* txt) {
-    TextCache* current = _textCache;
-    while (current) {
-        if (strcmp(current->key, txt) == 0) {
-            return current->value;
-        }
-        current = current->next;
-    }
-    return nullptr;
-}
-
-void TextWidget::_addToCache(const char* txt, char* value) {
-    if (_cacheSize >= MAX_CACHE_SIZE) {
-        // Удаляем самый старый элемент
-        TextCache* old = _textCache;
-        _textCache = _textCache->next;
-    if (old->value) free(old->value);
-    if (old->key) free((void*)old->key);
-        delete old;
-        _cacheSize--;
-    }
-    
-    // Добавляем новый элемент в начало списка
-  TextCache* newCache = new TextCache(nullptr, value);
-  // Дублируем ключ, чтобы не зависеть от временных буферов
-  char* keyCopy = strdup(txt);
-  newCache->key = keyCopy;
-    newCache->next = _textCache;
-    _textCache = newCache;
-    _cacheSize++;
-}
-
-void TextWidget::_clearCache() {
-    while (_textCache) {
-        TextCache* current = _textCache;
-        _textCache = _textCache->next;
-    if (current->value) free(current->value);
-    if (current->key) free((void*)current->key);
-        delete current;
-    }
-    _cacheSize = 0;
-}
-
-void TextWidget::init(WidgetConfig wconf, uint16_t buffsize, bool uppercase, uint16_t fgcolor, uint16_t bgcolor) {
-  Widget::init(wconf, fgcolor, bgcolor);
-  _buffsize = buffsize;
-  _text = (char *) malloc(sizeof(char) * _buffsize);
-  memset(_text, 0, _buffsize);
-  _oldtext = (char *) malloc(sizeof(char) * _buffsize);
-  memset(_oldtext, 0, _buffsize);
-  dsp.charSize(_config.textsize, _charWidth, _textheight);
-  _textwidth = _oldtextwidth = _oldleft = 0;
-  _uppercase = uppercase;
-}
-
-void TextWidget::setText(const char* txt) {
-    if (!gfx) {
-        Serial.println("[TextWidget] Waiting for gfx initialization...");
-        delay(100);  // Даем время на инициализацию
-        return;
-    }
-    
-    // Early exit: compare input text with current _text (not _oldtext)
-    if (!txt) txt = "";
-    if (strcmp(txt, _text) == 0) return;
-    
-    // Храним UTF-8 как есть (без конвертации)
-    strlcpy(_text, txt, _buffsize);
-    
-    // Пересчитываем ширину по 1-byte представлению (для выравнивания)
-    const char* converted = utf8Rus(_text, _uppercase);
-    _textwidth = strlen(converted) * _charWidth;
-    
-    if (_active) {
-        gfxFillRect(gfx, _oldleft == 0 ? _realLeft() : std::min(_oldleft, _realLeft()),  
-                   _config.top, 
-                   std::max(_oldtextwidth, _textwidth), 
-                   _textheight, 
-                   _bgcolor);
-    }
-    
-    _oldtextwidth = _textwidth;
-    _oldleft = _realLeft();
-    // Зафиксируем текущее значение для сравнения при следующем обновлении
-    strlcpy(_oldtext, _text, _buffsize);
-    if (_active) loop();
-}
-
-void TextWidget::setText(int val, const char *format){
-  char buf[_buffsize];
-  snprintf(buf, _buffsize, format, val);
-  setText(buf);
-}
-
-void TextWidget::setText(const char* txt, const char *format){
-  char buf[_buffsize];
-  snprintf(buf, _buffsize, format, txt);
-  setText(buf);
-}
-
-uint16_t TextWidget::_realLeft() {
-  switch (_config.align) {
-    case WA_CENTER: return (dsp.width() - _textwidth) / 2; break;
-    case WA_RIGHT: return (dsp.width() - _textwidth - _config.left); break;
-    default: return _config.left; break;
-  }
-}
-
-void TextWidget::_draw() {
-  if(!_active || !gfx) return;
-  // Конвертируем UTF-8 в 1-byte локально (один раз) и используем gfxDrawText1b()
-  const char* converted = utf8Rus(_text, _uppercase);
-  gfxDrawText1b(gfx, _realLeft(), _config.top, converted, _fgcolor, _bgcolor, _config.textsize, nullptr, _uppercase);
-  strlcpy(_oldtext, _text, _buffsize);
-}
-
 TextWidget::~TextWidget() {
-    free(_text);
-    free(_oldtext);
-    // Очищаем кэш только если это последний экземпляр TextWidget
-    static int widgetCount = 0;
-    widgetCount++;
-    if (widgetCount == 1) { // Если это последний TextWidget
-        _clearCache();
-    }
-    widgetCount--;
+    if (_text) free(_text);
+    if (_oldtext) free(_oldtext);
+    _text = _oldtext = nullptr;
 }
 
-/************************
-      SCROLL WIDGET
- ************************/
-ScrollWidget::ScrollWidget(const char* separator, ScrollConfig conf, uint16_t fgcolor, uint16_t bgcolor) {
-  _line = nullptr;
-  init(separator, conf, fgcolor, bgcolor);
+void TextWidget::init(WidgetConfig wconf, uint16_t buffsize, bool uppercase, uint16_t fgcolor,
+                      uint16_t bgcolor) {
+    Widget::init(wconf, fgcolor, bgcolor);
+    _uppercase = uppercase;
+    _buffsize = buffsize;
+    _textwidth = _oldtextwidth = _oldleft = 0;
+    _textheight = 0;
+    _charWidth = 6;
+    if (_text) free(_text);
+    if (_oldtext) free(_oldtext);
+    _text = static_cast<char*>(calloc(buffsize + 1, 1));
+    _oldtext = static_cast<char*>(calloc(buffsize + 1, 1));
 }
 
+void TextWidget::setText(const char* txt) { (void)txt; }
+void TextWidget::setText(int val, const char* format) { (void)val; (void)format; }
+void TextWidget::setText(const char* txt, const char* format) { (void)txt; (void)format; }
+void TextWidget::_draw() {}
+uint16_t TextWidget::_realLeft() { return _config.left; }
+char* TextWidget::_getCachedText(const char* txt) { return const_cast<char*>(txt); }
+void TextWidget::_addToCache(const char* txt, char* value) { (void)txt; (void)value; }
+void TextWidget::_clearCache() {}
+
+void FillWidget::init(FillConfig conf, uint16_t bgcolor) {
+    Widget::init(conf.widget, bgcolor, bgcolor);
+    _height = conf.height;
+    _lastDraw.valid = false;
+}
+void FillWidget::setHeight(uint16_t newHeight) { _height = newHeight; }
+void FillWidget::_fastFillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color) {
+    (void)x; (void)y; (void)w; (void)h; (void)color;
+}
+void FillWidget::_draw() {}
+void FillWidget::_clear() {}
+
+ScrollWidget::ScrollWidget(const char* separator, ScrollConfig conf, uint16_t fgcolor,
+                           uint16_t bgcolor) {
+    init(separator, conf, fgcolor, bgcolor);
+}
 ScrollWidget::~ScrollWidget() {
-  if (_line) {
-    delete _line;
-    _line = nullptr;
-  }
-  free(_sep);
-  free(_window);
+    if (_sep) free(_sep);
+    if (_window) free(_window);
+    _sep = _window = nullptr;
 }
-
 void ScrollWidget::init(const char* separator, ScrollConfig conf, uint16_t fgcolor, uint16_t bgcolor) {
-  TextWidget::init(conf.widget, conf.buffsize, conf.uppercase, fgcolor, bgcolor);
-  _line = nullptr;
-  _sep = (char *) malloc(sizeof(char) * 4);
-  memset(_sep, 0, 4);
-  snprintf(_sep, 4, " %.*s ", 1, separator);
-  _x = conf.widget.left;
-  _fx = conf.widget.left;
-  _startscrolldelay = conf.startscrolldelay;
-  _scrolldelta = conf.scrolldelta;
-  _scrolltime = conf.scrolltime;
-  dsp.charSize(_config.textsize, _charWidth, _textheight);
-  _sepwidth = strlen(_sep) * _charWidth;
-  _width = conf.width;
-  _backMove.width = _width;
-  _window = (char *) malloc(sizeof(char) * (MAX_WIDTH / _charWidth + 1));
-  memset(_window, 0, (MAX_WIDTH / _charWidth + 1));
-  _doscroll = false;
-  // MVP-2: Initialize cycle cache
-  _cycle = "";
-  _cycleWidth = 0;
-  _textWidth = 0;
-  _sepWidth = 0;
-  _cycleDirty = true;
-  _scrollPx = 0;
-  _scrollAcc10 = 0; // Fixed-point accumulator for smooth sub-pixel scrolling
-  _lastPix = -1; // Initialize to -1 to force first draw
-}
-
-void ScrollWidget::_setTextParams() {
-  // Не требуется для Canvas API
-}
-
-bool ScrollWidget::_checkIsScrollNeeded() {
-  // MVP-2: Use accurate pixel measurement if available, otherwise fallback to char-based
-  if (_textWidth > 0) {
-    return _textWidth > _width;
-  }
-  // Fallback to old char-based calculation
-  return _textwidth > _width;
-}
-
-void ScrollWidget::ensureScrollMetrics() {
-  // Гарантирует, что _textWidth и _doscroll актуальны
-  // Вызывается перед проверками eligibility, чтобы не зависеть от loop()
-  if (!gfx) return;
-  if (!_text || strlen(_text) == 0) {
-    _textWidth = 0;
+    TextWidget::init(conf.widget, conf.buffsize, conf.uppercase, fgcolor, bgcolor);
+    _sep = separator ? strdup(separator) : nullptr;
+    _window = static_cast<char*>(calloc(conf.buffsize + 1, 1));
     _doscroll = false;
-    return;
-  }
-  // Перестраиваем цикл при необходимости (это обновит _textWidth)
-  _rebuildCycleIfNeeded();
-  // Обновляем _doscroll на основе актуального _textWidth
-  if (_textWidth > 0) {
-    _doscroll = _textWidth > _width;
-  } else {
-    // Fallback: используем старую проверку через _textwidth
-    _doscroll = _checkIsScrollNeeded();
-  }
 }
+void ScrollWidget::loop() {}
+void ScrollWidget::setText(const char* txt) { (void)txt; }
+void ScrollWidget::setText(const char* txt, const char* format) { (void)txt; (void)format; }
+void ScrollWidget::setActive(bool act, bool clr) { TextWidget::setActive(act, clr); }
+void ScrollWidget::lock(bool lck) { TextWidget::lock(lck); }
+void ScrollWidget::ensureScrollMetrics() {}
+bool ScrollWidget::canParticipateInScroll() { return false; }
+void ScrollWidget::_setTextParams() {}
+void ScrollWidget::_calcX() {}
+void ScrollWidget::_drawFrame() {}
+void ScrollWidget::_draw() {}
+bool ScrollWidget::_checkIsScrollNeeded() { return false; }
+bool ScrollWidget::_checkDelay(int m, uint32_t& tstamp) { (void)m; (void)tstamp; return false; }
+void ScrollWidget::_clear() {}
+void ScrollWidget::_reset() {}
+void ScrollWidget::_rebuildCycleIfNeeded() {}
 
-bool ScrollWidget::canParticipateInScroll() {
-  // Возвращает true ТОЛЬКО если виджет может участвовать в скролле
-  // Сначала гарантируем актуальность метрик (независимо от loop())
-  ensureScrollMetrics();
-  // Проверяем eligibility: активен, не заблокирован, может скроллиться, имеет текст
-  // Check eligibility: active, not locked, can scroll, has text
-  return _active && !_locked && _doscroll && _config.textsize > 0 && _text && strlen(_text) > 0;
+void SliderWidget::init(FillConfig conf, uint16_t fgcolor, uint16_t bgcolor, uint32_t maxval,
+                        uint16_t oucolor) {
+    Widget::init(conf.widget, fgcolor, bgcolor);
+    _height = conf.height;
+    _max = maxval;
+    _value = 0;
+    _outlined = conf.outlined;
+    _oucolor = oucolor;
+    _oldvalwidth = 0;
 }
+void SliderWidget::setValue(uint32_t val) { _value = val; }
+void SliderWidget::_draw() {}
+void SliderWidget::_drawslider() {}
+void SliderWidget::_clear() {}
+void SliderWidget::_reset() {}
 
-void ScrollWidget::setText(const char* txt) {
-  if (!gfx) return;
-  // Early exit: compare input text with current _text (not _oldtext)
-  if (!txt) txt = "";
-  if (strcmp(txt, _text) == 0) return;
-  
-  // Храним UTF-8 как есть (без конвертации)
-  strlcpy(_text, txt, _buffsize - 1);
-  
-  // Reset scroll positions
-  _x = _config.left;
-  _fx = _config.left;
-  _scrollPx = 0; // MVP-2: Reset pixel scroll position
-  _scrollAcc10 = 0; // Reset fixed-point accumulator
-  _lastPix = -1; // Reset last drawn position to force redraw
-  _cycleDirty = true; // MVP-2: Mark cycle as dirty - MUST be set before _rebuildCycleIfNeeded
-  
-  // Keep fallback width calculation (will be recalculated in _rebuildCycleIfNeeded)
-  const char* converted = utf8Rus(_text, _uppercase);
-  _textwidth = strlen(converted) * _charWidth; // Keep for fallback
-  
-  // MVP-2: Rebuild cycle to get accurate measurement before checking scroll
-  _rebuildCycleIfNeeded();
-  // Now check scroll with accurate measurement
-  _doscroll = _checkIsScrollNeeded();
-  if (dsp.getScrollId() == this) dsp.setScrollId(NULL);
-  _scrolldelay = millis();
-  // MVP-2: Always use _draw() for consistent rendering (removed old direct drawing code)
-  if (_active) {
-    _draw();
-    strlcpy(_oldtext, _text, _buffsize);
-  }
+VuWidget::~VuWidget() {}
+void VuWidget::init(WidgetConfig wconf, VUBandsConfig bands, uint16_t vumaxcolor, uint16_t vumincolor,
+                    uint16_t bgcolor) {
+    Widget::init(wconf, vumaxcolor, bgcolor);
+    _bands = bands;
+    _vumaxcolor = vumaxcolor;
+    _vumincolor = vumincolor;
+    numBands = 0;
 }
+void VuWidget::loop() {}
+void VuWidget::setActive(bool act, bool clr) { Widget::setActive(act, clr); }
+void VuWidget::_draw() {}
+void VuWidget::_clear() {}
 
-void ScrollWidget::setText(const char* txt, const char *format){
-  char buf[_buffsize];
-  snprintf(buf, _buffsize, format, txt);
-  setText(buf);
+void NumWidget::init(WidgetConfig wconf, uint16_t buffsize, bool uppercase, uint16_t fgcolor,
+                     uint16_t bgcolor) {
+    TextWidget::init(wconf, buffsize, uppercase, fgcolor, bgcolor);
 }
+void NumWidget::setText(const char* txt) { TextWidget::setText(txt); }
+void NumWidget::setText(int val, const char* format) { TextWidget::setText(val, format); }
+void NumWidget::_getBounds() {}
+void NumWidget::_draw() {}
+void NumWidget::_clear() {}
 
-void ScrollWidget::setActive(bool act, bool clr) {
-  // Если виджет деактивируется и имеет слот скролла - освобождаем слот немедленно
-  if (!act && dsp.getScrollId() == this) {
-    dsp.setScrollId(NULL);
-    // Сбрасываем индекс в -1, чтобы следующий eligible виджет мог сразу получить слот
-    // (не ждать завершения цикла текущего виджета)
-    dsp.resetScrollIndex(); // Сбрасываем индекс для немедленного перехода к следующему
-  }
-  
-  // Если виджет активируется - сбрасываем состояние для гарантированной перерисовки
-  if (act) {
-    _lastPix = -1; // Reset last drawn position to force redraw on activation
-    _scrollPx = 0; // Reset scroll position to start
-    _scrollAcc10 = 0; // Reset accumulator
-    _cycleDirty = true; // Mark cycle as dirty to ensure _draw() will render
-    // Пересобираем цикл сейчас, чтобы метрики были актуальны для ensureScrollMetrics()
-    if (strlen(_text) > 0) {
-      _rebuildCycleIfNeeded();
-    }
-  }
-  
-  // Вызываем базовую реализацию (устанавливает _active и вызывает _draw() если active)
-  TextWidget::setActive(act, clr);
-  
-  // Если виджет активируется - обновляем метрики и нормализуем индекс очереди
-  if (act) {
-    // Гарантируем актуальность метрик (чтобы виджет сразу мог участвовать в очереди)
-    ensureScrollMetrics();
-    // Нормализуем индекс очереди при изменении состава scrollable-виджетов
-    // (новый виджет добавился, нужно скорректировать lastIndex если нужно)
-    dsp.normalizeScrollIndex();
-  }
+void ProgressWidget::loop() {}
+void ProgressWidget::_progress() {}
+bool ProgressWidget::_checkDelay(int m, uint32_t& tstamp) { (void)m; (void)tstamp; return false; }
+void ProgressWidget::_clear() {}
+
+void ClockWidget::draw() {}
+void ClockWidget::_draw() {}
+void ClockWidget::_clear() {}
+
+void BitrateWidget::init(BitrateConfig bconf, uint16_t fgcolor, uint16_t bgcolor) {
+    Widget::init(bconf.widget, fgcolor, bgcolor);
+    _dimension = bconf.dimension;
+    _format = BF_UNCNOWN;
+    _buf[0] = '\0';
+    _charWidth = 6;
+    _textheight = 8;
+    _bitrate = 0;
 }
+void BitrateWidget::setBitrate(uint16_t bitrate) { _bitrate = bitrate; }
+void BitrateWidget::setFormat(BitrateFormat format) { _format = format; }
+void BitrateWidget::_draw() {}
+void BitrateWidget::_clear() {}
 
-void ScrollWidget::lock(bool lck) {
-  // Если виджет блокируется и имеет слот скролла - освобождаем слот немедленно
-  // If widget is being locked and has scroll slot - free the slot immediately
-  if (lck && dsp.getScrollId() == this) {
-    dsp.setScrollId(NULL);
-    dsp.resetScrollIndex(); // Сбрасываем индекс для немедленного перехода к следующему / Reset index for immediate transition to next
-  }
-  
-  // Вызываем базовую реализацию (устанавливает _locked и очищает виджет)
-  // Call base implementation (sets _locked and clears widget)
-  Widget::lock(lck);
-}
-
-void ScrollWidget::loop() {
-  if(_locked) return;
-  
-  // КРИТИЧНО: Если виджет имеет слот, но больше не может участвовать в скролле
-  // (стал неактивным или текст изменился), освобождаем слот НЕМЕДЛЕННО
-  if (dsp.getScrollId() == this) {
-    if (!canParticipateInScroll()) {
-      // Виджет больше не может скроллиться - освобождаем слот и сбрасываем индекс
-      dsp.setScrollId(NULL);
-      dsp.resetScrollIndex(); // Сбрасываем индекс для немедленного перехода к следующему
-      // Рисуем статический текст если виджет активен
-      if (_active) _draw();
-      return;
-    }
-  }
-  
-  // Check if widget is eligible for scrolling
-  // canParticipateInScroll() теперь сам вызывает ensureScrollMetrics()
-  if (!canParticipateInScroll()) {
-    // Even if not scrolling, draw static text (only if text changed)
-    if (_active) _draw();
-    return;
-  }
-  
-  // If another widget is scrolling, we still need to draw (but don't update position)
-  if (dsp.getScrollId() != NULL && dsp.getScrollId() != this) {
-    // Если слот занят, но владелец больше не участвует в очереди — освободить слот
-    // If slot is occupied but owner is no longer in eligible queue — free the slot
-    extern Display display;
-    Page* activePage = display.getActivePage();
-    void* slotOwner = dsp.getScrollId();
-    if (!activePage || activePage->getScrollWidgetIndex(slotOwner) < 0) {
-      dsp.setScrollId(NULL);
-      dsp.resetScrollIndex(); // стартуем очередь заново / restart queue
-    }
-
-    if (_active) _draw();
-    return;
-  }
-  
-  // Логическая очередь: выбираем следующий виджет строго по порядку добавления
-  if (dsp.getScrollId() == NULL) {
-    // Получаем общее количество скроллируемых виджетов
-    extern Display display;
-    Page* activePage = display.getActivePage();
-    int16_t totalScrollable = activePage ? activePage->getScrollableCount() : 0;
-    
-    // Нормализуем lastIndex при изменении состава scrollable-виджетов
-    // (важно делать это ДО проверки totalScrollable, чтобы индекс был актуален)
-    dsp.normalizeScrollIndex();
-    
-    if (totalScrollable <= 0) {
-      // Нет скроллируемых виджетов - разрешаем скролл для одного виджета (fallback)
-      // Это может быть, если виджеты еще не инициализированы или текст короткий
-      dsp.setScrollId(this);
-    } else if (totalScrollable == 1) {
-      // Правило "один scrollable == скроллим сразу": разрешаем скролл единственному виджету всегда
-      // (без проверки индекса next)
-      // Это работает и при включении нового виджета, который становится единственным
-      dsp.setScrollId(this);
-    } else {
-      // Получаем наш порядковый индекс среди всех ScrollWidget'ов, которые могут скроллиться
-      int16_t myIndex = dsp.getScrollWidgetIndex(this);
-      if (myIndex < 0) {
-        // Виджет не найден в активной странице или не может скроллиться, просто рисуем
-        if (_active) _draw();
-        return;
-      }
-      
-      // Получаем индекс последнего скроллившегося виджета (после нормализации выше)
-      int16_t lastIndex = dsp.getLastScrollIndex();
-      
-      // Вычисляем индекс следующего виджета в очереди
-      // Если lastIndex == -1 (начало), то nextIndex = 0
-      int16_t nextIndex = (lastIndex + 1) % totalScrollable;
-      
-      // Захватываем слот только если мы следующий в очереди
-      if (myIndex == nextIndex) {
-        dsp.setScrollId(this);
-      } else {
-        // Не наш ход, просто рисуем статический текст
-        if (_active) _draw();
-        return;
-      }
-    }
-  }
-  
-  // Original behavior: use startscrolldelay when at start position, scrolltime otherwise
-  // Delay units: milliseconds (ms)
-  // Check if at start position (both pixel and accumulator are zero)
-  uint16_t delay = (_scrollPx == 0 && _scrollAcc10 == 0) ? _startscrolldelay : _scrolltime;
-  
-  // Original behavior: update position only once per period (respects scrolltime/scrolldelta from config)
-  // Use _checkDelay to ensure we only update when the delay period has passed
-  if (_checkDelay(delay, _scrolldelay)) {
-    // Fixed-point arithmetic for deterministic sub-pixel scrolling
-    // Accumulate tenths-of-pixel: _scrollAcc10 += _scrolldelta
-    // Convert to pixels: step = _scrollAcc10 / 10, remainder = _scrollAcc10 % 10
-    // This preserves the original scrolldelta * 0.1 behavior without float jitter
-    _scrollAcc10 += _scrolldelta;
-    int16_t step = _scrollAcc10 / 10;
-    _scrollAcc10 = _scrollAcc10 % 10;
-    _scrollPx += step;
-    
-    // Reset when cycle completes (textWidth + sepWidth)
-    if (_scrollPx >= (_textWidth + _sepWidth)) {
-      _scrollPx = 0; // Reset to start of cycle
-      _scrollAcc10 = 0; // Reset accumulator
-      // Увеличиваем индекс последнего скроллившегося виджета (логическая очередь)
-      dsp.advanceScrollIndex();
-      dsp.setScrollId(NULL);
-    }
-  }
-  
-  // Update scroll ID if still scrolling (we already claimed it above if NULL)
-  if (_scrollPx < (_textWidth + _sepWidth) && dsp.getScrollId() == this) {
-    // Already claimed, continue scrolling
-  }
-  
-  // Draw only if pixel position changed (optimization: skip redundant fillScreen/print/blit)
-  if (_active) _draw();
-}
-
-void ScrollWidget::_clear(){
-  if (!gfx) return;
-  gfxFillRect(gfx, _config.left, _config.top, _width, _textheight, _bgcolor);
-}
-
-void ScrollWidget::_rebuildCycleIfNeeded() {
-  if (!_cycleDirty) return;
-  
-  // Measure widths in pixels using getTextBounds
-  // Use _line if available (same font/size as rendering), otherwise use main gfx
-  Arduino_Canvas* measureCanvas = _line ? _line : gfx;
-  if (!measureCanvas) return;
-  if (!_text || strlen(_text) == 0) {
-    _textWidth = 0;
-    _sepWidth = 0;
-    _cycleWidth = 0;
-    _cycle = "";
-    _cycleDirty = false;
-    return;
-  }
-  
-  // Set font and size for measurement (must match drawing settings exactly)
-  // Use same settings as will be used for rendering in _line
-  measureCanvas->setFont();
-  measureCanvas->setTextSize(_config.textsize);
-  // Ensure wrapping is disabled for consistency (doesn't affect getTextBounds, but good practice)
-  if (_line) {
-    _line->setTextWrap(false);
-  }
-  
-  // Конвертируем UTF-8 в 1-byte локально (один раз) для измерения ширины
-  const char* convertedText = utf8Rus(_text, _uppercase);
-  int16_t x1, y1;
-  uint16_t w, h;
-  measureCanvas->getTextBounds(convertedText, 0, 0, &x1, &y1, &w, &h);
-  _textWidth = w;
-  
-  // Measure separator width (separator is already 1-byte)
-  measureCanvas->getTextBounds(_sep, 0, 0, &x1, &y1, &w, &h);
-  _sepWidth = w;
-  
-  // Build cycle string: convertedText + separator + convertedText (all 1-byte)
-  _cycle = String(convertedText) + String(_sep) + String(convertedText);
-  
-  // Measure cycle width (for reference, can be calculated as _textWidth + _sepWidth + _textWidth)
-  measureCanvas->getTextBounds(_cycle.c_str(), 0, 0, &x1, &y1, &w, &h);
-  _cycleWidth = w;
-  
-  _cycleDirty = false;
-}
-
-void ScrollWidget::_draw() {
-  if(!_active || _locked || !gfx) return;
-  
-  // Initialize line-canvas lazily on first use (always use line-canvas to prevent wrapping)
-  if (!_line) {
-    Arduino_G* output = dsp.getOutputDisplay();
-    if (!output) return; // Cannot create line-canvas without output display
-    _line = new Arduino_Canvas(_width, _textheight, output);
-    if (!_line) return; // Failed to allocate line-canvas
-    // Use GFX_SKIP_OUTPUT_BEGIN to avoid re-initializing RGB panel
-    // (ESP32-S3 has only one RGB panel slot, already used by main canvas)
-    if (!_line->begin(GFX_SKIP_OUTPUT_BEGIN)) {
-      delete _line;
-      _line = nullptr;
-      return; // Failed to initialize line-canvas
-    }
-    // Disable text wrapping to ensure single-line rendering (set once during init)
-    _line->setTextWrap(false);
-  }
-  
-  // MVP-2: Rebuild cycle only if needed (when text changes)
-  // This avoids expensive getTextBounds() calls on every frame
-  _rebuildCycleIfNeeded();
-  
-  // Check if scrolling is actually needed based on accurate pixel measurement
-  // Force scroll if _textWidth > 0 but _doscroll was false (recheck needed)
-  if (_textWidth > _width && !_doscroll) {
-    _doscroll = true;
-  }
-  
-  // Optimization: Skip redraw if pixel position didn't change (prevents redundant fillScreen/print/blit)
-  // Only apply optimization for the active scrolling widget
-  bool isActiveScroller = (dsp.getScrollId() == NULL || dsp.getScrollId() == this);
-  
-  if (_doscroll && _textWidth > _width) {
-    // Scrolling mode: only skip if we're the active scroller AND position/text unchanged
-    int16_t pix = _scrollPx; // _scrollPx is already integer pixels
-    if (isActiveScroller && pix == _lastPix && !_cycleDirty) {
-      return; // Position unchanged, skip redraw (only for active scroller)
-    }
-    // Update last drawn position (even if not active scroller, to track current state)
-    _lastPix = pix;
-  } else {
-    // For non-scrolling mode, always redraw if text changed (cycleDirty handles this)
-    // But we can optimize further by tracking text content hash if needed
-    if (!_cycleDirty && _lastPix != -2) {
-      // -2 is special marker for non-scrolling mode "already drawn"
-      // Only redraw if text changed (cycleDirty) or first draw (lastPix == -1)
-      if (_lastPix != -1) {
-        return; // Text unchanged, skip redraw
-      }
-    }
-    _lastPix = -2; // Mark as drawn for non-scrolling mode
-  }
-  
-  // Clear line-canvas buffer (only if we're actually drawing)
-  _line->fillScreen(_bgcolor);
-  
-  if (_doscroll && _textWidth > _width) {
-    // Scrolling mode: draw cycle at pixel position (can be negative for smooth entry)
-    // _scrollPx is already integer pixels, use directly
-    int16_t drawX = -_scrollPx;
-    
-    // Render cycle into line-canvas (no alignment, text scrolls from left)
-    // _cycle already contains 1-byte string (from _rebuildCycleIfNeeded)
-    // Wrapping is disabled, text will be clipped by canvas bounds
-    gfxDrawText1b(_line, drawX, 0, _cycle.c_str(), _fgcolor, _bgcolor, _config.textsize, nullptr, _uppercase);
-  } else {
-    // Non-scrolling mode: draw text with alignment within line-canvas
-    int16_t drawX = 0;
-    
-    // Calculate X position based on alignment within line-canvas (0.._width)
-    switch (_config.align) {
-      case WA_CENTER:
-        drawX = (_width - _textWidth) / 2;
-        break;
-      case WA_RIGHT:
-        drawX = _width - _textWidth;
-        break;
-      default: // WA_LEFT
-        drawX = 0;
-        break;
-    }
-    
-    // Clamp drawX to prevent negative values (text will be clipped at left edge)
-    // This ensures text doesn't start before canvas boundary
-    if (drawX < 0) drawX = 0;
-    
-    // Конвертируем UTF-8 в 1-byte локально (один раз) и используем gfxDrawText1b()
-    const char* convertedText = utf8Rus(_text, _uppercase);
-    // Render text into line-canvas (clipped by canvas bounds, no wrapping)
-    // Wrapping is disabled, long text will be clipped at right edge (_width)
-    // Arduino_GFX automatically clips text that extends beyond canvas bounds
-    gfxDrawText1b(_line, drawX, 0, convertedText, _fgcolor, _bgcolor, _config.textsize, nullptr, _uppercase);
-  }
-  
-  // Always blit line-canvas framebuffer into main canvas
-  uint16_t* buf = _line->getFramebuffer();
-  if (buf) {
-    gfxDrawBitmap(gfx, _config.left, _config.top, buf, _width, _textheight);
-  }
-}
-
-void ScrollWidget::_calcX() {
-  if (!_doscroll || _config.textsize == 0) return;
-  _x -= _scrolldelta;
-  if (-_x > _textwidth + _sepwidth - _config.left) {
-    _x = _config.left;
-  }
-}
-
-bool ScrollWidget::_checkDelay(int m, uint32_t &tstamp) {
-  if (millis() - tstamp > m) {
-    tstamp = millis();
-    return true;
-  } else {
-    return false;
-  }
-}
-
-void ScrollWidget::_reset(){
-  _x = _config.left;
-  _scrolldelay = millis();
-  _doscroll = _checkIsScrollNeeded();
-}
-
-/************************
-      SLIDER WIDGET
- ************************/
-void SliderWidget::init(FillConfig conf, uint16_t fgcolor, uint16_t bgcolor, uint32_t maxval, uint16_t oucolor) {
-  Widget::init(conf.widget, fgcolor, bgcolor);
-  _width = conf.width; _height = conf.height; _outlined = conf.outlined; _oucolor = oucolor, _max = maxval;
-  _oldvalwidth = _value = 0;
-}
-
-void SliderWidget::setValue(uint32_t val) {
-  _value = val;
-  if (_active && !_locked) _drawslider();
-}
-
-void SliderWidget::_drawslider() {
-  if (!gfx) return;
-  uint16_t valwidth = map(_value, 0, _max, 0, _width - _outlined * 2);
-  if (_oldvalwidth == valwidth) return;
-  gfxFillRect(gfx, _config.left + _outlined + std::min(valwidth, _oldvalwidth), _config.top + _outlined, std::abs((int)_oldvalwidth - (int)valwidth), _height - _outlined * 2, _oldvalwidth > valwidth ? _bgcolor : _fgcolor);
-  _oldvalwidth = valwidth;
-}
-
-void SliderWidget::_draw() {
-  if(_locked || !gfx) return;
-  _clear();
-  if(!_active) return;
-  if (_outlined) gfxDrawRect(gfx, _config.left, _config.top, _width, _height, _oucolor);
-  uint16_t valwidth = map(_value, 0, _max, 0, _width - _outlined * 2);
-  gfxFillRect(gfx, _config.left + _outlined, _config.top + _outlined, valwidth, _height - _outlined * 2, _fgcolor);
-}
-
-void SliderWidget::_clear() {
-  if (!gfx) return;
-  gfxFillRect(gfx, _config.left, _config.top, _width, _height, _bgcolor);
-}
-void SliderWidget::_reset() {
-  _oldvalwidth = 0;
-}
-/************************
-      VU WIDGET
- ************************/
-VuWidget::~VuWidget() {
-  // canvas больше не нужен
-}
-
-void VuWidget::init(WidgetConfig wconf, VUBandsConfig bands, uint16_t vumaxcolor, uint16_t vumincolor, uint16_t bgcolor) {
-  Widget::init(wconf, bgcolor, bgcolor);
-  _vumaxcolor = vumaxcolor;
-  _vumincolor = vumincolor;
-  _bands = bands;
-  // Сброс состояния дельта-отрисовки и очистка области
-  _prevL = 0xFF;
-  _prevR = 0xFF;
-  _needsFullRedraw = true;
-  _lastLevelL = -1;
-  _lastLevelR = -1;
-  _lastDrawMs = 0;
-  _clear();
-}
-
-void VuWidget::_draw() {
-  if(!_active || _locked || !gfx) return;
-  static float measL = 0, measR = 0;
-  static uint8_t peakHoldL = 0, peakHoldR = 0;
-  static uint32_t peakHoldTimeL = 0, peakHoldTimeR = 0;
-  uint8_t numBands = _bands.perheight;
-  // Peak hold включен
-  uint16_t vulevel = player.get_VUlevel(numBands);
-  uint8_t activeL = (vulevel >> 8) & 0xFF;
-  uint8_t activeR = vulevel & 0xFF;
-  if (activeL > numBands) activeL = numBands;
-  if (activeR > numBands) activeR = numBands;
-
-  // Инверсию переносим на этап после сглаживания (настраивается константой выше)
-  const bool invertInput = vuInvertInput;
-  uint8_t levelL = activeL;
-  uint8_t levelR = activeR;
-
-  // Peak Hold обновляется после расчёта currL/currR ниже
-
-  // Левый канал (сглаживание до инверсии)
-  if (levelL == 0) {
-    measL = 0;
-  } else if (levelL >= measL) {
-    measL = levelL;
-  } else {
-    if (measL > _bands.fadespeed) measL -= _bands.fadespeed;
-    else measL = 0;
-    if (measL < levelL) measL = levelL;
-  }
-  // Правый канал (сглаживание до инверсии)
-  if (levelR == 0) {
-    measR = 0;
-  } else if (levelR >= measR) {
-    measR = levelR;
-  } else {
-    if (measR > _bands.fadespeed) measR -= _bands.fadespeed;
-    else measR = 0;
-    if (measR < levelR) measR = levelR;
-  }
-
-  // Дельта-отрисовка без полной очистки, чтобы исключить мерцание
-  // Используем поля класса `_prevL/_prevR` и флаг `_needsFullRedraw`
-  uint8_t currL = (uint8_t)std::round(measL);
-  uint8_t currR = (uint8_t)std::round(measR);
-
-  // Применяем инверсию ПОСЛЕ сглаживания
-  if (invertInput) {
-    currL = (currL > numBands) ? 0 : (uint8_t)(numBands - currL);
-    currR = (currR > numBands) ? 0 : (uint8_t)(numBands - currR);
-  }
-
-  if (currL > numBands) currL = numBands;
-  if (currR > numBands) currR = numBands;
-
-  auto bandWidth = (_bands.width - (numBands-1)*_bands.space) / numBands;
-  uint8_t redBands = std::max(3, numBands / 4);
-
-  // Полная инициализационная отрисовка (первый кадр/после очистки) - ВСЕГДА выполняется если _needsFullRedraw
-  bool needFullRedraw = _needsFullRedraw || _prevL == 0xFF || _prevR == 0xFF;
-  if (needFullRedraw) {
-    // Полная отрисовка всех полос
-    for (uint8_t i = 0; i < numBands; ++i) {
-      int x = _config.left + i * bandWidth + i * _bands.space;
-      uint16_t color = (i >= numBands - redBands) ? _vumaxcolor : _vumincolor;
-      // Левый
-      gfxFillRect(gfx, x, _config.top, bandWidth, _bands.height, (i < currL) ? color : _bgcolor);
-      // Правый
-      int yR = _config.top + _bands.height + vuChannelGap;
-      gfxFillRect(gfx, x, yR, bandWidth, _bands.height, (i < currR) ? color : _bgcolor);
-    }
-    _prevL = currL;
-    _prevR = currR;
-
-    // Шкала рисуется только при полной перерисовке (статическая часть)
-    const int scaleLength = _bands.width -10;    // Общая длина ШКАЛЫ в пикселях (максимальная длина виджета + 1)
-    int scaleX0 = _config.left; // начальная позиция шкалы (левый край)
-    int scaleX1 = scaleX0 + scaleLength; // расчетная конечная позиция шкалы (правый край)
-    int redX = scaleX0 + redZonePos * scaleLength; // расчетная позиция начала красной зоны (деление 0)
-    // ===== ДОБАВЛЕНО: ОТРИСОВКА ШКАЛЫ МЕЖДУ КАНАЛАМИ  =====
-    // Параметры шкалы
-    // Подписи и позиции (в процентах от длины шкалы)
-    struct Mark {
-      int value; // значение для подписи
-      float pos; // позиция (0..1)
-      const char* label;
-    };
-    // --- Новая логика построения шкалы с двумя зонами ---
-    // Метки для зелёной зоны
-    const Mark marksGreen[] = {
-      { -30, 0.00f, "-30" },
-      { -20, 0.18f, "-20" },
-      { -10, 0.36f, "-10" },
-      {  -5, 0.54f,  "-5" },
-      {  -1, 0.72f,  "-1" }
-    };
-    const int numGreenMarks = sizeof(marksGreen)/sizeof(marksGreen[0]);
-    // Метки для красной зоны
-    const Mark marksRed[] = {
-      { 0, 0.0f, "0" },
-      { 1, 0.5f, "+1" },
-      { 3, 1.0f, "+3" }
-    };
-    const int numRedMarks = sizeof(marksRed)/sizeof(marksRed[0]);
-
-    // --- Зелёная часть шкалы ---
-    for (int m = 0; m < numGreenMarks; ++m) {
-      float frac = marksGreen[m].pos; // логарифмически или вручную подобрано
-      int x = scaleX0 + frac * (redX - scaleX0);
-      int h = scaleHeightLong;
-      uint16_t color = _vumincolor;
-      // Деление
-      for(int i = 0; i < scaleThickness; i++) {
-        gfxDrawLine(gfx, x+i, _config.top + _bands.height + (vuChannelGap / 2) - h/2, x+i, _config.top + _bands.height + (vuChannelGap / 2) + h/2, color);
-      }
-      // Подписи
-      int textY = _config.top + _bands.height + (vuChannelGap / 2) + h/2 + labelOffsetBottom;
-      int textX = x - strlen(marksGreen[m].label)*3;
-      int textYtop = _config.top + _bands.height + (vuChannelGap / 2) - h/2 + labelOffsetTop;
-      int textXtop = textX;
-      if (strcmp(marksGreen[m].label, "-30") == 0) {
-        textX += labelLeftmostOffset;
-        textXtop += labelLeftmostOffset;
-      }
-      gfxDrawText(gfx, textX, textY, marksGreen[m].label, color, _bgcolor, fontSize);
-      gfxDrawText(gfx, textXtop, textYtop, marksGreen[m].label, color, _bgcolor, fontSize);
-    }
-    // --- Красная часть шкалы ---
-    for (int m = 0; m < numRedMarks; ++m) {
-      float frac = marksRed[m].pos;
-      int x = redX + frac * (scaleX1 - redX);
-      int h = scaleHeightLong;
-      uint16_t color = _vumaxcolor;
-      // Деление
-      for(int i = 0; i < scaleThickness; i++) {
-        gfxDrawLine(gfx, x+i, _config.top + _bands.height + (vuChannelGap / 2) - h/2, x+i, _config.top + _bands.height + (vuChannelGap / 2) + h/2, color);
-      }
-      // Подписи
-      int textY = _config.top + _bands.height + (vuChannelGap / 2) + h/2 + labelOffsetBottom;
-      int textX = x - strlen(marksRed[m].label)*3;
-      int textYtop = _config.top + _bands.height + (vuChannelGap / 2) - h/2 + labelOffsetTop;
-      int textXtop = textX;
-      gfxDrawText(gfx, textX, textY, marksRed[m].label, color, _bgcolor, fontSize);
-      gfxDrawText(gfx, textXtop, textYtop, marksRed[m].label, color, _bgcolor, fontSize);
-    }
-    // --- Короткие деления (зелёная зона) ---
-    for (int i = 0; i < 20; ++i) {
-      float frac = (float)i / 20.0f;
-      int x = scaleX0 + frac * (redX - scaleX0);
-      // Проверяем, не совпадает ли с длинным делением
-      bool isLong = false;
-      for (int m = 0; m < numGreenMarks; ++m) {
-        if (fabs(frac - marksGreen[m].pos) < 0.025f) { isLong = true; break; }
-      }
-      if (!isLong) {
-        int h = scaleHeightShort;
-        for(int j = 0; j < scaleThickness; j++) {
-          gfxDrawLine(gfx, x+j, _config.top + _bands.height + (vuChannelGap / 2) - h/2, x+j, _config.top + _bands.height + (vuChannelGap / 2) + h/2, _vumincolor);
-        }
-      }
-    }
-    // --- Короткие деления (красная зона) ---
-    // Только по одному между длинными делениями
-    for (int m = 0; m < numRedMarks - 1; ++m) {
-      float frac1 = marksRed[m].pos;
-      float frac2 = marksRed[m+1].pos;
-      float midFrac = (frac1 + frac2) / 2.0f;
-      int x = redX + midFrac * (scaleX1 - redX);
-      int h = scaleHeightShort;
-      for(int i = 0; i < scaleThickness; i++) {
-        gfxDrawLine(gfx, x+i, _config.top + _bands.height + (vuChannelGap / 2) - h/2, x+i, _config.top + _bands.height + (vuChannelGap / 2) + h/2, _vumaxcolor);
-      }
-    }
-
-    // Сбрасываем флаг полной перерисовки после завершения шкалы и полос
-    _needsFullRedraw = false;
-  } // конец блока needFullRedraw
-
-  // Дельта-отрисовка полос (только если НЕ full redraw)
-  if (!needFullRedraw) {
-    // Левая шкала: дорисовать новые сегменты или стереть лишние
-    if (currL != _prevL) {
-      uint8_t from = std::min(currL, _prevL);
-      uint8_t to   = std::max(currL, _prevL);
-      bool grow = currL > _prevL;
-      for (uint8_t i = from; i < to; ++i) {
-        int x = _config.left + i * bandWidth + i * _bands.space;
-        int yL = _config.top;
-        uint16_t color = (i >= numBands - redBands) ? _vumaxcolor : _vumincolor;
-        gfxFillRect(gfx, x, yL, bandWidth, _bands.height, grow ? color : _bgcolor);
-      }
-      _prevL = currL;
-    }
-    // Правая шкала
-    if (currR != _prevR) {
-      uint8_t from = std::min(currR, _prevR);
-      uint8_t to   = std::max(currR, _prevR);
-      bool grow = currR > _prevR;
-      for (uint8_t i = from; i < to; ++i) {
-        int x = _config.left + i * bandWidth + i * _bands.space;
-        int yR = _config.top + _bands.height + vuChannelGap;
-        uint16_t color = (i >= numBands - redBands) ? _vumaxcolor : _vumincolor;
-        gfxFillRect(gfx, x, yR, bandWidth, _bands.height, grow ? color : _bgcolor);
-      }
-      _prevR = currR;
-    }
-  }
-
-  // --- Peak Hold: обновление и отрисовка (всегда) ---
-  static uint8_t prevPeakPosL = 0;
-  static uint8_t prevPeakPosR = 0;
-
-  if (needFullRedraw) {
-    prevPeakPosL = 0;
-    prevPeakPosR = 0;
-    peakHoldL = 0;
-    peakHoldR = 0;
-  }
-
-  // Обновление позиций пиков в "экранном" пространстве (после инверсии)
-  if (currL > 0 && currL >= peakHoldL) { peakHoldL = currL; peakHoldTimeL = millis(); }
-  else if (millis() - peakHoldTimeL > holdTimeL && peakHoldL > 0) { peakHoldL = 0; }
-
-  if (currR > 0 && currR >= peakHoldR) { peakHoldR = currR; peakHoldTimeR = millis(); }
-  else if (millis() - peakHoldTimeR > holdTimeR && peakHoldR > 0) { peakHoldR = 0; }
-
-  // Стираем предыдущие маркеры, если позиция изменилась или маркер исчез
-  auto erasePeakAt = [&](bool isRight, uint8_t pos){
-    if (pos == 0 || pos > numBands) return;
-    int x = _config.left + (pos-1) * (bandWidth + _bands.space);
-    int y = isRight ? (_config.top + _bands.height + vuChannelGap) : _config.top;
-    bool coveredByBar = (pos <= (isRight ? currR : currL));
-    uint16_t color = coveredByBar ? ((pos-1 >= numBands - redBands) ? _vumaxcolor : _vumincolor) : _bgcolor;
-    gfxFillRect(gfx, x, y, bandWidth, _bands.height, color);
-  };
-
-  if (prevPeakPosL != 0 && prevPeakPosL != peakHoldL) erasePeakAt(false, prevPeakPosL);
-  if (prevPeakPosR != 0 && prevPeakPosR != peakHoldR) erasePeakAt(true, prevPeakPosR);
-
-  // Цвет пиков с учётом зоны и затухания за время удержания
-  auto fadeColor = [](uint16_t color, float fade) -> uint16_t {
-    uint8_t r = ((color >> 11) & 0x1F) * fade;
-    uint8_t g = ((color >> 5) & 0x3F) * fade;
-    uint8_t b = (color & 0x1F) * fade;
-    return ((r & 0x1F) << 11) | ((g & 0x3F) << 5) | (b & 0x1F);
-  };
-
-  if (peakHoldL > 0 && peakHoldL <= numBands) {
-    float fadeL = 1.0f - float(millis() - peakHoldTimeL) / holdTimeL; if (fadeL < vuPeakMinFade) fadeL = vuPeakMinFade;
-    uint16_t base = (peakHoldL >= numBands - redBands + 1) ? _vumaxcolor : _vumincolor;
-    uint16_t col = fadeColor(base, fadeL);
-    int x = _config.left + (peakHoldL-1) * (bandWidth + _bands.space);
-    int y = _config.top;
-    gfxFillRect(gfx, x, y, bandWidth, _bands.height, col);
-  }
-  if (peakHoldR > 0 && peakHoldR <= numBands) {
-    float fadeR = 1.0f - float(millis() - peakHoldTimeR) / holdTimeR; if (fadeR < vuPeakMinFade) fadeR = vuPeakMinFade;
-    uint16_t base = (peakHoldR >= numBands - redBands + 1) ? _vumaxcolor : _vumincolor;
-    uint16_t col = fadeColor(base, fadeR);
-    int x = _config.left + (peakHoldR-1) * (bandWidth + _bands.space);
-    int y = _config.top + _bands.height + vuChannelGap;
-    gfxFillRect(gfx, x, y, bandWidth, _bands.height, col);
-  }
-
-  prevPeakPosL = peakHoldL;
-  prevPeakPosR = peakHoldR;
-
-  // Проверка изменений перед обычными обновлениями (анти-мерцание) - только если НЕ full redraw
-  const int THRESH = 2; // Порог изменения уровня (пиксели/единицы шкалы)
-  uint32_t now = millis();
-  if (!_needsFullRedraw && _prevL != 0xFF && _prevR != 0xFF) {
-    int diffL = abs((int)currL - (int)_lastLevelL);
-    int diffR = abs((int)currR - (int)_lastLevelR);
-    if (diffL < THRESH && diffR < THRESH && (now - _lastDrawMs) < 250) {
-      return; // Изменения слишком малы, не рисуем
-    }
-  }
-  _lastLevelL = currL;
-  _lastLevelR = currR;
-  _lastDrawMs = now;
-}
-
-void VuWidget::loop(){
-  if(_active && !_locked) _draw();
-}
-
-void VuWidget::setActive(bool act, bool clr) {
-  if (act) {
-    // При активации гарантируем полную перерисовку
-    _needsFullRedraw = true;
-    _prevL = 0xFF;
-    _prevR = 0xFF;
-    _lastLevelL = -1;
-    _lastLevelR = -1;
-    _lastDrawMs = 0;
-  }
-  Widget::setActive(act, clr);
-}
-
-void VuWidget::_clear(){
-  if (!gfx) return;
-  const int vuChannelGap = 48;
-  gfxFillRect(gfx, _config.left, _config.top, _bands.width, _bands.height*2 + _bands.vspace + vuChannelGap, _bgcolor);
-  // После очистки требуется полная отрисовка
-  _prevL = 0xFF;
-  _prevR = 0xFF;
-  _needsFullRedraw = true;
-  // Сбрасываем состояние для следующей перерисовки
-  _lastLevelL = -1;
-  _lastLevelR = -1;
-  _lastDrawMs = 0;
-}
-/************************
-      NUM WIDGET
- ************************/
-void NumWidget::init(WidgetConfig wconf, uint16_t buffsize, bool uppercase, uint16_t fgcolor, uint16_t bgcolor) {
-  Widget::init(wconf, fgcolor, bgcolor);
-  _buffsize = buffsize;
-  _text = (char *) malloc(sizeof(char) * _buffsize);
-  memset(_text, 0, _buffsize);
-  _oldtext = (char *) malloc(sizeof(char) * _buffsize);
-  memset(_oldtext, 0, _buffsize);
-  _textwidth = _oldtextwidth = _oldleft = 0;
-  _uppercase = uppercase;
-  dsp.charSize(wconf.textsize, _charWidth, _textheight);
-}
-
-void NumWidget::setText(const char* txt) {
-  if (!gfx) return;
-  strlcpy(_text, txt, _buffsize);
-  _getBounds();
-  if (strcmp(_oldtext, _text) == 0) return;
-  uint16_t realth = _textheight;
-  if (_active) gfxFillRect(gfx, _oldleft == 0 ? _realLeft() : std::min(_oldleft, _realLeft()),  _config.top-_textheight+1, std::max(_oldtextwidth, _textwidth), realth, _bgcolor);
-  _oldtextwidth = _textwidth;
-  _oldleft = _realLeft();
-  if (_active) loop();
-}
-
-void NumWidget::setText(int val, const char *format){
-  char buf[_buffsize];
-  snprintf(buf, _buffsize, format, val);
-  setText(buf);
-}
-
-void NumWidget::_getBounds() {
-  _textwidth= dsp.textWidth(_text);
-}
-
-void NumWidget::_draw() {
-  if(!_active || !gfx) return;
-  _clear();
-  gfxDrawText(gfx, _realLeft(), _config.top, _text, _fgcolor, _bgcolor, _config.textsize, &DS_DIGI56pt7b, _uppercase);
-  strlcpy(_oldtext, _text, _buffsize);
-}
-
-void NumWidget::_clear() {
-    if (!gfx) return;
-    uint16_t maxWidth = dsp.textWidth("888");
-    uint16_t left = (dsp.width() - maxWidth) / 2;
-    uint16_t clearHeight = 80; // вручную подобранная высота
-    uint16_t top = _config.top - clearHeight ;
-    gfxFillRect(gfx, left, top, maxWidth, clearHeight, _bgcolor);
-}
-
-/**************************
-      PROGRESS WIDGET
- **************************/
-void ProgressWidget::_progress() {
-  if (!gfx) {
-    Serial.println("[ProgressWidget] gfx is nullptr!");
-    return;
-  }
-  
-  char buf[_width + 1];
-  snprintf(buf, _width, "%*s%.*s%*s", _pg <= _barwidth ? 0 : _pg - _barwidth, "", _pg <= _barwidth ? _pg : 5, ".....", _width - _pg, "");
-  _pg++; if (_pg >= _width + _barwidth) _pg = 0;
-  
-  // Очищаем предыдущий текст
-  _clear();
-  
-  // Рисуем новый текст
-  gfxDrawText(gfx, _realLeft(), _config.top, buf, _fgcolor, _bgcolor, _config.textsize);
-}
-
-bool ProgressWidget::_checkDelay(int m, uint32_t &tstamp) {
-  if (millis() - tstamp > m) {
-    tstamp = millis();
-    return true;
-  } else {
-    return false;
-  }
-}
-
-void ProgressWidget::loop() {
-  if (!gfx) {
-    Serial.println("[ProgressWidget] gfx is nullptr in loop!");
-    return;
-  }
-  
-  if (_checkDelay(_speed, _scrolldelay)) {
-    _progress();
-  }
-}
-
-void ProgressWidget::_clear() {
-  if (!gfx) return;
-  gfxFillRect(gfx, _config.left, _config.top, _width * _config.textsize, _config.textsize * 8, _bgcolor);
-}
-
-/**************************
-      CLOCK WIDGET
- **************************/
-void ClockWidget::draw(){
-  if(!_active || !gfx) return;
-  dsp.printClock(_config.top, _config.left, _config.textsize, false);
-}
-
-void ClockWidget::_draw(){
-  if(!_active || !gfx) return;
-  dsp.printClock(_config.top, _config.left, _config.textsize, true);
-}
-
-void ClockWidget::_clear(){
-  if (!gfx) return;
-  dsp.clearClock();
-}
-
-/**************************
-      BITRATE WIDGET
- **************************/
-void BitrateWidget::init(BitrateConfig bconf, uint16_t fgcolor, uint16_t bgcolor){
-  Widget::init(bconf.widget, fgcolor, bgcolor);
-  _dimension = bconf.dimension;
-  _bitrate = 0;
-  _format = BF_UNCNOWN;
-  dsp.charSize(bconf.widget.textsize, _charWidth, _textheight);
-  memset(_buf, 0, 6);
-}
-
-void BitrateWidget::setBitrate(uint16_t bitrate){
-  _bitrate = bitrate;
-  _draw();
-}
-
-void BitrateWidget::setFormat(BitrateFormat format){
-  _format = format;
-  _draw();
-}
-
-void BitrateWidget::_draw(){
-  _clear();
-  if(!_active || _format == BF_UNCNOWN || !gfx) return;
-
-  gfxDrawRect(gfx, _config.left, _config.top, _dimension, _dimension, _fgcolor);
-  gfxFillRect(gfx, _config.left, _config.top + _dimension/2+1, _dimension, _dimension/2-1, _fgcolor);
-
-  // Форматируем битрейт
-  if(_bitrate < 1000) {
-    snprintf(_buf, 6, "%d", (int)_bitrate);
-  } else {
-    float _br = (float)_bitrate / 1000;
-    snprintf(_buf, 6, "%.1f", _br);
-    
-    // Проверяем, помещается ли текст с дробной частью
-    int16_t testX = _config.left + _dimension/2 - _charWidth*strlen(_buf)/2 + 1;
-    if (testX < _config.left || testX + _charWidth*strlen(_buf) > _config.left + _dimension) {
-      // Если не помещается, показываем только целую часть
-      snprintf(_buf, 6, "%d", (int)_br);
-    }
-  }
-
-  // Отображаем битрейт с проверкой границ
-  int16_t textX = _config.left + _dimension/2 - _charWidth*strlen(_buf)/2 + 1;
-  if (textX < _config.left) textX = _config.left;
-  if (textX + _charWidth*strlen(_buf) > _config.left + _dimension) {
-    textX = _config.left + _dimension - _charWidth*strlen(_buf);
-  }
-  gfxDrawText(gfx, textX, _config.top + _dimension/4 - _textheight/2 + 2, _buf, 
-             _fgcolor, _bgcolor, _config.textsize, nullptr, false);
-
-  const char* fmt = nullptr;
-  switch(_format){
-    case BF_MP3:  fmt = "mp3"; break;
-    case BF_AAC:  fmt = "aac"; break;
-    case BF_FLAC: fmt = "flc"; break;
-    case BF_WAV:  fmt = "wav"; break;
-    case BF_OGG:  fmt = "ogg"; break;
-    case BF_VOR:  fmt = "vor"; break;
-    case BF_OPU:  fmt = "opu"; break;
-    default:     fmt = ""; break;
-  }
-  
-  // Отображаем формат файла с проверкой границ
-  int16_t fmtX = _config.left + _dimension/2 - _charWidth*3/2 + 1;
-  if (fmtX < _config.left) fmtX = _config.left;
-  if (fmtX + _charWidth*3 > _config.left + _dimension) {
-    fmtX = _config.left + _dimension - _charWidth*3;
-  }
-  gfxDrawText(gfx, fmtX, _config.top + _dimension - _dimension/4 - _textheight/2, fmt, 
-             _bgcolor, _fgcolor, _config.textsize, nullptr, false);
-}
-
-void BitrateWidget::_clear() {
-  if (!gfx) return;
-  gfxFillRect(gfx, _config.left, _config.top, _dimension*1.08, _dimension, _bgcolor);
-}
-
-#endif // #if DSP_MODEL!=DSP_DUMMY
+#endif // DSP_MODEL != DSP_DUMMY

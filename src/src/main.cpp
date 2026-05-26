@@ -11,9 +11,6 @@
 #include "core/optionschecker.h"
 #include "core/mem_watchdog.h"
 
-// Spectrum Analyzer
-#include "displays/tools/spectrum_analyzer.h"
-
 // AI subsystem (Stage 6.0) / AI-подсистема
 #include "ai/ai_subsystem.h"
 
@@ -37,14 +34,10 @@ void setup() {
   memWatchdog.onBoot();
 #endif
   display.init();
-  
-  // Инициализация Spectrum Analyzer (всегда)
-  if (!spectrumAnalyzer.init()) {
-    Serial.println("[Main] Failed to initialize Spectrum Analyzer!");
-  } else {
-    Serial.println("[Main] Spectrum Analyzer initialized successfully");
-  }
-  
+
+  // Block 8-E18D: SpectrumAnalyzer runtime disabled (see audio_process_i2s).
+  // Block 8-E18D: SpectrumAnalyzer отключён в runtime (см. audio_process_i2s).
+
   player.init();
   network.begin();
   if (network.status != CONNECTED && network.status!=SDREADY) {
@@ -175,15 +168,10 @@ void loop() {
     }
 #endif  /*  #if defined(AUTOBACKLIGHT) */
 
-// Функция обработки аудио данных для Spectrum Analyzer
+// I2S hook (SpectrumAnalyzer feed removed in Block 8-E18D; usespectrum is dormant in NVS/WebUI).
+// Хук I2S (подача в SpectrumAnalyzer снята в 8-E18D; usespectrum — заглушка в NVS/WebUI).
 void audio_process_i2s(int16_t* outBuff, int32_t validSamples, bool *continueI2S) {
-    // Обрабатываем аудио данные для Spectrum Analyzer только если он включен
-    // Process audio data for Spectrum Analyzer only if enabled
-    if (config.store.usespectrum) {
-        // В новой версии библиотеки все данные уже ресемплированы до 48кГц, 16-bit, stereo
-        spectrumAnalyzer.processAudio(outBuff, validSamples);
-    }
-    
-    // Продолжаем обычную обработку I2S
+    (void)outBuff;
+    (void)validSamples;
     *continueI2S = true;
 }

@@ -6,15 +6,9 @@
 #include "Arduino_GFX_Library.h"
 #include "tools/l10n.h"  // Transitive include for core/ (const_Pl*, weatherFmt, …) on ST7701 builds
 
-// clipArea + widgets/pages: still compiled (E18D); not used on LVGL product runtime.
+// Config struct types (clipArea, ScrollConfig, …); widgets/pages TU disabled on LVGL product (8-E18D).
+// Типы конфигов; TU widgets/pages отключены на LVGL product (8-E18D).
 #include "widgets/widgets.h"
-#include "widgets/pages.h"
-
-#if CLOCKFONT_MONO
-#include "fonts/DS_DIGI56pt7b_mono.h"
-#else
-#include "fonts/DS_DIGI56pt7b.h"
-#endif
 
 #if __has_include("conf/displayST7701conf_custom.h")
   #include "conf/displayST7701conf_custom.h"
@@ -27,10 +21,6 @@
 
 class DspCore {
 public:
-#ifdef CPU_LOAD
-    TextWidget cpuWidget;
-#endif
-
     DspCore();
     void initDisplay();
     void displayOn();
@@ -71,7 +61,6 @@ public:
     uint16_t textWidthN(const char* txt, int n);
     void startWrite(void);
     void endWrite(void);
-    uint32_t _calculateCpuUsage();
 #ifndef BATTERY_OFF
     void readBattery();
 #endif

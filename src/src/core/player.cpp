@@ -9,8 +9,6 @@
 #include "sdmanager.h"
 #include "netserver.h"
 
-#include "../displays/tools/spectrum_analyzer.h"
-
 #include <freertos/portmacro.h>
 
 Player player;
@@ -156,10 +154,10 @@ void Player::_stop(bool alreadyStopped){
   netserver.requestOnChange(BITRATE, 0);
   display.putRequest(DBITRATE);
   display.putRequest(PSTOP);
-  
-  // Сбрасываем данные Spectrum Analyzer при остановке
-  spectrumAnalyzer.clearData();
-  
+
+  // Block 8-E18D: SpectrumAnalyzer runtime disabled — no clearData on stop.
+  // Block 8-E18D: SpectrumAnalyzer отключён — clearData не вызываем.
+
   setDefaults();
   if(!alreadyStopped) stopSong();
   if(!lockOutput) stopInfo();

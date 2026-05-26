@@ -1,9 +1,12 @@
+// Block 8-E18D: runtime disabled at call sites (Display/main/player); TU kept for future LVGL widget.
+// Block 8-E18D: runtime отключён в Display/main/player; TU — для будущего LVGL-виджета.
+
 #include "spectrum_analyzer.h"
 #include "../../core/options.h"
 #include "esp_heap_caps.h"
 #include <math.h>
 
-// Глобальный экземпляр
+// Глобальный экземпляр (no active callers on LVGL product path after 8-E18D)
 SpectrumAnalyzer spectrumAnalyzer;
 
 // Улучшенная реализация спектр-анализатора с имитацией FFT

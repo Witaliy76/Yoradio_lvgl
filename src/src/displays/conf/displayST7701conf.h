@@ -9,7 +9,6 @@
 #define displayST7701conf_h
 
 #include "../widgets/widgets.h"
-#include "../tools/spectrum_widget.h"
 
 // Hide VU-meter (if needed)
 // #define HIDE_VU
@@ -92,26 +91,5 @@ const char        bitrateFmt[]    PROGMEM = "%d kBs";
 const MoveConfig    clockMove     PROGMEM = { 70, 180, MAX_WIDTH /* MAX_WIDTH */ }; // -1 disables move
 const MoveConfig   weatherMove    PROGMEM = { TFT_FRAMEWDT, 102, MAX_WIDTH};
 const MoveConfig   weatherMoveVU  PROGMEM = { TFT_FRAMEWDT, 102, MAX_WIDTH};
-
-/* SPECTRUM ANALYZER  */                 /* Spectrum analyzer config for ST7701 (480x480) */
-const SpectrumWidgetConfig spectrumConf PROGMEM = {
-    .widget = {
-        .left = TFT_FRAMEWDT,
-        .top = 294,
-        .textsize = 1,
-        .align = WA_LEFT
-    },
-    .width = 480,          // widget area width for RGB Panel (480 - 2*TFT_FRAMEWDT)
-    .height = 120,         // widget area height for RGB Panel
-    .barWidth = 30,        // bar width for RGB Panel (15*30 + 14*2 = 478)
-    .barGap = 2,           // gap between bars for RGB Panel
-    .orientation = 0,      // horizontal
-    .showPeaks = true,     // show peaks for RGB Panel
-    .showGrid = false,     // grid disabled (causes artifacts when clearing peak caps)
-    .gridColor = 0x39E7,   // gray (optimized for RGB Panel)
-    .barColor = 0x07E0,    // green (optimized for RGB Panel)
-    .peakColor = 0xF800,   // red (optimized for RGB Panel)
-    .bgColor = 0x0000      // black (optimized for RGB Panel)
-};
 
 #endif

@@ -23,7 +23,6 @@
 #include "screens/scr_stub.h"
 #include "screens/scr_boot.h"
 #include "screens/scr_wifi_flow.h"
-#include "../displays/tools/GFX_Canvas_screen.h"
 #include "../core/config.h"
 #include "../core/display.h"
 #include "../core/options.h"
@@ -188,38 +187,18 @@ static void lvgl_flush_direct_panel(lv_disp_drv_t *drv, const lv_area_t *area, l
 }
 #endif
 
-// Flush callback: non-ST7701 may use Canvas + markFrameDirty; ST7701 → lvgl_flush_direct_panel only (E5C).
-// Flush callback: на ST7701 только direct panel; иные платы — Canvas path (см. #else).
+// Flush callback: LVGL product path → output_display direct only (E5C). Canvas fallback removed (E18D).
+// Flush callback: только прямой вывод на panel (E5C); Canvas fallback удалён (E18D).
 static void lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *color_p) {
 #if DSP_MODEL == DSP_ST7701
     lvgl_flush_direct_panel(drv, area, color_p);
-    return;
-#endif
-
-    if (!gfx || !color_p || !area) {
-        lv_disp_flush_ready(drv);
-        return;
-    }
-
-    int32_t x1 = area->x1;
-    int32_t y1 = area->y1;
-    int32_t x2 = area->x2;
-    int32_t y2 = area->y2;
-
-    if (x2 < x1 || y2 < y1) {
-        lv_disp_flush_ready(drv);
-        return;
-    }
-
-    int32_t w = x2 - x1 + 1;
-    int32_t h = y2 - y1 + 1;
-
-    gfxDrawBitmap(gfx, x1, y1, reinterpret_cast<const uint16_t*>(color_p), w, h);
-
-    s_lvgl_flush_count++;
-    s_lvgl_last_flush_ms = millis();
-
+#else
+    // Non-ST7701 envs: legacy Canvas LVGL flush not supported on this fork (E18D).
+    // Иные env: Canvas LVGL flush не поддерживается на этом форке (E18D).
+    (void)area;
+    (void)color_p;
     lv_disp_flush_ready(drv);
+#endif
 }
 
 // Periodic page refresh policy: no Main/Info/stub updates under saver or blank (any carousel slot).

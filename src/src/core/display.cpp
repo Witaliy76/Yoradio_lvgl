@@ -7,9 +7,6 @@
 #include "display.h"
 #include "player.h"
 #include "network.h"
-#if DSP_MODEL != DSP_ST7701
-#include "../displays/tools/GFX_Canvas_screen.h"  // gfxFlushScreen — legacy Canvas boards only
-#endif
 #include "../core/spidog.h"
 #include "../lvgl_ui/lvgl_ui.h"
 #include "../lvgl_ui/lv_screensaver.h"
@@ -17,18 +14,14 @@
 #include "../ai/ai_subsystem.h"
 extern Arduino_Canvas* gfx;
 
-// Глобальный флаг "кадр грязный" для dirty-based flush
-static volatile bool g_frameDirty = false;
-
-// Block 8-E1: panel flush stats for one-shot diag (updated only when gfxFlushScreen runs).
-// Block 8-E1: счётчики panel flush для diag (только при реальном gfxFlushScreen).
+// Block 8-E1/E18D: panel flush stats for diag (LVGL direct path via recordLvglDirectPanelFlush).
+// Block 8-E1/E18D: счётчики panel flush для diag (прямой LVGL path).
 static uint32_t s_panel_gfx_flush_count = 0;
 static uint32_t s_panel_last_gfx_flush_ms = 0;
 
-// Helper-функция для установки флага dirty (вызывается из функций рисования)
-void markFrameDirty() {
-    g_frameDirty = true;
-}
+// Block 8-E18D: legacy markFrameDirty retained as no-op for any stale references.
+// Block 8-E18D: markFrameDirty — no-op (legacy Canvas dirty flush removed).
+void markFrameDirty() {}
 
 // Block 8-E3: panel flush counter when LVGL bypasses Canvas (ST7701 direct path).
 // Block 8-E3: счётчик panel flush при прямом LVGL→output_display (без g_frameDirty).
@@ -105,11 +98,8 @@ void Display::init() {
 
   dsp.initDisplay();
 
-  if (!spectrumAnalyzer.init()) {
-    Serial.println("[Display] Failed to initialize Spectrum Analyzer!");
-  } else {
-    Serial.println("[Display] Spectrum Analyzer initialized successfully");
-  }
+  // Block 8-E18D: SpectrumAnalyzer runtime disabled; files kept for future LVGL widget.
+  // Block 8-E18D: SpectrumAnalyzer отключён в runtime; файлы — для будущего LVGL-виджета.
 
 #if DSP_MODEL == DSP_ST7701
   // Block 8-E17: ST7701 LVGL product — panel via output_display, gfx stays nullptr.
@@ -593,22 +583,6 @@ void Display::loop() {
   if (_activeBackend == lvgl_ui::UiBackend::Lvgl || lvgl_boot_active) {
     lvgl_ui::taskHandler();
   }
-#if DSP_MODEL != DSP_ST7701
-  // Block 8-E18C: legacy Canvas dirty flush (gfxFlushScreen). ST7701 LVGL uses output_display_direct only.
-  // Block 8-E18C: отложенный flush Canvas — не на ST7701 (E5C direct path).
-  if (!_suspendFlush) {
-    static uint32_t lastFlushMs = 0;
-    if (g_frameDirty && gfx && (millis() - lastFlushMs >= 16)) {
-      sdog.takeMutex();
-      gfxFlushScreen(gfx);
-      sdog.giveMutex();
-      g_frameDirty = false;
-      lastFlushMs = millis();
-      s_panel_gfx_flush_count++;
-      s_panel_last_gfx_flush_ms = lastFlushMs;
-    }
-  }
-#endif
   dsp.loop();
   #if I2S_DOUT==255
   player.computeVUlevel();
@@ -722,13 +696,9 @@ size_t Display::diagSnapshot(char* out, size_t len) const {
   // Block 8-E16.2B-1: legacy Pager/widgets removed from Display.
   append_line("display.legacy_pager_widgets: 0\n");
   append_line("display.canvas_allocated: %d\n", gfx ? 1 : 0);
-#if DSP_MODEL == DSP_ST7701
   append_line("display.legacy_canvas_flush: 0\n");
-#else
-  append_line("display.legacy_canvas_flush: 1\n");
-#endif
   append_line("display.suspend_flush: %d\n", _suspendFlush ? 1 : 0);
-  append_line("g_frameDirty: %d\n", g_frameDirty ? 1 : 0);
+  append_line("g_frameDirty: 0\n");
 
   const uint32_t now = millis();
   append_line("panel.gfx_flush_count: %lu\n", (unsigned long)s_panel_gfx_flush_count);
