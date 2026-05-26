@@ -40,32 +40,14 @@ Display display;
 #ifndef DUMMYDISPLAY
 //============================================================================================================================
 
-namespace {
-// Set when either legacy or LVGL boot UI was created (prevents duplicate boot in Display::init tail).
-// Установлено при создании legacy или LVGL boot (не дублировать boot в хвосте Display::init).
-bool s_any_boot_ui_shown = false;
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-// Pager::removePage() default calls dsp.clearDsp() — full Canvas fill; LVGL draws into the same buffer.
-// Skipping clear avoids theme-colored wipe over LVGL Boot/Main during DSP_START / AP handoff.
-// removePage по умолчанию вызывает dsp.clearDsp() — полная заливка Canvas; LVGL рисует в тот же буфер.
-// Без clear не затираем LVGL Boot/Main цветом темы при DSP_START / переходе в AP.
-static bool lvgl_player_uses_same_canvas() {
-  return lvgl_ui::getPreferredBackend(PLAYER) == lvgl_ui::UiBackend::Lvgl;
-}
-#endif
-} // namespace
 
 DspCore dsp;
-
-Page *pages[] = { new Page(), new Page(), new Page(), new Page() };
 
 #ifndef DSQ_SEND_DELAY
   #define DSQ_SEND_DELAY portMAX_DELAY
 #endif
 
 #ifndef CORE_STACK_SIZE
-  // LVGL path needs larger DspTask stack (fonts/layout/events + logging overhead).
-  // Для ветки LVGL нужен больший стек DspTask (шрифты/layout/events + накладные логи).
   #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     #define CORE_STACK_SIZE  (1024*6)
   #else
@@ -87,10 +69,6 @@ void returnPlayer(){
 }
 
 void Display::_createDspTask(){
-  // Display Task on Core 0 for better touchscreen response
-  // Display Task на ядре 0 для лучшей отзывчивости touchscreen
-  // Priority lowered to 3 to give Audio Task more CPU time
-  // Приоритет снижен до 3 для предоставления Audio Task больше времени CPU
   xTaskCreatePinnedToCore(loopDspTask, "DspTask", CORE_STACK_SIZE,  NULL,  3, &DspTask, 0);
 }
 
@@ -99,8 +77,6 @@ void loopDspTask(void * pvParameters){
     if(displayQueue==NULL) break;
     display.loop();
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2) && defined(LVGL_DEBUG_STACK)
-    // Optional one-time watermark print for DspTask stack.
-    // Необязательный однократный вывод watermark стека DspTask.
     static bool s_printed = false;
     if (!s_printed) {
       UBaseType_t watermark = uxTaskGetStackHighWaterMark(nullptr);
@@ -123,21 +99,16 @@ void Display::init() {
 #endif
 
   _bootStep = 0;
-  _suspendFlush = true; // блокируем flush до полной сборки страниц
-  
-  // Инициализация дисплея
+  _suspendFlush = true;
+
   dsp.initDisplay();
-  // Жёстко отключим любые метры до создания страниц (во избежание стартовых артефактов)
-  _deactivateAllMeters();
-  
-  // Инициализация Spectrum Analyzer (всегда)
+
   if (!spectrumAnalyzer.init()) {
     Serial.println("[Display] Failed to initialize Spectrum Analyzer!");
   } else {
     Serial.println("[Display] Spectrum Analyzer initialized successfully");
   }
-  
-  // Проверяем, что gfx инициализирован
+
   if (!gfx) {
     Serial.println("[Display] Failed to initialize display!");
     return;
@@ -148,309 +119,34 @@ void Display::init() {
   lvgl_ui::initDisplayDriver(dsp.width(), dsp.height());
   lvgl_ui::createTestOverlay();
 
-  // Создаем очередь для дисплея
   displayQueue = xQueueCreate(5, sizeof(requestParams_t));
   if (!displayQueue) {
     Serial.println("[Display] Failed to create display queue!");
     return;
   }
-  
-  // Создаем задачу для дисплея
+
   _createDspTask();
-  
-  // Ждем завершения инициализации
-  while(_bootStep == 0) { 
-    delay(10); 
+
+  while(_bootStep == 0) {
+    delay(10);
   }
-  
+
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-  // Block 8-E11: LVGL Boot is shown from DspTask (tryPresentLvglBootOnFirstDspLoop); no legacy Pager boot.
-  // Block 8-E11: Boot только LVGL из DspTask; legacy _bootScreen() не вызываем на product path.
-  Serial.println("[Boot] LVGL product path; legacy _bootScreen skipped in init");
+  Serial.println("[Boot] LVGL product path; legacy Pager boot removed (8-E16.2B-1)");
 #else
-  // Создаем загрузочный экран / Legacy boot screen
-  _bootScreen();
+  #error "Legacy Canvas Display boot removed in Block 8-E16.2B-1; YORADIO_USE_LVGL required"
 #endif
-  
+
   Serial.println("done");
-}
-void Display::_applyPendingAI() {
-  // Apply pending AI interpretation when returning to PG_PLAYER page
-  if (!_aiPending || !_ai_interpretation) return;
-  
-  if (strlen(_aiPendingText) == 0) {
-    // Empty text - hide widget
-    _ai_interpretation->setText("");
-    _ai_interpretation->setActive(false, true);
-  } else {
-    // Non-empty text - show widget
-    _ai_interpretation->setText(_aiPendingText);
-    _ai_interpretation->setActive(true);
-  }
-  _aiPending = false;  // Clear pending flag after applying
-}
-
-void Display::_deactivateAllMeters(){
-  sdog.takeMutex();
-  if(_spectrumwidget) _spectrumwidget->setActive(false, true);
-  if(_vuwidget) _vuwidget->lock(true);
-  // Очистим обе области на всякий случай
-  #if defined(spectrumConf)
-  #endif
-  sdog.giveMutex();
-}
-
-// Block 8-E16.1: legacy Canvas boot body only for non-LVGL builds; 4848 product uses LVGL Boot (E11).
-// Block 8-E16.1: legacy boot — только без LVGL; на product path — LVGL Boot; Pager/Canvas — E17.
-void Display::_bootScreen(){
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-  return;
-#else
-  if (!gfx) {
-    Serial.println("[Display] gfx is nullptr in _bootScreen!");
-    return;
-    delay(1000);
-  }
-  
-  // Защита от повторного вызова / Idempotent boot UI
-  if (s_any_boot_ui_shown) {
-    Serial.println("[Display] _bootScreen already created, skipping");
-    return;
-  }
-  s_any_boot_ui_shown = true;
-  
-  Serial.println("[Display] Creating boot screen");
-  _boot = new Page();
-  _boot->addWidget(new ProgressWidget(bootWdtConf, bootPrgConf, BOOT_PRG_COLOR, 0));
-  _bootstring = (TextWidget*) &_boot->addWidget(new TextWidget(bootstrConf, 50, true, BOOT_TXT_COLOR, 0));
-  _pager.addPage(_boot);
-  _pager.setPage(_boot, true);
-  dsp.drawLogo(bootLogoTop);
-  _bootStep = 1;
-  
-  // Разрешаем flush для анимации bootScreen / Enable flush for bootScreen animation
-  _suspendFlush = false;
-  Serial.println("[Display] Boot screen created, flush enabled for animation");
-#endif
-}
-
-void Display::_deactivateLegacyPagerForLvgl() {
-  // Same audioinfo policy as legacy _start() — was skipped on Lvgl path.
-  // Та же политика audioinfo, что в legacy _start() (на ветке Lvgl не вызывалась).
-  if (_heapbar) {
-    _heapbar->lock(!config.store.audioinfo);
-  }
-  for (unsigned i = 0; i < 4; ++i) {
-    if (pages[i]) {
-      pages[i]->setActive(false);
-    }
-  }
-}
-
-bool Display::_legacyWidgetsAvailable() const {
-  // LVGL PLAYER no longer builds legacy widgets; legacy Canvas updates become no-ops.
-  // LVGL PLAYER больше не строит legacy widgets; legacy Canvas updates становятся заглушкой.
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-  if (_lvgl_player_handoff_pending || _activeBackend == lvgl_ui::UiBackend::Lvgl) {
-    return false;
-  }
-#endif
-  return _legacyPlayerWidgetsBuilt;
-}
-
-void Display::_buildPager(){
-  Serial.println("[DEBUG] _buildPager() called");
-  Serial.print("[DEBUG] usespectrum: ");
-  Serial.println(config.store.usespectrum);
-#ifdef HIDE_VU
-  Serial.println("[DEBUG] HIDE_VU is defined");
-#else
-  Serial.println("[DEBUG] HIDE_VU is NOT defined");
-#endif
-
-  _meta.init("*", metaConf, config.theme.meta, config.theme.metabg);
-  _title1.init("*", title1Conf, config.theme.title1, config.theme.background);
-  _clock.init(clockConf, 0, 0);
-  #if DSP_MODEL==DSP_NOKIA5110
-    _plcurrent.init("*", playlistConf, 0, 1);
-  #else
-    _plcurrent.init("*", playlistConf, config.theme.plcurrent, config.theme.plcurrentbg);
-  #endif
-  #if !defined(DSP_LCD)
-    _plcurrent.moveTo({TFT_FRAMEWDT, (uint16_t)(dsp.plYStart+dsp.plCurrentPos*dsp.plItemHeight), (int16_t)playlistConf.width});
-  #endif
-  #ifndef HIDE_TITLE2
-    _title2 = new ScrollWidget("*", title2Conf, config.theme.title2, config.theme.background);
-  #endif
-  #if !defined(DSP_LCD) && DSP_MODEL!=DSP_NOKIA5110
-    _plbackground = new FillWidget(playlBGConf, config.theme.plcurrentfill);
-    #if DSP_INVERT_TITLE || defined(DSP_OLED)
-      _metabackground = new FillWidget(metaBGConf, config.theme.metafill);
-    #else
-      _metabackground = new FillWidget(metaBGConfInv, config.theme.metafill);
-    #endif
-  #endif
-  #if DSP_MODEL==DSP_NOKIA5110
-    _plbackground = new FillWidget(playlBGConf, 1);
-    //_metabackground = new FillWidget(metaBGConf, 1);
-  #endif
-  // Создаём оба виджета; их активность управляется в рантайме
-  #if DSP_MODEL==DSP_AXS15231B
-    // spectrumConf теперь определена в displayAXS15231Bconf.h
-    _spectrumwidget = new SpectrumWidget(spectrumConf);
-  #elif DSP_MODEL==DSP_ST7701
-    // spectrumConf теперь определена в displayST7701conf.h
-    _spectrumwidget = new SpectrumWidget(spectrumConf);
-  #elif DSP_MODEL==DSP_UEDX48480021
-    // spectrumConf определена в displayUEDX48480021conf.h
-    _spectrumwidget = new SpectrumWidget(spectrumConf);
-  #else
-    _spectrumwidget = new SpectrumWidget();
-  #endif
-  #if !defined(HIDE_VU)
-    _vuwidget = new VuWidget(vuConf, bandsConf, config.theme.vumax, config.theme.vumin, config.theme.background);
-  #endif
-  _usingSpectrum = config.store.usespectrum;
-  // Сразу отключим оба, чтобы до первичной инициализации они не мигали
-  if(_spectrumwidget) _spectrumwidget->setActive(false, true);
-  if(_vuwidget) _vuwidget->lock(true);
-  #ifndef HIDE_VOLBAR
-    _volbar = new SliderWidget(volbarConf, config.theme.volbarin, config.theme.background, 254, config.theme.volbarout);
-  #endif
-  #ifndef HIDE_HEAPBAR
-    _heapbar = new SliderWidget(heapbarConf, config.theme.buffer, config.theme.background, 655350);
-  #endif
-  #ifndef HIDE_VOL
-    _voltxt = new TextWidget(voltxtConf, 10, false, config.theme.vol, config.theme.background);
-  #endif
-  #ifndef HIDE_IP
-    _volip = new TextWidget(iptxtConf, 30, false, config.theme.ip, config.theme.background);
-  #endif
-  #ifndef HIDE_RSSI
-    _rssi = new TextWidget(rssiConf, 20, false, config.theme.rssi, config.theme.background);
-  #endif
-  _nums.init(numConf, 10, false, config.theme.digit, config.theme.background);
-  #ifndef HIDE_WEATHER
-    _weather = new ScrollWidget("\007", weatherConf, config.theme.weather, config.theme.background);
-  #endif
-  // AI interpretation widget / Виджет AI интерпретации
-  _ai_interpretation = new ScrollWidget(" ", interpretationConf, config.theme.interpretation, config.theme.background);
-  _ai_interpretation->setActive(false);  // По умолчанию скрыт / Hidden by default
-  
-  if(_volbar)   _footer.addWidget( _volbar);
-  if(_voltxt)   _footer.addWidget( _voltxt);
-  if(_volip)    _footer.addWidget( _volip);
-  if(_rssi)     _footer.addWidget( _rssi);
-  if(_heapbar)  _footer.addWidget( _heapbar);
-  
-  if(_metabackground) pages[PG_PLAYER]->addWidget( _metabackground);
-  pages[PG_PLAYER]->addWidget(&_meta);
-  pages[PG_PLAYER]->addWidget(&_title1);
-  if(_title2) pages[PG_PLAYER]->addWidget(_title2);
-  if(_ai_interpretation) pages[PG_PLAYER]->addWidget(_ai_interpretation);
-  if(_weather) pages[PG_PLAYER]->addWidget(_weather);
-  #if BITRATE_FULL
-    _fullbitrate = new BitrateWidget(fullbitrateConf, config.theme.bitrate, config.theme.background);
-    pages[PG_PLAYER]->addWidget( _fullbitrate);
-  #else
-    _bitrate = new TextWidget(bitrateConf, 30, false, config.theme.bitrate, config.theme.background);
-    pages[PG_PLAYER]->addWidget( _bitrate);
-  #endif
-  if(_vuwidget) pages[PG_PLAYER]->addWidget(_vuwidget);
-  if(_spectrumwidget) pages[PG_PLAYER]->addWidget(_spectrumwidget);
-  // И после добавления в страницу ещё раз гарантированно выключим оба
-  _deactivateAllMeters();
-  pages[PG_PLAYER]->addWidget(&_clock);
-  pages[PG_SCREENSAVER]->addWidget(&_clock);
-  pages[PG_PLAYER]->addPage(&_footer);
-
-  // Block 8-E16.1: PG_DIALOG wiring removed with _showDialog; pages[PG_DIALOG] shell kept for Pager (E17).
-  // Block 8-E16.1: PG_DIALOG без виджетов — _showDialog удалён; страница остаётся до E17.
-  #if !defined(DSP_LCD)
-  if(_plbackground) {
-    pages[PG_PLAYLIST]->addWidget( _plbackground);
-    _plbackground->setHeight(dsp.plItemHeight);
-    _plbackground->moveTo({0,(uint16_t)(dsp.plYStart+dsp.plCurrentPos*dsp.plItemHeight-playlistConf.widget.textsize*2), (int16_t)playlBGConf.width});
-  }
-  #endif
-  pages[PG_PLAYLIST]->addWidget(&_plcurrent);
-
-#ifdef CPU_LOAD
-  // Добавляем CPU виджет в страницу плеера
-  dsp.cpuWidget.init(cpuConf, 20, false, config.theme.rssi, config.theme.background);
-  dsp.cpuWidget.setActive(true);
-#endif
-
-  for(const auto& p: pages) _pager.addPage(p);
-  _legacyPlayerWidgetsBuilt = true;
-}
-
-// Block 8-E16.1: legacy Pager AP body only for non-LVGL; 4848 uses LVGL Wi‑Fi Recovery (E10).
-// Block 8-E16.1: legacy AP — только без LVGL; product path — scr_wifi_flow; Pager/Canvas — E17.
-void Display::_apScreen() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-  return;
-#else
-  _suspendFlush = false;  // Разрешаем обновления экрана в AP режиме / Enable screen updates in AP mode
-  Serial.println("[Display] _apScreen() called");
-  Serial.printf("[Display] _suspendFlush = %s\n", _suspendFlush ? "true" : "false");
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-  if (_boot) _pager.removePage(_boot, !lvgl_player_uses_same_canvas());
-#else
-  if (_boot) _pager.removePage(_boot);
-#endif
-  #ifndef DSP_LCD
-    _boot = new Page();
-    #if DSP_MODEL!=DSP_NOKIA5110
-      #if DSP_INVERT_TITLE || defined(DSP_OLED)
-      _boot->addWidget(new FillWidget(metaBGConf, config.theme.metafill));
-      #else
-      _boot->addWidget(new FillWidget(metaBGConfInv, config.theme.metafill));
-      #endif
-    #endif
-    ScrollWidget *bootTitle = (ScrollWidget*) &_boot->addWidget(new ScrollWidget("*", apTitleConf, config.theme.meta, config.theme.metabg));
-    bootTitle->setText("ёRadio AP Mode");
-    TextWidget *apname = (TextWidget*) &_boot->addWidget(new TextWidget(apNameConf, 30, false, config.theme.title1, config.theme.background));
-    apname->setText(apNameTxt);
-    TextWidget *apname2 = (TextWidget*) &_boot->addWidget(new TextWidget(apName2Conf, 30, false, config.theme.clock, config.theme.background));
-    apname2->setText(apSsid);
-    TextWidget *appass = (TextWidget*) &_boot->addWidget(new TextWidget(apPassConf, 30, false, config.theme.title1, config.theme.background));
-    appass->setText(apPassTxt);
-    TextWidget *appass2 = (TextWidget*) &_boot->addWidget(new TextWidget(apPass2Conf, 30, false, config.theme.clock, config.theme.background));
-    appass2->setText(apPassword);
-    ScrollWidget *bootSett = (ScrollWidget*) &_boot->addWidget(new ScrollWidget("*", apSettConf, config.theme.title2, config.theme.background));
-    bootSett->setText(WiFi.softAPIP().toString().c_str(), apSettFmt);
-    _pager.addPage(_boot);
-    _pager.setPage(_boot, false);
-    
-    // Принудительно обновляем экран после создания AP screen
-    if(gfx) {
-      sdog.takeMutex();
-      gfxFlushScreen(gfx);
-      sdog.giveMutex();
-      Serial.println("[Display] AP screen flushed to display");
-    }
-  #else
-    dsp.apScreen();
-  #endif
-#endif
 }
 
 void Display::_start() {
   Serial.println("[Display] _start() called");
   Serial.printf("[Display] network.status = %d\n", network.status);
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-  if (_boot) _pager.removePage(_boot, !lvgl_player_uses_same_canvas());
-#else
-  if (_boot) _pager.removePage(_boot);
-#endif
   if (network.status != CONNECTED && network.status != SDREADY) {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-    // Block 8-E10: LVGL product — Wi‑Fi Recovery only; never legacy _apScreen / Pager AP (Hotspot panel in scr_wifi_flow).
-    // Block 8-E10: только LVGL Wi‑Fi Flow; без Canvas AP; политика Hotspot/AP lifecycle не меняется (S6V9C).
     if (lvgl_ui::isLvglBootActive()) {
-      // Wi‑Fi 5A/5B: Boot dwell + Opening… → dismissBootForWifiRecoveryHandoff (unchanged).
-      _mode = PLAYER; // coherent nominal mode until WIFI takes over / номинальный режим до перехода в WIFI
+      _mode = PLAYER;
       lvgl_ui::bootScreenSetStatusUtf8(
           (config.ssidsCount == 0) ? "No saved Wi-Fi networks" : "Could not connect to saved networks");
       lvgl_ui::bootScreenNotifyBootSignal();
@@ -461,8 +157,7 @@ void Display::_start() {
       Serial.println("[Display] Wi-Fi 5A: LVGL Recovery handoff pending");
       return;
     }
-    // Edge: LVGL Boot not active at DSP_START — still Recovery shell, not _apScreen (8-E10A).
-    Serial.println("[AP] LVGL Wi-Fi Recovery handoff; legacy _apScreen skipped");
+    Serial.println("[AP] LVGL Wi-Fi Recovery handoff; legacy _apScreen removed (8-E16.2B-1)");
     lvgl_ui::notifyWifiRecoveryEnteredFromBootFailure();
     lvgl_ui::showWifiRecoveryFlowFromDisplayStart();
     {
@@ -471,83 +166,27 @@ void Display::_start() {
       lvgl_ui::UiBackend backend    = lvgl_ui::getPreferredBackend(WIFI);
       _activeBackend                = backend;
       lvgl_ui::onModeChanged(WIFI, backend, prev_mode);
-      if (backend == lvgl_ui::UiBackend::Lvgl) {
-        _deactivateLegacyPagerForLvgl();
-      }
     }
     _bootStep     = 2;
     _suspendFlush = false;
     return;
 #else
-    _suspendFlush = false; // разрешаем flush в AP режиме / enable flush in AP mode
-    Serial.println("[Display] Going to AP mode");
-    _apScreen();
-    _bootStep = 2;
-    Serial.println("[Display] _bootStep set to 2 in AP mode");
-    return;
+    #error "Legacy AP Canvas path removed in Block 8-E16.2B-1"
 #endif
   }
+
+#if !(YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2))
+  #error "Legacy Canvas PLAYER _start removed in Block 8-E16.2B-1; LVGL required"
+#endif
   lvgl_ui::UiBackend startBackend = lvgl_ui::getPreferredBackend(PLAYER);
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-  if (startBackend == lvgl_ui::UiBackend::Lvgl) {
-    Serial.println("[Display] Skipping legacy _buildPager for LVGL PLAYER backend");
-    _legacyPlayerWidgetsBuilt = false;
-  } else
-#endif
-  {
-    _buildPager();
-  }
   _mode = PLAYER;
   config.setTitle(const_PlReady);
 
-  // Stage 5.5 guard: if PLAYER backend is LVGL, skip legacy player page setup.
-  // Guard 5.5: если backend PLAYER = LVGL, пропускаем legacy подготовку страницы плейера.
   if (startBackend == lvgl_ui::UiBackend::Lvgl) {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-    // Defer dismiss + Main until min Boot dwell (logo + indeterminate bar); completed in loop().
-    // Откладываем переход на Main до мин. времени Boot; завершение в loop().
     _lvgl_player_handoff_pending = true;
     return;
-#else
-    _activeBackend = startBackend;
-    lvgl_ui::onModeChanged(PLAYER, startBackend, PLAYER);
-    _deactivateLegacyPagerForLvgl();
-    _bootStep = 2;
-    _suspendFlush = false;
-    return;
-#endif
   }
-
-  // Perform deferred AI widget clear if needed (after widgets are initialized)
-  // Выполнить отложенную очистку AI виджета если нужно (после инициализации виджетов)
-  extern void aiPerformDeferredClearIfNeeded();
-  aiPerformDeferredClearIfNeeded();
-  // Перед первой отрисовкой гарантированно погасим оба виджета
-  _deactivateAllMeters();
-  // Перед первой отрисовкой гарантированно погасим оба виджета
-  _deactivateAllMeters();
-  
-  if(_heapbar)  _heapbar->lock(!config.store.audioinfo);
-  
-  if(_weather)  _weather->lock(!config.store.showweather);
-  if(_weather && config.store.showweather)  _weather->setText(const_getWeather);
-
-  if(_rssi)     _setRSSI(WiFi.RSSI());
-  #ifndef HIDE_IP
-    if(_volip && network.status == CONNECTED) _volip->setText(WiFi.localIP().toString().c_str(), iptxtFmt);
-  #endif
-  _pager.setPage( pages[PG_PLAYER]);
-  // Применяем pending AI интерпретацию при старте на странице плейера
-  _applyPendingAI();
-  // Применяем состояние метров ТОЛЬКО после установки страницы, чтобы Pager не переактивировал виджеты
-  _deactivateAllMeters();
-  // На старте активируем/деактивируем метры строго по состоянию плеера
-  _layoutChange(player.isRunning());
-  _volume();
-  _station();
-  _time(false);
-  _bootStep = 2;
-  _suspendFlush = false; // разрешаем flush после полной подготовки
+  Serial.println("[Display] FATAL: non-LVGL PLAYER backend on LVGL product build");
 }
 
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
@@ -566,7 +205,6 @@ void Display::_tryCompleteLvglWifiRecoveryHandoff() {
   if (_lvgl_wifi_recovery_handoff_phase == 1) {
     if ((uint32_t)(millis() - _lvgl_wifi_recovery_phase_started_ms) < kOpeningMsgHoldMs) return;
     lvgl_ui::notifyWifiRecoveryEnteredFromBootFailure();
-    // Wi‑Fi 5B: must not use dismissBootForMainHandoff() — it enters Main and preloads background offline → crash / см. 5B.
     lvgl_ui::dismissBootForWifiRecoveryHandoff();
     _lvgl_wifi_recovery_handoff_pending  = false;
     _lvgl_wifi_recovery_handoff_phase    = 0;
@@ -575,24 +213,15 @@ void Display::_tryCompleteLvglWifiRecoveryHandoff() {
     lvgl_ui::UiBackend backend           = lvgl_ui::getPreferredBackend(WIFI);
     _activeBackend                       = backend;
     lvgl_ui::onModeChanged(WIFI, backend, prev_mode);
-    if (backend == lvgl_ui::UiBackend::Lvgl) {
-      _deactivateLegacyPagerForLvgl();
-    }
     _bootStep       = 2;
     _suspendFlush = false;
-    // Wi‑Fi 5B: recovery handoff stays WIFI-only (no legacy PLAYER page setup here).
-    // Wi‑Fi 5B: handoff Recovery остаётся в WIFI — без legacy PLAYER page setup.
   }
 }
 
-// S6V8A + S6V9I: runtime LOST escalation — status sub-label (Trying to reconnect + Recovery milestones); open Recovery after 60 s.
-// S6V8A + S6V9I: эскалация LOST — текст статуса; открыть Recovery через 60 с.
 void Display::_tryCompleteLostEscalation() {
   if (!_lost_escalation_armed) return;
   if (_mode != LOST) { _lost_escalation_armed = false; return; }
 
-  // Race guard: if reconnect already succeeded (beginReconnect cleared by WiFiReconnected) — cancel.
-  // Гард гонки: если reconnect уже успешен (beginReconnect сброшен) — отменить.
   if (!network.beginReconnect) {
     _lost_escalation_armed     = false;
     _lost_started_ms           = 0;
@@ -602,42 +231,31 @@ void Display::_tryCompleteLostEscalation() {
 
   const uint32_t elapsed = (uint32_t)(millis() - _lost_started_ms);
 
-  // Milestone 0 → 1: set initial status text on first tick after LOST.
-  // Milestone 0 → 1: установить начальный текст при первом тике после LOST.
   if (_lost_escalation_milestone == 0) {
-    // S6V9I: explain reconnect attempt + Recovery countdown (two lines in one label). / Две строки в одном label.
     lvgl_ui::overlayLostSetStatusText("Trying to reconnect...\nWi-Fi Recovery in 60s");
     _lost_escalation_milestone = 1;
   }
 
-  // Milestone 1 → 2: ~30 s.
   if (_lost_escalation_milestone < 2 && elapsed >= 30000U) {
     lvgl_ui::overlayLostSetStatusText("Trying to reconnect...\nWi-Fi Recovery in 30s");
     _lost_escalation_milestone = 2;
   }
 
-  // Milestone 2 → 3: ~50 s.
   if (_lost_escalation_milestone < 3 && elapsed >= 50000U) {
     lvgl_ui::overlayLostSetStatusText("Trying to reconnect...\nOpening Wi-Fi Recovery...");
     _lost_escalation_milestone = 3;
   }
 
-  // Timeout: 60 s → open LVGL Wi-Fi Recovery.
-  // Таймаут: 60 с → открываем LVGL Wi-Fi Recovery.
   if (elapsed >= 60000U) {
-    // Race guard again before committing. / Ещё раз гард перед переходом.
     if (!network.beginReconnect) {
       _lost_escalation_armed     = false;
       _lost_started_ms           = 0;
       _lost_escalation_milestone = 0;
       return;
     }
-    // Disarm first — prevents repeated putRequest if loop re-enters before mode switch. / Сначала disarm.
     _lost_escalation_armed     = false;
     _lost_started_ms           = 0;
     _lost_escalation_milestone = 0;
-    // S6V9E: after 60s — suspend ESP auto-reconnect + our beginReconnect; radio for Wi-Fi Setup (not before timeout).
-    // S6V9E: после 60s — стоп auto-reconnect и флага; радио для Setup (до таймаута не трогаем).
     network.recoverySuspendReconnectForSetup();
     lvgl_ui::notifyWifiRecoveryEnteredFromRuntimeDisconnect();
     putRequest(NEWMODE, WIFI);
@@ -652,7 +270,6 @@ void Display::_tryCompleteLvglPlayerHandoff() {
   _lvgl_player_handoff_pending = false;
   _activeBackend = lvgl_ui::getPreferredBackend(PLAYER);
   lvgl_ui::onModeChanged(PLAYER, _activeBackend, PLAYER);
-  _deactivateLegacyPagerForLvgl();
   _bootStep = 2;
   _suspendFlush = false;
 }
@@ -665,39 +282,24 @@ void Display::_setReturnTicker(uint8_t time_s){
 
 void Display::_swichMode(displayMode_e newmode) {
   if (newmode == _mode) return;
-  // Block 8-E8: SDCHANGE legacy Canvas UI removed — do not enter mode or LegacyCanvas handoff.
-  // Block 8-E8: режим SDCHANGE удалён — без диалога и без переключения backend.
   if (newmode == SDCHANGE) {
     return;
   }
-  // Block 8-E9: NUMBERS legacy UI removed — no mode switch, no LegacyCanvas, no _showDialog.
-  // Block 8-E9: режим NUMBERS удалён; прямой набор станции — IR accumulator + PR_PLAY (controls).
   if (newmode == NUMBERS) {
     return;
   }
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-  // Block 8-E13: TIMEZONE legacy dialog removed on LVGL product path — no mode switch, no LegacyCanvas.
-  // TZ/SNTP config remains via WebUI; no LVGL Timezone screen in this fork.
-  // Block 8-E13: режим TIMEZONE не входим — конфиг через WebUI; LVGL-экрана часового пояса нет.
   if (newmode == TIMEZONE) {
     return;
   }
-  // Block 8-E14: SLEEPING legacy dialog removed on LVGL product — no mode switch, no LegacyCanvas.
-  // Deep sleep APIs (doSleepW/doSleep/sleepForAfter) and SCREENSAVER/BLANK unchanged.
-  // Block 8-E14: режим SLEEPING не входим — без PG_DIALOG и без lv_scr_load(s_default_screen).
   if (newmode == SLEEPING) {
     return;
   }
 #endif
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-  // Wi‑Fi 4C: ignore LOST while LVGL Wi‑Fi Setup owns the screen — keeps display.mode() WIFI so
-  // legacy LOST path (overlay + controls gating) does not cover the password/connect UI.
-  // Wi‑Fi 4C: игнорировать LOST пока активен LVGL Wi‑Fi Setup — mode остаётся WIFI, без оверлея LOST.
   if (newmode == LOST && lvgl_ui::isWifiSetupFlowActive()) {
     return;
   }
-  // S6V8A: arm or disarm runtime escalation timer based on new mode.
-  // S6V8A: взводим или сбрасываем таймер эскалации в зависимости от нового режима.
   if (newmode == LOST) {
     _lost_escalation_armed     = true;
     _lost_started_ms           = millis();
@@ -708,62 +310,27 @@ void Display::_swichMode(displayMode_e newmode) {
     _lost_escalation_milestone = 0;
   }
 #endif
-  // Wi-Fi 3A: allow WIFI while offline; allow return to PLAYER when leaving LVGL Wi-Fi shell.
-  // Wi‑Fi 3A: WIFI офлайн; возврат в PLAYER при выходе из LVGL Wi‑Fi shell.
   if (network.status != CONNECTED && network.status != SDREADY && newmode != WIFI &&
       !(newmode == PLAYER && _mode == WIFI)) {
     return;
   }
 
-  // Previous mode for lvgl_ui::onModeChanged (carousel preservation when leaving saver/blank).
-  // Предыдущий режим для onModeChanged (сохранение карусели при выходе из saver/blank).
   const displayMode_e prev_mode = _mode;
 
-  // Сбрасываем флаги смены режимов
   _isStationsChanging = false;
   _isVolumeChanging = false;
 
   _mode = newmode;
   dsp.setScrollId(NULL);
   if (newmode == PLAYER) {
-    // Common state resets (needed for both legacy and LVGL backends).
-    // Общий сброс состояния (нужен для обоих backend'ов).
     numOfNextStation = 0;
     _returnTicker.detach();
     config.isScreensaver = false;
 
-    // Stage 5.5 guard: LVGL Main screen — skip legacy PLAYER page setup.
-    // Guard 5.5: LVGL Main — пропускаем legacy подготовку страницы плейера.
     if (lvgl_ui::getPreferredBackend(PLAYER) == lvgl_ui::UiBackend::Lvgl) {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-      // SCREENBLANK called setDspOn(false); legacy PLAYER path always runs setDspOn(dspon) — LVGL path skipped it.
-      // SCREENBLANK гасит панель; у legacy PLAYER есть setDspOn — у LVGL Main его не было → wakeup не вызывался.
       if (prev_mode == SCREENBLANK) {
         config.setDspOn(config.store.dspon, false);
       }
-#endif
-      // backend + onModeChanged handled at end of _swichMode (common tail).
-    } else {
-      if(player.isRunning())
-        _clock.moveTo(clockMove);
-      else
-        _clock.moveBack();
-      #ifdef DSP_LCD
-        dsp.clearDsp();
-      #endif
-      #ifdef META_MOVE
-        _meta.moveBack();
-      #endif
-      _meta.setAlign(metaConf.widget.align);
-      _nums.setText("");
-      _pager.setPage( pages[PG_PLAYER]);
-      if (_metabackground) {
-        _metabackground->setActive(true, true);
-      }
-      _meta.setText(config.station.name);
-      config.setDspOn(config.store.dspon, false);
-      _applyPendingAI();
-      _layoutChange(player.isRunning());
     }
   }
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
@@ -773,15 +340,9 @@ void Display::_swichMode(displayMode_e newmode) {
 #else
   const bool lvgl_screensaver_path = false;
 #endif
-  // Stage 5.6: LVGL uses overlay, not legacy PG_SCREENSAVER page / LVGL — оверлей, не legacy-страница.
   if (newmode == SCREENSAVER || newmode == SCREENBLANK) {
     config.isScreensaver = true;
-    if (!lvgl_screensaver_path) {
-      _pager.setPage(pages[PG_SCREENSAVER]);
-    }
     if (newmode == SCREENBLANK) {
-      // Legacy clearClock() gfxFillRects the shared Arduino_Canvas — wipes top ~250px over LVGL. Skip for LVGL UI.
-      // Legacy clearClock() заливает общий Canvas — стирает верх ~250px поверх LVGL. Для LVGL UI не вызывать.
       if (!lvgl_screensaver_path) {
         dsp.clearClock();
       }
@@ -792,39 +353,13 @@ void Display::_swichMode(displayMode_e newmode) {
     config.screensaverPlayingTicks=SCREENSAVERSTARTUPDELAY;
     config.isScreensaver = false;
   }
-  // Block 8-E16.1: legacy PG_DIALOG / _showDialog removed — LOST/UPDATING/VOL/WIFI use LVGL overlays or PageChain.
-  // Block 8-E16.1: legacy диалоги удалены — LOST/UPDATING/VOL/WIFI на LVGL оверлеях и PageChain.
-  if (newmode == VOL) {
-#if !(YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2))
-    if (_legacyWidgetsAvailable()) {
-      _nums.setText(config.store.volume, numtxtFmt);
-    }
-#endif
-  }
   if (newmode == STATIONS) {
     currentPlItem = config.lastStation();
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-    // Block 8-E12: LvglStationPage via onModeChanged; no PG_PLAYLIST / _drawPlaylist on product path.
-    // Block 8-E12: список станций — LVGL карусель; legacy Canvas playlist не вызываем.
-#else
-    if (_legacyWidgetsAvailable()) {
-      _pager.setPage(pages[PG_PLAYLIST]);
-      _plcurrent.setText("");
-      dsp.drawPlaylist(currentPlItem);
-      _setReturnTicker(10);
-    }
-#endif
   }
 
-  // Stage 4.1: store active backend for current mode (metadata only; no hot-path change).
   lvgl_ui::UiBackend backend = lvgl_ui::getPreferredBackend(newmode);
-  // При переходе INFO -> PLAYER очистка и отрисовка уже выполнены в setPage(pages[PG_PLAYER])
-  // выше; повторный clearDsp() здесь затирал бы нарисованное (баг исправлен).
   _activeBackend = backend;
   lvgl_ui::onModeChanged(newmode, backend, prev_mode);
-  if (backend == lvgl_ui::UiBackend::Lvgl) {
-    _deactivateLegacyPagerForLvgl();
-  }
 }
 
 void Display::resetQueue(){
@@ -832,42 +367,15 @@ void Display::resetQueue(){
 }
 
 void Display::setAIInterpretation(const String& text) {
-  // AI interpretation: LVGL Main reads _aiPendingText via copyAIInterpretationForLvgl (DspTask).
-  // S6V10I-DIAG3: always refresh pending buffer when AI enabled; legacy Canvas only if built.
-  // AI: LVGL Main читает _aiPendingText; буфер всегда обновляем, Canvas — только если есть виджеты.
   if (!config.store.ai_enabled) {
     _aiPending = false;
     _aiPendingText[0] = '\0';
-    if (_ai_interpretation && _legacyWidgetsAvailable()) {
-      _ai_interpretation->setText("");
-      _ai_interpretation->setActive(false, true);
-    }
     return;
   }
 
   const char* txt = (text.isEmpty() || text.c_str() == nullptr) ? "" : text.c_str();
   strlcpy(_aiPendingText, txt, sizeof(_aiPendingText));
   _aiPending = true;
-
-  // No legacy PLAYER pager/widgets (e.g. LVGL PLAYER skipped _buildPager): data-only for LVGL
-  if (!_legacyWidgetsAvailable() || !_ai_interpretation) {
-    return;
-  }
-
-  Page* activePage = _pager.getActivePage();
-  const bool isOnPlayerPage = (activePage == pages[PG_PLAYER]);
-  if (!isOnPlayerPage) {
-    return;
-  }
-
-  if (text.isEmpty()) {
-    _ai_interpretation->setText("");
-    _ai_interpretation->setActive(false, true);
-  } else {
-    _ai_interpretation->setText(text.c_str());
-    _ai_interpretation->setActive(true);
-  }
-  _aiPending = false;
 }
 
 void Display::copyAIInterpretationForLvgl(char* buf, size_t cap) const {
@@ -884,14 +392,13 @@ void Display::putRequest(displayRequestType_e type, int payload){
   requestParams_t request;
   request.type = type;
   request.payload = payload;
-  
-  // Для DSP_START используем блокирующую отправку
+
   if(type == DSP_START) {
     Serial.println("[Display] Sending DSP_START request");
     xQueueSend(displayQueue, &request, portMAX_DELAY);
     return;
   }
-  
+
   if(type == NEWMODE) {
     if(payload == STATIONS) {
       _isStationsChanging = true;
@@ -902,60 +409,16 @@ void Display::putRequest(displayRequestType_e type, int payload){
   xQueueSend(displayQueue, &request, DSQ_SEND_DELAY);
 }
 
-void Display::_layoutChange(bool played){
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-  // Guard: when PLAYER runs on LVGL, legacy widget moves/clears touch the shared Canvas and wipe the screen.
-  // Гвард: при PLAYER на LVGL, legacy moveBack/setActive стирают общий Canvas — пропускаем.
-  if (lvgl_player_uses_same_canvas()) return;
-#endif
-  if(config.store.vumeter){
-    // Очистим состояние: отключим оба перед переключением
-    if(_spectrumwidget) _spectrumwidget->setActive(false, true);
-    if(_vuwidget) _vuwidget->lock(true);
-    if(played){
-      if(config.store.usespectrum){
-        if(_spectrumwidget) _spectrumwidget->setActive(true);
-      }else{
-        if(_vuwidget) _vuwidget->unlock();
-      }
-      _clock.moveTo(clockMove);
-      if(_weather) _weather->moveTo(weatherMoveVU);
-    }else{
-      // В режиме Stop отключаем оба визуальных метра
-      if(_spectrumwidget) _spectrumwidget->setActive(false, true);
-      if(_vuwidget) if(!_vuwidget->locked()) _vuwidget->lock();
-      _clock.moveBack();
-      if(_weather) _weather->moveBack();
-    }
-  }else{
-    // При выключенном vumeter принудительно отключаем оба виджета
-    if(_spectrumwidget) _spectrumwidget->setActive(false, true);
-    if(_vuwidget) _vuwidget->lock(true);
-    if(played){
-      if(_weather) _weather->moveTo(weatherMove);
-      _clock.moveBack();
-    }else{
-      if(_weather) _weather->moveBack();
-      _clock.moveBack();
-    }
-  }
-}
 #ifndef DSP_QUEUE_TICKS
   #define DSP_QUEUE_TICKS pdMS_TO_TICKS(10)
 #endif
 void Display::loop() {
-  // Stage 5.4 polish: latch Wi-Fi connected status on LVGL Boot screen.
-  // Этап 5.4: при реальном подключении Wi-Fi зафиксировать статус на Boot (до перехода на Main).
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
   static bool s_lvgl_boot_connected_latched = false;
 #endif
   if(_bootStep==0) {
-    _pager.begin();
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-    // Block 8-E11: LVGL Boot only — no legacy _bootScreen() / drawLogo fallback on product path.
-    // Block 8-E11: только LVGL Boot; без legacy Canvas boot при сбое tryPresent (retry в следующих loop).
     if (lvgl_ui::tryPresentLvglBootOnFirstDspLoop()) {
-      s_any_boot_ui_shown = true;
       _bootStep = 1;
       _suspendFlush = false;
     } else {
@@ -966,14 +429,10 @@ void Display::loop() {
       }
     }
 #else
-    _bootScreen();
+    #error "Legacy boot loop removed in Block 8-E16.2B-1"
 #endif
-    // Не выходим сразу — нужен рендер (pager или LVGL taskHandler ниже).
-    // Don't return immediately — rendering happens in _pager.loop() or lvgl taskHandler below.
   }
-  // Разрешаем loop при bootStep==1 для анимации / Allow loop at bootStep==1 for animation
   if(displayQueue==NULL && _bootStep!=1) return;
-  // Сначала обработаем входящие запросы рендера, затем нарисуем и выполнем flush
   requestParams_t request;
   if(xQueueReceive(displayQueue, &request, DSP_QUEUE_TICKS)){
     switch (request.type){
@@ -982,25 +441,18 @@ void Display::loop() {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
           if (_mode == SCREENSAVER && _activeBackend == lvgl_ui::UiBackend::Lvgl) {
             lvgl_ui::screensaverRefreshClock();
-            break;
           }
 #endif
-          if (_mode == PLAYER || _mode == SCREENSAVER) {
-            _time();
-          }
           break;
         case NEWTITLE: _title(); break;
-        case NEWSTATION: _station(); break;
-        case NEXTSTATION: {
-          // Block 8-E9: legacy numbers UI removed — no _drawNextStationNum on LVGL product.
+        case NEWSTATION:
+          config.vuThreshold = 0;
           break;
-        }
+        case NEXTSTATION:
+          break;
         case DRAWPLAYLIST:
-          // Block 8-E16.1: legacy Canvas playlist paint removed; lvgl_ui::onDisplayEvent below handles LVGL.
-          // Block 8-E16.1: legacy отрисовка плейлиста убрана; LVGL — в onDisplayEvent после switch.
           break;
         case DRAWVOL:
-          _volume();
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
           if (_activeBackend == lvgl_ui::UiBackend::Lvgl &&
               (_mode == PLAYER || _mode == VOL)) {
@@ -1008,77 +460,25 @@ void Display::loop() {
           }
 #endif
           break;
-        case DBITRATE: {
+        case DBITRATE:
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-            if (!_legacyWidgetsAvailable()) {
-              if (_activeBackend == lvgl_ui::UiBackend::Lvgl && _mode == PLAYER) {
-                lvgl_ui::refreshMainScreen();
-              }
-              break;
-            }
-#endif
-            char buf[20]; 
-            snprintf(buf, 20, bitrateFmt, config.station.bitrate); 
-            if(_bitrate) { _bitrate->setText(config.station.bitrate==0?"":buf); } 
-            if(_fullbitrate) { 
-              _fullbitrate->setBitrate(config.station.bitrate); 
-              _fullbitrate->setFormat(config.configFmt); 
-            } 
+          if (_activeBackend == lvgl_ui::UiBackend::Lvgl && _mode == PLAYER) {
+            lvgl_ui::refreshMainScreen();
           }
+#endif
           break;
         case AUDIOINFO:
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-          if (!_legacyWidgetsAvailable()) break;
-#endif
-          if(_heapbar)  { _heapbar->lock(!config.store.audioinfo); _heapbar->setValue(player.inBufferFilled()); }
           break;
-        case SHOWVUMETER: {
-          // Переключение виджетов выполняется в _layoutChange()
-          _layoutChange(player.isRunning());
+        case SHOWVUMETER:
           break;
-        }
-        case SHOWWEATHER: {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-          if (!_legacyWidgetsAvailable()) break;
-#endif
-          if(_weather) _weather->lock(!config.store.showweather);
-          if(!config.store.showweather){
-            #ifndef HIDE_IP
-            if(_volip && network.status == CONNECTED) _volip->setText(WiFi.localIP().toString().c_str(), iptxtFmt);
-            #endif
-          }else{
-            if(_weather) _weather->setText(const_getWeather);
-          }
+        case SHOWWEATHER:
           break;
-        }
-        case NEWWEATHER: {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-          if (!_legacyWidgetsAvailable()) break;
-#endif
-          if(_weather && network.weatherBuf) _weather->setText(network.weatherBuf);
+        case NEWWEATHER:
           break;
-        }
         case BOOTSTRING: {
-          bool lvgl_boot_active_now = false;
-          bool block_legacy_boot_canvas = false;
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-          lvgl_boot_active_now = lvgl_ui::isLvglBootActive();
-          block_legacy_boot_canvas =
-              lvgl_boot_active_now ||
-              _lvgl_player_handoff_pending ||
-              (_activeBackend == lvgl_ui::UiBackend::Lvgl);
-#endif
-          // Legacy boot text writes directly to Canvas (gfxFillRect in TextWidget::setText).
-          // During LVGL Boot this causes visible black wipe artifacts, so skip legacy writes.
-          // Legacy-текст Boot пишет прямо в Canvas (gfxFillRect в TextWidget::setText).
-          // Во время LVGL Boot это даёт чёрные «протирки», поэтому legacy-ветку пропускаем.
-          if (!block_legacy_boot_canvas && _bootstring) {
-            _bootstring->setText(config.ssids[request.payload].ssid, bootstrFmt);
-          }
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+          const bool lvgl_boot_active_now = lvgl_ui::isLvglBootActive();
           if (lvgl_boot_active_now) {
-            // Once we show "Connected...", keep it stable until handoff.
-            // После "Connected..." статус держим стабильным до перехода на Main.
             if (s_lvgl_boot_connected_latched) break;
             char line[96];
             snprintf(line, sizeof(line), bootstrFmt, config.ssids[request.payload].ssid);
@@ -1089,19 +489,8 @@ void Display::loop() {
           break;
         }
         case WAITFORSD: {
-          bool lvgl_boot_active_now = false;
-          bool block_legacy_boot_canvas = false;
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-          lvgl_boot_active_now = lvgl_ui::isLvglBootActive();
-          block_legacy_boot_canvas =
-              lvgl_boot_active_now ||
-              _lvgl_player_handoff_pending ||
-              (_activeBackend == lvgl_ui::UiBackend::Lvgl);
-#endif
-          if (!block_legacy_boot_canvas && _bootstring) {
-            _bootstring->setText(const_waitForSD);
-          }
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+          const bool lvgl_boot_active_now = lvgl_ui::isLvglBootActive();
           if (lvgl_boot_active_now) {
             if (s_lvgl_boot_connected_latched) break;
             char line[64];
@@ -1113,58 +502,40 @@ void Display::loop() {
 #endif
           break;
         }
-        case SDFILEINDEX: {
-          // Block 8-E8: legacy SDCHANGE index counter UI removed (was _nums on SDCHANGE mode).
+        case SDFILEINDEX:
           break;
-        }
         case DSPRSSI:
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-          if (!_legacyWidgetsAvailable()) break;
-#endif
-          if(_rssi){ _setRSSI(request.payload); } if (_heapbar && config.store.audioinfo) _heapbar->setValue(player.isRunning()?player.inBufferFilled():0);
           break;
-        case PSTART: _layoutChange(true);   break;
-        case PSTOP:  _layoutChange(false);  break;
-        case DSP_START: 
+        case PSTART:
+          break;
+        case PSTOP:
+          break;
+        case DSP_START:
           Serial.println("[Display] Processing DSP_START request");
-          _start();  
+          _start();
           break;
-        case NEWIP: {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-          if (!_legacyWidgetsAvailable()) break;
-#endif
-          #ifndef HIDE_IP
-            if(_volip && network.status == CONNECTED) _volip->setText(WiFi.localIP().toString().c_str(), iptxtFmt);
-          #endif
+        case NEWIP:
           break;
-        }
         case MAIN_BG_FS_UPDATED: {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-          // NetServer after successful /upload_bg; LVGL only on DspTask / После commit upload — только здесь lv_*.
           lvgl_ui::onMainBackgroundSlotCommitted(static_cast<uint8_t>(request.payload));
 #endif
           break;
         }
         case ART_FS_UPDATED: {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-          // NetServer after successful /upload_art or /remove_art — reload art on Main (DspTask only).
-          // NetServer после /upload_art или /remove_art — перезагрузить арт на Main (только DspTask).
           lvgl_ui::onStationArtCommitted();
 #endif
           break;
         }
         case SET_THEME_PRESET: {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-          // Stage 6.6R-B: NetServer enqueued /set_theme request — apply on DspTask only (LVGL thread-safe).
-          // Этап 6.6R-B: NetServer поставил запрос /set_theme в очередь — только DspTask.
           lvgl_ui::onThemePresetChanged(static_cast<uint8_t>(request.payload));
 #endif
           break;
         }
         case CUSTOM_THEME_FILE_UPDATED: {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-          // Stage 6.6R-F1: /upload_theme or /remove_theme — reload palette + live UI if Custom active.
-          // Этап 6.6R-F1: обновление theme_custom.txt — только DspTask, без lv_* в NetServer.
           lvgl_ui::onCustomThemeFileUpdated();
 #endif
           break;
@@ -1177,7 +548,6 @@ void Display::loop() {
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
   _tryCompleteLvglWifiRecoveryHandoff();
   _tryCompleteLvglPlayerHandoff();
-  // S6V8A: runtime LOST escalation polling (DspTask; millis-based milestones). / Polling эскалации LOST.
   _tryCompleteLostEscalation();
 #endif
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
@@ -1193,13 +563,7 @@ void Display::loop() {
     s_lvgl_boot_connected_latched = false;
   }
 #endif
-  // Throttled refresh of LVGL screens (~1 Hz); pattern symmetric for INFO and Main.
-  // Throttled обновление LVGL экранов (~1 Гц); симметричный паттерн для INFO и Main.
-  // SCREENBLANK/SCREENSAVER: do not refresh underlying pages (carousel Info still reports Info slot during blank).
-  // SCREENBLANK/SCREENSAVER: не обновлять страницы под оверлеем (на blank карусель всё ещё на Info).
   if (_activeBackend == lvgl_ui::UiBackend::Lvgl && _mode != SCREENBLANK && _mode != SCREENSAVER) {
-    // INFO labels: classic path _mode==INFO, or carousel on Info while still PLAYER (Stage 5.3 swipe).
-    // Подписи INFO: обычный INFO или карусель на Info при mode PLAYER (свайп 5.3).
     if (_mode == INFO || lvgl_ui::isLvglCarouselOnInfoSlot()) {
       static uint32_t lastInfoRefresh = 0;
       if (millis() - lastInfoRefresh >= 1000) {
@@ -1215,20 +579,17 @@ void Display::loop() {
       }
     }
   }
-  // Stage 2 + 5.4: legacy pager unless LVGL owns mode or LVGL Boot is active.
-  // Этап 2 + 5.4: legacy pager, кроме режимов LVGL и активного LVGL Boot.
   const bool lvgl_boot_active = lvgl_ui::isLvglBootActive();
-  if (_activeBackend == lvgl_ui::UiBackend::LegacyCanvas && !lvgl_boot_active) _pager.loop();
-  if (_activeBackend == lvgl_ui::UiBackend::Lvgl || lvgl_boot_active) lvgl_ui::taskHandler();
-  // Dirty-based flush: flush только если был реальный рендеринг и прошло >=16мс
+  if (_activeBackend == lvgl_ui::UiBackend::Lvgl || lvgl_boot_active) {
+    lvgl_ui::taskHandler();
+  }
   if(!_suspendFlush){
     static uint32_t lastFlushMs = 0;
-    // Flush только если кадр грязный И прошло >=16мс (throttle ~60 FPS)
     if(g_frameDirty && (millis() - lastFlushMs >= 16)){
       sdog.takeMutex();
       gfxFlushScreen(gfx);
       sdog.giveMutex();
-      g_frameDirty = false; // Сбрасываем флаг после flush
+      g_frameDirty = false;
       lastFlushMs = millis();
       s_panel_gfx_flush_count++;
       s_panel_last_gfx_flush_ms = lastFlushMs;
@@ -1240,94 +601,9 @@ void Display::loop() {
   #endif
 }
 
-void Display::_setRSSI(int rssi) {
-  if(!_rssi) return;
-#if RSSI_DIGIT
-  _rssi->setText(rssi, rssiFmt);
-  return;
-#endif
-  char rssiG[3];
-  int rssi_steps[] = {RSSI_STEPS};
-  if(rssi >= rssi_steps[0]) strlcpy(rssiG, "\004\006", 3);
-  if(rssi >= rssi_steps[1] && rssi < rssi_steps[0]) strlcpy(rssiG, "\004\005", 3);
-  if(rssi >= rssi_steps[2] && rssi < rssi_steps[1]) strlcpy(rssiG, "\004\002", 3);
-  if(rssi >= rssi_steps[3] && rssi < rssi_steps[2]) strlcpy(rssiG, "\003\002", 3);
-  if(rssi <  rssi_steps[3] || rssi >=  0) strlcpy(rssiG, "\001\002", 3);
-  _rssi->setText(rssiG);
-}
-
-void Display::_station() {
-  if (!_legacyWidgetsAvailable()) return;
-  config.vuThreshold = 0;
-  _meta.setAlign(metaConf.widget.align);
-  _meta.setText(config.station.name);
-}
-
-char *split(char *str, const char *delim) {
-  char *dmp = strstr(str, delim);
-  if (dmp == NULL) return NULL;
-  *dmp = '\0'; 
-  return dmp + strlen(delim);
-}
-
 void Display::_title() {
-  if (_legacyWidgetsAvailable()) {
-    if (strlen(config.station.title) > 0) {
-      char tmpbuf[strlen(config.station.title)+1];
-      strlcpy(tmpbuf, config.station.title, strlen(config.station.title)+1);
-      char *stitle = split(tmpbuf, " - ");
-      if(stitle && _title2){
-        _title1.setText(tmpbuf);
-        _title2->setText(stitle);
-      }else{
-        _title1.setText(config.station.title);
-        if(_title2) _title2->setText("");
-      }
-    }else{
-      _title1.setText("");
-      if(_title2) _title2->setText("");
-    }
-  }
   if (player_on_track_change) player_on_track_change();
   aiSubsystem.onTrackChange();
-}
-
-void Display::_time(bool redraw) {
-  if (!_legacyWidgetsAvailable()) return;
-  
-#if LIGHT_SENSOR!=255
-  if(config.store.dspon) {
-    config.store.brightness = AUTOBACKLIGHT(analogRead(LIGHT_SENSOR));
-    config.setBrightness();
-  }
-#endif
-  if(config.isScreensaver && network.timeinfo.tm_sec % 20 == 0){
-    uint16_t maxY = dsp.height() - dsp.plItemHeight - TFT_FRAMEWDT*2;
-    uint16_t maxClockY = dsp.height() - 100;  // нижняя граница (380 при height 480)
-    if (maxY > maxClockY) maxY = maxClockY;
-    uint16_t minClockY = 100;  // верхняя граница — не меньше 100 px от верха
-    #ifdef GXCLOCKFONT
-      uint16_t minY = (TFT_FRAMEWDT > minClockY) ? TFT_FRAMEWDT : minClockY;
-      uint16_t ft=static_cast<uint16_t>(random(minY, maxY));
-    #else
-      uint16_t minY = (TFT_FRAMEWDT+clockConf.textsize > minClockY) ? (TFT_FRAMEWDT+clockConf.textsize) : minClockY;
-      uint16_t ft=static_cast<uint16_t>(random(minY, maxY));
-    #endif
-    if (minY < maxY) _clock.moveTo({clockConf.left, ft, 0});
-  }
-  _clock.draw();
-}
-
-void Display::_volume() {
-  if (!_legacyWidgetsAvailable()) return;
-  if(_volbar) _volbar->setValue(config.store.volume);
-  #ifndef HIDE_VOL
-    if(_voltxt) _voltxt->setText(config.store.volume, voltxtFmt);
-  #endif
-  if(_mode==VOL) {
-    _setReturnTicker(3);
-    _nums.setText(config.store.volume, numtxtFmt);
-  }
 }
 
 void Display::flip(){ dsp.flip(); }
@@ -1345,8 +621,6 @@ bool Display::deepsleep(){
   dsp.sleep();
   return true;
 #elif DSP_MODEL == DSP_ST7701 || DSP_MODEL == DSP_UEDX48480021 || DSP_MODEL == DSP_AXS15231B
-  // RGB panels: myoptions often sets BRIGHTNESS_PIN 255; backlight is gated in dsp.sleep() (e.g. ST7701_BL).
-  // RGB: в myoptions часто BRIGHTNESS_PIN 255; подсветка гасится в dsp.sleep() (напр. ST7701_BL).
   dsp.sleep();
   return true;
 #else
@@ -1431,10 +705,8 @@ size_t Display::diagSnapshot(char* out, size_t len) const {
   append_line("display.backend_preferred_player: %s\n",
               uiBackendName(lvgl_ui::getPreferredBackend(PLAYER)));
 
-  append_line("display.legacy_widgets_available: %d\n",
-              _legacyWidgetsAvailable() ? 1 : 0);
-  append_line("display.legacy_player_widgets_built: %d\n",
-              _legacyPlayerWidgetsBuilt ? 1 : 0);
+  // Block 8-E16.2B-1: legacy Pager/widgets removed from Display.
+  append_line("display.legacy_pager_widgets: 0\n");
   append_line("display.suspend_flush: %d\n", _suspendFlush ? 1 : 0);
   append_line("g_frameDirty: %d\n", g_frameDirty ? 1 : 0);
 

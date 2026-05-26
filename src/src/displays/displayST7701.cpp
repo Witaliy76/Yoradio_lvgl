@@ -790,67 +790,19 @@ Arduino_G* DspCore::getOutputDisplay() {
   return output_display;
 }
 
-// Получить порядковый индекс ScrollWidget'а среди всех ScrollWidget'ов в активной странице
+// Block 8-E16.2B-2: legacy scroll fairness inert — no Pager/Page after Display member removal.
+// Block 8-E16.2B-2: ротация ScrollWidget отключена; LVGL — единственный UI path на product.
 int16_t DspCore::getScrollWidgetIndex(void* widget) {
-  extern Display display;
-  Page* activePage = display.getActivePage();
-  if (activePage) {
-    return activePage->getScrollWidgetIndex(widget);
-  }
-  return -1; // Активная страница не найдена
+  (void)widget;
+  return -1;
 }
 
-// Нормализовать lastIndex при изменении состава scrollable-виджетов
 void DspCore::normalizeScrollIndex() {
-  extern Display display;
-  Page* activePage = display.getActivePage();
-  if (activePage) {
-    // If a widget currently owns the scroll slot and is still eligible,
-    // pin lastScrollIndex to that owner to avoid repeating the same widget
-    // after the eligible queue changes (on lock/unlock/active toggles).
-    // Если виджет владеет слотом скролла и всё ещё eligible,
-    // привязываем lastScrollIndex к этому владельцу, чтобы избежать повторения того же виджета
-    // после изменения eligible-очереди (при lock/unlock/active переключениях).
-    void* owner = dsp.getScrollId();
-    if (owner) {
-      int16_t ownerIndex = activePage->getScrollWidgetIndex(owner);
-      if (ownerIndex >= 0) {
-        _lastScrollIndex = ownerIndex;
-      }
-    }
-
-    int16_t totalScrollable = activePage->getScrollableCount();
-    if (totalScrollable > 0) {
-      // Нормализуем lastIndex если он стал больше totalScrollable
-      if (_lastScrollIndex >= totalScrollable) {
-        _lastScrollIndex = totalScrollable - 1;
-      }
-    } else {
-      _lastScrollIndex = -1;
-    }
-  } else {
-    _lastScrollIndex = -1;
-  }
+  _lastScrollIndex = -1;
 }
 
-// Увеличить индекс последнего скроллившегося виджета
 void DspCore::advanceScrollIndex() {
-  extern Display display;
-  Page* activePage = display.getActivePage();
-  if (activePage) {
-    int16_t totalScrollable = activePage->getScrollableCount();
-    if (totalScrollable > 0) {
-      // Нормализуем lastIndex если он стал больше totalScrollable (защита при изменении состава)
-      if (_lastScrollIndex >= totalScrollable) {
-        _lastScrollIndex = totalScrollable - 1;
-      }
-      _lastScrollIndex = (_lastScrollIndex + 1) % totalScrollable;
-    } else {
-      _lastScrollIndex = -1;
-    }
-  } else {
-    _lastScrollIndex = -1;
-  }
+  // no-op — no legacy active page / no Canvas scroll queue
 }
 
 #endif

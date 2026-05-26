@@ -175,8 +175,8 @@ void aiApplyToStore(const AIConfig& cfg) {
 }
 
 // Perform deferred AI widget clear if needed / Выполнить отложенную очистку AI виджета если нужно
-// Call this after display widgets are initialized (after _buildPager())
-// Вызывать после инициализации виджетов display (после _buildPager())
+// Call after display is ready (LVGL product: no legacy _buildPager since 8-E16.2B-1).
+// Вызывать после готовности display (LVGL: без legacy _buildPager с 8-E16.2B-1).
 void aiPerformDeferredClearIfNeeded() {
   if (g_aiNeedsClear) {
     display.setAIInterpretation("");

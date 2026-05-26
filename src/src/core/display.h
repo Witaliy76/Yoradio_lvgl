@@ -8,13 +8,17 @@
 #include "common.h"
 #include "../displays/dspcore.h"
 
-// Spectrum Analyzer (always available, runtime switch in config)
+// Spectrum Analyzer (FFT data; LVGL Main uses profile layout, not legacy Canvas widget).
+// Спектроанализатор (данные FFT; LVGL Main — layout из profile, не legacy Canvas widget).
 #include "../displays/tools/spectrum_analyzer.h"
-#include "../displays/tools/spectrum_widget.h"
 
 #ifndef DUMMYDISPLAY
   #include "../lvgl_ui/lvgl_ui.h"
   void loopDspTask(void * pvParameters);
+
+// Forward decl for DspCore scroll helpers (8-E16.2B-1 stub returns nullptr until E16.2B-2/E17).
+// Forward decl для scroll-хелперов DspCore (заглушка nullptr до E16.2B-2/E17).
+class Page;
 
 class Display {
   public:
@@ -50,31 +54,17 @@ class Display {
     // Block 8 / 8-E1: one-shot display diagnostics (telnet "diag display"); no heap alloc.
     // Block 8 / 8-E1: однократный снимок дисплея (telnet); без выделения heap.
     size_t diagSnapshot(char* out, size_t len) const;
+    // Block 8-E16.2B-2: stub for widgets.cpp; RGB drivers no longer call (scroll helpers inert).
+    // Block 8-E16.2B-2: заглушка для widgets.cpp; RGB-драйверы не вызывают.
+    Page* getActivePage() const { return nullptr; }
   private:
-    ScrollWidget _meta, _title1, _plcurrent;
-    ScrollWidget *_weather;
-    ScrollWidget *_title2;
-    ScrollWidget *_ai_interpretation;
-    BitrateWidget *_fullbitrate;
-    FillWidget *_metabackground, *_plbackground;
-    SliderWidget *_volbar, *_heapbar;
-    Pager _pager;
-    Page _footer;
-    VuWidget *_vuwidget;
-    SpectrumWidget *_spectrumwidget;
-    bool _usingSpectrum;
-    // AI interpretation pending state (when not on PG_PLAYER page)
+    // AI interpretation pending buffer for LVGL Main (DspTask read via copyAIInterpretationForLvgl).
+    // Буфер AI для LVGL Main (чтение на DspTask через copyAIInterpretationForLvgl).
     bool _aiPending = false;
     char _aiPendingText[256];
-    NumWidget _nums;
-    ProgressWidget _testprogress;
-    ClockWidget _clock;
-    Page *_boot;
-    TextWidget *_bootstring, *_volip, *_voltxt, *_rssi, *_bitrate;
     Ticker _returnTicker;
     uint8_t _bootStep;
     bool _suspendFlush;
-    bool _legacyPlayerWidgetsBuilt = false;
     lvgl_ui::UiBackend _activeBackend = lvgl_ui::UiBackend::LegacyCanvas;  // Stage 4.1: metadata only
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     bool _lvgl_player_handoff_pending = false;
@@ -91,26 +81,10 @@ class Display {
     uint8_t  _lost_escalation_milestone  = 0; // 0=initial text pending; 1=set; 2=30s; 3=50s
     void _tryCompleteLostEscalation();
 #endif
-    void _time(bool redraw = false);
-    void _apScreen();
-    void _swichMode(displayMode_e newmode);
-    void _volume();
     void _title();
-    void _station();
+    void _swichMode(displayMode_e newmode);
     void _createDspTask();
-    void _buildPager();
-    void _bootScreen();
     void _setReturnTicker(uint8_t time_s);
-    void _layoutChange(bool played);
-    void _setRSSI(int rssi);
-    bool _legacyWidgetsAvailable() const;
-    void _deactivateAllMeters();
-    void _applyPendingAI();  // Apply pending AI interpretation when returning to PG_PLAYER
-    // LVGL full-screen modes: turn off legacy pager widgets (footer/heapbar) so Canvas is LVGL-only.
-    // Полноэкранный LVGL: гасим legacy pager (footer/heapbar), иначе остаётся «призрак» на canvas.
-    void _deactivateLegacyPagerForLvgl();
-  public:
-    Page* getActivePage() const { return _pager.getActivePage(); } // Получить активную страницу для доступа из DspCore
 };
 
 #else
