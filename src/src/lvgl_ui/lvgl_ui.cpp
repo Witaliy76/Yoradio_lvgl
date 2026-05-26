@@ -139,8 +139,8 @@ static uint32_t s_lvgl_flush_count = 0;
 static uint32_t s_lvgl_last_flush_ms = 0;
 
 #if DSP_MODEL == DSP_ST7701
-// Block 8-E3 (4848S040): LVGL → output_display directly; Canvas stays allocated for Phase 2 legacy.
-// Block 8-E3: LVGL → output_display напрямую; Canvas не трогаем на LVGL-пути (удаление — Phase 2).
+// Block 8-E3/E17/E18C (4848S040): LVGL → output_display directly; no Arduino_Canvas on product path.
+// Block 8-E3/E17/E18C: LVGL → output_display; Canvas снят (E17), legacy dirty flush отключён (E18C).
 static void lvgl_flush_direct_panel(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *color_p) {
     Arduino_G* panel_g = dsp.getOutputDisplay();
     if (!panel_g || !color_p || !area) {
@@ -188,8 +188,8 @@ static void lvgl_flush_direct_panel(lv_disp_drv_t *drv, const lv_area_t *area, l
 }
 #endif
 
-// Flush callback: M0 Canvas path (non-ST7701) or legacy markFrameDirty + Display::loop flush.
-// Flush callback: M0 через Canvas; на ST7701 — см. lvgl_flush_direct_panel (8-E3).
+// Flush callback: non-ST7701 may use Canvas + markFrameDirty; ST7701 → lvgl_flush_direct_panel only (E5C).
+// Flush callback: на ST7701 только direct panel; иные платы — Canvas path (см. #else).
 static void lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *color_p) {
 #if DSP_MODEL == DSP_ST7701
     lvgl_flush_direct_panel(drv, area, color_p);

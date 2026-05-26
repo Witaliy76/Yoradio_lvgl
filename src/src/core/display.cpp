@@ -7,7 +7,9 @@
 #include "display.h"
 #include "player.h"
 #include "network.h"
-#include "../displays/tools/GFX_Canvas_screen.h"
+#if DSP_MODEL != DSP_ST7701
+#include "../displays/tools/GFX_Canvas_screen.h"  // gfxFlushScreen — legacy Canvas boards only
+#endif
 #include "../core/spidog.h"
 #include "../lvgl_ui/lvgl_ui.h"
 #include "../lvgl_ui/lv_screensaver.h"
@@ -591,9 +593,12 @@ void Display::loop() {
   if (_activeBackend == lvgl_ui::UiBackend::Lvgl || lvgl_boot_active) {
     lvgl_ui::taskHandler();
   }
-  if(!_suspendFlush){
+#if DSP_MODEL != DSP_ST7701
+  // Block 8-E18C: legacy Canvas dirty flush (gfxFlushScreen). ST7701 LVGL uses output_display_direct only.
+  // Block 8-E18C: отложенный flush Canvas — не на ST7701 (E5C direct path).
+  if (!_suspendFlush) {
     static uint32_t lastFlushMs = 0;
-    if(g_frameDirty && gfx && (millis() - lastFlushMs >= 16)){
+    if (g_frameDirty && gfx && (millis() - lastFlushMs >= 16)) {
       sdog.takeMutex();
       gfxFlushScreen(gfx);
       sdog.giveMutex();
@@ -603,6 +608,7 @@ void Display::loop() {
       s_panel_last_gfx_flush_ms = lastFlushMs;
     }
   }
+#endif
   dsp.loop();
   #if I2S_DOUT==255
   player.computeVUlevel();
@@ -716,6 +722,11 @@ size_t Display::diagSnapshot(char* out, size_t len) const {
   // Block 8-E16.2B-1: legacy Pager/widgets removed from Display.
   append_line("display.legacy_pager_widgets: 0\n");
   append_line("display.canvas_allocated: %d\n", gfx ? 1 : 0);
+#if DSP_MODEL == DSP_ST7701
+  append_line("display.legacy_canvas_flush: 0\n");
+#else
+  append_line("display.legacy_canvas_flush: 1\n");
+#endif
   append_line("display.suspend_flush: %d\n", _suspendFlush ? 1 : 0);
   append_line("g_frameDirty: %d\n", g_frameDirty ? 1 : 0);
 
