@@ -192,29 +192,23 @@ void DspCore::initDisplay() {
     }
   }
 
-  // 4. Initialize Canvas
-  // IMPORTANT: don't call begin() on output_display manually,
-  // gfx->begin() will do it. Double begin causes RGB panel slot panic.
-  if (!gfx) {
-    Serial.println("[ST7701] Initializing canvas...");
-    gfx = new Arduino_Canvas(480, 480, output_display);
-    if (!gfx) {
-      Serial.println("[ST7701] Failed to create canvas!");
-      delete gfx;
-      gfx = nullptr;
+  // 4. Bring up RGB panel output (Block 8-E17: no Arduino_Canvas on LVGL product path).
+  // Block 8-E17: ровно один output_display->begin(); повторный begin → RGB panel slot panic.
+  static bool s_rgb_output_begun = false;
+  if (!output_display) {
+    Serial.println("[ST7701] RGB display object missing!");
+    return;
+  }
+  if (!s_rgb_output_begun) {
+    Serial.println("[ST7701] Initializing RGB display output...");
+    Serial.println("[ST7701] Canvas removed for LVGL product path");
+    gfx = nullptr;
+    if (!output_display->begin()) {
+      Serial.println("[ST7701] Failed to begin RGB display!");
       return;
     }
-    
-    if (!gfx->begin()) {
-      Serial.println("[ST7701] Failed to begin canvas!");
-      delete gfx;
-      gfx = nullptr;
-      return;
-    }
-    Serial.println("[ST7701] Canvas initialized successfully");
-    
-    // Delay for display stabilization
-    delay(100);
+    s_rgb_output_begun = true;
+    delay(100); // panel stabilization / стабилизация панели
   }
 
   // 6. Enable backlight (PWM compatible with Arduino Core 3.x)
@@ -237,7 +231,7 @@ void DspCore::initDisplay() {
   perfmon_start();
 #endif
 
-  Serial.print("[ST7701] Canvas ptr: "); Serial.println((uintptr_t)gfx, HEX);
+  Serial.print("[ST7701] Canvas ptr: "); Serial.println((uintptr_t)gfx, HEX); // expect 0 after E17
 
   plItemHeight = playlistConf.widget.textsize*(CHARHEIGHT-1)+playlistConf.widget.textsize*4;
   plTtemsCount = round((float)height()/plItemHeight);
@@ -246,15 +240,13 @@ void DspCore::initDisplay() {
   plYStart = (height() / 2 - plItemHeight / 2) - plItemHeight * (plTtemsCount - 1) / 2 + playlistConf.widget.textsize*2;
   
   Serial.println("[ST7701] initDisplay completed successfully");
-  
-  // Simple test - clear screen
-  if (gfx) {
-    gfx->fillScreen(RGB565_BLACK);
-    Serial.println("[ST7701] Screen cleared to BLACK");
-    
-   
+
+  // Optional panel clear — LVGL Boot paints first frame; skip if begin failed.
+  if (s_rgb_output_begun && output_display) {
+    output_display->fillScreen(0); // RGB565 black / чёрный экран до LVGL Boot
+    Serial.println("[ST7701] Panel cleared to BLACK (output_display)");
   }
-  
+
   Serial.println("[ST7701] Display ready for normal operation");
 }
 
@@ -275,11 +267,9 @@ void DspCore::displayOff() {
 void DspCore::drawLogo(uint16_t top) 
 { 
 #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-    // Block 8-E11: LVGL Boot uses scr_boot assets; never paint bootlogo2 into shared Canvas.
-    // Block 8-E11: при LVGL Boot / lv_disp — не пишем в Canvas (E5C shared buffer).
-    if (lvgl_ui::isLvglBootActive() || lv_disp_get_default() != nullptr) {
-        return;
-    }
+    // Block 8-E11/E17: LVGL Boot/assets only — no legacy Canvas bootlogo.
+    (void)top;
+    return;
 #endif
     Serial.println("[ST7701] drawLogo call");
     
@@ -303,6 +293,10 @@ uint16_t DspCore::textWidthGFX(const char *txt, uint8_t textsize) {
 }
 
 void DspCore::printPLitem(uint8_t pos, const char* item, ScrollWidget& current, bool uppercase){
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+  (void)pos; (void)item; (void)current; (void)uppercase;
+  return;
+#endif
   if (!gfx) { Serial.println("[ST7701] gfx is nullptr! (printPLitem)"); return; }
   if (pos == plCurrentPos) {
     current.setText(item);
@@ -345,6 +339,10 @@ void DspCore::printPLitem(uint8_t pos, const char* item, ScrollWidget& current, 
 }
 
 void DspCore::drawPlaylist(uint16_t currentItem) {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+  (void)currentItem;
+  return;
+#endif
   if (!gfx) { Serial.println("[ST7701] gfx is nullptr! (drawPlaylist)"); return; }
   uint8_t lastPos = config.fillPlMenu(currentItem - plCurrentPos, plTtemsCount);
   if(lastPos<plTtemsCount){
@@ -352,7 +350,14 @@ void DspCore::drawPlaylist(uint16_t currentItem) {
   }
 }
 
-void DspCore::clearDsp(bool black) { if (!gfx) { Serial.println("[ST7701] gfx is nullptr! (clearDsp)"); return; } gfxClearScreen(gfx, black?0:config.theme.background); }
+void DspCore::clearDsp(bool black) {
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+  (void)black;
+  return;
+#endif
+  if (!gfx) { Serial.println("[ST7701] gfx is nullptr! (clearDsp)"); return; }
+  gfxClearScreen(gfx, black?0:config.theme.background);
+}
 
 uint8_t DspCore::_charWidth(unsigned char c){
   GFXglyph *glyph = pgm_read_glyph_ptr(&DS_DIGI56pt7b, c - 0x20);
@@ -504,6 +509,10 @@ void DspCore::_clockTime(){
 }
 
 void DspCore::printClock(uint16_t top, uint16_t rightspace, uint16_t timeheight, bool redraw){
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+  (void)top; (void)rightspace; (void)timeheight; (void)redraw;
+  return;
+#endif
   // Limit top boundary
   if(top < TFT_FRAMEWDT) {
     top = TFT_FRAMEWDT;
@@ -529,6 +538,9 @@ void DspCore::printClock(uint16_t top, uint16_t rightspace, uint16_t timeheight,
 }
 
 void DspCore::clearClock(){
+#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
+  return;
+#endif
   if (!gfx) { Serial.println("[ST7701] gfx is nullptr! (clearClock)"); return; }
   int16_t curY = (int16_t)clockTop - (int16_t)clockTimeHeight - 20;
   if (curY < 0) curY = 0;
@@ -615,7 +627,7 @@ void DspCore::charSize(uint8_t textsize, uint8_t& width, uint16_t& height){
 }
 
 void DspCore::setTextSize(uint8_t s){
-  if (!gfx) { Serial.println("[AXS15231B] gfx is nullptr! (setTextSize)"); return; }
+  if (!gfx) { return; }
   gfx->setTextSize(s);
 }
 
@@ -664,6 +676,7 @@ void DspCore::setBrightness(uint8_t brightness) {
 }
 
 void DspCore::writePixel(int16_t x, int16_t y, uint16_t color) {
+    if (!gfx) { return; }
     if(_clipping){
         if ((x < _cliparea.left) || (x > _cliparea.left+_cliparea.width) || (y < _cliparea.top) || (y > _cliparea.top + _cliparea.height)) return;
     }
@@ -671,6 +684,7 @@ void DspCore::writePixel(int16_t x, int16_t y, uint16_t color) {
 }
 
 void DspCore::writeFillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color) {
+    if (!gfx) { return; }
     if(_clipping){
         if ((x < _cliparea.left) || (x >= _cliparea.left+_cliparea.width) || (y < _cliparea.top) || (y > _cliparea.top + _cliparea.height))  return;
     }

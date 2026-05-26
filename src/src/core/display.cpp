@@ -109,10 +109,18 @@ void Display::init() {
     Serial.println("[Display] Spectrum Analyzer initialized successfully");
   }
 
+#if DSP_MODEL == DSP_ST7701
+  // Block 8-E17: ST7701 LVGL product — panel via output_display, gfx stays nullptr.
+  if (!dsp.getOutputDisplay()) {
+    Serial.println("[Display] Failed to initialize display (no output_display)!");
+    return;
+  }
+#else
   if (!gfx) {
     Serial.println("[Display] Failed to initialize display!");
     return;
   }
+#endif
 
   lvgl_ui::initRuntime();
   lvgl_ui::initTick();
@@ -585,7 +593,7 @@ void Display::loop() {
   }
   if(!_suspendFlush){
     static uint32_t lastFlushMs = 0;
-    if(g_frameDirty && (millis() - lastFlushMs >= 16)){
+    if(g_frameDirty && gfx && (millis() - lastFlushMs >= 16)){
       sdog.takeMutex();
       gfxFlushScreen(gfx);
       sdog.giveMutex();
@@ -707,6 +715,7 @@ size_t Display::diagSnapshot(char* out, size_t len) const {
 
   // Block 8-E16.2B-1: legacy Pager/widgets removed from Display.
   append_line("display.legacy_pager_widgets: 0\n");
+  append_line("display.canvas_allocated: %d\n", gfx ? 1 : 0);
   append_line("display.suspend_flush: %d\n", _suspendFlush ? 1 : 0);
   append_line("g_frameDirty: %d\n", g_frameDirty ? 1 : 0);
 
