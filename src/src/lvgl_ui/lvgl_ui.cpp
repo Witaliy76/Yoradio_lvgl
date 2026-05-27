@@ -204,9 +204,10 @@ static bool lvgl_page_refresh_allowed() {
 }
 
 #if LV_USE_PERF_MONITOR
-// Stock LVGL perf label uses lv_obj_align(..., LV_USE_PERF_MONITOR_POS, 0, 0) — no x/y ofs in lv_conf.
-// Move overlay right of Wi‑Fi (left status column) so it does not cover weather (right column). / Встроенный
-// perf label без смещения в lv_conf — сдвигаем вправо от Wi‑Fi, чтобы не перекрывать погоду справа.
+// Stock LVGL perf label: TOP_RIGHT + auto width → we pin left of a fixed box + right text (no digit jump).
+// Встроенный perf label: фикс. ширина + текст справа — левый край блока не смещается при 4%↔10% CPU.
+static constexpr lv_coord_t kLvglPerfMonitorLabelW = 76; // fits "50 FPS\n100% CPU" / под двузначные FPS/CPU
+
 static void repositionBuiltinLvglPerfMonitorOnce() {
     static bool s_done = false;
     if (s_done) return;
@@ -224,6 +225,10 @@ static void repositionBuiltinLvglPerfMonitorOnce() {
             d ? static_cast<lv_coord_t>(lv_disp_get_hor_res(d)) : static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.width);
         const lv_coord_t x_est = (w * 12) / 100;
         const lv_coord_t x0   = x_est > 40 ? x_est : 40;
+
+        lv_obj_set_width(ch, kLvglPerfMonitorLabelW);
+        lv_obj_set_style_text_align(ch, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+        lv_label_set_long_mode(ch, LV_LABEL_LONG_CLIP);
         lv_obj_align(ch, LV_ALIGN_TOP_LEFT, x0, 2);
         s_done = true;
         break;

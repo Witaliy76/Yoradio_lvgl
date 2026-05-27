@@ -607,20 +607,23 @@ size_t Display::diagSnapshot(char* out, size_t len) const {
 
   append_line("display.mode: %s\n", displayModeName(_mode));
   append_line("display.ui_path: lvgl_only\n");
-  // Block 8-E16.2B-1: legacy Pager/widgets removed from Display.
-  append_line("display.legacy_pager_widgets: 0\n");
   append_line("display.canvas_allocated: %d\n", gfx ? 1 : 0);
   append_line("display.legacy_canvas_flush: 0\n");
   append_line("display.suspend_flush: %d\n", _suspendFlush ? 1 : 0);
   append_line("g_frameDirty: 0\n");
 
   const uint32_t now = millis();
+  // Block 8-E19G: panel.flush_* aliases (LVGL direct panel flush; gfx_* kept for compatibility).
+  // Block 8-E19G: алиасы panel.flush_* (прямой LVGL→panel; gfx_* — совместимость).
   append_line("panel.gfx_flush_count: %lu\n", (unsigned long)s_panel_gfx_flush_count);
+  append_line("panel.flush_count: %lu\n", (unsigned long)s_panel_gfx_flush_count);
   if (s_panel_last_gfx_flush_ms != 0) {
-    append_line("panel.last_gfx_flush_ms_ago: %lu\n",
-                (unsigned long)(now - s_panel_last_gfx_flush_ms));
+    const unsigned long ms_ago = (unsigned long)(now - s_panel_last_gfx_flush_ms);
+    append_line("panel.last_gfx_flush_ms_ago: %lu\n", ms_ago);
+    append_line("panel.last_flush_ms_ago: %lu\n", ms_ago);
   } else {
     append_line("panel.last_gfx_flush_ms_ago: never\n");
+    append_line("panel.last_flush_ms_ago: never\n");
   }
 
   if (DspTask != nullptr) {
