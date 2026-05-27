@@ -3,8 +3,6 @@
 
 #include "lv_screensaver.h"
 
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-
 #include "lvgl.h"
 #include "profiles/lv_profile_select.h"
 #include "theme/lv_theme_yoradio.h"
@@ -102,16 +100,3 @@ void screensaverShow() {
 }
 
 } // namespace lvgl_ui
-
-#else
-
-namespace lvgl_ui {
-
-void screensaverHide() {}
-void screensaverShow() {}
-void screensaverRefreshClock() {}
-bool screensaverIsVisible() { return false; }
-
-} // namespace lvgl_ui
-
-#endif

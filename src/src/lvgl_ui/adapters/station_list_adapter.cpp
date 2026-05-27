@@ -1,7 +1,5 @@
 #include "station_list_adapter.h"
 
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-
 #include <cstdio>
 #include <cstring>
 
@@ -162,5 +160,3 @@ bool play_station(uint16_t station_num) {
 
 } // namespace station_list_adapter
 } // namespace lvgl_ui
-
-#endif // YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)

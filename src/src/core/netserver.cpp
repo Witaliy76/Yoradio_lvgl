@@ -15,12 +15,8 @@
 #include <Update.h>
 #include <ESPmDNS.h>
 #include <ArduinoJson.h>
-#if YORADIO_USE_LVGL
 #include "../lvgl_ui/profiles/lv_profile_select.h"
-#if (YORADIO_LVGL_STAGE >= 2)
 #include "../lvgl_ui/theme/lv_theme_yoradio.h"
-#endif
-#endif
 #include "../ai/ai_subsystem.h"
 #include "../ai/ai_log.h"  // AI Layer logging macros
 
@@ -58,7 +54,6 @@ void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t ind
 void handleUpdate(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
 void handleHTTPArgs(AsyncWebServerRequest * request);
 void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
-#if YORADIO_USE_LVGL
 void beginUploadBg(AsyncWebServerRequest *request);
 void handleUploadBg(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
 void beginUploadTheme(AsyncWebServerRequest* request);
@@ -71,7 +66,6 @@ void beginUploadArt(AsyncWebServerRequest *request);
 void handleUploadArt(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
 void handleRemoveArtHttp(AsyncWebServerRequest *request);
 void handleArtStatusHttp(AsyncWebServerRequest *request);
-#endif
 void handleBgStatusHttp(AsyncWebServerRequest *request);
 
 bool  shouldReboot  = false;
@@ -134,7 +128,6 @@ bool NetServer::begin(bool quiet) {
   webserver.on("/update", HTTP_POST, beginUpdate, handleUpdate);
   webserver.on("/settings", HTTP_GET, handleHTTPArgs);
   webserver.on("/appearance", HTTP_GET, handleHTTPArgs);
-#if YORADIO_USE_LVGL
   // Main background .bin → /bg/main_{dark,light,custom}.bin (Stage 6.1F-d) / Фон Main в слоты LittleFS
   webserver.on("/upload_bg", HTTP_POST, beginUploadBg, handleUploadBg);
   webserver.on("/remove_bg", HTTP_POST, handleRemoveBgHttp);
@@ -149,7 +142,6 @@ bool NetServer::begin(bool quiet) {
   webserver.on("/art_status", HTTP_GET, handleArtStatusHttp);
   webserver.on("/upload_art", HTTP_POST, beginUploadArt, handleUploadArt);
   webserver.on("/remove_art", HTTP_POST, handleRemoveArtHttp);
-#endif
   if (IR_PIN != 255) webserver.on("/ir", HTTP_GET, handleHTTPArgs);
   webserver.serveStatic("/", LittleFS, "/www/").setCacheControl("max-age=31536000");
   /* No handler matched → library sends 500; route /bg_status here too + 404 for stray GET / Нет маршрута → 500; запасной /bg_status */
@@ -1204,7 +1196,6 @@ void NetServer::resetQueue(){
 // Stage 6.1F-d: Main background slots — POST /upload_bg, GET /bg_status
 // Слоты фона Main: загрузка .bin в /bg/main_*.bin, JSON статус для WebUI
 // ---------------------------------------------------------------------------
-#if YORADIO_USE_LVGL
 namespace {
 
 static const char kBgTmpPath[] = "/bg/.upload_bg.tmp";
@@ -1420,7 +1411,6 @@ void handleUploadBg(AsyncWebServerRequest* request, String filename, size_t inde
       committed.close();
     }
   }
-#if (YORADIO_LVGL_STAGE >= 2)
   // Invalidate Main PSRAM bg when WebUI overwrote the active theme slot (DspTask reload).
   // Сброс кэша фона: только если залитый слот совпадает с активным пресетом — иначе очередь не трогаем.
   {
@@ -1439,7 +1429,6 @@ void handleUploadBg(AsyncWebServerRequest* request, String filename, size_t inde
       }
     }
   }
-#endif
   char okjson[280];
   snprintf(okjson, sizeof(okjson),
            "{\"ok\":true,\"slot\":\"%s\",\"path\":\"%s\",\"written_bytes\":%lu,\"final_size\":%lu,\"target_exists\":%s}",
@@ -1496,7 +1485,6 @@ void beginUploadTheme(AsyncWebServerRequest* request) {
 }
 
 void handleUploadTheme(AsyncWebServerRequest* request, String filename, size_t index, uint8_t* data, size_t len, bool final) {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
   if (index == 0) {
     gThemeUploadArmed = false;
     gThemeIoFatal = false;
@@ -1620,20 +1608,9 @@ void handleUploadTheme(AsyncWebServerRequest* request, String filename, size_t i
            (unsigned long)gThemeWrittenTotal,
            (unsigned long)sz);
   request->send(200, "application/json", okjson);
-#else
-  (void)request;
-  (void)filename;
-  (void)index;
-  (void)data;
-  (void)len;
-  if (final) {
-    request->send(501, "application/json", "{\"ok\":false,\"error\":\"lvgl_not_enabled\"}");
-  }
-#endif
 }
 
 void handleRemoveThemeHttp(AsyncWebServerRequest* request) {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
   if (LittleFS.exists(kThemeCustomFinalPath)) {
     if (!LittleFS.remove(kThemeCustomFinalPath)) {
       request->send(500, "application/json", "{\"ok\":false,\"error\":\"remove_failed\"}");
@@ -1643,18 +1620,12 @@ void handleRemoveThemeHttp(AsyncWebServerRequest* request) {
   display.putRequest(CUSTOM_THEME_FILE_UPDATED, 0);
   request->send(200, "application/json",
                  "{\"ok\":true,\"custom_theme_exists\":false,\"reload\":\"queued\"}");
-#else
-  (void)request;
-  request->send(501, "application/json", "{\"ok\":false,\"error\":\"lvgl_not_enabled\"}");
-#endif
 }
-#endif  // YORADIO_USE_LVGL
 
 // Stage 6.6R-B: POST /set_theme?preset=dark|light|custom — enqueue runtime preset switch on DspTask.
 // No persistence yet; reboot resets to Dark. LVGL APIs are never called here.
 // Этап 6.6R-B: поставить смену пресета темы в очередь DspTask. Без сохранения; reboot → Dark.
 void handleSetThemeHttp(AsyncWebServerRequest* request) {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
   if (!request->hasParam("preset")) {
     request->send(400, "application/json", "{\"ok\":false,\"error\":\"missing_preset\"}");
     return;
@@ -1674,14 +1645,10 @@ void handleSetThemeHttp(AsyncWebServerRequest* request) {
            "{\"ok\":true,\"preset\":\"%s\",\"active_theme\":\"%s\"}",
            preset.c_str(), preset.c_str());
   request->send(200, "application/json", buf);
-#else
-  request->send(501, "application/json", "{\"ok\":false,\"error\":\"lvgl_not_enabled\"}");
-#endif
 }
 
 void handleBgStatusHttp(AsyncWebServerRequest* request) {
   // Main background slots on LittleFS — read-only, defensive / Слоты фона Main, только чтение
-#if YORADIO_USE_LVGL
   static const char* const kBgPaths[3] = {"/bg/main_dark.bin", "/bg/main_light.bin", "/bg/main_custom.bin"};
   bool bgOk[3] = {false, false, false};
   size_t bgSz[3] = {0, 0, 0};
@@ -1700,7 +1667,6 @@ void handleBgStatusHttp(AsyncWebServerRequest* request) {
   const uint32_t dw = LV_ACTIVE_PROFILE.width;
   const uint32_t dh = LV_ACTIVE_PROFILE.height;
   const char* active_theme = "dark";
-#if (YORADIO_LVGL_STAGE >= 2)
   switch (lvgl_ui::yoradio_theme_active_preset()) {
     case lvgl_ui::ThemePreset::Light:
       active_theme = "light";
@@ -1712,8 +1678,6 @@ void handleBgStatusHttp(AsyncWebServerRequest* request) {
       active_theme = "dark";
       break;
   }
-#endif
-#if (YORADIO_LVGL_STAGE >= 2)
   const lvgl_ui::ThemeCustomParseStats& cst = lvgl_ui::yoradio_theme_custom_parse_stats();
   const bool custom_exists = lvgl_ui::yoradio_theme_custom_file_exists();
   // FS size for WebUI — stats may lag until DspTask parses after upload (F2 dedupe).
@@ -1728,11 +1692,7 @@ void handleBgStatusHttp(AsyncWebServerRequest* request) {
   }
   const uint32_t custom_report_size =
       (custom_fs_size > 0u) ? custom_fs_size : cst.file_size;
-#else
-  const bool custom_exists = false;
-#endif
   char buf[768];
-#if (YORADIO_LVGL_STAGE >= 2)
   snprintf(buf, sizeof(buf),
            "{\"dsp_w\":%u,\"dsp_h\":%u,"
            "\"active_theme\":\"%s\","
@@ -1754,30 +1714,7 @@ void handleBgStatusHttp(AsyncWebServerRequest* request) {
            (unsigned)cst.applied_keys,
            (unsigned)cst.invalid_lines,
            (unsigned)cst.unknown_keys);
-#else
-  snprintf(buf, sizeof(buf),
-           "{\"dsp_w\":%u,\"dsp_h\":%u,"
-           "\"active_theme\":\"%s\","
-           "\"bg_dark\":%s,\"bg_light\":%s,\"bg_custom\":%s,"
-           "\"bg_dark_size\":%lu,\"bg_light_size\":%lu,\"bg_custom_size\":%lu,"
-           "\"custom_theme_exists\":false,"
-           "\"custom_theme_size\":0,"
-           "\"custom_theme_applied_keys\":0,"
-           "\"custom_theme_invalid_lines\":0,"
-           "\"custom_theme_unknown_keys\":0}",
-           (unsigned)dw, (unsigned)dh,
-           active_theme,
-           bgOk[0] ? "true" : "false",
-           bgOk[1] ? "true" : "false",
-           bgOk[2] ? "true" : "false",
-           (unsigned long)bgSz[0], (unsigned long)bgSz[1], (unsigned long)bgSz[2]);
-#endif
   request->send(200, "application/json", buf);
-#else
-  request->send(200, "application/json",
-                 "{\"dsp_w\":0,\"dsp_h\":0,\"active_theme\":\"dark\",\"bg_dark\":false,\"bg_light\":false,\"bg_custom\":false,"
-                 "\"bg_dark_size\":0,\"bg_light_size\":0,\"bg_custom_size\":0}");
-#endif
 }
 
 // ---------------------------------------------------------------------------
@@ -1785,7 +1722,6 @@ void handleBgStatusHttp(AsyncWebServerRequest* request) {
 // Арт станции: загрузка/удаление/статус — /logo/<normalized_playlist_name>.bin
 // Key contract: stationByNum(config.lastStation()) → artNormalizeKey() — server-side only.
 // ---------------------------------------------------------------------------
-#if YORADIO_USE_LVGL
 #include "art_key.h"
 namespace {
 
@@ -1950,10 +1886,8 @@ void handleUploadArt(AsyncWebServerRequest* request, String filename, size_t ind
         if (committed) { final_sz = committed.size(); committed.close(); }
     }
 
-#if (YORADIO_LVGL_STAGE >= 2)
     // Signal DspTask to reload art on Main screen / Сигнал DspTask — перезагрузить арт на Main.
     display.putRequest(ART_FS_UPDATED, 0);
-#endif
 
     char okjson[320];
     snprintf(okjson, sizeof(okjson),
@@ -1978,9 +1912,7 @@ void handleRemoveArtHttp(AsyncWebServerRequest* request) {
             return;
         }
     }
-#if (YORADIO_LVGL_STAGE >= 2)
     display.putRequest(ART_FS_UPDATED, 0);
-#endif
     request->send(200, "application/json", "{\"ok\":true}");
 }
 
@@ -2020,8 +1952,6 @@ void handleArtStatusHttp(AsyncWebServerRequest* request) {
              (unsigned)kArtSlotW, (unsigned)kArtSlotH);
     request->send(200, "application/json", buf);
 }
-
-#endif  // YORADIO_USE_LVGL (Station Art MVP)
 
 String processor(const String& var) { // %Templates%
   if (var == "ACTION") return (network.status == CONNECTED && !config.emptyFS)?"webboard":"";
