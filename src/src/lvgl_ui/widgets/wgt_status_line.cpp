@@ -3,7 +3,6 @@
 
 #include "wgt_status_line.h"
 
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
 
 #include <cstdio>
 #include <cstring>
@@ -242,4 +241,3 @@ void reapplyTheme(Instance& inst) {
 } // namespace wgt_status_line
 } // namespace lvgl_ui
 
-#endif // YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)

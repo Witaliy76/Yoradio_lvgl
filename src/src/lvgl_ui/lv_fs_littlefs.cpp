@@ -5,8 +5,6 @@
 
 #include "lv_fs_littlefs.h"
 
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-
 #include "../core/options.h"
 #include <LittleFS.h>
 #include <FS.h>
@@ -135,9 +133,3 @@ extern "C" void lv_fs_littlefs_register(void) {
     drv.tell_cb = fs_tell_cb;
     lv_fs_drv_register(&drv);
 }
-
-#else
-
-extern "C" void lv_fs_littlefs_register(void) {}
-
-#endif // YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)

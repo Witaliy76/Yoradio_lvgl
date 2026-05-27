@@ -4,8 +4,6 @@
 #include "lv_overlay.h"
 #include "lv_screensaver.h"
 
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-
 #include "lvgl.h"
 #include "profiles/lv_profile_select.h"
 #include "theme/lv_theme_yoradio.h"
@@ -171,16 +169,3 @@ void overlayShowUpdating() {
 }
 
 } // namespace lvgl_ui
-
-#else
-
-namespace lvgl_ui {
-
-void overlayHideAll() {}
-void overlayShowLost() {}
-void overlayShowUpdating() {}
-void overlayLostSetStatusText(const char*) {}
-
-} // namespace lvgl_ui
-
-#endif

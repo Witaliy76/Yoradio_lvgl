@@ -8,7 +8,6 @@
 
 #include "scr_station.h"
 
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
 
 #include <cstdio>
 
@@ -936,4 +935,3 @@ lv_obj_t* LvglStationPage::screen() {
 
 } // namespace lvgl_ui
 
-#endif // YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)

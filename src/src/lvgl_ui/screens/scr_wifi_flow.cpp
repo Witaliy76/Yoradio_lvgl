@@ -10,7 +10,6 @@
 
 #include "scr_wifi_flow.h"
 
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
 
 #include "lvgl.h"
 #include <cstdio>
@@ -2364,4 +2363,3 @@ void LvglWifiFlowScreen::on_btn_saved_yes(lv_event_t* e) {
 
 } // namespace lvgl_ui
 
-#endif // YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)

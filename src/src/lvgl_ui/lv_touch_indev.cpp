@@ -1,7 +1,4 @@
 #include "../core/options.h"
-
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-
 #include "lv_touch_indev.h"
 #include "lvgl.h"
 
@@ -155,11 +152,3 @@ void lvgl_ui::initTouchIndev() {
     (void)s_touch_indev;
 #endif
 }
-
-#else
-
-#include "lv_touch_indev.h"
-
-void lvgl_ui::initTouchIndev() {}
-
-#endif

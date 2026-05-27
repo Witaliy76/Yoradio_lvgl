@@ -7,7 +7,6 @@
 
 #include "lv_theme_yoradio.h"
 
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
 
 #include <cstddef>
 #include <cstdlib>
@@ -599,4 +598,3 @@ void yoradio_theme_reinit(lv_disp_t* disp) {
 
 } // namespace lvgl_ui
 
-#endif // YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)

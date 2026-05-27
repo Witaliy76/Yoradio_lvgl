@@ -1,7 +1,5 @@
 #include "lv_page_chain.h"
 
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-
 #include "lvgl.h"
 #include "Arduino.h"
 #include "../core/config.h"
@@ -330,4 +328,3 @@ void PageChain::reapplyThemeToCreatedPages() {
 
 } // namespace lvgl_ui
 
-#endif // YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)

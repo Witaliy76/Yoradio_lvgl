@@ -7,7 +7,6 @@
 
 #include "scr_stub.h"
 
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
 
 #include "lvgl.h"
 #include "lvgl_ui.h"
@@ -77,4 +76,3 @@ lv_obj_t* LvglStubPage::screen() {
 
 } // namespace lvgl_ui
 
-#endif // YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)

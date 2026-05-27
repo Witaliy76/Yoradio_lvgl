@@ -417,33 +417,25 @@ void MyNetwork::begin() {
   forceTimeSync = true;
   forceWeather = false;
   if (config.ssidsCount == 0 || DBGAP) {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     if (!DBGAP) {
-      // S6V9C: LVGL Recovery path — no automatic AP on boot; AP starts only on Hotspot page.
-      // S6V9C: LVGL — не поднимаем AP при старте; AP только при входе на Hotspot page.
+      // S6V9C / 8-E19C-1: Wi-Fi Recovery — no automatic AP on boot; AP only on Hotspot page.
+      // S6V9C / 8-E19C-1: Recovery — AP при старте не поднимаем; AP только со страницы Hotspot.
       Serial.println("[Network] Wi-Fi Recovery needed; AP not started");
       status = FAILED;
       Serial.println("##[BOOT]#\tdone");
       return;
     }
-#endif
     raiseSoftAP();
     return;
   }
   if(config.getMode()!=PM_SDCARD){
     if(!wifiBegin()){
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-      // S6V9C: LVGL Recovery path — no automatic AP on failed STA; AP starts only on Hotspot page.
-      // S6V9C: LVGL — не поднимаем AP при неудаче STA; AP только при входе на Hotspot page.
+      // S6V9C / 8-E19C-1: Wi-Fi Recovery — no automatic AP on failed STA; AP only on Hotspot page.
+      // S6V9C / 8-E19C-1: Recovery — AP при неудаче STA не поднимаем; AP только со Hotspot page.
       Serial.println("[Network] Wi-Fi Recovery needed; AP not started");
       status = FAILED;
       Serial.println("##[BOOT]#\tdone");
       return;
-#else
-      raiseSoftAP();
-      Serial.println("##[BOOT]#\tdone");
-      return;
-#endif
     }
     Serial.println(".");
     status = CONNECTED;

@@ -17,7 +17,6 @@
 
 #include "scr_info.h"
 
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
 
 #include "lvgl.h"
 #include "Arduino.h"
@@ -567,4 +566,3 @@ lv_obj_t* LvglInfoPage::screen() {
 
 } // namespace lvgl_ui
 
-#endif // YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
