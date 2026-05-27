@@ -43,11 +43,7 @@ DspCore dsp;
 #endif
 
 #ifndef CORE_STACK_SIZE
-  #if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-    #define CORE_STACK_SIZE  (1024*6)
-  #else
-    #define CORE_STACK_SIZE  (1024*3)
-  #endif
+  #define CORE_STACK_SIZE  (1024*6)
 #endif
 #ifndef DSP_TASK_DELAY
   #define DSP_TASK_DELAY  pdMS_TO_TICKS(5)
@@ -71,7 +67,7 @@ void loopDspTask(void * pvParameters){
   while(true){
     if(displayQueue==NULL) break;
     display.loop();
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2) && defined(LVGL_DEBUG_STACK)
+#if defined(LVGL_DEBUG_STACK)
     static bool s_printed = false;
     if (!s_printed) {
       UBaseType_t watermark = uxTaskGetStackHighWaterMark(nullptr);
@@ -131,12 +127,7 @@ void Display::init() {
     delay(10);
   }
 
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-  Serial.println("[Boot] LVGL product path; legacy Pager boot removed (8-E16.2B-1)");
-#else
-  #error "Legacy Canvas Display boot removed in Block 8-E16.2B-1; YORADIO_USE_LVGL required"
-#endif
-
+  Serial.println("[Boot] LVGL product path (8-E19B)");
   Serial.println("done");
 }
 
@@ -144,7 +135,6 @@ void Display::_start() {
   Serial.println("[Display] _start() called");
   Serial.printf("[Display] network.status = %d\n", network.status);
   if (network.status != CONNECTED && network.status != SDREADY) {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     if (lvgl_ui::isLvglBootActive()) {
       _mode = PLAYER;
       lvgl_ui::bootScreenSetStatusUtf8(
@@ -157,39 +147,24 @@ void Display::_start() {
       Serial.println("[Display] Wi-Fi 5A: LVGL Recovery handoff pending");
       return;
     }
-    Serial.println("[AP] LVGL Wi-Fi Recovery handoff; legacy _apScreen removed (8-E16.2B-1)");
+    Serial.println("[AP] LVGL Wi-Fi Recovery handoff");
     lvgl_ui::notifyWifiRecoveryEnteredFromBootFailure();
     lvgl_ui::showWifiRecoveryFlowFromDisplayStart();
     {
       const displayMode_e prev_mode = _mode;
       _mode                         = WIFI;
-      lvgl_ui::UiBackend backend    = lvgl_ui::getPreferredBackend(WIFI);
-      _activeBackend                = backend;
-      lvgl_ui::onModeChanged(WIFI, backend, prev_mode);
+      lvgl_ui::onModeChanged(WIFI, prev_mode);
     }
     _bootStep     = 2;
     _suspendFlush = false;
     return;
-#else
-    #error "Legacy AP Canvas path removed in Block 8-E16.2B-1"
-#endif
   }
 
-#if !(YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2))
-  #error "Legacy Canvas PLAYER _start removed in Block 8-E16.2B-1; LVGL required"
-#endif
-  lvgl_ui::UiBackend startBackend = lvgl_ui::getPreferredBackend(PLAYER);
   _mode = PLAYER;
   config.setTitle(const_PlReady);
-
-  if (startBackend == lvgl_ui::UiBackend::Lvgl) {
-    _lvgl_player_handoff_pending = true;
-    return;
-  }
-  Serial.println("[Display] FATAL: non-LVGL PLAYER backend on LVGL product build");
+  _lvgl_player_handoff_pending = true;
 }
 
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
 void Display::_tryCompleteLvglWifiRecoveryHandoff() {
   if (!_lvgl_wifi_recovery_handoff_pending) return;
   constexpr uint32_t kOpeningMsgHoldMs = 450;
@@ -208,12 +183,10 @@ void Display::_tryCompleteLvglWifiRecoveryHandoff() {
     lvgl_ui::dismissBootForWifiRecoveryHandoff();
     _lvgl_wifi_recovery_handoff_pending  = false;
     _lvgl_wifi_recovery_handoff_phase    = 0;
-    const displayMode_e prev_mode        = _mode;
-    _mode                                = WIFI;
-    lvgl_ui::UiBackend backend           = lvgl_ui::getPreferredBackend(WIFI);
-    _activeBackend                       = backend;
-    lvgl_ui::onModeChanged(WIFI, backend, prev_mode);
-    _bootStep       = 2;
+    const displayMode_e prev_mode = _mode;
+    _mode                         = WIFI;
+    lvgl_ui::onModeChanged(WIFI, prev_mode);
+    _bootStep     = 2;
     _suspendFlush = false;
   }
 }
@@ -261,19 +234,15 @@ void Display::_tryCompleteLostEscalation() {
     putRequest(NEWMODE, WIFI);
   }
 }
-#endif
 
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
 void Display::_tryCompleteLvglPlayerHandoff() {
   if (!_lvgl_player_handoff_pending) return;
   if (!lvgl_ui::dismissBootForMainHandoffWhenDue()) return;
   _lvgl_player_handoff_pending = false;
-  _activeBackend = lvgl_ui::getPreferredBackend(PLAYER);
-  lvgl_ui::onModeChanged(PLAYER, _activeBackend, PLAYER);
+  lvgl_ui::onModeChanged(PLAYER, PLAYER);
   _bootStep = 2;
   _suspendFlush = false;
 }
-#endif
 
 void Display::_setReturnTicker(uint8_t time_s){
   _returnTicker.detach();
@@ -288,15 +257,12 @@ void Display::_swichMode(displayMode_e newmode) {
   if (newmode == NUMBERS) {
     return;
   }
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
   if (newmode == TIMEZONE) {
     return;
   }
   if (newmode == SLEEPING) {
     return;
   }
-#endif
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
   if (newmode == LOST && lvgl_ui::isWifiSetupFlowActive()) {
     return;
   }
@@ -309,7 +275,6 @@ void Display::_swichMode(displayMode_e newmode) {
     _lost_started_ms           = 0;
     _lost_escalation_milestone = 0;
   }
-#endif
   if (network.status != CONNECTED && network.status != SDREADY && newmode != WIFI &&
       !(newmode == PLAYER && _mode == WIFI)) {
     return;
@@ -327,19 +292,11 @@ void Display::_swichMode(displayMode_e newmode) {
     _returnTicker.detach();
     config.isScreensaver = false;
 
-    if (lvgl_ui::getPreferredBackend(PLAYER) == lvgl_ui::UiBackend::Lvgl) {
-      if (prev_mode == SCREENBLANK) {
-        config.setDspOn(config.store.dspon, false);
-      }
+    if (prev_mode == SCREENBLANK) {
+      config.setDspOn(config.store.dspon, false);
     }
   }
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-  const bool lvgl_screensaver_path =
-      (newmode == SCREENSAVER || newmode == SCREENBLANK) &&
-      (lvgl_ui::getPreferredBackend(newmode) == lvgl_ui::UiBackend::Lvgl);
-#else
-  const bool lvgl_screensaver_path = false;
-#endif
+  const bool lvgl_screensaver_path = (newmode == SCREENSAVER || newmode == SCREENBLANK);
   if (newmode == SCREENSAVER || newmode == SCREENBLANK) {
     config.isScreensaver = true;
     if (newmode == SCREENBLANK) {
@@ -357,9 +314,7 @@ void Display::_swichMode(displayMode_e newmode) {
     currentPlItem = config.lastStation();
   }
 
-  lvgl_ui::UiBackend backend = lvgl_ui::getPreferredBackend(newmode);
-  _activeBackend = backend;
-  lvgl_ui::onModeChanged(newmode, backend, prev_mode);
+  lvgl_ui::onModeChanged(newmode, prev_mode);
 }
 
 void Display::resetQueue(){
@@ -413,24 +368,18 @@ void Display::putRequest(displayRequestType_e type, int payload){
   #define DSP_QUEUE_TICKS pdMS_TO_TICKS(10)
 #endif
 void Display::loop() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
   static bool s_lvgl_boot_connected_latched = false;
-#endif
   if(_bootStep==0) {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     if (lvgl_ui::tryPresentLvglBootOnFirstDspLoop()) {
       _bootStep = 1;
       _suspendFlush = false;
     } else {
       static bool s_lvgl_boot_present_fail_logged = false;
       if (!s_lvgl_boot_present_fail_logged) {
-        Serial.println("[Boot] LVGL Boot presentation failed; legacy Canvas boot disabled");
+        Serial.println("[Boot] LVGL Boot presentation failed");
         s_lvgl_boot_present_fail_logged = true;
       }
     }
-#else
-    #error "Legacy boot loop removed in Block 8-E16.2B-1"
-#endif
   }
   if(displayQueue==NULL && _bootStep!=1) return;
   requestParams_t request;
@@ -438,11 +387,9 @@ void Display::loop() {
     switch (request.type){
         case NEWMODE: _swichMode((displayMode_e)request.payload); break;
         case CLOCK:
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-          if (_mode == SCREENSAVER && _activeBackend == lvgl_ui::UiBackend::Lvgl) {
+          if (_mode == SCREENSAVER) {
             lvgl_ui::screensaverRefreshClock();
           }
-#endif
           break;
         case NEWTITLE: _title(); break;
         case NEWSTATION:
@@ -453,19 +400,14 @@ void Display::loop() {
         case DRAWPLAYLIST:
           break;
         case DRAWVOL:
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-          if (_activeBackend == lvgl_ui::UiBackend::Lvgl &&
-              (_mode == PLAYER || _mode == VOL)) {
+          if (_mode == PLAYER || _mode == VOL) {
             lvgl_ui::refreshMainScreen();
           }
-#endif
           break;
         case DBITRATE:
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-          if (_activeBackend == lvgl_ui::UiBackend::Lvgl && _mode == PLAYER) {
+          if (_mode == PLAYER) {
             lvgl_ui::refreshMainScreen();
           }
-#endif
           break;
         case AUDIOINFO:
           break;
@@ -476,22 +418,17 @@ void Display::loop() {
         case NEWWEATHER:
           break;
         case BOOTSTRING: {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-          const bool lvgl_boot_active_now = lvgl_ui::isLvglBootActive();
-          if (lvgl_boot_active_now) {
+          if (lvgl_ui::isLvglBootActive()) {
             if (s_lvgl_boot_connected_latched) break;
             char line[96];
             snprintf(line, sizeof(line), bootstrFmt, config.ssids[request.payload].ssid);
             lvgl_ui::bootScreenSetStatusUtf8(line);
             lvgl_ui::bootScreenNotifyBootSignal();
           }
-#endif
           break;
         }
         case WAITFORSD: {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-          const bool lvgl_boot_active_now = lvgl_ui::isLvglBootActive();
-          if (lvgl_boot_active_now) {
+          if (lvgl_ui::isLvglBootActive()) {
             if (s_lvgl_boot_connected_latched) break;
             char line[64];
             strncpy_P(line, const_waitForSD, sizeof(line) - 1);
@@ -499,7 +436,6 @@ void Display::loop() {
             lvgl_ui::bootScreenSetStatusUtf8(line);
             lvgl_ui::bootScreenNotifyBootSignal();
           }
-#endif
           break;
         }
         case SDFILEINDEX:
@@ -517,27 +453,19 @@ void Display::loop() {
         case NEWIP:
           break;
         case MAIN_BG_FS_UPDATED: {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
           lvgl_ui::onMainBackgroundSlotCommitted(static_cast<uint8_t>(request.payload));
-#endif
           break;
         }
         case ART_FS_UPDATED: {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
           lvgl_ui::onStationArtCommitted();
-#endif
           break;
         }
         case SET_THEME_PRESET: {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
           lvgl_ui::onThemePresetChanged(static_cast<uint8_t>(request.payload));
-#endif
           break;
         }
         case CUSTOM_THEME_FILE_UPDATED: {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
           lvgl_ui::onCustomThemeFileUpdated();
-#endif
           break;
         }
         default: break;
@@ -545,12 +473,9 @@ void Display::loop() {
     DisplayEvent evt = { request.type, &request, _mode };
     lvgl_ui::onDisplayEvent(evt);
   }
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
   _tryCompleteLvglWifiRecoveryHandoff();
   _tryCompleteLvglPlayerHandoff();
   _tryCompleteLostEscalation();
-#endif
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
   if (lvgl_ui::isLvglBootActive()) {
     if (!s_lvgl_boot_connected_latched && WiFi.status() == WL_CONNECTED) {
       const String ssid = WiFi.SSID();
@@ -562,8 +487,7 @@ void Display::loop() {
   } else {
     s_lvgl_boot_connected_latched = false;
   }
-#endif
-  if (_activeBackend == lvgl_ui::UiBackend::Lvgl && _mode != SCREENBLANK && _mode != SCREENSAVER) {
+  if (_mode != SCREENBLANK && _mode != SCREENSAVER) {
     if (_mode == INFO || lvgl_ui::isLvglCarouselOnInfoSlot()) {
       static uint32_t lastInfoRefresh = 0;
       if (millis() - lastInfoRefresh >= 1000) {
@@ -579,10 +503,7 @@ void Display::loop() {
       }
     }
   }
-  const bool lvgl_boot_active = lvgl_ui::isLvglBootActive();
-  if (_activeBackend == lvgl_ui::UiBackend::Lvgl || lvgl_boot_active) {
-    lvgl_ui::taskHandler();
-  }
+  lvgl_ui::taskHandler();
   dsp.loop();
   #if I2S_DOUT==255
   player.computeVUlevel();
@@ -647,10 +568,6 @@ const char* displayModeName(displayMode_e mode) {
   }
 }
 
-const char* uiBackendName(lvgl_ui::UiBackend backend) {
-  return (backend == lvgl_ui::UiBackend::Lvgl) ? "Lvgl" : "LegacyCanvas";
-}
-
 } // namespace
 
 size_t Display::diagSnapshot(char* out, size_t len) const {
@@ -689,10 +606,7 @@ size_t Display::diagSnapshot(char* out, size_t len) const {
   off = lvgl_ui::appendDisplayDiag(out, len, off, &snap_truncated);
 
   append_line("display.mode: %s\n", displayModeName(_mode));
-  append_line("display.backend_active: %s\n", uiBackendName(_activeBackend));
-  append_line("display.backend_preferred_player: %s\n",
-              uiBackendName(lvgl_ui::getPreferredBackend(PLAYER)));
-
+  append_line("display.ui_path: lvgl_only\n");
   // Block 8-E16.2B-1: legacy Pager/widgets removed from Display.
   append_line("display.legacy_pager_widgets: 0\n");
   append_line("display.canvas_allocated: %d\n", gfx ? 1 : 0);

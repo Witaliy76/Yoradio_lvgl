@@ -71,17 +71,9 @@ void onThemePresetChanged(uint8_t preset_id);
 // Этап 6.6R-F1: перезагрузка custom palette file; live UI только при активном Custom.
 void onCustomThemeFileUpdated();
 
-// Stage 3.2: backend selection stub (no behavior change yet).
-// Stage 3.2: заглушка выбора backend'а (без изменения поведения).
-enum class UiBackend {
-    LegacyCanvas,
-    Lvgl
-};
-
-UiBackend getPreferredBackend(displayMode_e mode);
-// prev_mode: mode before transition (Display::_swichMode); used to preserve PageChain when leaving saver/blank.
+// prev_mode: mode before transition — used to preserve PageChain when leaving saver/blank.
 // prev_mode — режим до перехода; нужен чтобы не сбрасывать карусель при выходе из saver/blank.
-void onModeChanged(displayMode_e mode, UiBackend backend, displayMode_e prev_mode);
+void onModeChanged(displayMode_e mode, displayMode_e prev_mode);
 
 // Stage 5.4: LVGL Boot (DspTask only). / Boot LVGL только из DspTask.
 bool isLvglBootActive();
@@ -112,7 +104,6 @@ void recordLvglDirectPanelFlush();
 // Будущая страница Settings может включить slide-анимацию (ESP32-P4 и др.).
 void setPageTransitionAnimationEnabled(bool enabled);
 bool isPageTransitionAnimationEnabled();
-void dismissBootForApLegacyHandoff(); // Pre-8-E10; Display no longer calls on LVGL Wi‑Fi fail
 // Block 8-E10: DSP_START Wi‑Fi fail when LVGL Boot already gone — show Recovery shell without legacy AP.
 void showWifiRecoveryFlowFromDisplayStart();
 void bootScreenSetStatusUtf8(const char* text);
@@ -129,8 +120,8 @@ void notifyPageChainActivity();
 // Переход по индексу карусели — только из DspTask / LVGL callbacks.
 void goToCarouselPage(int page_index);
 
-// Block 8-E12: product inputs that meant “open station list” → PageChain Station slot (not LegacyCanvas STATIONS).
-// Block 8-E12: открыть список станций — LvglStationPage, без Canvas playlist.
+// Block 8-E12: product inputs that “open station list” → PageChain Station slot.
+// Block 8-E12: открыть список станций — LvglStationPage в карусели.
 void openStationPageFromProductInput();
 void toggleStationListUiFromProductInput();
 

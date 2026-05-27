@@ -44,9 +44,6 @@ class Display {
     // Stage 6.1C: read-only snapshot for LVGL Main AI line (DspTask); no AI logic change.
     // 6.1C: снимок строки для LVGL Main — только чтение, логика AI не трогается.
     void copyAIInterpretationForLvgl(char* buf, size_t cap) const;
-    // Stage 5.5a: lets DspCore skip legacy CPU widget when PLAYER is LVGL-owned.
-    // Stage 5.5a: для DspCore — не рисовать legacy CPU, если PLAYER на LVGL.
-    lvgl_ui::UiBackend activeBackend() const { return _activeBackend; }
     // Block 8 / 8-E1: one-shot display diagnostics (telnet "diag display"); no heap alloc.
     // Block 8 / 8-E1: однократный снимок дисплея (telnet); без выделения heap.
     size_t diagSnapshot(char* out, size_t len) const;
@@ -61,11 +58,9 @@ class Display {
     Ticker _returnTicker;
     uint8_t _bootStep;
     bool _suspendFlush;
-    lvgl_ui::UiBackend _activeBackend = lvgl_ui::UiBackend::LegacyCanvas;  // Stage 4.1: metadata only
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     bool _lvgl_player_handoff_pending = false;
     void _tryCompleteLvglPlayerHandoff();
-    // Wi‑Fi 5A: Boot fail → LVGL Recovery handoff (dwell + “Opening…” pause).
+    // Wi‑Fi 5A: Boot fail → LVGL Recovery handoff (dwell + "Opening…" pause).
     bool _lvgl_wifi_recovery_handoff_pending = false;
     uint8_t _lvgl_wifi_recovery_handoff_phase = 0; // 0=min dwell; 1=Opening msg, wait short delay
     uint32_t _lvgl_wifi_recovery_phase_started_ms = 0;
@@ -76,7 +71,6 @@ class Display {
     uint32_t _lost_started_ms            = 0;
     uint8_t  _lost_escalation_milestone  = 0; // 0=initial text pending; 1=set; 2=30s; 3=50s
     void _tryCompleteLostEscalation();
-#endif
     void _title();
     void _swichMode(displayMode_e newmode);
     void _createDspTask();

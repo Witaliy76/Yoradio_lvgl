@@ -165,8 +165,9 @@ void loopControls() {
   if (network.status == CONNECTED || network.status == SDREADY) {
     bool lvglOwnsTouch = false;
 #if !defined(DUMMYDISPLAY) && YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-    lvglOwnsTouch =
-        (display.activeBackend() == lvgl_ui::UiBackend::Lvgl) || lvgl_ui::isLvglBootActive();
+    // 8-E19B: LVGL-only product — LVGL always owns touch; boot also active while boot screen is shown.
+    // 8-E19B: LVGL product — LVGL всегда владеет touch; boot тоже пока boot screen активен.
+    lvglOwnsTouch = true;
 #endif
     if (!lvglOwnsTouch) {
       touchscreen.loop();
@@ -238,7 +239,7 @@ void irBlink() {
   }
 }
 
-// Block 8-E9: direct station index via IR digits — no NUMBERS display mode / LegacyCanvas.
+// Block 8-E9: direct station index via IR digits — no NUMBERS display mode on LVGL product.
 // Follow-up: optional LVGL typed-number hint on Main (not Block 8); no auto-play per digit.
 static void irClearDirectStationAccumulator() {
   display.numOfNextStation = 0;

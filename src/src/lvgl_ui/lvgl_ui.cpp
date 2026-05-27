@@ -9,7 +9,6 @@
 
 #include <cstdarg>
 
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
 #include "lvgl.h"
 #if LV_USE_PERF_MONITOR
 #include <cstring>
@@ -37,10 +36,6 @@ using namespace lvgl_ui;
 
 // External canvas instance from display subsystem / Внешний экземпляр canvas из подсистемы дисплея
 extern Arduino_Canvas* gfx;
-
-// Stage 4.3: empty default screen — restored when leaving LVGL-owned modes.
-// Stage 4.3: пустой экран по умолчанию — восстанавливается при выходе из режимов LVGL.
-static lv_obj_t* s_default_screen = nullptr;
 
 static PageChain s_page_chain;
 static LvglInfoPage s_info_page;
@@ -236,24 +231,17 @@ static void repositionBuiltinLvglPerfMonitorOnce() {
 }
 #endif
 
-#endif
-
 void lvgl_ui::refreshInfoScreen() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     if (!lvgl_page_refresh_allowed()) return;
     s_info_page.update();
-#endif
 }
 
 void lvgl_ui::refreshMainScreen() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     if (!lvgl_page_refresh_allowed()) return;
     s_main_screen.update();
-#endif
 }
 
 void lvgl_ui::onMainBackgroundSlotCommitted(uint8_t slot) {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     if (slot > 2u) {
         return;
     }
@@ -262,21 +250,15 @@ void lvgl_ui::onMainBackgroundSlotCommitted(uint8_t slot) {
         return;
     }
     s_main_screen.reloadFileBackgroundFromLittlefs();
-#else
-    (void)slot;
-#endif
 }
 
 void lvgl_ui::onStationArtCommitted() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     // Force art reload on Main after WebUI upload_art / remove_art (DspTask queue handler only).
     // Принудительная перезагрузка арта после upload_art / remove_art из обработчика очереди DspTask.
     s_main_screen.reloadStationArtFromLittlefs();
-#endif
 }
 
 void lvgl_ui::onCustomThemeFileUpdated() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     (void)yoradio_theme_load_custom_palette_file(nullptr);
     if (yoradio_theme_active_preset() != ThemePreset::Custom) {
         return;
@@ -288,13 +270,9 @@ void lvgl_ui::onCustomThemeFileUpdated() {
         screensaverHide();
         screensaverShow();
     }
-#else
-    (void)0;
-#endif
 }
 
 void lvgl_ui::onThemePresetChanged(uint8_t preset_id) {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     // Clamp to valid range; unknown preset falls back to Dark / Некорректный ID → Dark.
     if (preset_id > 2u) preset_id = 0u;
 
@@ -325,9 +303,6 @@ void lvgl_ui::onThemePresetChanged(uint8_t preset_id) {
         screensaverHide();
         screensaverShow();
     }
-#else
-    (void)preset_id;
-#endif
 }
 
 // Stage 0: stub — confirms LVGL library is compiled into the build
@@ -338,7 +313,6 @@ bool lvgl_ui::isCompiled() {
 }
 
 void lvgl_ui::initRuntime() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     static bool s_inited = false;
     if (s_inited) return;
     lv_init();
@@ -346,11 +320,9 @@ void lvgl_ui::initRuntime() {
     // Этап 6.1F-b: файловый API LVGL → тот же LittleFS (диск L:).
     lv_fs_littlefs_register();
     s_inited = true;
-#endif
 }
 
 void lvgl_ui::initTick() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     if (s_lv_tick_timer) return;
 
     esp_timer_create_args_t args = {};
@@ -371,11 +343,9 @@ void lvgl_ui::initTick() {
         s_lv_tick_timer = nullptr;
         return;
     }
-#endif
 }
 
 void lvgl_ui::initDisplayDriver(uint16_t hor_res, uint16_t ver_res) {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     if (s_disp) return;
     if (hor_res == 0 || ver_res == 0) return;
 
@@ -427,42 +397,28 @@ void lvgl_ui::initDisplayDriver(uint16_t hor_res, uint16_t ver_res) {
     // Этап 6.6A: базовая тема LVGL + палитра YoRadio — одна точка после валидного дисплея.
     yoradio_theme_init(s_disp);
     initTouchIndev();
-#endif
 }
 
 void lvgl_ui::taskHandler() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     s_page_chain.tick();
     lv_timer_handler();
 #if LV_USE_PERF_MONITOR
     repositionBuiltinLvglPerfMonitorOnce();
 #endif
-#endif
 }
 
-// Сохраняем дефолтный (пустой) экран LVGL для переключения при выходе из INFO.
-// Пустой — без виджетов, чтобы не ломать boot/legacy и не рисовать лишнее поверх плейера.
-// Позже сюда можно перенести LVGL boot/overlay при миграции.
+// 8-E19B: createTestOverlay triggers initial PageChain registration (DspTask / init only).
+// 8-E19B: создаём TestOverlay → регистрация PageChain на старте (только DspTask / init).
 void lvgl_ui::createTestOverlay() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     static bool s_created = false;
     if (s_created) return;
-
-    lv_obj_t* scr = lv_scr_act();
-    if (!scr) return;
-
-    if (!s_default_screen) s_default_screen = scr;
-
     ensurePageChainRegistered();
-
     s_created = true;
-#endif
 }
 
 // Stage 3.1 + 6.3D-b1: forward displayQueue events for LVGL (DspTask only; see Display::loop).
 // 6.3D-b1: station change = cheap marker/header refresh; playlist change = optional full rebuild.
 void lvgl_ui::onDisplayEvent(const DisplayEvent& evt) {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     ensurePageChainRegistered();
     if (evt.type == NEWSTATION) {
         if (s_page_chain.currentIndex() == PageChain::STATION_INDEX) {
@@ -476,272 +432,174 @@ void lvgl_ui::onDisplayEvent(const DisplayEvent& evt) {
         }
         return;
     }
-#else
-    (void)evt;
-#endif
 }
 
-// Stage 5.5 + 5.7 + 5.6: LVGL owns INFO, PLAYER, LOST, UPDATING, VOL, SCREENSAVER overlay, SCREENBLANK coord.
-// Stage 5.5 + 5.7 + 5.6: LVGL — INFO, PLAYER, LOST, UPDATING, VOL, оверлей SCREENSAVER, коорд. SCREENBLANK.
-lvgl_ui::UiBackend lvgl_ui::getPreferredBackend(displayMode_e mode) {
-    if (mode == INFO || mode == PLAYER || mode == LOST || mode == UPDATING || mode == VOL || mode == WIFI ||
-        mode == SCREENSAVER || mode == SCREENBLANK
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-        || mode == STATIONS || mode == SETTINGS
-#endif
-        ) {
-        return UiBackend::Lvgl;
-    }
-    return UiBackend::LegacyCanvas;
-}
-
-// Stage 5.5 / 5.7 / 5.6: PageChain + overlays; SCREENSAVER/BLANK without killing PageChain on wake.
-// Stage 5.5 / 5.7 / 5.6: PageChain + оверлеи; SCREENSAVER/BLANK без сброса карусели при пробуждении.
-void lvgl_ui::onModeChanged(displayMode_e mode, UiBackend backend, displayMode_e prev_mode) {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-    if (backend == UiBackend::Lvgl) {
-        ensurePageChainRegistered();
-        if (mode == SCREENSAVER) {
-            overlayHideAll();
-            screensaverShow();
-            return;
-        }
-        if (mode == SCREENBLANK) {
-            screensaverHide();
-            overlayHideAll();
-            return;
-        }
-        if (mode == WIFI) {
-            overlayHideAll();
-            (void)wifiOpsInit();
-            // Wi‑Fi 5B: boot-fail handoff may already have loaded the shell via dismissBootThenShowRebootRequired().
-            // Wi‑Fi 5B: после Boot→Wi‑Fi не вызывать showRebootRequired повторно.
-            if (!isWifiSetupFlowActive()) {
-                s_page_chain.showRebootRequired(&s_wifi_flow_screen);
-            }
-            return;
-        }
-        if (mode == INFO) {
-            overlayHideAll();
-            s_page_chain.goTo(PageChain::INFO_INDEX);
-        } else if (mode == PLAYER) {
-            if (prev_mode == SCREENSAVER || prev_mode == SCREENBLANK) {
-                overlayHideAll();
-                refreshMainScreen();
-                return;
-            }
-            overlayHideAll();
-            s_page_chain.goTo(PageChain::MAIN_INDEX);
-            refreshMainScreen();
-        } else if (mode == LOST) {
-            // Wi‑Fi 4C: do not stack LOST over Wi‑Fi shell (STA may drop during manual connect).
-            // Wi‑Fi 4C: не класть LOST поверх Wi‑Fi shell (STA может рваться при ручном connect).
-            if (!isWifiSetupFlowActive()) {
-                overlayShowLost();
-            }
-        } else if (mode == UPDATING) {
-            overlayShowUpdating();
-        } else if (mode == VOL) {
-            overlayHideAll();
-            s_page_chain.goTo(PageChain::MAIN_INDEX);
-            refreshMainScreen();
-        } else if (mode == STATIONS) {
-            // Block 8-E12: legacy STATIONS → existing LvglStationPage (no Canvas PG_PLAYLIST).
-            // Block 8-E12: режим STATIONS → карусель Station, без legacy playlist.
-            overlayHideAll();
-            s_page_chain.goTo(PageChain::STATION_INDEX);
-        } else if (mode == SETTINGS) {
-            // Block 8-E13: legacy SETTINGS → existing LvglStubPage Settings slot (no const_DlgNextion).
-            // Block 8-E13: режим SETTINGS → карусель Settings, без legacy PG_DIALOG.
-            overlayHideAll();
-            s_page_chain.goTo(PageChain::SETTINGS_INDEX);
-        }
-    } else {
+// 8-E19B: LVGL-only mode routing — direct PageChain/overlay dispatch, no backend selection.
+// 8-E19B: только LVGL маршрутизация режимов — прямой PageChain/overlay, без выбора backend.
+void lvgl_ui::onModeChanged(displayMode_e mode, displayMode_e prev_mode) {
+    ensurePageChainRegistered();
+    if (mode == SCREENSAVER) {
         overlayHideAll();
-        if (s_default_screen) lv_scr_load(s_default_screen);
+        screensaverShow();
+        return;
     }
-#else
-    (void)mode;
-    (void)backend;
-    (void)prev_mode;
-#endif
+    if (mode == SCREENBLANK) {
+        screensaverHide();
+        overlayHideAll();
+        return;
+    }
+    if (mode == WIFI) {
+        overlayHideAll();
+        (void)wifiOpsInit();
+        // Wi‑Fi 5B: boot-fail handoff may already have loaded the shell via dismissBootThenShowRebootRequired().
+        // Wi‑Fi 5B: после Boot→Wi‑Fi не вызывать showRebootRequired повторно.
+        if (!isWifiSetupFlowActive()) {
+            s_page_chain.showRebootRequired(&s_wifi_flow_screen);
+        }
+        return;
+    }
+    if (mode == INFO) {
+        overlayHideAll();
+        s_page_chain.goTo(PageChain::INFO_INDEX);
+    } else if (mode == PLAYER) {
+        if (prev_mode == SCREENSAVER || prev_mode == SCREENBLANK) {
+            overlayHideAll();
+            refreshMainScreen();
+            return;
+        }
+        overlayHideAll();
+        s_page_chain.goTo(PageChain::MAIN_INDEX);
+        refreshMainScreen();
+    } else if (mode == LOST) {
+        // Wi‑Fi 4C: do not stack LOST over Wi‑Fi shell (STA may drop during manual connect).
+        // Wi‑Fi 4C: не класть LOST поверх Wi‑Fi shell (STA может рваться при ручном connect).
+        if (!isWifiSetupFlowActive()) {
+            overlayShowLost();
+        }
+    } else if (mode == UPDATING) {
+        overlayShowUpdating();
+    } else if (mode == VOL) {
+        overlayHideAll();
+        s_page_chain.goTo(PageChain::MAIN_INDEX);
+        refreshMainScreen();
+    } else if (mode == STATIONS) {
+        // Block 8-E12: STATIONS → LvglStationPage (PageChain).
+        // Block 8-E12: режим STATIONS → карусель Station.
+        overlayHideAll();
+        s_page_chain.goTo(PageChain::STATION_INDEX);
+    } else if (mode == SETTINGS) {
+        // Block 8-E13: SETTINGS → LvglStubPage Settings slot.
+        // Block 8-E13: режим SETTINGS → карусель Settings.
+        overlayHideAll();
+        s_page_chain.goTo(PageChain::SETTINGS_INDEX);
+    }
 }
 
 bool lvgl_ui::isLvglBootActive() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     return s_lvgl_boot_active;
-#else
-    return false;
-#endif
 }
 
 bool lvgl_ui::tryPresentLvglBootOnFirstDspLoop() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     if (!lv_disp_get_default()) return false;
     ensurePageChainRegistered();
     s_page_chain.showBoot(&s_boot_screen);
     s_lvgl_boot_active = true;
     s_lvgl_boot_shown_ms = millis();
     return true;
-#else
-    return false;
-#endif
 }
 
 void lvgl_ui::dismissBootForMainHandoff() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     if (!s_lvgl_boot_active) return;
     overlayHideAll();
     s_page_chain.dismissBoot();
     s_lvgl_boot_active = false;
-#endif
 }
 
 void lvgl_ui::dismissBootForWifiRecoveryHandoff() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     if (!s_lvgl_boot_active) return;
     ensurePageChainRegistered();
     overlayHideAll();
     s_page_chain.dismissBootThenShowRebootRequired(&s_wifi_flow_screen);
     s_lvgl_boot_active = false;
-#endif
 }
 
 bool lvgl_ui::dismissBootForMainHandoffWhenDue() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     if (!s_lvgl_boot_active) return true;
     if ((uint32_t)(millis() - s_lvgl_boot_shown_ms) < kLvglBootMinVisibleMs) return false;
     overlayHideAll();
     s_page_chain.dismissBoot();
     s_lvgl_boot_active = false;
     return true;
-#else
-    return true;
-#endif
 }
 
 bool lvgl_ui::isLvglBootMinDwellElapsed() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     if (!s_lvgl_boot_active) return true;
     return (uint32_t)(millis() - s_lvgl_boot_shown_ms) >= kLvglBootMinVisibleMs;
-#else
-    return true;
-#endif
 }
 
 namespace {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-static bool s_wifi_recovery_enter_from_boot_failure     = false;
+static bool s_wifi_recovery_enter_from_boot_failure       = false;
 // S6V8A: runtime disconnect escalation context flag (one-shot, consumed in enter()).
 // S6V8A: флаг runtime-контекста эскалации (одноразовый, consumable в enter()).
 static bool s_wifi_recovery_enter_from_runtime_disconnect = false;
-#endif
 } // namespace
 
 void lvgl_ui::notifyWifiRecoveryEnteredFromBootFailure() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     s_wifi_recovery_enter_from_boot_failure = true;
-#else
-#endif
 }
 
 bool lvgl_ui::consumeWifiRecoveryEnteredFromBootFailure() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     if (!s_wifi_recovery_enter_from_boot_failure) return false;
     s_wifi_recovery_enter_from_boot_failure = false;
     return true;
-#else
-    return false;
-#endif
 }
 
 // S6V8A: notify that the next Wi-Fi shell enter() is from a runtime disconnect escalation.
 // S6V8A: сообщить, что следующий enter() Wi-Fi shell — из runtime disconnect escalation.
 void lvgl_ui::notifyWifiRecoveryEnteredFromRuntimeDisconnect() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     s_wifi_recovery_enter_from_runtime_disconnect = true;
-#endif
 }
 
 bool lvgl_ui::consumeWifiRecoveryEnteredFromRuntimeDisconnect() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     if (!s_wifi_recovery_enter_from_runtime_disconnect) return false;
     s_wifi_recovery_enter_from_runtime_disconnect = false;
     return true;
-#else
-    return false;
-#endif
-}
-
-
-void lvgl_ui::dismissBootForApLegacyHandoff() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-    // Block 8-E10: unused on LVGL Wi‑Fi fail path; kept for any external/legacy callers until 8-E16.
-    overlayHideAll();
-    if (s_lvgl_boot_active) {
-        s_page_chain.dismissBoot();
-        s_lvgl_boot_active = false;
-    }
-    if (s_default_screen) lv_scr_load(s_default_screen);
-#endif
 }
 
 void lvgl_ui::showWifiRecoveryFlowFromDisplayStart() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     // Block 8-E10: same RebootRequired shell as 5B; no Hotspot policy change / без auto-Hotspot.
     overlayHideAll();
     ensurePageChainRegistered();
     if (!isWifiSetupFlowActive()) {
         s_page_chain.showRebootRequired(&s_wifi_flow_screen);
     }
-#endif
 }
 
 void lvgl_ui::bootScreenSetStatusUtf8(const char* text) {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     if (s_lvgl_boot_active) s_boot_screen.setStatusUtf8(text);
-#else
-    (void)text;
-#endif
 }
 
 void lvgl_ui::bootScreenNotifyBootSignal() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     if (s_lvgl_boot_active) s_boot_screen.onBootSignal();
-#endif
 }
 
 void lvgl_ui::installCarouselGesturesOnPageRoot(lv_obj_t* screen_root) {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     if (!screen_root) return;
     lv_obj_add_flag(screen_root, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(screen_root, carousel_gesture_event_cb, LV_EVENT_GESTURE, nullptr);
-#else
-    (void)screen_root;
-#endif
 }
 
 void lvgl_ui::notifyPageChainActivity() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     s_page_chain.onActivity();
-#endif
 }
 
 void lvgl_ui::goToCarouselPage(int page_index) {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     ensurePageChainRegistered();
     s_page_chain.goTo(page_index);
-#else
-    (void)page_index;
-#endif
 }
 
 bool lvgl_ui::isLvglCarouselOnInfoSlot() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     return s_page_chain.currentIndex() == PageChain::INFO_INDEX;
-#else
-    return false;
-#endif
 }
 
 void lvgl_ui::openStationPageFromProductInput() {
@@ -753,59 +611,37 @@ void lvgl_ui::openSettingsPageFromProductInput() {
 }
 
 void lvgl_ui::toggleStationListUiFromProductInput() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     ensurePageChainRegistered();
     if (s_page_chain.currentIndex() == PageChain::STATION_INDEX || display.mode() == STATIONS) {
         display.putRequest(NEWMODE, PLAYER);
     } else {
         openStationPageFromProductInput();
     }
-#else
-    display.putRequest(NEWMODE, display.mode() == PLAYER ? STATIONS : PLAYER);
-#endif
 }
 
 bool lvgl_ui::isLvglCarouselOnStationSlot() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     return s_page_chain.currentIndex() == PageChain::STATION_INDEX;
-#else
-    return false;
-#endif
 }
 
 bool lvgl_ui::isWifiSetupFlowActive() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     ensurePageChainRegistered();
     return s_page_chain.isRebootRequiredActiveFor(&s_wifi_flow_screen);
-#else
-    return false;
-#endif
 }
 
 void lvgl_ui::dismissWifiFlowReturnToPlayer() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     wifiOpsCancel();
     network.runtimeReconnectSuspendedForSetup = false;
     ensurePageChainRegistered();
     s_page_chain.dismissRebootRequired();
     display.putRequest(NEWMODE, PLAYER);
-#endif
 }
 
 void lvgl_ui::setPageTransitionAnimationEnabled(bool enabled) {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     PageChain::setCarouselTransitionAnimationEnabled(enabled);
-#else
-    (void)enabled;
-#endif
 }
 
 bool lvgl_ui::isPageTransitionAnimationEnabled() {
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     return PageChain::isCarouselTransitionAnimationEnabled();
-#else
-    return false;
-#endif
 }
 
 size_t lvgl_ui::appendDisplayDiag(char* out, size_t len, size_t offset, bool* truncated_out) {
@@ -831,7 +667,6 @@ size_t lvgl_ui::appendDisplayDiag(char* out, size_t len, size_t offset, bool* tr
         return true;
     };
 
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
     if (!s_disp) {
         append_line("lvgl.display: not_registered\n");
         return offset;
@@ -879,8 +714,5 @@ size_t lvgl_ui::appendDisplayDiag(char* out, size_t len, size_t offset, bool* tr
     } else {
         append_line("lvgl.last_flush_ms_ago: never\n");
     }
-#else
-    append_line("lvgl: disabled\n");
-#endif
     return offset;
 }
