@@ -522,7 +522,6 @@ void Config::initPlaylistMode(){
 }
 
 void Config::_initHW(){
-  loadTheme();
   #if IR_PIN!=255
   eepromRead(EEPROM_START_IR, ircodes);
   if(ircodes.ir_set!=4224){
@@ -534,57 +533,6 @@ void Config::_initHW(){
     pinMode(BRIGHTNESS_PIN, OUTPUT);
     setBrightness(false);
   #endif
-}
-
-uint16_t Config::color565(uint8_t r, uint8_t g, uint8_t b)
-{
-  return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
-}
-
-void Config::loadTheme(){
-  theme.background    = color565(COLOR_BACKGROUND);
-  theme.meta          = color565(COLOR_STATION_NAME);
-  theme.metabg        = color565(COLOR_STATION_BG);
-  theme.metafill      = color565(COLOR_STATION_FILL);
-  theme.title1        = color565(COLOR_SNG_TITLE_1);
-  theme.title2        = color565(COLOR_SNG_TITLE_2);
-  theme.digit         = color565(COLOR_DIGITS);
-  theme.div           = color565(COLOR_DIVIDER);
-  theme.weather       = color565(COLOR_WEATHER);
-  theme.interpretation = color565(COLOR_AI_INTERPRETATION);
-  theme.vumax         = color565(COLOR_VU_MAX);
-  theme.vumin         = color565(COLOR_VU_MIN);
-  theme.clock         = color565(COLOR_CLOCK);
-  theme.clockbg       = color565(COLOR_CLOCK_BG);
-  theme.seconds       = color565(COLOR_SECONDS);
-  theme.dow           = color565(COLOR_DAY_OF_W);
-  theme.date          = color565(COLOR_DATE);
-  theme.heap          = color565(COLOR_HEAP);
-  theme.buffer        = color565(COLOR_BUFFER);
-  theme.ip            = color565(COLOR_IP);
-  theme.vol           = color565(COLOR_VOLUME_VALUE);
-  theme.rssi          = color565(COLOR_RSSI);
-  theme.bitrate       = color565(COLOR_BITRATE);
-  theme.volbarout     = color565(COLOR_VOLBAR_OUT);
-  theme.volbarin      = color565(COLOR_VOLBAR_IN);
-  theme.plcurrent     = color565(COLOR_PL_CURRENT);
-  theme.plcurrentbg   = color565(COLOR_PL_CURRENT_BG);
-  theme.plcurrentfill = color565(COLOR_PL_CURRENT_FILL);
-  theme.playlist[0]   = color565(COLOR_PLAYLIST_0);
-  theme.playlist[1]   = color565(COLOR_PLAYLIST_1);
-  theme.playlist[2]   = color565(COLOR_PLAYLIST_2);
-  theme.playlist[3]   = color565(COLOR_PLAYLIST_3);
-  theme.playlist[4]   = color565(COLOR_PLAYLIST_4);
-  // Legacy tftinverttitle.h removed (8.1D); inline swap for non-LCD builds.
-  // Legacy tftinverttitle.h удалён (8.1D); swap inline для non-LCD.
-#if !defined(DSP_LCD) && DSP_MODEL != DSP_NOKIA5110
-#if !DSP_INVERT_TITLE
-  uint16_t newbg = theme.meta;
-  theme.meta = theme.metabg;
-  theme.metabg = newbg;
-  theme.metafill = theme.div;
-#endif
-#endif
 }
 
 template <class T> int Config::eepromRead(int ee, T& value) {

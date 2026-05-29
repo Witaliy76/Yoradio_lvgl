@@ -67,37 +67,6 @@ enum LLMProvider_e  : uint8_t  { LLM_NONE=0, LLM_DEEPSEEK=1, LLM_OPENAI=2 };
 
 void u8fix(char *src);
 
-struct theme_t {
-  uint16_t background;
-  uint16_t meta;
-  uint16_t metabg;
-  uint16_t metafill;
-  uint16_t title1;
-  uint16_t title2;
-  uint16_t digit;
-  uint16_t div;
-  uint16_t weather;
-  uint16_t interpretation;  // AI interpretation color / Цвет AI интерпретации
-  uint16_t vumax;
-  uint16_t vumin;
-  uint16_t clock;
-  uint16_t clockbg;
-  uint16_t seconds;
-  uint16_t dow;
-  uint16_t date;
-  uint16_t heap;
-  uint16_t buffer;
-  uint16_t ip;
-  uint16_t vol;
-  uint16_t rssi;
-  uint16_t bitrate;
-  uint16_t volbarout;
-  uint16_t volbarin;
-  uint16_t plcurrent;
-  uint16_t plcurrentbg;
-  uint16_t plcurrentfill;
-  uint16_t playlist[5];
-};
 struct config_t
 {
   uint16_t  config_set; //must be 4262
@@ -204,7 +173,6 @@ class Config {
   public:
     config_t store;
     station_t station;
-    theme_t   theme;
 #if IR_PIN!=255
     int irindex;
     uint8_t irchck;
@@ -227,7 +195,6 @@ class Config {
     void saveIR();
 #endif
     void init();
-    void loadTheme();
     uint8_t setVolume(uint8_t val);
     void saveVolume();
     void setTone(int8_t bass, int8_t middle, int8_t trebble);
@@ -338,7 +305,6 @@ class Config {
     void setDefaults();
     Ticker   _sleepTimer;
     static void doSleep();
-    uint16_t color565(uint8_t r, uint8_t g, uint8_t b);
     void _setupVersion();
     void _initHW();
     bool _isFSempty();
