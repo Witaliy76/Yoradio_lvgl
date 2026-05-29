@@ -53,9 +53,9 @@ _screen
 ├── zone_visual
 ├── zone_bottom_sym_spacer
 ├── zone_bottom
-│   ├── control_band (shared shelf underlay; flex row; PASS A/B visual polish)
-│   │   ├── control_band_glow_top (FLOATING; narrow rim highlight on top edge, not in flex)
-│   │   ├── control_band_glow_bottom (FLOATING; narrow rim highlight on bottom edge, not in flex)
+│   ├── control_band (shared shelf underlay; flex row; chrome colors = pal.main_chrome_* tokens — 6.6R-GA)
+│   │   ├── _edge_glow_top (FLOATING; rim highlight top edge, not in flex; gradient stops from pal.main_chrome_glow_top — 6.6R-GA)
+│   │   ├── _edge_glow_bot (FLOATING; rim highlight bottom edge, not in flex; gradient stops from pal.main_chrome_glow_bottom — 6.6R-GA)
 │   │   ├── utility_left (list; width balanced with utility_right — centers transport triad)
 │   │   │   └── list — lv_btn, text_secondary (transport-sized); routing TBD
 │   │   ├── transport_group (LV_OBJ_FLAG_OVERFLOW_VISIBLE; pad_hor inset; flex_grow)
@@ -130,8 +130,8 @@ flowchart TB
   end
 
   subgraph cb["control_band"]
-    GTOP[control_band_glow_top FLOATING]
-    GBOT[control_band_glow_bottom FLOATING]
+    GTOP[_edge_glow_top FLOATING]
+    GBOT[_edge_glow_bot FLOATING]
     UL[utility_left list]
     TG[transport_group]
     UR[utility_right settings]
@@ -181,5 +181,7 @@ flowchart TB
 **Полоса управления:** list + транспорт + settings; боковые слоты выровнены; list/settings — размер как транспорт, цвет/pressed как раньше (secondary + тише).
 - **Theme padding:** Base `lv_obj` containers may inherit LVGL default `card` padding; Main zeroes explicit `pad_all` where needed — see comments in `scr_main.cpp` and `wgt_status_line.cpp`.  
 **Паддинг темы:** у базового `lv_obj` может быть `card` padding; на Main явно обнуляем `pad_all` там, где нужно — см. комментарии в `scr_main.cpp` и `wgt_status_line.cpp`.
+- **Main chrome tokens (Stage 6.6R-GA):** shelf body/border, art frame, rim glow stops, and control-button pressed bg are now palette tokens (`pal.main_chrome_bg`, `main_chrome_border`, `main_chrome_glow_top`, `main_chrome_glow_bottom`, `main_chrome_pressed_bg`) instead of hardcoded colors. `_edge_glow_top` / `_edge_glow_bot` are stored as members so `liveReapplyTheme()` refreshes gradient stops on runtime theme switch (no stale glow). Geometry/opacity/radius stay local in `create()`.  
+**Хром главного экрана (6.6R-GA):** тело/рамка полки, рамка арта, стопы glow и pressed-фон кнопок — теперь токены палитры; glow-объекты сохранены как члены и обновляются при смене темы (без «застрявшего» блика). Геометрия/прозрачность/радиус остаются локальными.
 - Widget `wgt_status_line` is defined in `[../widgets/wgt_status_line.cpp](../widgets/wgt_status_line.cpp)`.
 
