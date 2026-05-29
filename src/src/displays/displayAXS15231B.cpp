@@ -13,7 +13,6 @@
 #include "../core/config.h"
 #include "../core/network.h"
 #include "../core/display.h"
-#include "../Perfmon/esp32_perfmon.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/timers.h"
@@ -166,14 +165,6 @@ void DspCore::initDisplay() {
     }
     Serial.println("[AXS15231B] Canvas initialized successfully");
   }
-
-#ifdef CPU_LOAD
-  // Инициализация CPU виджета
-  cpuWidget.init(cpuConf, 20, false, config.theme.rssi, config.theme.background);
-  cpuWidget.setActive(true);
-  // Запускаем мониторинг CPU
-  perfmon_start();
-#endif
 
   Serial.print("[AXS15231B] Canvas ptr: "); Serial.println((uintptr_t)gfx, HEX);
 
@@ -472,53 +463,12 @@ void DspCore::endWrite(void) {
   GIVE_MUTEX();
 }
   
-#ifdef CPU_LOAD
-uint32_t DspCore::_calculateCpuUsage() {
-    static uint32_t lastUpdate = 0;
-    if (millis() - lastUpdate >= 500) { // Обновляем каждые 500мс
-        lastUpdate = millis();
-        return perfmon_get_cpu_usage(0); // Получаем загрузку первого ядра
-    }
-    return 0;
-}
-#endif
-
 void DspCore::loop(bool force) {
-    static uint32_t lastCpuUpdate = 0;
-    static uint32_t lastValue = 0;
-    
 #ifndef BATTERY_OFF
     static uint32_t lastBatteryUpdate = 0;
     if (millis() - lastBatteryUpdate >= 1000) { // Обновляем каждую секунду
         readBattery();
         lastBatteryUpdate = millis();
-    }
-#endif
-    
-#ifdef CPU_LOAD
-    // 8-E19B: LVGL product — Canvas CPU widget inactive; will be revisited in Phase 3 AXS bring-up.
-    // 8-E19B: LVGL product — Canvas CPU виджет неактивен; пересмотреть в Phase 3 AXS bring-up.
-    extern Display display;
-    const bool cpu_on_legacy_player = false;
-    if (cpu_on_legacy_player) {
-        if (millis() - lastCpuUpdate >= 1000) {
-            uint32_t cpuUsage = _calculateCpuUsage();
-
-            if (cpuUsage != lastValue || force) {
-                char buf[20];
-                snprintf(buf, sizeof(buf), "CPU: %d%%", cpuUsage);
-                cpuWidget.setText(buf);
-                lastValue = cpuUsage;
-
-                if (force) {
-                    cpuWidget.setActive(true);
-                }
-            }
-            lastCpuUpdate = millis();
-        }
-        cpuWidget.setActive(true);
-    } else {
-        cpuWidget.setActive(false);
     }
 #endif
 }

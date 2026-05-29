@@ -41,9 +41,6 @@ public:
     uint16_t plTtemsCount;
     uint16_t plCurrentPos;
     int plYStart;
-#ifdef CPU_LOAD
-    TextWidget cpuWidget;
-#endif
 
     DspCore();
     void initDisplay();
@@ -89,7 +86,6 @@ public:
     void startWrite(void);
     void endWrite(void);
     uint8_t _charWidth(unsigned char c);
-    uint32_t _calculateCpuUsage();
 #ifndef BATTERY_OFF
     void readBattery();
 #endif
