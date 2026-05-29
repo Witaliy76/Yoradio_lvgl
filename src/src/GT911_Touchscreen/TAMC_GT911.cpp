@@ -146,15 +146,21 @@ void TAMC_GT911::writeBlockData(uint16_t reg, uint8_t *val, uint8_t size) {
 void TAMC_GT911::readBlockData(uint8_t *buf, uint16_t reg, uint8_t size) {
   // Arduino ESP32 3.x Wire is not safe with the full GT911 config block in one read.
   // Arduino ESP32 3.x: читаем большой config block GT911 небольшими chunk'ами.
+  // Use uint16_t for offset/remaining — uint8_t size-offset wraps on error paths.
+  // uint16_t для offset/remaining — иначе size-offset в uint8_t переполняется на ошибках.
   static constexpr uint8_t kMaxWireReadChunk = 32;
-  uint8_t offset = 0;
-  while (offset < size) {
-    const uint8_t chunk = (size - offset > kMaxWireReadChunk) ? kMaxWireReadChunk : (size - offset);
+  const uint16_t total = size;
+  uint16_t offset = 0;
+  while (offset < total) {
+    const uint16_t remaining = total - offset;
+    const uint8_t chunk =
+        (remaining > kMaxWireReadChunk) ? kMaxWireReadChunk : static_cast<uint8_t>(remaining);
+    const uint16_t regAddr = static_cast<uint16_t>(reg + offset);
     Wire.beginTransmission(addr);
-    Wire.write(highByte(reg + offset));
-    Wire.write(lowByte(reg + offset));
+    Wire.write(highByte(regAddr));
+    Wire.write(lowByte(regAddr));
     if (Wire.endTransmission(false) != 0) {
-      memset(buf + offset, 0, size - offset);
+      memset(buf + offset, 0, remaining);
       return;
     }
     Wire.requestFrom(addr, chunk);
