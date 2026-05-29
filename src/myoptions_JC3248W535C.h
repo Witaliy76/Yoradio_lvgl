@@ -65,33 +65,10 @@
    =============================================== */
 #define PLAYER_FORCE_MONO true               // Mono mode (enabled)
 #define L10N_LANGUAGE RU                     // Interface language (Russian)
-#define BITRATE_FULL  true                   // Full bitrate widget
 #define CLOCKFONT_MONO    true               // Monospace font for clock
 #define RSSI_DIGIT        true               // Display RSSI as digits instead of icon
-
-/* ===============================================
-   SPECTRUM ANALYZER
-   =============================================== */
-// Switch between VU-meter and spectrum analyzer in settings (usespectrum)
-#define SPECTRUM_ENABLED       true          // Enable Spectrum Analyzer
-#define SPECTRUM_USE_PSRAM     true          // Use PSRAM for FFT buffers
-#define SPECTRUM_BANDS         15            // Number of spectrum bands
-#define SPECTRUM_FFT_SIZE      64            // FFT size
-#define SPECTRUM_SMOOTHING     0.7f          // Smoothing (0.0-1.0, higher = smoother)
-#define SPECTRUM_PEAK_HOLD_TIME 300.0f       // Peak hold time (ms)
-#define SPECTRUM_LOGARITHMIC   false         // Logarithmic frequency scale
-#define SPECTRUM_STEREO        false         // Stereo mode (disabled - mono)
-#define SPECTRUM_REPLACE_VU    true          // Replace VU-meter with Spectrum Analyzer
-#define SPECTRUM_GAIN          0.06f         // Overall spectrum gain (1.0 = no gain)
-#define SPECTRUM_GRADIENT      false         // Gradient fill (false = solid colors, better for QSPI)
-
-/* ===============================================
-   VU METER & DISPLAY WIDGETS
-   =============================================== */
-//#define HIDE_VU                            // Hide VU-meter (uncomment if using SPECTRUM_REPLACE_VU)
-#define BOOMBOX_STYLE                        // VU-meter style (bars instead of strips)
-#define CPU_LOAD                             // CPU load widget
-//#define WAKE_PIN              255          // Wake pin (not used)
+// Legacy spectrum/VU/Perfmon removed (Block 8.1D) — usespectrum dormant until WebUI cleanup (8.1F)
+// Legacy spectrum/VU/Perfmon удалены (8.1D) — usespectrum dormant до WebUI cleanup (8.1F)
 
 /* ===============================================
    ENCODER
@@ -188,7 +165,6 @@
 /* ===============================================
    SYSTEM & DEBUG
    =============================================== */
-//#define PERFMON_DISABLED                   // Disable performance monitoring
 //#define WROOM_USED                         // Set if using WROOM (adds memory, aac_decoder must be replaced)
 /* MemWatchdog: автоперезапуск при деградации RAM (TLS). Отключить: закомментировать. */
 #define MEM_WATCHDOG_AUTOREBOOT

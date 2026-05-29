@@ -6,15 +6,14 @@
 #include "Arduino_GFX_Library.h"
 #include "tools/l10n.h"  // Transitive include for core/ (const_Pl*, weatherFmt, …) on ST7701 builds
 
-// Config struct types (clipArea, ScrollConfig, …); widgets/pages TU disabled on LVGL product (8-E18D).
-// Типы конфигов; TU widgets/pages отключены на LVGL product (8-E18D).
-#include "widgets/widgets.h"
-
-#if __has_include("conf/displayST7701conf_custom.h")
-  #include "conf/displayST7701conf_custom.h"
-#else
-  #include "conf/displayST7701conf.h"
-#endif
+// clipArea — legacy DspCore API stub; widgets/pages removed on LVGL product (8.1D).
+// clipArea — заглушка API DspCore; widgets/pages удалены на LVGL product (8.1D).
+typedef struct clipArea {
+    uint16_t left;
+    uint16_t top;
+    uint16_t width;
+    uint16_t height;
+} clipArea;
 
 #define CHARWIDTH   6
 #define CHARHEIGHT  8
@@ -35,8 +34,8 @@ public:
     void setBrightness(uint8_t brightness);
     Arduino_G* getOutputDisplay();
 
-    // Link stubs — widgets.cpp / pages.cpp still compiled (E18D removes TU).
-    // Заглушки линковки — widgets/pages пока в сборке (см. E18D).
+    // Link stubs — legacy Canvas widgets removed; LVGL-only product (8.1D).
+    // Заглушки линковки — legacy Canvas widgets удалены; LVGL-only product (8.1D).
     void clearDsp(bool black = false);
     void printClock(uint16_t top, uint16_t rightspace, uint16_t timeheight, bool redraw);
     void clearClock();

@@ -86,36 +86,14 @@
    =============================================== */
 #define PLAYER_FORCE_MONO false           // Mono mode (disabled)
 #define L10N_LANGUAGE RU                  // Interface language (Russian)
-#define BITRATE_FULL  true                // Full bitrate widget
-
-/* ===============================================
-   SPECTRUM ANALYZER
-   =============================================== */
-// Switch between VU-meter and spectrum analyzer in settings (usespectrum)
-#define SPECTRUM_USE_PSRAM     true       // Use PSRAM for FFT buffers
-#define SPECTRUM_BANDS         15         // Number of spectrum bands
-#define SPECTRUM_FFT_SIZE      64         // FFT size
-#define SPECTRUM_SMOOTHING     0.90f      // Smoothing (0.0-1.0, higher = smoother)
-#define SPECTRUM_PEAK_HOLD_TIME 300.0f    // Peak hold time (ms)
-#define SPECTRUM_LOGARITHMIC   false      // Logarithmic frequency scale
-#define SPECTRUM_STEREO        false       // Stereo mode
-#define SPECTRUM_GAIN          0.03f      // Overall spectrum gain (1.0 = no gain)
-#define SPECTRUM_GRADIENT      true       // Gradient fill (true = smooth gradients for RGB Panel)
-
-/* ===============================================
-   VU METER & DISPLAY WIDGETS
-   =============================================== */
-//#define HIDE_VU                         // Hide VU-meter (uncomment to enable)
-#define BOOMBOX_STYLE                     // VU-meter style (bars instead of strips)
-//#define CPU_LOAD                          // CPU load widget
-//#define WAKE_PIN              255       // Wake pin (not used)
-#define EXT_WEATHER       false
+// Legacy spectrum/VU/Perfmon removed (Block 8.1D) — usespectrum dormant until WebUI cleanup (8.1F)
+// Legacy spectrum/VU/Perfmon удалены (8.1D) — usespectrum dormant до WebUI cleanup (8.1F)
+#define EXT_WEATHER       false           // Extended weather (network.cpp)
 
 /* ===============================================
    SYSTEM & DEBUG
    =============================================== */
 #define BATTERY_OFF                       // Disable battery display
-//#define PERFMON_DISABLED                // Disable performance monitoring
 #define WDT_TIMEOUT 30                    // Watchdog timeout (seconds)
 /* MemWatchdog: автоперезапуск при деградации RAM (TLS). Отключить: закомментировать. */
 #define MEM_WATCHDOG_AUTOREBOOT

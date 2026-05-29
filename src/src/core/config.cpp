@@ -575,7 +575,16 @@ void Config::loadTheme(){
   theme.playlist[2]   = color565(COLOR_PLAYLIST_2);
   theme.playlist[3]   = color565(COLOR_PLAYLIST_3);
   theme.playlist[4]   = color565(COLOR_PLAYLIST_4);
-  #include "../displays/tools/tftinverttitle.h"
+  // Legacy tftinverttitle.h removed (8.1D); inline swap for non-LCD builds.
+  // Legacy tftinverttitle.h удалён (8.1D); swap inline для non-LCD.
+#if !defined(DSP_LCD) && DSP_MODEL != DSP_NOKIA5110
+#if !DSP_INVERT_TITLE
+  uint16_t newbg = theme.meta;
+  theme.meta = theme.metabg;
+  theme.metabg = newbg;
+  theme.metafill = theme.div;
+#endif
+#endif
 }
 
 template <class T> int Config::eepromRead(int ee, T& value) {
