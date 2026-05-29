@@ -8,10 +8,9 @@
  * Реализация обработки касаний и свайпов для сенсорного экрана
  * 
  * Поддерживаемые модели тачскринов:
- * - XPT2046 - резистивный тачскрин (SPI)
  * - GT911 - емкостный тачскрин (I2C) - оптимизирован для 480x480
- * - AXS15231B - емкостный тачскрин (I2C)
- * - CST826 - емкостный тачскрин (I2C) - высокое разрешение 4095
+ * - AXS15231B - емкостный тачскрин (I2C) — deferred UEDX/AXS stage
+ * - CST826 - емкостный тачскрин (I2C) - высокое разрешение 4095 — deferred UEDX stage
  * 
  * Функциональность:
  * - Одиночные касания (короткое/долгое)
@@ -51,14 +50,7 @@
   #define TS_STEPS              40
 #endif
 
-#if TS_MODEL==TS_MODEL_XPT2046
-  #ifdef TS_SPIPINS
-    SPIClass  TSSPI(HSPI);
-  #endif
-  #include <XPT2046_Touchscreen.h>
-  XPT2046_Touchscreen ts(TS_CS);
-  typedef TS_Point TSPoint;
-#elif TS_MODEL==TS_MODEL_GT911
+#if TS_MODEL==TS_MODEL_GT911
   #include "../GT911_Touchscreen/TAMC_GT911.h"
   TAMC_GT911 ts = TAMC_GT911(TS_SDA, TS_SCL, TS_INT, TS_RST, 480, 480);
   typedef TP_Point TSPoint;
@@ -241,11 +233,7 @@ void TouchScreen::loop(){
     
   bool istouched = _istouched();
   if(istouched){
-    #if TS_MODEL==TS_MODEL_XPT2046
-      TSPoint p = ts.getPoint();
-      touchX = map(p.x, TS_X_MIN, TS_X_MAX, 0, _width);
-      touchY = map(p.y, TS_Y_MIN, TS_Y_MAX, 0, _height);
-    #elif TS_MODEL==TS_MODEL_GT911
+    #if TS_MODEL==TS_MODEL_GT911
       TSPoint p = ts.points[0];
       
       // Применяем фильтрацию координат GT911
@@ -621,9 +609,7 @@ bool TouchScreen::_checklpdelay(int m, uint32_t &tstamp) {
 }
 
 bool TouchScreen::_istouched(){
-  #if TS_MODEL==TS_MODEL_XPT2046
-    return ts.touched();
-  #elif TS_MODEL==TS_MODEL_GT911
+  #if TS_MODEL==TS_MODEL_GT911
     return ts.isTouched;
   #elif TS_MODEL==TS_MODEL_AXS15231B
     return ts.isTouched;
@@ -733,19 +719,6 @@ tsDirection_e TouchScreen::_tsDirection(uint16_t x, uint16_t y) {
 }
 
 void TouchScreen::init() {
-    #if TS_MODEL==TS_MODEL_XPT2046
-        #ifdef TS_SPIPINS
-            TSSPI.begin(TS_SPIPINS);
-            ts.begin(TSSPI);
-        #else
-            #if TS_HSPI
-                ts.begin(SPI2);
-            #else
-                ts.begin();
-            #endif
-        #endif
-        ts.setRotation(config.store.fliptouch?3:1);
-    #endif
     #if TS_MODEL==TS_MODEL_GT911
         ts.begin();
         ts.setRotation(config.store.fliptouch?0:2);
@@ -804,13 +777,7 @@ bool TouchScreen::readPointerForLvgl(uint16_t* outX, uint16_t* outY) {
     uint16_t touchX = 0;
     uint16_t touchY = 0;
 
-#if TS_MODEL==TS_MODEL_XPT2046
-    {
-        TSPoint p = ts.getPoint();
-        touchX = static_cast<uint16_t>(map(p.x, TS_X_MIN, TS_X_MAX, 0, _width));
-        touchY = static_cast<uint16_t>(map(p.y, TS_Y_MIN, TS_Y_MAX, 0, _height));
-    }
-#elif TS_MODEL==TS_MODEL_GT911
+#if TS_MODEL==TS_MODEL_GT911
     {
         TSPoint p = ts.points[0];
         if (!_filterGT911Coordinates(p.x, p.y)) {
@@ -854,9 +821,6 @@ bool TouchScreen::readPointerForLvgl(uint16_t* outX, uint16_t* outY) {
 }
 
 void TouchScreen::flip() {
-    #if TS_MODEL==TS_MODEL_XPT2046
-        ts.setRotation(config.store.fliptouch?3:1);
-    #endif
     #if TS_MODEL==TS_MODEL_GT911
         ts.setRotation(config.store.fliptouch?0:2);
     #endif
