@@ -155,9 +155,6 @@ void Player::_stop(bool alreadyStopped){
   display.putRequest(DBITRATE);
   display.putRequest(PSTOP);
 
-  // Block 8-E18D: SpectrumAnalyzer runtime disabled — no clearData on stop.
-  // Block 8-E18D: SpectrumAnalyzer отключён — clearData не вызываем.
-
   setDefaults();
   if(!alreadyStopped) stopSong();
   if(!lockOutput) stopInfo();

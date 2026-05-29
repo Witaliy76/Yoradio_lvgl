@@ -412,6 +412,7 @@ void NetServer::processQueue(){
                                                                 act += F("\"group_oled\",");
                                                               #endif
                                                               #ifndef HIDE_VU
+                                                                // Future LVGL VU: WebUI group for config.store.vumeter (8.1F-B).
                                                                 act += F("\"group_vu\",");
                                                               #endif
             #ifdef ENABLE_BRIGHTNESS_CONTROL
@@ -624,14 +625,13 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
       if (strcmp(cmd, "vumeter") == 0) {
         bool valb = static_cast<bool>(atoi(val));
         config.saveValue(&config.store.vumeter, valb);
-        display.putRequest(SHOWVUMETER);
+        // Persist only — LVGL VU widget not wired yet (Block 8.1F-B).
         return;
       }
       if (strcmp(cmd, "usespectrum") == 0) {
         bool valb = static_cast<bool>(atoi(val));
         config.saveValue(&config.store.usespectrum, valb);
-        // Пересчитать текущее отображение SA/VU без смены режима
-        display.putRequest(SHOWVUMETER);
+        // Persist only — LVGL spectrum widget not wired yet (Block 8.1F-B).
         return;
       }
       if (strcmp(cmd, "softap") == 0) {

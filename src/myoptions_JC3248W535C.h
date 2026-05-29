@@ -67,8 +67,8 @@
 #define L10N_LANGUAGE RU                     // Interface language (Russian)
 #define CLOCKFONT_MONO    true               // Monospace font for clock
 #define RSSI_DIGIT        true               // Display RSSI as digits instead of icon
-// Legacy spectrum/VU/Perfmon removed (Block 8.1D) — usespectrum dormant until WebUI cleanup (8.1F)
-// Legacy spectrum/VU/Perfmon удалены (8.1D) — usespectrum dormant до WebUI cleanup (8.1F)
+// Block 8.1F-B: config.store.vumeter / usespectrum kept for future LVGL widgets (WebUI toggles).
+// Block 8.1F-B: config.store.vumeter / usespectrum — будущие LVGL-виджеты (переключатели WebUI).
 
 /* ===============================================
    ENCODER

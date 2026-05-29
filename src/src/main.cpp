@@ -168,8 +168,8 @@ void loop() {
     }
 #endif  /*  #if defined(AUTOBACKLIGHT) */
 
-// I2S hook (SpectrumAnalyzer feed removed in Block 8-E18D; usespectrum is dormant in NVS/WebUI).
-// Хук I2S (подача в SpectrumAnalyzer снята в 8-E18D; usespectrum — заглушка в NVS/WebUI).
+// I2S hook: reserved for future LVGL spectrum feed when config.store.usespectrum is wired (8.1F-B).
+// Хук I2S: зарезервирован под будущий LVGL-спектр по config.store.usespectrum (8.1F-B).
 void audio_process_i2s(int16_t* outBuff, int32_t validSamples, bool *continueI2S) {
     (void)outBuff;
     (void)validSamples;

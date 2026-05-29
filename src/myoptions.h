@@ -86,8 +86,8 @@
    =============================================== */
 #define PLAYER_FORCE_MONO false           // Mono mode (disabled)
 #define L10N_LANGUAGE RU                  // Interface language (Russian)
-// Legacy spectrum/VU/Perfmon removed (Block 8.1D) — usespectrum dormant until WebUI cleanup (8.1F)
-// Legacy spectrum/VU/Perfmon удалены (8.1D) — usespectrum dormant до WebUI cleanup (8.1F)
+// Block 8.1F-B: config.store.vumeter / usespectrum kept for future LVGL widgets (WebUI toggles).
+// Block 8.1F-B: config.store.vumeter / usespectrum — будущие LVGL-виджеты (переключатели WebUI).
 #define EXT_WEATHER       false           // Extended weather (network.cpp)
 
 /* ===============================================

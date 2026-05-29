@@ -94,9 +94,6 @@ void Display::init() {
 
   dsp.initDisplay();
 
-  // Block 8-E18D: SpectrumAnalyzer runtime disabled; files kept for future LVGL widget.
-  // Block 8-E18D: SpectrumAnalyzer отключён в runtime; файлы — для будущего LVGL-виджета.
-
 #if DSP_MODEL == DSP_ST7701
   // Block 8-E17: ST7701 LVGL product — panel via output_display, gfx stays nullptr.
   if (!dsp.getOutputDisplay()) {
@@ -410,8 +407,6 @@ void Display::loop() {
           }
           break;
         case AUDIOINFO:
-          break;
-        case SHOWVUMETER:
           break;
         case SHOWWEATHER:
           break;

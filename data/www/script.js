@@ -410,7 +410,7 @@ function updateUseSpectrumAvailability(vuOn){
   }
 }
 function checkSelectSA(){
-  // Активен только при включенном VU
+  // Legacy WebUI rule: spectrum toggle only when VU is on (future LVGL may decouple).
   let vu = document.getElementById('vumeter');
   if(!vu || !vu.classList.contains('on')) return;
   var checked = this.classList.contains('on');
