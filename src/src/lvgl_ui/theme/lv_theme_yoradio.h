@@ -26,10 +26,11 @@ enum class ThemePreset : uint8_t {
 };
 
 /**
- * Semantic colors aligned with docs/YoRadio_LVGL_Theme_Bible.txt §4.1–§4.6.
- * Dark/Light: const factory tables. Custom: kPaletteCustomBuiltin + optional file overrides.
+ * Semantic colors aligned with docs/YoRadio_LVGL_Theme_Bible.txt §4.1–§4.6 (+ §4.7 Main chrome, 6.6R-GA).
+ * Dark/Light: const factory tables (Light = Cloud Ivory / Warm Cloudscape, 6.6R-GB).
+ * Custom: kPaletteCustomBuiltin + optional /data/theme_custom.txt overrides.
  * boot_* fields exist for parser/fallback; Boot screen uses fixed dark (scr_boot.cpp), not pal.
- * Main control-band chrome is NOT in this struct (scr_main.cpp local colors).
+ * theme_dark is metadata (NOT a palette field). Main-chrome geometry/opacity stay local in scr_main.cpp.
  */
 struct YoRadioPalette {
     // §4.1 Foundation
@@ -82,6 +83,16 @@ struct YoRadioPalette {
     lv_color_t boot_status_text;
     lv_color_t boot_progress_track;
     lv_color_t boot_progress_fill;
+
+    // §4.7 Main chrome (Stage 6.6R-GA) — scr_main.cpp transport shelf / rim glow / pressed state.
+    // Colors only; geometry/opacity/radius stay local in scr_main.cpp (not theme tokens).
+    // glow_edge reuses main_chrome_bg; art frame reuses main_chrome_border.
+    // §4.7 Main chrome — локальный хром главного экрана: полка/рамка/блик/pressed. Только цвета.
+    lv_color_t main_chrome_bg;          // control band body + rim glow edge / тело полки + край glow
+    lv_color_t main_chrome_border;      // control band border + art slot frame / рамка полки и арта
+    lv_color_t main_chrome_glow_top;    // rim glow top peak / верхний пик блика
+    lv_color_t main_chrome_glow_bottom; // rim glow bottom peak / нижний пик блика
+    lv_color_t main_chrome_pressed_bg;  // control icon pressed state bg / фон pressed кнопок
 };
 
 // Stage 6.6R-F1: last parse of /data/theme_custom.txt (for WebUI /bg_status).

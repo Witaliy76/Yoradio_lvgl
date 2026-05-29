@@ -208,6 +208,18 @@ static bool lvgl_page_refresh_allowed() {
 // Встроенный perf label: фикс. ширина + текст справа — левый край блока не смещается при 4%↔10% CPU.
 static constexpr lv_coord_t kLvglPerfMonitorLabelW = 76; // fits "50 FPS\n100% CPU" / под двузначные FPS/CPU
 
+// Stage 6.6R-GB2: cached perf-label so theme switches can recolor it without rescanning sys layer.
+// Этап 6.6R-GB2: кэш perf-label — перекраска при смене темы без повторного скана sys-слоя.
+static lv_obj_t* s_perf_label = nullptr;
+
+// Apply theme-aware text color to the debug perf overlay (transparent bg → text must read on any theme).
+// Light → graphite text_primary; Dark/Custom-dark → their light text_primary. Always readable by palette design.
+// Тема-зависимый цвет текста debug-оверлея: на Light графит, на Dark светлый — по палитре всегда читаемо.
+static void applyPerfMonitorThemeTextColor() {
+    if (!s_perf_label) return;
+    lv_obj_set_style_text_color(s_perf_label, yoradio_palette().text_primary, LV_PART_MAIN);
+}
+
 static void repositionBuiltinLvglPerfMonitorOnce() {
     static bool s_done = false;
     if (s_done) return;
@@ -230,6 +242,15 @@ static void repositionBuiltinLvglPerfMonitorOnce() {
         lv_obj_set_style_text_align(ch, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
         lv_label_set_long_mode(ch, LV_LABEL_LONG_CLIP);
         lv_obj_align(ch, LV_ALIGN_TOP_LEFT, x0, 2);
+        // Stage 6.6R-GB1: perf monitor is a debug overlay — drop its default grey pill so it does not
+        // clash with the Light theme. Background stays transparent.
+        // 6.6R-GB1: убираем серую подложку debug-оверлея — фон прозрачный.
+        lv_obj_set_style_bg_opa(ch, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_border_width(ch, 0, LV_PART_MAIN);
+        // Stage 6.6R-GB2: theme-aware text color (white default washed out on Light ivory).
+        // 6.6R-GB2: тема-зависимый цвет текста (белый сливался на Light).
+        s_perf_label = ch;
+        applyPerfMonitorThemeTextColor();
         s_done = true;
         break;
     }
@@ -275,6 +296,11 @@ void lvgl_ui::onCustomThemeFileUpdated() {
         screensaverHide();
         screensaverShow();
     }
+#if LV_USE_PERF_MONITOR
+    // 6.6R-GB2: Custom (file) may change text_primary → refresh perf overlay color.
+    // 6.6R-GB2: Custom-файл мог изменить text_primary → обновить цвет perf-оверлея.
+    applyPerfMonitorThemeTextColor();
+#endif
 }
 
 void lvgl_ui::onThemePresetChanged(uint8_t preset_id) {
@@ -308,6 +334,12 @@ void lvgl_ui::onThemePresetChanged(uint8_t preset_id) {
         screensaverHide();
         screensaverShow();
     }
+
+#if LV_USE_PERF_MONITOR
+    // 6.6R-GB2: keep debug perf overlay text readable after theme switch.
+    // 6.6R-GB2: сохранить читаемость текста debug-оверлея после смены темы.
+    applyPerfMonitorThemeTextColor();
+#endif
 }
 
 // Stage 0: stub — confirms LVGL library is compiled into the build

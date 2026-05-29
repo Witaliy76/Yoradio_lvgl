@@ -106,10 +106,14 @@ private:
     lv_obj_t* _lbl_ai_line = nullptr;
 
     // Stage 6.6R-B: control band (transport shelf) — stored for live chrome reapply.
-    // Glow gradient strips are static locals in create() — not stored; follow-up for 6.6R polish.
     // Этап 6.6R-B: полка управления — для обновления chrome при смене темы.
-    // Glow-градиент — static local в create(); обновление — follow-up.
     lv_obj_t* _control_band = nullptr;
+
+    // Stage 6.6R-GA: rim glow strips — stored so liveReapplyTheme() can refresh gradient stops.
+    // Gradient descriptors live in a file-scope static (must outlive create()); these are just the objects.
+    // Этап 6.6R-GA: полоски rim glow — для обновления стопов градиента при смене темы (fix stale glow).
+    lv_obj_t* _edge_glow_top = nullptr;
+    lv_obj_t* _edge_glow_bot = nullptr;
 
     // Stage 6.6R-B1: control icon buttons — colors set only in create(); reapply on theme switch.
     // Этап 6.6R-B1: кнопки полки — цвета иконок обновляются в liveReapplyTheme().

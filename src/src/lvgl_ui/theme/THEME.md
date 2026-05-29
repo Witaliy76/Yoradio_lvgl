@@ -1,7 +1,9 @@
 # YoRadio LVGL theme — developer map (Stage 6.6R)
 
 Canonical token semantics: **`docs/YoRadio_LVGL_Theme_Bible.txt`** (v1.2).  
-This file documents **where code lives**, **runtime behavior**, and **boundaries** after Stage **6.6R-F2** — not legacy Canvas / `config.theme`.
+This file documents **where code lives**, **runtime behavior**, and **boundaries** after Stages **6.6R-F2 / GA / GB / GB2** — not legacy Canvas / `config.theme`.
+
+> **6.6R-G track summary:** GA tokenized Main shelf/glow/pressed chrome (5 new `main_chrome_*` tokens, live glow reapply); GB set factory Light to **Cloud Ivory / Warm Cloudscape**; GB1 tuned Light shelf opacity + pressed feedback; GB2 made the debug perf-monitor text theme-aware. No `CONFIG_VERSION` / parser / WebUI changes in that track.
 
 ---
 
@@ -73,7 +75,7 @@ Init entry (once): **`yoradio_theme_init(s_disp)`** after `lv_disp_drv_register`
 | Preset | Palette source | Affected by `theme_custom.txt`? |
 |--------|----------------|----------------------------------|
 | **Dark** | `kPaletteDark` (const, compiled-in) | **No** |
-| **Light** | `kPaletteLight` (const, compiled-in) | **No** |
+| **Light** | `kPaletteLight` (const, compiled-in) — **Cloud Ivory / Warm Cloudscape** (6.6R-GB) | **No** |
 | **Custom** | `s_customPalette` = builtin fallback + file overrides | **Yes** (colors only) |
 
 - `yoradio_palette()` with active **Custom** → **`s_customPalette`** (runtime), not a bare const copy of Dark.
@@ -120,15 +122,63 @@ Case-insensitive. Does **not** change Dark/Light. Does **not** count as a color 
 
 ---
 
-## 6. Boundaries & exceptions (F2)
+## 5b. Main chrome tokens (6.6R-GA) & Cloud Ivory Light (6.6R-GB)
+
+### Main chrome tokens
+
+GA added 5 semantic tokens so Main control-shelf colors are no longer local hardcode and are **Custom-overridable**:
+
+| Token | Used for |
+|-------|----------|
+| `main_chrome_bg` | control band body **and** rim glow edge stops |
+| `main_chrome_border` | control band border **and** art-slot frame (reused) |
+| `main_chrome_glow_top` | rim glow top peak |
+| `main_chrome_glow_bottom` | rim glow bottom peak |
+| `main_chrome_pressed_bg` | control-button pressed background |
+
+**Reuse / not tokenized (by design):**
+- Icons reuse `text_primary` (transport) / `text_secondary` (list, settings).
+- Separators / buffer line reuse `divider`.
+- Shelf glow **edge** reuses `main_chrome_bg` (no separate edge token).
+- Shadow stays **local black + opacity**.
+- **Geometry / radius / padding / opacity stay local** in `scr_main.cpp` (e.g. theme-aware shelf `bg_opa`/`border_opa` and pressed opa from GB1) — **not** theme tokens.
+
+**Live reapply:** since GA the rim glow gradient stops are refreshed in `LvglMainScreen::liveReapplyTheme()` (descriptors are file-scope static, objects stored as members) → **no stale glow** after a runtime theme switch; shelf body/border/opacity, art frame, pressed bg/opa update together.
+
+### Cloud Ivory / Warm Cloudscape (factory Light, 6.6R-GB)
+
+Light direction: warm ivory device background, warm beige panels/borders, graphite primary text, taupe secondary/meta, restrained amber accent, warm cream shelf glow. Screensaver **intentionally stays dark** on Light (night/device behavior).
+
+| Token | Light value |
+|-------|-------------|
+| `device_background` | `#F8EFE3` |
+| `panel_background` | `#F9EFE2` |
+| `panel_border` | `#D3C4B3` |
+| `text_primary` | `#2F2926` |
+| `text_secondary` | `#6F6459` |
+| `accent` | `#C8942E` |
+| `accent_soft` | `#E0CBA0` (softened — raw gold too active for LVGL soft/checked states) |
+| `buffer_meter_fill` | `#8A7D70` (quiet taupe — not amber) |
+| `volume_bar_fill` | `#E7AF58` |
+| `main_chrome_bg` | `#F9EFE2` |
+| `main_chrome_border` | `#D3C4B3` |
+| `main_chrome_glow_top` | `#FEF6E6` |
+| `main_chrome_glow_bottom` | `#F4E3CC` |
+| `main_chrome_pressed_bg` | `#D8C3A2` (GB1 — darker so press reads on ivory) |
+
+---
+
+## 6. Boundaries & exceptions (F2 / GA / GB2)
 
 | Area | Policy |
 |------|--------|
 | **Boot** (`scr_boot.cpp`) | **Fixed branded dark** (`#000000` bg, `#CCCCCC` status). Does **not** use `yoradio_palette()` or user custom file. Saved Light/Custom preset does **not** whiten Boot. Shuttle/track/glow = local chrome in `scr_boot.cpp`. |
 | **Wi‑Fi Flow** (`scr_wifi_flow.cpp`) | **`yoradio_palette_service()`** → always factory **Dark**. Arbitrary Custom palette cannot break recovery UI. No `liveReapplyTheme`. |
-| **Main shelf / glow / control band** | **Local hardcoded colors** in `scr_main.cpp` — **not** in `theme_custom.txt` (F1/F2 limitation). |
+| **Main shelf / glow / control band** | **Tokenized** since GA (`main_chrome_*`) — **Custom-overridable** via `theme_custom.txt`. Geometry/opacity stay local in `scr_main.cpp`. |
+| **Perf monitor** (`lvgl_ui.cpp`) | **Debug overlay**, not product UI (`LV_USE_PERF_MONITOR`). Background **transparent**; text color follows `yoradio_palette().text_primary` (GB2, theme-aware). Disabled when perf monitor is off. |
 | **Background images** | Separate LittleFS slots: `/bg/main_dark.bin`, `main_light.bin`, `main_custom.bin` — not `theme_custom.txt`. |
 | **Fonts / layout** | Profiles (`lv_profile_*.h`), `lv_conf.h`, per-widget code — not theme file. |
+| **Station art** | Performance follow-up is separate; not a theme concern. |
 
 `boot_*` keys exist in `YoRadioPalette` and parser for completeness; **Boot screen ignores them at runtime** after F2.
 
@@ -159,10 +209,12 @@ Mirror (identical): **`docs/examples/theme_custom.example.txt`**.
 | Factory **Dark/Light** colors | `lv_theme_yoradio.cpp` → `kPaletteDark` / `kPaletteLight` |
 | **Custom** user colors | `/data/theme_custom.txt` via WebUI, or edit `theme_custom.example.txt` and upload |
 | Built-in **Custom fallback** (no file) | `kPaletteCustomBuiltin` in `lv_theme_yoradio.cpp` |
-| Add/rename palette token | `YoRadioPalette` in `.h` + `kPaletteKeyTable` in `.cpp` + example + Bible + this doc |
-| **Main** control shelf / glow | `scr_main.cpp` (local chrome) |
+| Add/rename palette token | `YoRadioPalette` in `.h` + factory palettes + `kPaletteKeyTable` in `.cpp` + **both** example files + Bible + this doc |
+| **Main chrome visual colors** | `main_chrome_*` tokens in `lv_theme_yoradio.cpp` (per preset) |
+| **Main chrome geometry / opacity** | `scr_main.cpp` (local: radius/padding, theme-aware `bg_opa`/`border_opa`, pressed opa) |
 | **Boot** look (fixed dark) | `scr_boot.cpp` → `kBootFixedBackground` / `kBootFixedStatusText` |
 | **Wi‑Fi** service colors | `scr_wifi_flow.cpp` uses `yoradio_palette_service()` only |
+| **Perf monitor** debug overlay | `lvgl_ui.cpp` (transparent bg; text = `yoradio_palette().text_primary`) |
 | LVGL default font | `lv_conf.h` → `LV_FONT_DEFAULT` |
 | Board fonts / layout | `profiles/lv_profile_*.h` |
 | Runtime preset switch wiring | `netserver.cpp`, `display.cpp`, `lvgl_ui.cpp` (do not call LVGL from NetServer) |
@@ -222,4 +274,4 @@ Search: `yoradio_palette`, `yoradio_palette_service`, `pal.` in `lvgl_ui/`.
 
 ---
 
-*Updated for Stage **6.6R-F3** (docs). Runtime behavior frozen at **6.6R-F2**.*
+*Updated for Stage **6.6R-GC** (docs). Runtime behavior reflects **GA** (Main chrome tokens + live glow), **GB/GB1** (Cloud Ivory Light + shelf/pressed tuning), **GB2** (perf-monitor text theme-aware).*

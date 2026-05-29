@@ -74,56 +74,69 @@ static const YoRadioPalette kPaletteDark = {
     lv_color_hex(0x333333), // boot_progress_track
     // S6V11A-themeA1: boot bar keeps heritage gold / прогресс бут — отдельно от accent
     lv_color_hex(0xE7D32A), // boot_progress_fill
+    // §4.7 Main chrome (6.6R-GA) — current Dark hardcoded values moved into tokens.
+    lv_color_hex(0x252D38), // main_chrome_bg
+    lv_color_hex(0x6B7D8F), // main_chrome_border
+    lv_color_hex(0xC6EBFF), // main_chrome_glow_top
+    lv_color_hex(0xA2CCE0), // main_chrome_glow_bottom
+    lv_color_hex(0xFFFFFF), // main_chrome_pressed_bg
 };
 
 // Light preset — same field order as kPaletteDark / YoRadioPalette.
-// Пресет Light — тот же порядок полей, что у Dark.
+// Stage 6.6R-GB: Cloud Ivory / Warm Cloudscape — warm ivory/beige + graphite text + restrained amber.
+// Пресет Light — Cloud Ivory: тёплый ivory/беж, графитовый текст, сдержанный амбер (6.6R-GB).
 static const YoRadioPalette kPaletteLight = {
     // §4.1 Foundation
-    lv_color_hex(0xF0F0F0), // device_background
-    lv_color_hex(0xFFFFFF), // panel_background
-    lv_color_hex(0xCCCCCC), // panel_border
-    lv_color_hex(0x1A1A1A), // text_primary
-    lv_color_hex(0x666666), // text_secondary
-    lv_color_hex(0x777777), // text_meta
-    lv_color_hex(0xB8860B), // accent
-    lv_color_hex(0xD4A84B), // accent_soft
-    lv_color_hex(0xCCCCCC), // divider
-    lv_color_hex(0xC0C0C0), // overlay_scrim
+    lv_color_hex(0xF8EFE3), // device_background
+    lv_color_hex(0xF9EFE2), // panel_background
+    lv_color_hex(0xD3C4B3), // panel_border
+    lv_color_hex(0x2F2926), // text_primary
+    lv_color_hex(0x6F6459), // text_secondary
+    lv_color_hex(0x8A7D70), // text_meta
+    lv_color_hex(0xC8942E), // accent
+    lv_color_hex(0xE0CBA0), // accent_soft — softened gold; raw amber too active for LVGL soft/checked states
+    lv_color_hex(0xD8CABB), // divider
+    lv_color_hex(0xEDE1D2), // overlay_scrim
     // §4.2 Main / player
-    lv_color_hex(0x333333), // status_line_text
-    lv_color_hex(0x555555), // status_line_meta
-    lv_color_hex(0x5F6B77), // status_weather_icon — readable slate on light (6.6R-B2)
-    lv_color_hex(0x4E5A66), // status_weather_temp (more readable on light)
-    lv_color_hex(0xE8E8E8), // status_line_bg
-    lv_color_hex(0x222222), // clock_text
-    lv_color_hex(0xCC0000), // live_indicator_text
-    lv_color_hex(0x202020), // station_name_text
-    lv_color_hex(0x444444), // artist_text
-    lv_color_hex(0x444444), // track_text
-    lv_color_hex(0x555555), // meta_row_text
-    lv_color_hex(0xC4C4C4), // volume_bar_track — light recessed track (6.1D-a2)
-    lv_color_hex(0x6B7580), // volume_bar_fill — muted slate (6.1D-a2)
-    lv_color_hex(0x444444), // buffer_meter_fill — matches bottom_ai_text: readable on 1px vs divider (6.1D-a2)
-    lv_color_hex(0x444444), // bottom_weather_text
-    lv_color_hex(0x444444), // bottom_ai_text
+    lv_color_hex(0x3A2C24), // status_line_text
+    lv_color_hex(0x6F6459), // status_line_meta
+    lv_color_hex(0xC8942E), // status_weather_icon
+    lv_color_hex(0x2F2926), // status_weather_temp
+    lv_color_hex(0xF4E8D9), // status_line_bg
+    lv_color_hex(0x2F2926), // clock_text
+    lv_color_hex(0xB65F3A), // live_indicator_text
+    lv_color_hex(0x2F2926), // station_name_text
+    lv_color_hex(0x6F6459), // artist_text
+    lv_color_hex(0x3A2C24), // track_text
+    lv_color_hex(0x7A6E62), // meta_row_text
+    lv_color_hex(0xDCCBB7), // volume_bar_track
+    lv_color_hex(0xE7AF58), // volume_bar_fill
+    lv_color_hex(0x8A7D70), // buffer_meter_fill — quiet taupe; amber would over-emphasize technical buffer line
+    lv_color_hex(0x6F6459), // bottom_weather_text
+    lv_color_hex(0x6F6459), // bottom_ai_text
     // §4.3 Lists
-    lv_color_hex(0x222222), // list_row_text
-    lv_color_hex(0xD0D0D0), // list_row_selected_bg
-    lv_color_hex(0x000000), // list_row_selected_text
-    lv_color_hex(0xCCCCCC), // list_row_separator
+    lv_color_hex(0x2F2926), // list_row_text
+    lv_color_hex(0xEFE1CE), // list_row_selected_bg
+    lv_color_hex(0x2F2926), // list_row_selected_text
+    lv_color_hex(0xD8CABB), // list_row_separator
     // §4.4 Overlay
-    lv_color_hex(0xFFFFFF), // overlay_card_bg
-    lv_color_hex(0x1A1A1A), // overlay_title_text
-    lv_color_hex(0x444444), // overlay_body_text
-    // §4.5 Screensaver
+    lv_color_hex(0xF9EFE2), // overlay_card_bg
+    lv_color_hex(0x2F2926), // overlay_title_text
+    lv_color_hex(0x6F6459), // overlay_body_text
+    // §4.5 Screensaver — intentionally dark on Light (night/device behavior); unchanged in GB.
     lv_color_hex(0x101010), // screensaver_background
     lv_color_hex(0xF5F5F5), // screensaver_clock_text
-    // §4.6 Boot
-    lv_color_hex(0xF5F5F5), // boot_background
-    lv_color_hex(0x444444), // boot_status_text
-    lv_color_hex(0xCCCCCC), // boot_progress_track
-    lv_color_hex(0xB8860B), // boot_progress_fill
+    // §4.6 Boot — parser/fallback only; runtime Boot screen is fixed dark (scr_boot.cpp).
+    lv_color_hex(0xF8EFE3), // boot_background
+    lv_color_hex(0x6F6459), // boot_status_text
+    lv_color_hex(0xDCCBB7), // boot_progress_track
+    lv_color_hex(0xC8942E), // boot_progress_fill
+    // §4.7 Main chrome (6.6R-GB) — Cloud Ivory shelf/glow/pressed: warm ivory + cream glow.
+    lv_color_hex(0xF9EFE2), // main_chrome_bg
+    lv_color_hex(0xD3C4B3), // main_chrome_border
+    lv_color_hex(0xFEF6E6), // main_chrome_glow_top
+    lv_color_hex(0xF4E3CC), // main_chrome_glow_bottom
+    lv_color_hex(0xD8C3A2), // main_chrome_pressed_bg — 6.6R-GB1: darker warm beige; #EFE1CE too close to shelf to read
 };
 
 // Built-in Custom fallback — baseline when theme_custom.txt missing/invalid (not “just Dark” at runtime).
@@ -168,6 +181,12 @@ static const YoRadioPalette kPaletteCustomBuiltin = {
     lv_color_hex(0xCCCCCC),
     lv_color_hex(0x333333),
     lv_color_hex(0xE7D32A),
+    // §4.7 Main chrome (6.6R-GA) — Dark-style fallback when file omits these keys.
+    lv_color_hex(0x252D38), // main_chrome_bg
+    lv_color_hex(0x6B7D8F), // main_chrome_border
+    lv_color_hex(0xC6EBFF), // main_chrome_glow_top
+    lv_color_hex(0xA2CCE0), // main_chrome_glow_bottom
+    lv_color_hex(0xFFFFFF), // main_chrome_pressed_bg
 };
 
 static YoRadioPalette s_customPalette = kPaletteCustomBuiltin;
@@ -235,6 +254,12 @@ static const PaletteKeyMap kPaletteKeyTable[] = {
     YORA_PAL_KEY(boot_status_text),
     YORA_PAL_KEY(boot_progress_track),
     YORA_PAL_KEY(boot_progress_fill),
+    // §4.7 Main chrome (6.6R-GA) — Custom files may override shelf/glow/pressed colors.
+    YORA_PAL_KEY(main_chrome_bg),
+    YORA_PAL_KEY(main_chrome_border),
+    YORA_PAL_KEY(main_chrome_glow_top),
+    YORA_PAL_KEY(main_chrome_glow_bottom),
+    YORA_PAL_KEY(main_chrome_pressed_bg),
 };
 
 #undef YORA_PAL_KEY

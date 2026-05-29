@@ -110,6 +110,18 @@ static bool bg_load_into_psram(const char* fs_path, uint8_t*& out_buf, lv_img_ds
 // Транспорт заметнее нажатие; list/settings — тише, размер как у транспорта.
 constexpr lv_opa_t k_ctrl_pressed_opa_transport = LV_OPA_20;
 constexpr lv_opa_t k_ctrl_pressed_opa_utility = static_cast<lv_opa_t>(36); // ~14% vs ~20% transport
+// Stage 6.6R-GB1: Light pressed feedback was washed out (warm-on-ivory @20%). Stronger Light opa; Dark unchanged.
+// Этап 6.6R-GB1: на Light нажатие почти невидимо — больше opacity для Light; Dark без изменений.
+constexpr lv_opa_t k_ctrl_pressed_opa_transport_light = LV_OPA_60;
+constexpr lv_opa_t k_ctrl_pressed_opa_utility_light = LV_OPA_50;
+
+// Stage 6.6R-GB1: control band fill/border opacity is theme-dependent. Light Cloud Ivory shelf at OPA_50
+// over a Cloudscape bg nearly vanishes → matte ivory needs higher fill; Dark slate keeps original feel.
+// Этап 6.6R-GB1: прозрачность полки зависит от темы. Light ivory при OPA_50 почти исчезает — поднимаем; Dark без изменений.
+constexpr lv_opa_t k_cb_bg_opa_dark      = LV_OPA_50;
+constexpr lv_opa_t k_cb_bg_opa_light     = LV_OPA_90; // matte ivory shelf, still slightly soft / матовая ивори-полка
+constexpr lv_opa_t k_cb_border_opa_dark  = LV_OPA_30;
+constexpr lv_opa_t k_cb_border_opa_light = LV_OPA_70; // warm beige edge reads on ivory / тёплая беж-кромка читается
 
 // Meta row: field separator — U+2022 BULLET (in lv_font_yora_montserrat_16_cyr: 0x2022 in .c opts).
 // U+00B7 middle dot is NOT in that font subset → would render as wrong glyph on device/sim.
@@ -476,6 +488,24 @@ static void main_set_font(lv_obj_t* obj, const void* font_slot) {
     lv_obj_set_style_text_font(obj, static_cast<const lv_font_t*>(font_slot), LV_PART_MAIN);
 }
 
+// Stage 6.6R-GA: rim glow gradient descriptors. LVGL stores a pointer to lv_grad_dsc_t in the
+// style, so the descriptor must outlive create(). File-scope static (Main is single-instance) lets
+// both create() and liveReapplyTheme() reach the same descriptors → fix stale glow on theme switch.
+// Этап 6.6R-GA: дескрипторы градиента blic'а — file-scope static (Main один), чтобы reapply мог
+// обновить стопы при смене темы. [0]=top, [1]=bottom.
+static lv_grad_dsc_t s_cb_rim_glow_grad[2];
+
+// Fill rim glow stops from the active palette (colors only; frac/dir set once in create()).
+// edge = shelf body (main_chrome_bg); peak = top/bottom glow token; plateau back to edge.
+// Заполнить цвета стопов из активной палитры (только цвета; геометрия задаётся в create()).
+static void main_fill_rim_glow_grad(lv_grad_dsc_t* gd, bool top, const YoRadioPalette& pal) {
+    if (!gd) return;
+    gd->stops[0].color = pal.main_chrome_bg;
+    gd->stops[1].color = top ? pal.main_chrome_glow_top : pal.main_chrome_glow_bottom;
+    gd->stops[2].color = pal.main_chrome_bg;
+    gd->stops[3].color = pal.main_chrome_bg;
+}
+
 // 6.1E control button: icon inside lv_btn with min hit area; blocks gesture bubble.
 // Кнопка управления: иконка в lv_btn с минимальной зоной касания; без всплытия жеста.
 // corner_radius: transport slightly rounder (device-like); utility smaller radius = quieter / радиус: транспорт увереннее, utility тише.
@@ -488,12 +518,15 @@ static lv_obj_t* main_create_control_icon_btn(
     lv_coord_t pad_inner,
     lv_coord_t min_side,
     lv_coord_t corner_radius = 14,
-    lv_opa_t pressed_bg_opa = LV_OPA_20) {
+    lv_opa_t pressed_bg_opa = LV_OPA_20,
+    // Stage 6.6R-GA: pressed bg is now a palette token (pal.main_chrome_pressed_bg); was hardcoded white.
+    // Этап 6.6R-GA: цвет pressed-фона — токен палитры (раньше white).
+    lv_color_t pressed_bg_color = lv_color_white()) {
     lv_obj_t* btn = lv_btn_create(parent);
     if (!btn) return nullptr;
     lv_obj_remove_style_all(btn);
     lv_obj_set_style_bg_opa(btn, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(btn, lv_color_white(), static_cast<lv_style_selector_t>(LV_PART_MAIN) | LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(btn, pressed_bg_color, static_cast<lv_style_selector_t>(LV_PART_MAIN) | LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(btn, pressed_bg_opa, static_cast<lv_style_selector_t>(LV_PART_MAIN) | LV_STATE_PRESSED);
     lv_obj_set_style_radius(btn, corner_radius, LV_PART_MAIN);
     lv_obj_set_style_pad_all(btn, pad_inner, LV_PART_MAIN);
@@ -512,14 +545,18 @@ static lv_obj_t* main_create_control_icon_btn(
     return btn;
 }
 
-// Stage 6.6R-B1: icon label color is set only in main_create_control_icon_btn(); reapply on theme switch.
-// Этап 6.6R-B1: цвет иконки задаётся при create(); обновляем label при liveReapplyTheme().
-static void main_reapply_control_icon_btn_fg(lv_obj_t* btn, lv_color_t fg) {
+// Stage 6.6R-B1/GA: icon fg + pressed bg are set in main_create_control_icon_btn(); reapply on theme switch.
+// Этап 6.6R-B1/GA: цвет иконки и pressed-фон задаются при create(); обновляем при liveReapplyTheme().
+static void main_reapply_control_icon_btn(lv_obj_t* btn, lv_color_t fg, lv_color_t pressed_bg,
+                                          lv_opa_t pressed_opa) {
     if (!btn) return;
     lv_obj_t* lbl = lv_obj_get_child(btn, 0);
     if (lbl) {
         lv_obj_set_style_text_color(lbl, fg, LV_PART_MAIN);
     }
+    lv_obj_set_style_bg_color(btn, pressed_bg, static_cast<lv_style_selector_t>(LV_PART_MAIN) | LV_STATE_PRESSED);
+    // 6.6R-GB1: pressed opa is theme-aware → reapply on switch so Light feedback stays visible.
+    lv_obj_set_style_bg_opa(btn, pressed_opa, static_cast<lv_style_selector_t>(LV_PART_MAIN) | LV_STATE_PRESSED);
 }
 
 ScreenType LvglMainScreen::screenType() const {
@@ -736,15 +773,11 @@ void LvglMainScreen::create() {
                 lv_obj_set_size(_art_slot, k_art_slot_size, k_art_slot_size);
                 lv_obj_set_style_shadow_width(_art_slot, 0, LV_PART_MAIN);
                 lv_obj_set_style_outline_width(_art_slot, 0, LV_PART_MAIN);
-                // Frame: same color family as control_band border (Dark: 0x6B7D8F, Light: 0x98AAB8).
+                // Frame: reuses control_band border token (6.6R-GA: pal.main_chrome_border).
                 // radius clips content — image corners follow the same arc.
-                // Рамка: тот же оттенок что у полки; radius обрезает углы картинки изнутри.
+                // Рамка: тот же токен, что у полки; radius обрезает углы картинки изнутри.
                 {
-                    const bool lightScheme = (yoradio_theme_active_preset() == ThemePreset::Light);
-                    const lv_color_t frame_col = lightScheme
-                        ? lv_color_hex(0x98AAB8)
-                        : lv_color_hex(0x6B7D8F);
-                    lv_obj_set_style_border_color(_art_slot, frame_col, LV_PART_MAIN);
+                    lv_obj_set_style_border_color(_art_slot, pal.main_chrome_border, LV_PART_MAIN);
                     lv_obj_set_style_border_opa(_art_slot, k_art_frame_border_opa, LV_PART_MAIN);
                     lv_obj_set_style_border_width(_art_slot, k_art_frame_border_w, LV_PART_MAIN);
                 }
@@ -985,6 +1018,14 @@ void LvglMainScreen::create() {
         const lv_coord_t pad_tr = (W <= 320u) ? static_cast<lv_coord_t>(12) : static_cast<lv_coord_t>(16);
         const lv_coord_t min_tr = (W <= 320u) ? static_cast<lv_coord_t>(54) : static_cast<lv_coord_t>(58);
 
+        // 6.6R-GB1: theme-aware pressed opacity (Light needs stronger feedback on ivory shelf).
+        // 6.6R-GB1: прозрачность нажатия зависит от темы (Light заметнее на ивори-полке).
+        const bool cb_light = (yoradio_theme_active_preset() == ThemePreset::Light);
+        const lv_opa_t pressed_opa_transport =
+            cb_light ? k_ctrl_pressed_opa_transport_light : k_ctrl_pressed_opa_transport;
+        const lv_opa_t pressed_opa_utility =
+            cb_light ? k_ctrl_pressed_opa_utility_light : k_ctrl_pressed_opa_utility;
+
         // Control band: list (left inset = pad_hor) | transport (grow, centered) | settings (right inset = pad_hor).
         // Symmetric slot widths keep the triad centered; list/settings no longer share one utility cluster.
         // Полка: list слева | транспорт по центру | settings справа; равные ширины боковых слотов — центр триады.
@@ -1012,17 +1053,12 @@ void LvglMainScreen::create() {
             // PASS A + S1: тот же radius; плотнее матовая панель, рамка чуть мягче; flex/pad без изменений.
             // Theme: no runtime preset switch yet — product tuning is Dark-first; Light branch kept for future / Переключения темы пока нет, опора на Dark; ветка Light на будущее.
             {
-                const bool lightScheme = (yoradio_theme_active_preset() == ThemePreset::Light);
-                if (lightScheme) {
-                    lv_obj_set_style_bg_color(control_band, lv_color_hex(0xDCE2E9), LV_PART_MAIN);
-                    lv_obj_set_style_bg_opa(control_band, LV_OPA_50, LV_PART_MAIN); // user tune / подбор Light
-                    lv_obj_set_style_border_color(control_band, lv_color_hex(0x98AAB8), LV_PART_MAIN);
-                } else {
-                    lv_obj_set_style_bg_color(control_band, lv_color_hex(0x252D38), LV_PART_MAIN);
-                    lv_obj_set_style_bg_opa(control_band, LV_OPA_50, LV_PART_MAIN); // user tune / подбор Dark
-                    lv_obj_set_style_border_color(control_band, lv_color_hex(0x6B7D8F), LV_PART_MAIN); // S1: slightly softer than 0x7A8FA3 / мягче рамка
-                }
-                lv_obj_set_style_border_opa(control_band, LV_OPA_30, LV_PART_MAIN); // S1: less harsh edge / меньше контраст рамки
+                // Stage 6.6R-GA: shelf body/border are palette tokens; 6.6R-GB1: opacity is theme-aware (local).
+                // Этап 6.6R-GA: тело/рамка полки — токены; GB1: прозрачность зависит от темы (локально).
+                lv_obj_set_style_bg_color(control_band, pal.main_chrome_bg, LV_PART_MAIN);
+                lv_obj_set_style_bg_opa(control_band, cb_light ? k_cb_bg_opa_light : k_cb_bg_opa_dark, LV_PART_MAIN);
+                lv_obj_set_style_border_color(control_band, pal.main_chrome_border, LV_PART_MAIN);
+                lv_obj_set_style_border_opa(control_band, cb_light ? k_cb_border_opa_light : k_cb_border_opa_dark, LV_PART_MAIN);
                 lv_obj_set_style_radius(control_band, k_control_band_corner_r, LV_PART_MAIN);
                 // 2px rim trial: unifies shelf edge with rounded cap read (vs 1px cap + thicker glow band).
                 // Проба 2px: кромка полки визуально ближе к скруглению; иначе «толстый glow + тонкая дуга».
@@ -1042,9 +1078,9 @@ void LvglMainScreen::create() {
             // Хэндлы блика — ширина после layout (проценты = content, не доходит до скругления под pad).
             lv_obj_t* edge_glow_top = nullptr;
             lv_obj_t* edge_glow_bot = nullptr;
-            // LVGL stores pointer to lv_grad_dsc_t in style — must outlive create(); one dsc per strip.
-            // В стиле хранится указатель на lv_grad_dsc_t — статический массив, не stack.
-            static lv_grad_dsc_t s_cb_rim_glow_grad[2];
+            // Stage 6.6R-GA: gradient descriptors are file-scope static (s_cb_rim_glow_grad) so
+            // liveReapplyTheme() can refresh stops on theme switch. Colors come from palette tokens.
+            // Этап 6.6R-GA: дескрипторы — file-scope static; цвета из токенов палитры (fix stale glow).
 
             // PASS B: 4-stop HOR — mat→peak→mat, then mat plateau to x2=x3 so last pixels = shelf (no grey rim).
             // Четыре стопа: после пика снова мат и длинный «плато» тот же мат до правого края — без серого хвоста.
@@ -1053,13 +1089,6 @@ void LvglMainScreen::create() {
                 const bool lightScheme = (yoradio_theme_active_preset() == ThemePreset::Light);
                 // Edge = shelf body; peak brighter so center reads as light pool, not uniform stripe.
                 // Край = мат полки; пик ярче — центр как пятно света, не однотонная полоса.
-                const lv_color_t edge_d = lv_color_hex(0x252D38);
-                // Peak chroma — stepped up with bg_opa (LVGL 10% steps). / пик + opa дискретно LVGL.
-                const lv_color_t peak_top_d = lv_color_hex(0xc6ebff);
-                const lv_color_t peak_bot_d = lv_color_hex(0xa2cce0); // calmer bottom / низ спокойнее
-                const lv_color_t edge_l = lv_color_hex(0xDCE2E9);
-                const lv_color_t peak_top_l = lv_color_hex(0x94d2f8);
-                const lv_color_t peak_bot_l = lv_color_hex(0xb6e0ff);
                 const lv_opa_t glow_bg_top = lightScheme ? LV_OPA_50 : LV_OPA_60;
                 const lv_opa_t glow_bg_bot = lightScheme ? LV_OPA_40 : LV_OPA_50;
                 auto add_edge_glow = [&](bool top) {
@@ -1080,17 +1109,9 @@ void LvglMainScreen::create() {
                     gd->stops[1].frac = 108; // peak left of centre — long gentle falloff to the right / длинный спад вправо
                     gd->stops[2].frac = 172; // touch mat again before final edge (plateau start) / снова мат
                     gd->stops[3].frac = 255;
-                    if (lightScheme) {
-                        gd->stops[0].color = edge_l;
-                        gd->stops[1].color = top ? peak_top_l : peak_bot_l;
-                        gd->stops[2].color = edge_l;
-                        gd->stops[3].color = edge_l;
-                    } else {
-                        gd->stops[0].color = edge_d;
-                        gd->stops[1].color = top ? peak_top_d : peak_bot_d;
-                        gd->stops[2].color = edge_d;
-                        gd->stops[3].color = edge_d;
-                    }
+                    // Colors from active palette tokens (edge=main_chrome_bg, peak=glow_top/bottom).
+                    // Цвета — из токенов активной палитры.
+                    main_fill_rim_glow_grad(gd, top, pal);
                     lv_obj_set_style_bg_grad(g, gd, LV_PART_MAIN);
                     lv_obj_set_style_bg_opa(g, top ? glow_bg_top : glow_bg_bot, LV_PART_MAIN);
                     lv_obj_set_style_radius(g, (kGlowH + 1) / 2, LV_PART_MAIN);
@@ -1106,8 +1127,10 @@ void LvglMainScreen::create() {
                     }
                     if (top) {
                         edge_glow_top = g;
+                        _edge_glow_top = g; // 6.6R-GA: store for liveReapplyTheme() / для reapply
                     } else {
                         edge_glow_bot = g;
+                        _edge_glow_bot = g;
                     }
                 };
                 add_edge_glow(true);
@@ -1138,7 +1161,8 @@ void LvglMainScreen::create() {
                     f_ctrl_transport, pal.text_secondary,
                     pad_tr, min_tr,
                     18,
-                    k_ctrl_pressed_opa_utility);
+                    pressed_opa_utility,
+                    pal.main_chrome_pressed_bg);
                 if (btn_list) {
                     _ctrl_btn_list = btn_list;
                     lv_obj_add_event_cb(btn_list, main_utility_station_cb, LV_EVENT_CLICKED, nullptr);
@@ -1172,7 +1196,8 @@ void LvglMainScreen::create() {
                     f_ctrl_transport, pal.text_primary,
                     pad_tr, min_tr,
                     18,
-                    k_ctrl_pressed_opa_transport);
+                    pressed_opa_transport,
+                    pal.main_chrome_pressed_bg);
                 if (btn_prev) {
                     _ctrl_btn_prev = btn_prev;
                     lv_obj_add_event_cb(btn_prev, main_transport_prev_cb, LV_EVENT_CLICKED, nullptr);
@@ -1183,7 +1208,8 @@ void LvglMainScreen::create() {
                     f_ctrl_transport, pal.text_primary,
                     pad_tr, min_tr,
                     18,
-                    k_ctrl_pressed_opa_transport);
+                    pressed_opa_transport,
+                    pal.main_chrome_pressed_bg);
                 if (btn_play) {
                     _ctrl_btn_play = btn_play;
                     lv_obj_add_event_cb(btn_play, main_transport_toggle_cb, LV_EVENT_CLICKED, nullptr);
@@ -1197,7 +1223,8 @@ void LvglMainScreen::create() {
                     f_ctrl_transport, pal.text_primary,
                     pad_tr, min_tr,
                     18,
-                    k_ctrl_pressed_opa_transport);
+                    pressed_opa_transport,
+                    pal.main_chrome_pressed_bg);
                 if (btn_next) {
                     _ctrl_btn_next = btn_next;
                     lv_obj_add_event_cb(btn_next, main_transport_next_cb, LV_EVENT_CLICKED, nullptr);
@@ -1229,7 +1256,8 @@ void LvglMainScreen::create() {
                     f_ctrl_transport, pal.text_secondary,
                     pad_tr, min_tr,
                     18,
-                    k_ctrl_pressed_opa_utility);
+                    pressed_opa_utility,
+                    pal.main_chrome_pressed_bg);
                 if (btn_settings) {
                     _ctrl_btn_settings = btn_settings;
                     lv_obj_add_event_cb(btn_settings, main_utility_settings_cb, LV_EVENT_CLICKED, nullptr);
@@ -1837,32 +1865,49 @@ void LvglMainScreen::liveReapplyTheme() {
         lv_obj_set_style_bg_color(_lbl_vol_popup,   pal.panel_background, LV_PART_MAIN);
     }
 
-    // Art slot frame (Main chrome: same color family as control_band border) / Рамка арта
+    // Art slot frame (Main chrome): reuses control_band border token (6.6R-GA) / Рамка арта
     if (_art_slot) {
-        const lv_color_t frame_col = lightScheme ? lv_color_hex(0x98AAB8) : lv_color_hex(0x6B7D8F);
-        lv_obj_set_style_border_color(_art_slot, frame_col, LV_PART_MAIN);
+        lv_obj_set_style_border_color(_art_slot, pal.main_chrome_border, LV_PART_MAIN);
     }
 
-    // Control band bg/border (Main chrome — glow gradient follow-up) / Полка транспорта: bg/border
-    // Glow gradient strips not updated here (static lv_grad_dsc_t local to create()).
-    // Glow-градиент не обновляется (static local в create()) — follow-up после 6.6R-B.
+    // Control band bg/border (Main chrome tokens) + 6.6R-GB1 theme-aware opacity / Полка: bg/border + прозрачность
     if (_control_band) {
-        if (lightScheme) {
-            lv_obj_set_style_bg_color(_control_band,     lv_color_hex(0xDCE2E9), LV_PART_MAIN);
-            lv_obj_set_style_border_color(_control_band, lv_color_hex(0x98AAB8), LV_PART_MAIN);
-        } else {
-            lv_obj_set_style_bg_color(_control_band,     lv_color_hex(0x252D38), LV_PART_MAIN);
-            lv_obj_set_style_border_color(_control_band, lv_color_hex(0x6B7D8F), LV_PART_MAIN);
+        lv_obj_set_style_bg_color(_control_band,     pal.main_chrome_bg,     LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(_control_band,       lightScheme ? k_cb_bg_opa_light : k_cb_bg_opa_dark, LV_PART_MAIN);
+        lv_obj_set_style_border_color(_control_band, pal.main_chrome_border, LV_PART_MAIN);
+        lv_obj_set_style_border_opa(_control_band,   lightScheme ? k_cb_border_opa_light : k_cb_border_opa_dark, LV_PART_MAIN);
+    }
+
+    // Rim glow (6.6R-GA): refresh gradient stops + per-theme opacity → no stale glow on switch.
+    // Descriptors are file-scope static (outlive create); update colors in place and invalidate.
+    // Rim glow: обновляем стопы градиента и прозрачность под тему — больше нет «застрявшего» блика.
+    {
+        const lv_opa_t glow_bg_top = lightScheme ? LV_OPA_50 : LV_OPA_60;
+        const lv_opa_t glow_bg_bot = lightScheme ? LV_OPA_40 : LV_OPA_50;
+        if (_edge_glow_top) {
+            main_fill_rim_glow_grad(&s_cb_rim_glow_grad[0], true, pal);
+            lv_obj_set_style_bg_opa(_edge_glow_top, glow_bg_top, LV_PART_MAIN);
+            lv_obj_invalidate(_edge_glow_top);
+        }
+        if (_edge_glow_bot) {
+            main_fill_rim_glow_grad(&s_cb_rim_glow_grad[1], false, pal);
+            lv_obj_set_style_bg_opa(_edge_glow_bot, glow_bg_bot, LV_PART_MAIN);
+            lv_obj_invalidate(_edge_glow_bot);
         }
     }
 
-    // Control icon buttons: fg was set in create() only — reapply palette text colors.
-    // Иконки полки: цвет задавался в create(); обновляем при runtime theme switch.
-    main_reapply_control_icon_btn_fg(_ctrl_btn_list,     pal.text_secondary);
-    main_reapply_control_icon_btn_fg(_ctrl_btn_prev,     pal.text_primary);
-    main_reapply_control_icon_btn_fg(_ctrl_btn_play,     pal.text_primary);
-    main_reapply_control_icon_btn_fg(_ctrl_btn_next,     pal.text_primary);
-    main_reapply_control_icon_btn_fg(_ctrl_btn_settings, pal.text_secondary);
+    // Control icon buttons: fg + pressed bg/opa were set in create() only — reapply for theme switch.
+    // 6.6R-GB1: pressed opa is theme-aware (Light stronger) so feedback stays visible after switch.
+    // Иконки полки: цвет/pressed-фон/прозрачность задавались в create(); обновляем при смене темы.
+    const lv_opa_t re_pressed_transport =
+        lightScheme ? k_ctrl_pressed_opa_transport_light : k_ctrl_pressed_opa_transport;
+    const lv_opa_t re_pressed_utility =
+        lightScheme ? k_ctrl_pressed_opa_utility_light : k_ctrl_pressed_opa_utility;
+    main_reapply_control_icon_btn(_ctrl_btn_list,     pal.text_secondary, pal.main_chrome_pressed_bg, re_pressed_utility);
+    main_reapply_control_icon_btn(_ctrl_btn_prev,     pal.text_primary,   pal.main_chrome_pressed_bg, re_pressed_transport);
+    main_reapply_control_icon_btn(_ctrl_btn_play,     pal.text_primary,   pal.main_chrome_pressed_bg, re_pressed_transport);
+    main_reapply_control_icon_btn(_ctrl_btn_next,     pal.text_primary,   pal.main_chrome_pressed_bg, re_pressed_transport);
+    main_reapply_control_icon_btn(_ctrl_btn_settings, pal.text_secondary, pal.main_chrome_pressed_bg, re_pressed_utility);
 
     // Status line widget colors / Цвета виджета status line
     wgt_status_line::reapplyTheme(_status_line);
@@ -1900,6 +1945,7 @@ void LvglMainScreen::destroy() {
     _bg_img = nullptr;
     _bg_scrim = nullptr;
     _control_band = nullptr; // deleted with _screen tree / удалено вместе с деревом
+    _edge_glow_top = _edge_glow_bot = nullptr; // deleted with _screen tree / удалено вместе с деревом
     _ctrl_btn_list = _ctrl_btn_prev = _ctrl_btn_play = _ctrl_btn_next = _ctrl_btn_settings = nullptr;
     _art_slot  = nullptr;
     _art_img   = nullptr;
