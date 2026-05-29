@@ -2,7 +2,7 @@
 #include "lv_touch_indev.h"
 #include "lvgl.h"
 
-#if (TS_MODEL!=TS_MODEL_UNDEFINED) && (DSP_MODEL!=DSP_DUMMY)
+#if (TS_MODEL!=TS_MODEL_UNDEFINED)
 #include "../core/touchscreen.h"
 #include "../core/display.h"
 #include "../core/config.h"
@@ -15,7 +15,7 @@
 static lv_indev_drv_t s_touch_indev_drv;
 static lv_indev_t* s_touch_indev = nullptr;
 
-#if (TS_MODEL!=TS_MODEL_UNDEFINED) && (DSP_MODEL!=DSP_DUMMY)
+#if (TS_MODEL!=TS_MODEL_UNDEFINED)
 // After wake putRequest, feed LVGL RELEASED until finger up — avoids click/gesture on Main/Info same stroke.
 // После wake в LVGL подаём RELEASED до отпускания — иначе тот же жест даёт toggle/карусель под оверлеем.
 static bool s_suppress_lvgl_pointer_until_release = false;
@@ -58,7 +58,7 @@ static void touch_wake_saver_or_blank_if_needed(uint16_t x, uint16_t y, bool poi
 }
 #endif
 
-#if (TS_MODEL!=TS_MODEL_UNDEFINED) && (DSP_MODEL!=DSP_DUMMY) && YORADIO_LVGL_TOUCH_DEBUG
+#if (TS_MODEL!=TS_MODEL_UNDEFINED) && YORADIO_LVGL_TOUCH_DEBUG
 #include <Arduino.h>
 // Throttled trace: raw GT911 vs state fed to LVGL (incl. screensaver wake suppress).
 // Урезанный лог: сырой тач и то, что реально уходит в LVGL (в т.ч. suppress после saver wake).
@@ -104,7 +104,7 @@ static void lv_touch_debug_on_feed(bool raw_down, uint16_t x, uint16_t y, lv_ind
 
 static void lv_touch_read_cb(lv_indev_drv_t* drv, lv_indev_data_t* data) {
     (void)drv;
-#if (TS_MODEL!=TS_MODEL_UNDEFINED) && (DSP_MODEL!=DSP_DUMMY)
+#if (TS_MODEL!=TS_MODEL_UNDEFINED)
     uint16_t x = 0;
     uint16_t y = 0;
     if (touchscreen.readPointerForLvgl(&x, &y)) {
@@ -122,13 +122,13 @@ static void lv_touch_read_cb(lv_indev_drv_t* drv, lv_indev_data_t* data) {
         } else {
             data->state = LV_INDEV_STATE_PRESSED;
         }
-#if YORADIO_LVGL_TOUCH_DEBUG && (TS_MODEL!=TS_MODEL_UNDEFINED) && (DSP_MODEL!=DSP_DUMMY)
+#if YORADIO_LVGL_TOUCH_DEBUG && (TS_MODEL!=TS_MODEL_UNDEFINED)
         lv_touch_debug_on_feed(true, x, y, data->state);
 #endif
     } else {
         touch_wake_saver_or_blank_if_needed(0, 0, false);
         data->state = LV_INDEV_STATE_RELEASED;
-#if YORADIO_LVGL_TOUCH_DEBUG && (TS_MODEL!=TS_MODEL_UNDEFINED) && (DSP_MODEL!=DSP_DUMMY)
+#if YORADIO_LVGL_TOUCH_DEBUG && (TS_MODEL!=TS_MODEL_UNDEFINED)
         lv_touch_debug_on_feed(false, 0, 0, data->state);
 #endif
     }
@@ -144,7 +144,7 @@ void lvgl_ui::initTouchIndev() {
     if (!lv_disp_get_default()) {
         return;
     }
-#if (TS_MODEL!=TS_MODEL_UNDEFINED) && (DSP_MODEL!=DSP_DUMMY)
+#if (TS_MODEL!=TS_MODEL_UNDEFINED)
     lv_indev_drv_init(&s_touch_indev_drv);
     s_touch_indev_drv.type = LV_INDEV_TYPE_POINTER;
     s_touch_indev_drv.read_cb = lv_touch_read_cb;

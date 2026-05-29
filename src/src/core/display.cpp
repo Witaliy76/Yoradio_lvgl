@@ -38,19 +38,14 @@ Display display;
 
 DspCore dsp;
 
-#ifndef DSQ_SEND_DELAY
-  #define DSQ_SEND_DELAY portMAX_DELAY
-#endif
-
 #ifndef CORE_STACK_SIZE
   #define CORE_STACK_SIZE  (1024*6)
 #endif
 #ifndef DSP_TASK_DELAY
   #define DSP_TASK_DELAY  pdMS_TO_TICKS(5)
 #endif
-#if !((DSP_MODEL==DSP_ST7735 && DTYPE==INITR_BLACKTAB) || DSP_MODEL==DSP_ST7789 || DSP_MODEL==DSP_ST7789_170 || DSP_MODEL==DSP_ST7796 || DSP_MODEL==DSP_ILI9488 || DSP_MODEL==DSP_ILI9486 || DSP_MODEL==DSP_ILI9341 || DSP_MODEL==DSP_ILI9225 || DSP_MODEL==DSP_AXS15231B || DSP_MODEL==DSP_ST7701 || DSP_MODEL==DSP_UEDX48480021)
-  #undef  BITRATE_FULL
-  #define BITRATE_FULL     false
+#ifndef DSQ_SEND_DELAY
+  #define DSQ_SEND_DELAY portMAX_DELAY
 #endif
 TaskHandle_t DspTask;
 QueueHandle_t displayQueue;
@@ -94,18 +89,10 @@ void Display::init() {
 
   dsp.initDisplay();
 
-#if DSP_MODEL == DSP_ST7701
-  // Block 8-E17: ST7701 LVGL product — panel via output_display, gfx stays nullptr.
   if (!dsp.getOutputDisplay()) {
     Serial.println("[Display] Failed to initialize display (no output_display)!");
     return;
   }
-#else
-  if (!gfx) {
-    Serial.println("[Display] Failed to initialize display!");
-    return;
-  }
-#endif
 
   lvgl_ui::initRuntime();
   lvgl_ui::initTick();
@@ -515,29 +502,15 @@ void Display::flip(){ dsp.flip(); }
 void Display::invert(){ dsp.invert(); }
 
 void  Display::setContrast(){
-  #if DSP_MODEL==DSP_NOKIA5110
-    dsp.setContrast(config.store.contrast);
-  #endif
 }
 
 bool Display::deepsleep(){
-#if defined(LCD_I2C) || defined(DSP_OLED) || BRIGHTNESS_PIN!=255
   dsp.sleep();
   return true;
-#elif DSP_MODEL == DSP_ST7701 || DSP_MODEL == DSP_UEDX48480021 || DSP_MODEL == DSP_AXS15231B
-  dsp.sleep();
-  return true;
-#else
-  return false;
-#endif
 }
 
 void Display::wakeup(){
-#if defined(LCD_I2C) || defined(DSP_OLED) || BRIGHTNESS_PIN!=255
   dsp.wake();
-#elif DSP_MODEL == DSP_ST7701 || DSP_MODEL == DSP_UEDX48480021 || DSP_MODEL == DSP_AXS15231B
-  dsp.wake();
-#endif
 }
 
 namespace {

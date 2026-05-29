@@ -10,21 +10,21 @@ enum tsDirection_e { TSD_STAY, TSD_LEFT, TSD_RIGHT, TSD_UP, TSD_DOWN, TDS_REQUES
 class TouchScreen {
   public:
     TouchScreen()
-#if (TS_MODEL!=TS_MODEL_UNDEFINED) && (DSP_MODEL!=DSP_DUMMY)
+#if (TS_MODEL!=TS_MODEL_UNDEFINED)
         : _hwReady(false)
 #endif
     {}
     void init();
     void loop();
     void flip();
-#if (TS_MODEL!=TS_MODEL_UNDEFINED) && (DSP_MODEL!=DSP_DUMMY)
+#if (TS_MODEL!=TS_MODEL_UNDEFINED)
     // Stage 5.2: LVGL pointer poll only — same chip read + mapping as legacy, no gestures/side effects.
     // Этап 5.2: опрос для LVGL — тот же драйвер и маппинг, без жестов и побочных эффектов.
     bool readPointerForLvgl(uint16_t* outX, uint16_t* outY);
 #endif
   private:
     uint16_t _oldTouchX, _oldTouchY, _width, _height;
-#if (TS_MODEL!=TS_MODEL_UNDEFINED) && (DSP_MODEL!=DSP_DUMMY)
+#if (TS_MODEL!=TS_MODEL_UNDEFINED)
     bool _hwReady;
 #endif
     uint32_t _touchdelay;

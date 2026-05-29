@@ -407,7 +407,7 @@ void NetServer::processQueue(){
           String act = F("\"group_wifi\",");
           if (network.status == CONNECTED) {
                                                                 act += F("\"group_system\",");
-            if (BRIGHTNESS_PIN != 255 || DSP_CAN_FLIPPED || DSP_MODEL == DSP_NOKIA5110 || dbgact)    act += F("\"group_display\",");
+            if (BRIGHTNESS_PIN != 255 || DSP_CAN_FLIPPED || dbgact)    act += F("\"group_display\",");
                                                               #if defined(LCD_I2C) || defined(DSP_OLED)
                                                                 act += F("\"group_oled\",");
                                                               #endif
@@ -420,7 +420,6 @@ void NetServer::processQueue(){
             #endif
             if (DSP_CAN_FLIPPED || dbgact)                      act += F("\"group_tft\",");
             if (TS_MODEL != TS_MODEL_UNDEFINED || dbgact)       act += F("\"group_touch\",");
-            if (DSP_MODEL == DSP_NOKIA5110)                     act += F("\"group_nokia\",");
                                                                 act += F("\"group_timezone\",");
             if (SHOW_WEATHER || dbgact)                         act += F("\"group_weather\",");
                                                                 act += F("\"group_ai\",");

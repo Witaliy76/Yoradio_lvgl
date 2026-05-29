@@ -467,7 +467,7 @@ void MyNetwork::setWifiParams(){
   WiFi.onEvent(WiFiLostConnection, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
   weatherBuf=NULL;
   trueWeather = false;
-  #if (DSP_MODEL!=DSP_DUMMY) && !defined(HIDE_WEATHER)
+#if !defined(HIDE_WEATHER)
     weatherBuf = (char *) malloc(sizeof(char) * WEATHER_STRING_L);
     memset(weatherBuf, 0, WEATHER_STRING_L);
   #endif
@@ -597,7 +597,7 @@ void doSync( void * pvParameters ) {
 }
 
 bool getWeather(char *wstr) {
-#if (DSP_MODEL!=DSP_DUMMY) && !defined(HIDE_WEATHER)
+#if !defined(HIDE_WEATHER)
   WiFiClient client;
   const char* host  = "api.openweathermap.org";
 
@@ -799,6 +799,6 @@ bool getWeather(char *wstr) {
   #endif
   network.requestWeatherSync();
   return true;
-#endif // if (DSP_MODEL!=DSP_DUMMY) && !defined(HIDE_WEATHER)
+#endif // if !defined(HIDE_WEATHER)
   return false;
 }

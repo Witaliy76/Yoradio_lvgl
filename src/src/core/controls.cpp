@@ -42,7 +42,7 @@ constexpr uint8_t nrOfButtons = sizeof(button) / sizeof(button[0]);
   #endif
 #endif
 
-#if (TS_MODEL!=TS_MODEL_UNDEFINED) && (DSP_MODEL!=DSP_DUMMY)
+#if (TS_MODEL!=TS_MODEL_UNDEFINED)
   #include "touchscreen.h"
   TouchScreen touchscreen;
 #endif
@@ -115,7 +115,7 @@ void initControls() {
     button[i].setPressTicks(BTN_PRESS_TICKS);
   }
 #endif
-#if (TS_MODEL!=TS_MODEL_UNDEFINED) && (DSP_MODEL!=DSP_DUMMY)
+#if (TS_MODEL!=TS_MODEL_UNDEFINED)
   // Defer touch init to first loop() — avoids LoadProhibited/IWDT when GT911 I2C init runs in setup (e.g. 4848S040)
   // Инициализация тача в loop(), чтобы не падать в setup
 #endif
@@ -131,7 +131,7 @@ void initControls() {
 }
 
 void loopControls() {
-#if (TS_MODEL!=TS_MODEL_UNDEFINED) && (DSP_MODEL!=DSP_DUMMY)
+#if (TS_MODEL!=TS_MODEL_UNDEFINED)
   static bool s_touchInitDone = false;
   if (!s_touchInitDone) {
     s_touchInitDone = true;
@@ -153,7 +153,6 @@ void loopControls() {
     if ((i == 0 && BTN_LEFT == 255) || (i == 1 && BTN_CENTER == 255) || (i == 2 && BTN_RIGHT == 255) || (i == 3 && ENC_BTNB == 255) || (i == 4 && BTN_UP == 255) || (i == 5 && BTN_DOWN == 255) || (i == 6 && ENC2_BTNB == 255)) continue;
     button[i].tick();
     if (lpId >= 0) {
-      if (DSP_MODEL == DSP_DUMMY && (lpId == 4 || lpId == 5)) continue;
       onBtnDuringLongPress(lpId);
     }
   }
@@ -161,7 +160,7 @@ void loopControls() {
 #if IR_PIN!=255
   irLoop();
 #endif
-#if (TS_MODEL!=TS_MODEL_UNDEFINED) && (DSP_MODEL!=DSP_DUMMY)
+#if (TS_MODEL!=TS_MODEL_UNDEFINED)
   if (network.status == CONNECTED || network.status == SDREADY) {
 #if defined(DUMMYDISPLAY)
     // Headless / no panel: raw touch loop still used when hardware present.
@@ -543,23 +542,15 @@ void onBtnClick(int id) {
       }
     case EVT_BTNUP:
     case EVT_BTNDOWN: {
-        if (DSP_MODEL == DSP_DUMMY) {
-          if (id == EVT_BTNUP) {
-            player.next();
-          } else {
-            player.prev();
-          }
-        } else {
-          if (display.mode() == PLAYER) {
-            if(config.store.skipPlaylistUpDown || ENC2_BTNL!=255){
-              if (id == EVT_BTNUP) {
-                player.prev();
-              } else {
-                player.next();
-              }
-            }else{
-              lvgl_ui::openStationPageFromProductInput();
+        if (display.mode() == PLAYER) {
+          if(config.store.skipPlaylistUpDown || ENC2_BTNL!=255){
+            if (id == EVT_BTNUP) {
+              player.prev();
+            } else {
+              player.next();
             }
+          }else{
+            lvgl_ui::openStationPageFromProductInput();
           }
         }
         break;
@@ -621,7 +612,7 @@ void setEncAcceleration(uint16_t acc){
 #endif
 }
 void flipTS(){
-#if (TS_MODEL!=TS_MODEL_UNDEFINED) && (DSP_MODEL!=DSP_DUMMY)
+#if (TS_MODEL!=TS_MODEL_UNDEFINED)
   touchscreen.flip();
 #endif
 }
