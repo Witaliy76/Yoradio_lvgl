@@ -379,10 +379,6 @@ void Display::loop() {
         case NEWSTATION:
           config.vuThreshold = 0;
           break;
-        case NEXTSTATION:
-          break;
-        case DRAWPLAYLIST:
-          break;
         case DRAWVOL:
           if (_mode == PLAYER || _mode == VOL) {
             lvgl_ui::refreshMainScreen();
@@ -420,8 +416,6 @@ void Display::loop() {
           }
           break;
         }
-        case SDFILEINDEX:
-          break;
         case DSPRSSI:
           break;
         case PSTART:

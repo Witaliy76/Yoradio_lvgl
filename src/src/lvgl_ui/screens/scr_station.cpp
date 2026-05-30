@@ -318,16 +318,6 @@ void LvglStationPage::refreshCurrentStationVisuals() {
     _layoutMarkerForCurrentStation(current);
 }
 
-void LvglStationPage::onPlaylistDataMaybeChanged() {
-    if (!_list_area) return;
-    station_list_adapter::StationListSignature now{};
-    if (!station_list_adapter::list_signature(&now)) return;
-    if (_list_sig_cache_valid && station_list_adapter::list_signature_equal(now, _list_sig_cache)) {
-        return;
-    }
-    _populateStationList();
-}
-
 void LvglStationPage::_updateCountLabel(uint16_t current, uint16_t total) {
     if (!_lbl_count) return;
     _station_total = total;

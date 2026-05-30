@@ -454,20 +454,13 @@ void lvgl_ui::createTestOverlay() {
 }
 
 // Stage 3.1 + 6.3D-b1: forward displayQueue events for LVGL (DspTask only; see Display::loop).
-// 6.3D-b1: station change = cheap marker/header refresh; playlist change = optional full rebuild.
+// 6.3D-b1: station change = cheap marker/header refresh; list rebuild on page entry (_refreshOnPageActivate).
 void lvgl_ui::onDisplayEvent(const DisplayEvent& evt) {
     ensurePageChainRegistered();
     if (evt.type == NEWSTATION) {
         if (s_page_chain.currentIndex() == PageChain::STATION_INDEX) {
             s_station_page.refreshCurrentStationVisuals();
         }
-        return;
-    }
-    if (evt.type == DRAWPLAYLIST) {
-        if (s_page_chain.currentIndex() == PageChain::STATION_INDEX) {
-            s_station_page.onPlaylistDataMaybeChanged();
-        }
-        return;
     }
 }
 

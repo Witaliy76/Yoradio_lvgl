@@ -30,9 +30,8 @@ public:
     lv_obj_t* screen() override;
     void liveReapplyTheme() override;
 
-    // 6.3D-b1: DspTask-only hooks from displayQueue (NEWSTATION / optional DRAWPLAYLIST).
+    // 6.3D-b1: DspTask-only hook from displayQueue (NEWSTATION); list rebuild on page entry.
     void refreshCurrentStationVisuals();
-    void onPlaylistDataMaybeChanged();
 
 private:
     lv_obj_t* _screen = nullptr;
