@@ -35,7 +35,6 @@ extern const uint8_t st7701_type9_init_operations[];
 static Arduino_DataBus* bus = nullptr;
 static Arduino_ESP32RGBPanel* rgbpanel = nullptr;
 static Arduino_RGB_Display* output_display = nullptr;
-Arduino_Canvas* gfx = nullptr;
 
 #ifndef BATTERY_OFF
 
@@ -95,11 +94,6 @@ DspCore::DspCore() {
     adc1_config_channel_atten(USER_ADC_CHAN, ADC_ATTEN_DB_12);
     esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_12, ADC_WIDTH_BIT_12, 0, &adc1_chars);
 #endif
-    _scrollid = nullptr;
-    _lastScroller = nullptr;
-    _lastReleaseTime = 0;
-    _lastScrollIndex = -1;
-    _clipping = false;
 }
 
 void DspCore::initDisplay() {
@@ -154,8 +148,6 @@ void DspCore::initDisplay() {
     }
     if (!s_rgb_output_begun) {
         Serial.println("[ST7701] Initializing RGB display output...");
-        Serial.println("[ST7701] Canvas removed for LVGL product path");
-        gfx = nullptr;
         if (!output_display->begin()) {
             Serial.println("[ST7701] Failed to begin RGB display!");
             return;
@@ -169,9 +161,6 @@ void DspCore::initDisplay() {
     analogWrite(ST7701_BL, 255);
     delay(100);
     Serial.println("[ST7701] Backlight enabled");
-
-    Serial.print("[ST7701] Canvas ptr: ");
-    Serial.println((uintptr_t)gfx, HEX);
 
     Serial.println("[ST7701] initDisplay completed successfully");
 
@@ -193,70 +182,6 @@ void DspCore::displayOff() {
     if (output_display) {
         Serial.println("[ST7701] Display OFF");
     }
-}
-
-// --- Legacy link stubs (widgets/pages TU); no Canvas draw on LVGL product (8-E18B) ---
-
-void DspCore::clearDsp(bool black) {
-    (void)black;
-}
-
-void DspCore::printClock(uint16_t top, uint16_t rightspace, uint16_t timeheight, bool redraw) {
-    (void)top;
-    (void)rightspace;
-    (void)timeheight;
-    (void)redraw;
-}
-
-void DspCore::clearClock() {}
-
-void DspCore::charSize(uint8_t textsize, uint8_t& w, uint16_t& h) {
-    w = textsize * CHARWIDTH;
-    h = textsize * CHARHEIGHT;
-}
-
-void DspCore::setClipping(clipArea ca) {
-    _cliparea = ca;
-    _clipping = true;
-}
-
-void DspCore::clearClipping() {
-    _clipping = false;
-}
-
-int16_t DspCore::getScrollWidgetIndex(void* widget) {
-    (void)widget;
-    return -1;
-}
-
-void DspCore::normalizeScrollIndex() {
-    _lastScrollIndex = -1;
-}
-
-void DspCore::advanceScrollIndex() {}
-
-void DspCore::setNumFont() {}
-
-uint16_t DspCore::textWidth(const char* txt) {
-    if (!txt) return 0;
-    return static_cast<uint16_t>(strlen(txt) * CHARWIDTH);
-}
-
-uint16_t DspCore::textWidthN(const char* txt, int n) {
-    if (!txt || n <= 0) return 0;
-    uint16_t w = 0;
-    for (int c = 0; c < n && txt[c]; c++) {
-        w += CHARWIDTH;
-    }
-    return w;
-}
-
-void DspCore::startWrite(void) {
-    TAKE_MUTEX();
-}
-
-void DspCore::endWrite(void) {
-    GIVE_MUTEX();
 }
 
 void DspCore::loop(bool force) {

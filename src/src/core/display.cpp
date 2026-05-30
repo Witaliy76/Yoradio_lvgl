@@ -12,7 +12,6 @@
 #include "../lvgl_ui/lv_screensaver.h"
 #include "../lvgl_ui/lv_ui_events.h"
 #include "../ai/ai_subsystem.h"
-extern Arduino_Canvas* gfx;
 
 // Block 8-E1/E18D: panel flush stats for diag (LVGL direct path via recordLvglDirectPanelFlush).
 // Block 8-E1/E18D: счётчики panel flush для diag (прямой LVGL path).
@@ -270,7 +269,6 @@ void Display::_swichMode(displayMode_e newmode) {
   _isVolumeChanging = false;
 
   _mode = newmode;
-  dsp.setScrollId(NULL);
   if (newmode == PLAYER) {
     numOfNextStation = 0;
     _returnTicker.detach();
@@ -280,13 +278,9 @@ void Display::_swichMode(displayMode_e newmode) {
       config.setDspOn(config.store.dspon, false);
     }
   }
-  const bool lvgl_screensaver_path = (newmode == SCREENSAVER || newmode == SCREENBLANK);
   if (newmode == SCREENSAVER || newmode == SCREENBLANK) {
     config.isScreensaver = true;
     if (newmode == SCREENBLANK) {
-      if (!lvgl_screensaver_path) {
-        dsp.clearClock();
-      }
       config.setDspOn(false, false);
     }
   } else {
@@ -569,10 +563,7 @@ size_t Display::diagSnapshot(char* out, size_t len) const {
 
   append_line("display.mode: %s\n", displayModeName(_mode));
   append_line("display.ui_path: lvgl_only\n");
-  append_line("display.canvas_allocated: %d\n", gfx ? 1 : 0);
-  append_line("display.legacy_canvas_flush: 0\n");
   append_line("display.suspend_flush: %d\n", _suspendFlush ? 1 : 0);
-  append_line("g_frameDirty: 0\n");
 
   const uint32_t now = millis();
   // Block 8-E19G: panel.flush_* aliases (LVGL direct panel flush; gfx_* kept for compatibility).

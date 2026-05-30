@@ -34,9 +34,6 @@
 
 using namespace lvgl_ui;
 
-// External canvas instance from display subsystem / Внешний экземпляр canvas из подсистемы дисплея
-extern Arduino_Canvas* gfx;
-
 static PageChain s_page_chain;
 static LvglInfoPage s_info_page;
 static LvglMainScreen s_main_screen;
