@@ -282,8 +282,9 @@ void Player::_play(uint16_t stationId) {
   display.putRequest(DBITRATE);
   display.putRequest(NEWSTATION);
   netserver.requestOnChange(STATION, 0);
-  netserver.loop();
-  netserver.loop();
+  // 8.1HX-B: drop re-entrant netserver.loop() drains — let main loop() drain nsQueue.
+  // Reduces WebSocket broadcast burst/re-entrancy during station switch. / Убраны вложенные
+  // вызовы netserver.loop(); очередь дренирует основной loop() — меньше всплеск broadcast.
 //  config.setSmartStart(0);
   if (config.store.smartstart < 2) config.setSmartStart(0);			//*******************************
   bool isConnected = false;

@@ -71,6 +71,13 @@ class NetServer {
   private:
     requestType_e request;
     QueueHandle_t nsQueue;
+    // 8.1HX-B: broadcast (clientId==0) request coalescing — skip enqueue if an identical
+    // broadcast status request is already pending; flag cleared when processQueue dequeues it.
+    // 8.1HX-B: коалесинг broadcast-запросов (clientId==0) — не кладём дубликат, если такой
+    // запрос уже в очереди; флаг снимается при извлечении из очереди в processQueue.
+    static constexpr uint8_t NS_BROADCAST_PENDING_COUNT = 32; // covers requestType_e max (GETAI=28)
+    portMUX_TYPE _pendingMux = portMUX_INITIALIZER_UNLOCKED;
+    volatile bool _broadcastPending[NS_BROADCAST_PENDING_COUNT] = { false };
     int rssi, newConfigMode;
     void getPlaylist(uint8_t clientId);
     bool importPlaylist();

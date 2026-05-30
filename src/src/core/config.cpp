@@ -691,7 +691,8 @@ void Config::setTitle(const char* title) {
   strlcpy(config.station.title, title, BUFLEN);
   u8fix(config.station.title);
   netserver.requestOnChange(TITLE, 0);
-  netserver.loop();
+  // 8.1HX-B: drop re-entrant netserver.loop() drain — main loop() drains nsQueue.
+  // 8.1HX-B: убран вложенный netserver.loop(); очередь дренирует основной loop().
   display.putRequest(NEWTITLE);
 }
 

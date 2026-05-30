@@ -384,6 +384,15 @@ void NetServer::processQueue(){
   if(nsQueue==NULL) return;
   nsRequestParams_t request;
   if(xQueueReceive(nsQueue, &request, NS_QUEUE_TICKS)){
+    // 8.1HX-B: clear coalescing flag on dequeue (before processing) so a state change
+    // occurring during processing can re-queue and is not lost.
+    // 8.1HX-B: снимаем флаг при извлечении (до обработки), чтобы изменение во время
+    // обработки могло снова встать в очередь и не потерялось.
+    if (request.clientId == 0 && (uint8_t)request.type < NS_BROADCAST_PENDING_COUNT) {
+      portENTER_CRITICAL(&_pendingMux);
+      _broadcastPending[(uint8_t)request.type] = false;
+      portEXIT_CRITICAL(&_pendingMux);
+    }
     memset(wsbuf, 0, BUFLEN * 2);
     uint8_t clientId = request.clientId;
     if (shouldDropEarlyClientState(request.type, clientId)) return;
@@ -1181,14 +1190,39 @@ bool NetServer::importPlaylist() {
 
 void NetServer::requestOnChange(requestType_e request, uint8_t clientId) {
   if(nsQueue==NULL) return;
+  // 8.1HX-B: coalesce only broadcast (clientId==0) requests. Per-client replies
+  // (clientId!=0) are never deduped — every targeted reply must reach its client.
+  // 8.1HX-B: коалесим только broadcast (clientId==0). Per-client ответы (clientId!=0)
+  // не дедуплицируем — каждый адресный ответ должен дойти до клиента.
+  const bool coalescable = (clientId == 0) && ((uint8_t)request < NS_BROADCAST_PENDING_COUNT);
+  if (coalescable) {
+    bool alreadyPending;
+    portENTER_CRITICAL(&_pendingMux);
+    alreadyPending = _broadcastPending[(uint8_t)request];
+    if (!alreadyPending) _broadcastPending[(uint8_t)request] = true;
+    portEXIT_CRITICAL(&_pendingMux);
+    if (alreadyPending) return; // identical broadcast already queued — skip duplicate
+  }
   nsRequestParams_t nsrequest;
   nsrequest.type = request;
   nsrequest.clientId = clientId;
-  xQueueSend(nsQueue, &nsrequest, NSQ_SEND_DELAY);
+  if (xQueueSend(nsQueue, &nsrequest, NSQ_SEND_DELAY) != pdTRUE) {
+    // Enqueue failed (queue full): clear pending so the next change can re-queue.
+    // Постановка не удалась (очередь полна): снимаем флаг, чтобы следующее изменение встало в очередь.
+    if (coalescable) {
+      portENTER_CRITICAL(&_pendingMux);
+      _broadcastPending[(uint8_t)request] = false;
+      portEXIT_CRITICAL(&_pendingMux);
+    }
+  }
 }
 
 void NetServer::resetQueue(){
   if(nsQueue!=NULL) xQueueReset(nsQueue);
+  // 8.1HX-B: clear coalescing flags alongside the queue reset. / Сбрасываем флаги вместе с очередью.
+  portENTER_CRITICAL(&_pendingMux);
+  for (uint8_t i = 0; i < NS_BROADCAST_PENDING_COUNT; ++i) _broadcastPending[i] = false;
+  portEXIT_CRITICAL(&_pendingMux);
 }
 
 // ---------------------------------------------------------------------------
