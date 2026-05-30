@@ -566,16 +566,13 @@ size_t Display::diagSnapshot(char* out, size_t len) const {
   append_line("display.suspend_flush: %d\n", _suspendFlush ? 1 : 0);
 
   const uint32_t now = millis();
-  // Block 8-E19G: panel.flush_* aliases (LVGL direct panel flush; gfx_* kept for compatibility).
-  // Block 8-E19G: алиасы panel.flush_* (прямой LVGL→panel; gfx_* — совместимость).
-  append_line("panel.gfx_flush_count: %lu\n", (unsigned long)s_panel_gfx_flush_count);
+  // Block 8-E19G/8.1H-E: panel.flush_* — LVGL direct panel flush (canonical diag keys).
+  // Block 8-E19G/8.1H-E: panel.flush_* — прямой LVGL→panel (канонические ключи diag).
   append_line("panel.flush_count: %lu\n", (unsigned long)s_panel_gfx_flush_count);
   if (s_panel_last_gfx_flush_ms != 0) {
     const unsigned long ms_ago = (unsigned long)(now - s_panel_last_gfx_flush_ms);
-    append_line("panel.last_gfx_flush_ms_ago: %lu\n", ms_ago);
     append_line("panel.last_flush_ms_ago: %lu\n", ms_ago);
   } else {
-    append_line("panel.last_gfx_flush_ms_ago: never\n");
     append_line("panel.last_flush_ms_ago: never\n");
   }
 
