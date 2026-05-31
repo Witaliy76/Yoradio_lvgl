@@ -52,6 +52,14 @@ void refreshInfoScreen();
 // Stage 5.5: обновление label'ов Main. Только при PLAYER + Lvgl backend; ≤1 Гц.
 void refreshMainScreen();
 
+// 8.1H-I-B: forced Main redraw for WebUI settings/reset (replaces the old CLEAR;PLAYER guard-buster).
+// Goes to Main page + refreshes, without a mode transition. Use only from REFRESH_MAIN handler (DspTask).
+// force_full_redraw: invalidate whole screen + flush now — needed after panel orientation flip.
+// 8.1H-I-B: принудительная перерисовка Main для настроек/сброса WebUI (замена идиомы CLEAR;PLAYER).
+// Переходит на Main + refresh, без смены режима. Только из обработчика REFRESH_MAIN (DspTask).
+// force_full_redraw: инвалидация всего экрана + немедленный flush — нужно после смены ориентации.
+void refreshMainScreenFromSettings(bool force_full_redraw = false);
+
 // Stage 6.1F-d: WebUI committed /bg/main_*.bin — reload Main PSRAM bg if slot matches active preset (DspTask queue only).
 // После upload_bg: перечитать фон в PSRAM только для активного слота темы; только из обработчика displayQueue.
 void onMainBackgroundSlotCommitted(uint8_t slot);

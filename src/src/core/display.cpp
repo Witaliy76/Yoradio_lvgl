@@ -352,6 +352,11 @@ void Display::loop() {
   if(xQueueReceive(displayQueue, &request, DSP_QUEUE_TICKS)){
     switch (request.type){
         case NEWMODE: _swichMode((displayMode_e)request.payload); break;
+        // 8.1H-I-B: explicit Main redraw from WebUI settings/reset; no mode change (replaces CLEAR;PLAYER).
+        // payload!=0 = force full redraw (e.g. flipscreen orientation change).
+        // 8.1H-I-B: явная перерисовка Main из настроек/сброса WebUI; без смены режима (замена CLEAR;PLAYER).
+        // payload!=0 = принудительная полная перерисовка (например, смена ориентации flipscreen).
+        case REFRESH_MAIN: lvgl_ui::refreshMainScreenFromSettings(request.payload != 0); break;
         case CLOCK:
           if (_mode == SCREENSAVER) {
             lvgl_ui::screensaverRefreshClock();
@@ -487,7 +492,6 @@ const char* displayModeName(displayMode_e mode) {
     case INFO: return "INFO";
     case SETTINGS: return "SETTINGS";
     case WIFI: return "WIFI";
-    case CLEAR: return "CLEAR";
     case SCREENSAVER: return "SCREENSAVER";
     case SCREENBLANK: return "SCREENBLANK";
     default: return "UNKNOWN";

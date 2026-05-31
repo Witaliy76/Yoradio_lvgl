@@ -671,7 +671,7 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
       if (strcmp(cmd, "numplaylist") == 0) {
         bool valb = static_cast<bool>(atoi(val));
         config.saveValue(&config.store.numplaylist, valb);
-        display.putRequest(NEWMODE, CLEAR); display.putRequest(NEWMODE, PLAYER);
+        display.putRequest(REFRESH_MAIN);
         return;
       }
       if (strcmp(cmd, "fliptouch") == 0) {
@@ -689,7 +689,9 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
         bool valb = static_cast<bool>(atoi(val));
         config.saveValue(&config.store.flipscreen, valb);
         display.flip();
-        display.putRequest(NEWMODE, CLEAR); display.putRequest(NEWMODE, PLAYER);
+        // 8.1H-I-B corrective: payload 1 = force full redraw after panel orientation flip
+        // (LVGL keeps old pixels otherwise). / payload 1 = принудительная полная перерисовка после flip.
+        display.putRequest(REFRESH_MAIN, 1);
         return;
       }
       if (strcmp(cmd, "brightness") == 0) {
@@ -828,7 +830,7 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
       if (strcmp(cmd, "key") == 0) {
         config.saveValue(config.store.weatherkey, val, WEATHERKEY_LENGTH);
         network.trueWeather=false;
-        display.putRequest(NEWMODE, CLEAR); display.putRequest(NEWMODE, PLAYER);
+        display.putRequest(REFRESH_MAIN);
         return;
       }
       // AI settings commands / Команды настроек AI
@@ -974,7 +976,7 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
           config.saveValue(&config.store.softapdelay, (uint8_t)0, false);
           snprintf(config.store.mdnsname, MDNS_LENGTH, "yoradio-%x", config.getChipId());
           config.saveValue(config.store.mdnsname, config.store.mdnsname, MDNS_LENGTH, true, true);
-          display.putRequest(NEWMODE, CLEAR); display.putRequest(NEWMODE, PLAYER);
+          display.putRequest(REFRESH_MAIN);
           requestOnChange(GETSYSTEM, clientId);
           return;
         }
@@ -995,7 +997,7 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
           config.saveValue(&config.store.screensaverPlayingEnabled, false);
           config.saveValue(&config.store.screensaverPlayingTimeout, (uint16_t)20);
           config.saveValue(&config.store.screensaverPlayingBlank, false);
-          display.putRequest(NEWMODE, CLEAR); display.putRequest(NEWMODE, PLAYER);
+          display.putRequest(REFRESH_MAIN);
           requestOnChange(GETSCREEN, clientId);
           return;
         }
@@ -1015,7 +1017,7 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
           config.saveValue(config.store.weatherlon, "37.6184", 10, false);
           config.saveValue(config.store.weatherkey, "", WEATHERKEY_LENGTH);
           network.trueWeather=false;
-          display.putRequest(NEWMODE, CLEAR); display.putRequest(NEWMODE, PLAYER);
+          display.putRequest(REFRESH_MAIN);
           requestOnChange(GETWEATHER, clientId);
           return;
         }

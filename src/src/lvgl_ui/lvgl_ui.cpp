@@ -461,6 +461,33 @@ void lvgl_ui::onDisplayEvent(const DisplayEvent& evt) {
     }
 }
 
+// 8.1H-I-B: shared Main entry — hide overlays, go to Main page, refresh. Used by the normal
+// PLAYER transition and by refreshMainScreenFromSettings(); keeps the two paths from diverging.
+// 8.1H-I-B: общий вход на Main — скрыть оверлеи, перейти на Main, refresh. Используется обычным
+// переходом в PLAYER и refreshMainScreenFromSettings(); чтобы пути не разъезжались.
+static void goToMainAndRefresh() {
+    overlayHideAll();
+    s_page_chain.goTo(PageChain::MAIN_INDEX);
+    refreshMainScreen();
+}
+
+// 8.1H-I-B: explicit forced Main redraw for WebUI settings/reset (REFRESH_MAIN request).
+// No mode change, no screensaver-state mutation — just rebuild Main like a forced PLAYER refresh.
+// 8.1H-I-B: явная перерисовка Main для настроек/сброса WebUI (запрос REFRESH_MAIN).
+// Без смены режима и без изменения screensaver-состояния — просто пересборка Main.
+void lvgl_ui::refreshMainScreenFromSettings(bool force_full_redraw) {
+    ensurePageChainRegistered();
+    goToMainAndRefresh();
+    if (force_full_redraw) {
+        // 8.1H-I-B corrective: after panel orientation flip LVGL may keep stale pixels;
+        // invalidate the whole active screen and flush immediately (DspTask context only).
+        // 8.1H-I-B corrective: после flip LVGL может оставить старые пиксели;
+        // инвалидируем весь активный экран и форсируем flush (только в контексте DspTask).
+        lv_obj_invalidate(lv_scr_act());
+        lv_refr_now(NULL);
+    }
+}
+
 // 8-E19B: LVGL-only mode routing — direct PageChain/overlay dispatch, no backend selection.
 // 8-E19B: только LVGL маршрутизация режимов — прямой PageChain/overlay, без выбора backend.
 void lvgl_ui::onModeChanged(displayMode_e mode, displayMode_e prev_mode) {
@@ -494,9 +521,7 @@ void lvgl_ui::onModeChanged(displayMode_e mode, displayMode_e prev_mode) {
             refreshMainScreen();
             return;
         }
-        overlayHideAll();
-        s_page_chain.goTo(PageChain::MAIN_INDEX);
-        refreshMainScreen();
+        goToMainAndRefresh();
     } else if (mode == LOST) {
         // Wi‑Fi 4C: do not stack LOST over Wi‑Fi shell (STA may drop during manual connect).
         // Wi‑Fi 4C: не класть LOST поверх Wi‑Fi shell (STA может рваться при ручном connect).
