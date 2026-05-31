@@ -15,18 +15,18 @@
 
 // Block 8-E1/E18D: panel flush stats for diag (LVGL direct path via recordLvglDirectPanelFlush).
 // Block 8-E1/E18D: счётчики panel flush для diag (прямой LVGL path).
-static uint32_t s_panel_gfx_flush_count = 0;
-static uint32_t s_panel_last_gfx_flush_ms = 0;
+static uint32_t s_panel_flush_count = 0;
+static uint32_t s_panel_last_flush_ms = 0;
 
 // Block 8-E18D: legacy markFrameDirty retained as no-op for any stale references.
 // Block 8-E18D: markFrameDirty — no-op (legacy Canvas dirty flush removed).
 void markFrameDirty() {}
 
-// Block 8-E3: panel flush counter when LVGL bypasses Canvas (ST7701 direct path).
-// Block 8-E3: счётчик panel flush при прямом LVGL→output_display (без g_frameDirty).
+// Block 8-E3/8.1H-H: panel flush counter on LVGL direct→output_display path.
+// Block 8-E3/8.1H-H: счётчик panel flush при прямом LVGL→output_display.
 void lvgl_ui::recordLvglDirectPanelFlush() {
-    s_panel_gfx_flush_count++;
-    s_panel_last_gfx_flush_ms = millis();
+    s_panel_flush_count++;
+    s_panel_last_flush_ms = millis();
 }
 
 Display display;
@@ -538,9 +538,9 @@ size_t Display::diagSnapshot(char* out, size_t len) const {
   const uint32_t now = millis();
   // Block 8-E19G/8.1H-E: panel.flush_* — LVGL direct panel flush (canonical diag keys).
   // Block 8-E19G/8.1H-E: panel.flush_* — прямой LVGL→panel (канонические ключи diag).
-  append_line("panel.flush_count: %lu\n", (unsigned long)s_panel_gfx_flush_count);
-  if (s_panel_last_gfx_flush_ms != 0) {
-    const unsigned long ms_ago = (unsigned long)(now - s_panel_last_gfx_flush_ms);
+  append_line("panel.flush_count: %lu\n", (unsigned long)s_panel_flush_count);
+  if (s_panel_last_flush_ms != 0) {
+    const unsigned long ms_ago = (unsigned long)(now - s_panel_last_flush_ms);
     append_line("panel.last_flush_ms_ago: %lu\n", ms_ago);
   } else {
     append_line("panel.last_flush_ms_ago: never\n");
