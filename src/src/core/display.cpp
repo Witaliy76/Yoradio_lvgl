@@ -232,7 +232,7 @@ void Display::_setReturnTicker(uint8_t time_s){
   _returnTicker.once(time_s, returnPlayer);
 }
 
-void Display::_swichMode(displayMode_e newmode) {
+void Display::_switchMode(displayMode_e newmode) {
   if (newmode == _mode) return;
   if (newmode == LOST && lvgl_ui::isWifiSetupFlowActive()) {
     return;
@@ -351,7 +351,7 @@ void Display::loop() {
   requestParams_t request;
   if(xQueueReceive(displayQueue, &request, DSP_QUEUE_TICKS)){
     switch (request.type){
-        case NEWMODE: _swichMode((displayMode_e)request.payload); break;
+        case NEWMODE: _switchMode((displayMode_e)request.payload); break;
         // 8.1H-I-B: explicit Main redraw from WebUI settings/reset; no mode change (replaces CLEAR;PLAYER).
         // payload!=0 = force full redraw (e.g. flipscreen orientation change).
         // 8.1H-I-B: явная перерисовка Main из настроек/сброса WebUI; без смены режима (замена CLEAR;PLAYER).

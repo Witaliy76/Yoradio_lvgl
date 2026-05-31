@@ -72,7 +72,7 @@ class Display {
     uint8_t  _lost_escalation_milestone  = 0; // 0=initial text pending; 1=set; 2=30s; 3=50s
     void _tryCompleteLostEscalation();
     void _title();
-    void _swichMode(displayMode_e newmode);
+    void _switchMode(displayMode_e newmode);
     void _createDspTask();
     void _setReturnTicker(uint8_t time_s);
 };
