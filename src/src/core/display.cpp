@@ -234,18 +234,6 @@ void Display::_setReturnTicker(uint8_t time_s){
 
 void Display::_swichMode(displayMode_e newmode) {
   if (newmode == _mode) return;
-  if (newmode == SDCHANGE) {
-    return;
-  }
-  if (newmode == NUMBERS) {
-    return;
-  }
-  if (newmode == TIMEZONE) {
-    return;
-  }
-  if (newmode == SLEEPING) {
-    return;
-  }
   if (newmode == LOST && lvgl_ui::isWifiSetupFlowActive()) {
     return;
   }
@@ -494,16 +482,12 @@ const char* displayModeName(displayMode_e mode) {
     case PLAYER: return "PLAYER";
     case VOL: return "VOL";
     case STATIONS: return "STATIONS";
-    case NUMBERS: return "NUMBERS";
     case LOST: return "LOST";
     case UPDATING: return "UPDATING";
     case INFO: return "INFO";
     case SETTINGS: return "SETTINGS";
-    case TIMEZONE: return "TIMEZONE";
     case WIFI: return "WIFI";
     case CLEAR: return "CLEAR";
-    case SLEEPING: return "SLEEPING";
-    case SDCHANGE: return "SDCHANGE";
     case SCREENSAVER: return "SCREENSAVER";
     case SCREENBLANK: return "SCREENBLANK";
     default: return "UNKNOWN";

@@ -412,8 +412,8 @@ void onBtnLongPressStart(int id) {
         break;
       }
     case EVT_BTNMODE: {
-        //config.doSleepW();
-        display.putRequest(NEWMODE, SLEEPING);
+        // Block 8.1H-G-B: legacy SLEEPING display mode removed; button inert until explicit LVGL sleep UI.
+        // Block 8.1H-G-B: legacy-режим SLEEPING удалён; кнопка без действия до явного LVGL sleep UI.
         break;
       }
     default: break;
