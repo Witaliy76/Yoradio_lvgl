@@ -627,7 +627,6 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
       if (strcmp(cmd, "audioinfo") == 0) {
         bool valb = static_cast<bool>(atoi(val));
         config.saveValue(&config.store.audioinfo, valb);
-        display.putRequest(AUDIOINFO);
         return;
       }
       if (strcmp(cmd, "vumeter") == 0) {
@@ -816,7 +815,6 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
         config.saveValue(&config.store.showweather, valb);
         network.trueWeather=false;
         network.forceWeather = true;
-        display.putRequest(SHOWWEATHER);
         return;
       }
       if (strcmp(cmd, "lat") == 0) {

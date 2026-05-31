@@ -383,12 +383,6 @@ void Display::loop() {
             lvgl_ui::refreshMainScreen();
           }
           break;
-        case AUDIOINFO:
-          break;
-        case SHOWWEATHER:
-          break;
-        case NEWWEATHER:
-          break;
         case BOOTSTRING: {
           if (lvgl_ui::isLvglBootActive()) {
             if (s_lvgl_boot_connected_latched) break;
@@ -410,17 +404,9 @@ void Display::loop() {
           }
           break;
         }
-        case DSPRSSI:
-          break;
-        case PSTART:
-          break;
-        case PSTOP:
-          break;
         case DSP_START:
           Serial.println("[Display] Processing DSP_START request");
           _start();
-          break;
-        case NEWIP:
           break;
         case MAIN_BG_FS_UPDATED: {
           lvgl_ui::onMainBackgroundSlotCommitted(static_cast<uint8_t>(request.payload));

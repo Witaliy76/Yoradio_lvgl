@@ -153,7 +153,6 @@ void Player::_stop(bool alreadyStopped){
   config.setBitrateFormat(BF_UNCNOWN);
   netserver.requestOnChange(BITRATE, 0);
   display.putRequest(DBITRATE);
-  display.putRequest(PSTOP);
 
   setDefaults();
   if(!alreadyStopped) stopSong();
@@ -261,12 +260,8 @@ void Player::_play(uint16_t stationId) {
   config.setDspOn(1);
   config.vuThreshold = 0;
   Serial.printf("🎵 [PLAY] Basic setup completed\n");
-  //display.putRequest(PSTOP);
   config.screensaverTicks=SCREENSAVERSTARTUPDELAY;
   config.screensaverPlayingTicks=SCREENSAVERSTARTUPDELAY;
-  if(config.getMode()!=PM_SDCARD) {
-  	display.putRequest(PSTOP);
-  }
   setOutputPins(false);
   config.setTitle(config.getMode()==PM_WEB?const_PlConnect:"");
 //  config.setTitle(config.getMode()==PM_WEB?const_PlConnect:"[next track]");
@@ -310,7 +305,6 @@ void Player::_play(uint16_t stationId) {
     netserver.requestOnChange(MODE, 0);
     setOutputPins(true);
     display.putRequest(NEWMODE, PLAYER);
-    display.putRequest(PSTART);
     if (player_on_start_play) player_on_start_play();
   }else{
     telnet.printf("##ERROR#:\tError connecting to %s\n", config.station.url);
@@ -329,7 +323,6 @@ void Player::browseUrl(){
   remoteStationName = true;
   config.setDspOn(1);
   resumeAfterUrl = _status==PLAYING;
-  display.putRequest(PSTOP);
 //  setDefaults();
   setOutputPins(false);
   config.setTitle(const_PlConnect);
@@ -338,7 +331,6 @@ void Player::browseUrl(){
     config.setTitle("");
     netserver.requestOnChange(MODE, 0);
     setOutputPins(true);
-    display.putRequest(PSTART);
     if (player_on_start_play) player_on_start_play();
   }else{
     telnet.printf("##ERROR#:\tError connecting to %s\n", burl);

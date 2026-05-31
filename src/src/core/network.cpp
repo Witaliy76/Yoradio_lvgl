@@ -261,7 +261,6 @@ void ticks() {
     if(network.status == CONNECTED){
       netserver.setRSSI(WiFi.RSSI());
       netserver.requestOnChange(NRSSI, 0);
-      display.putRequest(DSPRSSI, netserver.getRSSI());
     }
 #ifdef USE_SD
     // Block 8-E8: SDCHANGE mode removed — always allow SD check when connected.
@@ -285,7 +284,6 @@ void MyNetwork::WiFiReconnected(WiFiEvent_t event, WiFiEventInfo_t info){
   display.putRequest(NEWMODE, PLAYER);
   if(config.getMode()==PM_SDCARD) {
     network.status=CONNECTED;
-    display.putRequest(NEWIP, 0);
   }else{
     display.putRequest(NEWMODE, PLAYER);
     if (network.lostPlaying) player.sendCommand({PR_PLAY, config.lastStation()});
@@ -305,7 +303,6 @@ void MyNetwork::WiFiLostConnection(WiFiEvent_t event, WiFiEventInfo_t info){
     Serial.printf("Lost connection, reconnecting to %s...\n", config.ssids[config.store.lastSSID - 1].ssid);
     if (config.getMode() == PM_SDCARD) {
       network.status = SDREADY;
-      display.putRequest(NEWIP, 0);
     } else {
       network.lostPlaying = player.isRunning();
       if (network.lostPlaying) {
@@ -402,7 +399,6 @@ void searchWiFi(void * pvParameters){
     network.setWifiParams();
     markWeatherReadyAfterConnect();
     network.forceWeather = isWeatherEnabledForSync();
-    display.putRequest(NEWIP, 0);
   }
   vTaskDelete( NULL );
 }
@@ -553,7 +549,6 @@ void MyNetwork::recoverySuspendReconnectForSetup() {
 }
 
 void MyNetwork::requestWeatherSync(){
-  display.putRequest(NEWWEATHER);
 }
 
 
