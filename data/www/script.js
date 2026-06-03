@@ -845,6 +845,6 @@ function abortHandler(event) {
   document.getElementById('updateform').setAttribute('class','');
   document.getElementById('updateprogress').hidden=true;
   document.getElementById("updateprogress").value = 0;
-  document.getElementById("status").innerHTML = "inUpload Aborted";
+  document.getElementById("status").innerHTML = "Upload Aborted";
 }
 /** UPDATE **/
