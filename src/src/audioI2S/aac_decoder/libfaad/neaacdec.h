@@ -43,12 +43,12 @@
 #define LD_DEC  // Allow decoding of LD (Low Delay) profile AAC
 // #define DRM_SUPPORT // Allow decoding of Digital Radio Mondiale (DRM)
 #if (defined CONFIG_IDF_TARGET_ESP32S3 || defined CONFIG_IDF_TARGET_ESP32P4)
-    //#define SBR_DEC // Allow decoding of SBR (Spectral Band Replication) profile AAC
+    #define SBR_DEC // Allow decoding of SBR (Spectral Band Replication) profile AAC
     // PS_DEC для QSPI дисплеев (низкая нагрузка) / PS_DEC for QSPI displays (low load)
     #if defined(DSP_AXS15231B)
         #define PS_DEC // ⚠️ Включено только для QSPI дисплеев (JC3248W535C)
     #endif
-    //#define PS_DEC
+    #define PS_DEC
     // Для RGB Panel (4848S040, UEDX) PS был отключен из-за высокой нагрузки / PS disabled for RGB panels due to high load
 #endif
 //#define SBR_LOW_POWER
