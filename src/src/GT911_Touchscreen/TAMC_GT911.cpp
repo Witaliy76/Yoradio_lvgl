@@ -160,7 +160,11 @@ void TAMC_GT911::readBlockData(uint8_t *buf, uint16_t reg, uint8_t size) {
     Wire.write(highByte(regAddr));
     Wire.write(lowByte(regAddr));
     if (Wire.endTransmission(false) != 0) {
-      memset(buf + offset, 0, remaining);
+      // size is uint8_t → total <= 255; explicit size_t for memset / size_t для memset
+      const size_t tailLen = static_cast<size_t>(total - offset);
+      if (tailLen > 0) {
+        memset(buf + offset, 0, tailLen);
+      }
       return;
     }
     Wire.requestFrom(addr, chunk);

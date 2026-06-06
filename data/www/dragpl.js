@@ -21,7 +21,7 @@ document.addEventListener("dragover", (event) => {
 
 document.addEventListener("drop", ({target}) => {
 	if(target.parentNode.className == "pleitem" && target.parentNode.id !== id) {
-		dragged.remove( dragged );
+		dragged.remove();
 		for(let i = 0; i < list.length; i += 1) {
 			if(list[i] === target.parentNode){
 				indexDrop = i;
