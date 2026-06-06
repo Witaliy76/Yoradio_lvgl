@@ -1455,7 +1455,8 @@ void LvglMainScreen::create() {
             lv_label_set_long_mode(_lbl_ai_line, LV_LABEL_LONG_SCROLL_CIRCULAR);
             lv_obj_set_width(_lbl_ai_line, LV_PCT(100));
             lv_obj_set_style_text_align(_lbl_ai_line, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-            const lv_font_t* const f_ai = reinterpret_cast<const lv_font_t*>(&lv_font_yora_montserrat_14_cyr);
+            // AI line: 16 px (was 14) — one tier up for readability / строка AI: 16 px, чуть крупнее
+            const lv_font_t* const f_ai = reinterpret_cast<const lv_font_t*>(&lv_font_yora_montserrat_16_cyr);
             main_set_font(_lbl_ai_line, reinterpret_cast<const void*>(f_ai));
             lv_obj_set_style_text_color(_lbl_ai_line, pal.bottom_ai_text, LV_PART_MAIN);
             // One line from font metrics — slot stability only; lower divider position is NOT from this (symmetry pass).
