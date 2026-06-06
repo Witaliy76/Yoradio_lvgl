@@ -36,7 +36,7 @@ static void configureHttpsClient(WiFiClientSecure& client, uint32_t timeout_ms) 
 #ifdef ESP_PLATFORM
 // TLS heap guard: skip HTTPS when internal largest block too small for mbedTLS
 // TLS heap guard: не вызывать HTTPS при нехватке internal heap
-static constexpr size_t AI_TLS_MIN_INTERNAL_LARGEST = 20000;  // E21C3 product probe / проба product-path
+static constexpr size_t AI_TLS_MIN_INTERNAL_LARGEST = 18000;  // E21C4 observe probe / наблюдение guard 18k
 static constexpr int HTTPC_ERROR_TLS_HEAP_GUARD = -9001;
 
 static void aiHttpsTlsHeapGuardLogSkip(size_t largest, size_t free_sz, size_t min_heap) {
