@@ -8,6 +8,7 @@
 #include "player.h"
 #include "mqtt.h"
 #include "freertos/semphr.h"
+#include "esp_heap_caps.h"
 #include "lwip/dns.h"
 #include "lwip/ip_addr.h"
 #include "lwip/tcpip.h"
@@ -26,6 +27,10 @@ void doSync(void * pvParameters);
 
 static constexpr uint32_t WEATHER_FIRST_SYNC_GRACE_MS = 30000;
 static uint32_t s_weather_ready_at_ms = 0;
+// E21W0-A: last attempt timestamp for since_last_ms / метка последней попытки погоды
+static uint32_t s_weather_last_attempt_ms = 0;
+// Set in doSync before forceWeather is cleared / выставляется в doSync до сброса forceWeather
+static bool s_weather_diag_forced = false;
 
 namespace {
 SemaphoreHandle_t s_dns_mutex = nullptr;
@@ -179,6 +184,98 @@ static bool isWeatherGraceElapsed() {
   return s_weather_ready_at_ms != 0 &&
          (int32_t)(millis() - s_weather_ready_at_ms) >= 0;
 }
+
+#if !defined(HIDE_WEATHER)
+// E21W0-A: compact per-attempt weather diagnostics (no behavior change) / диагностика погоды
+namespace weather_diag {
+static void heapSnapshot() {
+  Serial.printf("[WEATHER] heap.free=%u internal_largest=%u psram_free=%u\n",
+                (unsigned)ESP.getFreeHeap(),
+                (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+                (unsigned)ESP.getFreePsram());
+}
+
+static size_t pathLenEstimate() {
+  return 48U + strlen(config.store.weatherlat) + strlen(config.store.weatherlon) +
+         strlen_P(weatherUnits) + strlen_P(weatherLang) + strlen(config.store.weatherkey);
+}
+
+static void logStart() {
+  const uint32_t now = millis();
+  const uint32_t sinceLast =
+      (s_weather_last_attempt_ms == 0U) ? 0U : (now - s_weather_last_attempt_ms);
+  Serial.printf(
+      "[WEATHER] start showweather=%d force_requested=%d trueWeather=%d grace_elapsed=%d "
+      "host=api.openweathermap.org port=80 scheme=http path_len=%u "
+      "avail_to_ms=2000 read_to_ms=500 dns_to_ms=5000 wifi_status=%d ip=%s rssi=%d "
+      "boot_ms=%lu since_last_ms=%lu audio_playing=%d\n",
+      (int)config.store.showweather,
+      (int)s_weather_diag_forced,
+      (int)network.trueWeather,
+      (int)isWeatherGraceElapsed(),
+      (unsigned)pathLenEstimate(),
+      (int)WiFi.status(),
+      WiFi.localIP().toString().c_str(),
+      WiFi.RSSI(),
+      (unsigned long)now,
+      (unsigned long)sinceLast,
+      (int)player.isRunning());
+  heapSnapshot();
+  s_weather_last_attempt_ms = now;
+}
+
+static void logFail(const char* stage, uint32_t t0, uint8_t retry,
+                    WiFiClient* client = nullptr, int httpCode = -1, size_t bodyBytes = 0,
+                    const char* detail = nullptr) {
+  Serial.printf("[WEATHER] fail stage=%s retry=%u elapsed_ms=%lu",
+                stage, (unsigned)retry, (unsigned long)(millis() - t0));
+  if (client != nullptr) {
+    Serial.printf(" connected=%d", (int)client->connected());
+  }
+  if (httpCode >= 0) {
+    Serial.printf(" http_code=%d", httpCode);
+  }
+  if (bodyBytes > 0U) {
+    Serial.printf(" body_bytes~=%u", (unsigned)bodyBytes);
+  }
+  if (detail != nullptr && detail[0] != '\0') {
+    Serial.printf(" detail=%s", detail);
+  }
+  Serial.println();
+  heapSnapshot();
+}
+
+static void logBodyPrefix(const char* raw) {
+  if (raw == nullptr || raw[0] == '\0') {
+    return;
+  }
+  char buf[96];
+  strlcpy(buf, raw, sizeof(buf));
+  char* appid = strstr(buf, "appid=");
+  if (appid != nullptr) {
+    strlcpy(appid, "appid=…", sizeof(buf) - (size_t)(appid - buf));
+  }
+  Serial.printf("[WEATHER] body_prefix=\"%s\"\n", buf);
+}
+
+static void logParseFail(const char* field, uint32_t t0, int httpCode, size_t bodyBytes,
+                         const char* line) {
+  Serial.printf("[WEATHER] fail stage=parse field=%s elapsed_ms=%lu http_code=%d body_bytes~=%u\n",
+                field, (unsigned long)(millis() - t0), httpCode, (unsigned)bodyBytes);
+  logBodyPrefix(line);
+  heapSnapshot();
+}
+
+static void logSuccess(uint32_t t0, int httpCode, float tempC, const char* icon,
+                       const char* desc) {
+  Serial.printf(
+      "[WEATHER] success stage=done http_code=%d temp=%.1f icon=%s desc=\"%s\" "
+      "elapsed_ms=%lu next_interval_s=1800 trueWeather=1\n",
+      httpCode, tempC, icon, desc, (unsigned long)(millis() - t0));
+  heapSnapshot();
+}
+} // namespace weather_diag
+#endif // !HIDE_WEATHER
 
 void ticks() {
   if(!display.ready()) return; //waiting for SD is ready
@@ -585,8 +682,10 @@ void doSync( void * pvParameters ) {
     // S6V10H: первый запрос погоды ждёт grace, чтобы не пересекаться с ранним audio/Main preload.
     network.forceWeather = true;
   } else if(network.forceWeather){
+    s_weather_diag_forced = true;
     network.forceWeather = false;
     network.trueWeather=getWeather(network.weatherBuf);
+    s_weather_diag_forced = false;
   }
   vTaskDelete( NULL );
 }
@@ -595,22 +694,61 @@ bool getWeather(char *wstr) {
 #if !defined(HIDE_WEATHER)
   WiFiClient client;
   const char* host  = "api.openweathermap.org";
+  const uint32_t t0 = millis();
+  int httpCode = -1;
+  size_t bodyBytes = 0U;
+
+  weather_diag::logStart();
 
   IPAddress serverIP;
-  if (!networkResolveHostForConnect(host, serverIP)) {
-    Serial.println("##WEATHER###: DNS resolve failed");
+  uint8_t weatherConnectRetry = 0;
+
+  // E21W0-B: one fresh-DNS retry on TCP connect fail after DNS ok / один retry connect
+  auto resolveDns = [&](uint8_t retry) -> bool {
+    if (!networkResolveHostForConnect(host, serverIP)) {
+      weather_diag::logFail("dns", t0, retry);
+      Serial.println("##WEATHER###: DNS resolve failed");
+      return false;
+    }
+    Serial.printf("[WEATHER] dns ok retry=%u ip=%s elapsed_ms=%lu\n",
+                  (unsigned)retry, serverIP.toString().c_str(),
+                  (unsigned long)(millis() - t0));
+    return true;
+  };
+
+  auto tryConnect = [&](uint8_t retry) -> bool {
+    if (!client.connect(serverIP, 80)) {
+      weather_diag::logFail("connect", t0, retry, &client);
+      return false;
+    }
+    Serial.printf("[WEATHER] connect ok retry=%u elapsed_ms=%lu\n",
+                  (unsigned)retry, (unsigned long)(millis() - t0));
+    return true;
+  };
+
+  if (!resolveDns(0)) {
     return false;
   }
-  if (!client.connect(serverIP, 80)) {
-    Serial.println("##WEATHER###: connection  failed");
-    return false;
+  if (!tryConnect(0)) {
+    client.stop();
+    Serial.println("[WEATHER] retry reason=connect_fail retry=1");
+    if (!resolveDns(1)) {
+      return false;
+    }
+    weatherConnectRetry = 1;
+    if (!tryConnect(1)) {
+      Serial.println("##WEATHER###: connection  failed");
+      return false;
+    }
   }
+
   char httpget[250] = {0};
   sprintf(httpget, "GET /data/2.5/weather?lat=%s&lon=%s&units=%s&lang=%s&appid=%s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", config.store.weatherlat, config.store.weatherlon, weatherUnits, weatherLang, config.store.weatherkey, host);
   client.print(httpget);
   unsigned long timeout = millis();
   while (client.available() == 0) {
     if (millis() - timeout > 2000UL) {
+      weather_diag::logFail("read_wait", t0, weatherConnectRetry, &client);
       Serial.println("##WEATHER###: client available timeout !");
       client.stop();
       return false;
@@ -622,6 +760,16 @@ bool getWeather(char *wstr) {
     while (client.available())
     {
       line = client.readStringUntil('\n');
+      bodyBytes += line.length() + 1U;
+      if (httpCode < 0 && line.startsWith("HTTP/")) {
+        const int sp1 = line.indexOf(' ');
+        if (sp1 >= 0) {
+          const int sp2 = line.indexOf(' ', sp1 + 1);
+          httpCode = line.substring(sp1 + 1, sp2 > 0 ? sp2 : line.length()).toInt();
+        }
+        Serial.printf("[WEATHER] http_status=%d elapsed_ms=%lu\n",
+                      httpCode, (unsigned long)(millis() - t0));
+      }
       if (strstr(line.c_str(), "\"temp\"") != NULL) {
         client.stop();
         break;
@@ -629,15 +777,20 @@ bool getWeather(char *wstr) {
       if ((millis() - timeout) > 500)
       {
         client.stop();
+        weather_diag::logFail("read", t0, weatherConnectRetry, &client, httpCode, bodyBytes);
         Serial.println("##WEATHER###: client read timeout !");
         return false;
       }
     }
   }
   if (strstr(line.c_str(), "\"temp\"") == NULL) {
+    weather_diag::logFail("http_body", t0, weatherConnectRetry, &client, httpCode, bodyBytes);
+    weather_diag::logBodyPrefix(line.c_str());
     Serial.println("##WEATHER###: weather not found !");
     return false;
   }
+  Serial.printf("[WEATHER] body_match line_bytes=%u elapsed_ms=%lu\n",
+                (unsigned)line.length(), (unsigned long)(millis() - t0));
 
 //		  Serial.printf("## OPENWEATHERMAP ###: *\n%s,\n*\n", line.c_str());
 
@@ -652,39 +805,45 @@ bool getWeather(char *wstr) {
   const char* cursor = line.c_str();
   char desc[120], temp[20], hum[20], press[20], icon[5], gust[20], porv[10], stanc[50];
 
+  auto failParse = [&](const char* field, const char* legacyMsg) -> bool {
+    weather_diag::logParseFail(field, t0, httpCode, bodyBytes, line.c_str());
+    Serial.println(legacyMsg);
+    return false;
+  };
+
   tmps = strstr(cursor, "\"description\":\"");
-  if (tmps == NULL) { Serial.println("##WEATHER###: description not found !"); return false;}
+  if (tmps == NULL) { return failParse("description", "##WEATHER###: description not found !"); }
   tmps += 15;
   tmpe = strstr(tmps, "\",\"");
-  if (tmpe == NULL) { Serial.println("##WEATHER###: description content not found !"); return false;}
+  if (tmpe == NULL) { return failParse("description_content", "##WEATHER###: description content not found !"); }
   strlcpy(desc, tmps, tmpe - tmps + 1);
   cursor = tmps;
 //    Serial.printf("#CONTROL#: descr.: %s,\n", desc);
 
   // "sky clear","icon":"01d"}],
   tmps = strstr(cursor, "\"icon\":\"");
-  if (tmps == NULL) { Serial.println("##WEATHER###: icon not found !"); return false;}
+  if (tmps == NULL) { return failParse("icon", "##WEATHER###: icon not found !"); }
   tmps += 8;
   tmpe = strstr(tmps, "\"}");
-  if (tmpe == NULL) { Serial.println("##WEATHER###: icon content not found !"); return false;}
+  if (tmpe == NULL) { return failParse("icon_content", "##WEATHER###: icon content not found !"); }
   strlcpy(icon, tmps, tmpe - tmps + 1);
   cursor = tmps;
 
   tmps = strstr(cursor, "\"temp\":");
-  if (tmps == NULL) { Serial.println("##WEATHER###: temp not found !"); return false;}
+  if (tmps == NULL) { return failParse("temp", "##WEATHER###: temp not found !"); }
   tmps += 7;
   tmpe = strstr(tmps, ",\"");
-  if (tmpe == NULL) { Serial.println("##WEATHER###: temp content not found !"); return false;}
+  if (tmpe == NULL) { return failParse("temp_content", "##WEATHER###: temp content not found !"); }
   strlcpy(temp, tmps, tmpe - tmps + 1);
   cursor = tmps;
   float tempf = atof(temp);
 //    Serial.printf("#CONTROL#: temp: %+.1fC\n", tempf);
 
   tmps = strstr(cursor, "\"feels_like\":");
-  if (tmps == NULL) { Serial.println("##WEATHER###: feels_like not found !"); return false;}
+  if (tmps == NULL) { return failParse("feels_like", "##WEATHER###: feels_like not found !"); }
   tmps += 13;
   tmpe = strstr(tmps, ",\"");
-  if (tmpe == NULL) { Serial.println("##WEATHER###: feels_like content not found !"); return false;}
+  if (tmpe == NULL) { return failParse("feels_like_content", "##WEATHER###: feels_like content not found !"); }
   strlcpy(temp, tmps, tmpe - tmps + 1);
   cursor = tmps;
   float tempfl = atof(temp);
@@ -692,21 +851,21 @@ bool getWeather(char *wstr) {
 //    Serial.printf("#CONTROL#: feels like: %+.0fC\n", tempfl);
 
   tmps = strstr(cursor, "\"pressure\":");
-  if (tmps == NULL) { Serial.println("##WEATHER###: pressure not found !"); return false;}
+  if (tmps == NULL) { return failParse("pressure", "##WEATHER###: pressure not found !"); }
   tmps += 11;
   tmpe = strstr(tmps, ",\"");
-  if (tmpe == NULL) { Serial.println("##WEATHER###: pressure content not found !"); return false;}
+  if (tmpe == NULL) { return failParse("pressure_content", "##WEATHER###: pressure content not found !"); }
   strlcpy(press, tmps, tmpe - tmps + 1);
   cursor = tmps;
       pressi = (float)atoi(press) / 1.333 - g_height;		// ������� � ��.��.��., ���� � ����� ����� pressi �������� (-21) �� ���. ���������
 //      Serial.printf("#CONTROL#: pres.: %d mmHg\n", pressi);
 
   tmps = strstr(cursor, "humidity\":");
-  if (tmps == NULL) { Serial.println("##WEATHER###: humidity not found !"); return false;}
+  if (tmps == NULL) { return failParse("humidity", "##WEATHER###: humidity not found !"); }
   tmps += 10;
   tmpe = strstr(tmps, ",\"");
   tmpc = strstr(tmps, "},");
-  if (tmpe == NULL) { Serial.println("##WEATHER###: humidity not found !"); return false;}
+  if (tmpe == NULL) { return failParse("humidity_content", "##WEATHER###: humidity not found !"); }
   cursor = tmps;
   strlcpy(hum, tmps, tmpe - tmps + (tmpc>tmpe?1:(tmpc - tmpe +1)));
 //      Serial.printf("#CONTROL#: humidity: %s %%\n", hum);
@@ -725,10 +884,10 @@ bool getWeather(char *wstr) {
 //      Serial.printf("#CONTROL#: press. grnd_level: %d mmHg\n", pressi);
 
   tmps = strstr(cursor, "\"speed\":");
-  if (tmps == NULL) { Serial.println("##WEATHER###: wind speed not found !"); return false;}
+  if (tmps == NULL) { return failParse("wind_speed", "##WEATHER###: wind speed not found !"); }
   tmps += 8;
   tmpe = strstr(tmps, ",\"");
-  if (tmpe == NULL) { Serial.println("##WEATHER###: wind speed content not found !"); return false;}
+  if (tmpe == NULL) { return failParse("wind_speed_content", "##WEATHER###: wind speed content not found !"); }
   strlcpy(temp, tmps, tmpe - tmps + 1);
   cursor = tmps;
   float wind_speed = atof(temp);
@@ -736,11 +895,11 @@ bool getWeather(char *wstr) {
 //    Serial.printf("#CONTROL#: wind: %.0f m/s\n", wind_speed);
   
   tmps = strstr(cursor, "\"deg\":");
-  if (tmps == NULL) { Serial.println("##WEATHER###: wind deg not found !"); return false;}
+  if (tmps == NULL) { return failParse("wind_deg", "##WEATHER###: wind deg not found !"); }
   tmps += 6;
   tmpe = strstr(tmps, ",\"");
   tmpc = strstr(tmps, "},");				// ��� ����� ��[},]
-  if (tmpe == NULL) { Serial.println("## WEATHER ###: deg content not found !"); return false;}
+  if (tmpe == NULL) { return failParse("wind_deg_content", "## WEATHER ###: deg content not found !"); }
   strlcpy(temp, tmps, tmpe - tmps + (tmpc>tmpe?1:(tmpc - tmpe +1)));	// ������� � temp ������ ������ (temp="316")
   cursor = tmps;
       deg = atof(temp);
@@ -771,13 +930,14 @@ bool getWeather(char *wstr) {
 //    Serial.printf("#CONTROL#: gusts: %s m/s\n", gust);
 
   tmps = strstr(cursor, "\"name\":\"");
-  if (tmps == NULL) { Serial.println("##WEATHER###: name station not found !"); return false;}
+  if (tmps == NULL) { return failParse("name", "##WEATHER###: name station not found !"); }
   tmps += 8;
   tmpe = strstr(tmps, "\",\"");
-  if (tmpe == NULL) { Serial.println("##WEATHER###: name station not found !"); return false;}
+  if (tmpe == NULL) { return failParse("name_content", "##WEATHER###: name station not found !"); }
   strlcpy(stanc, tmps, tmpe - tmps + 1);		// ������� � stanc ������������
 //    Serial.printf("#CONTROL#: station: %s\n", stanc);
   
+  weather_diag::logSuccess(t0, httpCode, tempf, icon, desc);
   Serial.printf("##WEATHER###: descr.: %s, temp.: %+.1f*C (feels like %+.0f*C) \007 press.: %d mm \007 hum.: %s%% \007 wind %s %.0f%s m/s (st. %s)\n", desc, tempf, tempfl, pressi, hum, wind[wind_deg], wind_speed, gust, stanc);
 //  Serial.printf("##WEATHER###: description: %s, temp:%+.1f C, pressure:%dmmHg, humidity:%s%%\n", desc, tempf, pressi, hum);
   strlcpy(network.weatherOwmIcon, icon, sizeof(network.weatherOwmIcon));
