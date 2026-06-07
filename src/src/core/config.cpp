@@ -44,7 +44,7 @@ void aiSetDefaults(AIConfig& cfg) {
   strlcpy(cfg.path, "/v1", sizeof(cfg.path));
   cfg.timeout_ms = 6000;
   cfg.api_key[0] = '\0';
-  strlcpy(cfg.model, "deepseek-chat", sizeof(cfg.model));
+  strlcpy(cfg.model, "deepseek-v4-flash", sizeof(cfg.model));
 }
 
 // Check if AI configuration is valid for enabling / Проверить валидность AI конфигурации для включения
@@ -112,7 +112,7 @@ bool aiLoadFromFS(AIConfig& out) {
   strlcpy(out.path, doc["path"] | "/v1", sizeof(out.path));
   out.timeout_ms = doc["timeout_ms"] | 6000;
   strlcpy(out.api_key, doc["api_key"] | "", sizeof(out.api_key));
-  strlcpy(out.model, doc["model"] | "deepseek-chat", sizeof(out.model));
+  strlcpy(out.model, doc["model"] | "deepseek-v4-flash", sizeof(out.model));
   
   // Update runtime cache / Обновляем runtime кеш
   g_ai_cfg = out;
@@ -273,7 +273,7 @@ void Config::init() {
     saveValue(&store.ai_enabled, false, true, true);  // force=true чтобы перезаписать даже если значение совпадает
     saveValue(&store.llm_provider, (uint8_t)LLM_NONE, true, true);
     saveValue(store.ai_api_key, "", AI_API_KEY_LENGTH, true, true);
-    saveValue(store.ai_model, "deepseek-chat", AI_MODEL_LENGTH, true, true);
+    saveValue(store.ai_model, "deepseek-v4-flash", AI_MODEL_LENGTH, true, true);
     saveValue(&store.ai_enableFiles, false, true, true);
   }
   
@@ -374,7 +374,7 @@ void Config::_setupVersion(){
       saveValue(&store.ai_enabled, false);
       saveValue(&store.llm_provider, (uint8_t)LLM_NONE);
       saveValue(store.ai_api_key, "", AI_API_KEY_LENGTH);
-      saveValue(store.ai_model, "deepseek-chat", AI_MODEL_LENGTH);
+      saveValue(store.ai_model, "deepseek-v4-flash", AI_MODEL_LENGTH);
       saveValue(&store.ai_enableFiles, false);
       break;
     default:
@@ -611,7 +611,7 @@ void Config::setDefaults() {
   store.ai_enabled = false;
   store.llm_provider = LLM_NONE;
   strlcpy(store.ai_api_key, "", AI_API_KEY_LENGTH);
-  strlcpy(store.ai_model, "deepseek-chat", AI_MODEL_LENGTH);  // DeepSeek default model
+  strlcpy(store.ai_model, "deepseek-v4-flash", AI_MODEL_LENGTH);  // DeepSeek default model
   store.ai_enableFiles = false;
   
   // AI settings migrated to FS /ai.json and runtime cache (see aiGetRuntimeConfig())
