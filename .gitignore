@@ -30,5 +30,6 @@ tools/fonts/*.ttf
 
 # Local-only migration notes (removed from Git index; keep your copies on disk).
 # Локальные заметки по миграции — не в репозитории, копии у себя оставляем.
+STAGE0_STEP1_ANALYSIS.md
 docs/LVGL_MIGRATION_PLAN.md
 docs/LVGL_STAGE2_RUNTIME_DESIGN_NOTES.md
