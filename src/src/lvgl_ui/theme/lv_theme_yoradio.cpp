@@ -139,54 +139,61 @@ static const YoRadioPalette kPaletteLight = {
     lv_color_hex(0xD8C3A2), // main_chrome_pressed_bg — 6.6R-GB1: darker warm beige; #EFE1CE too close to shelf to read
 };
 
-// Built-in Custom fallback — baseline when theme_custom.txt missing/invalid (not “just Dark” at runtime).
-// Встроенный fallback Custom; при файле s_customPalette перезаписывается парсером.
+// Built-in Custom fallback — Amber Hi-Fi / Tube Amp (matches theme_custom.example.txt + data seed).
+// When theme_custom.txt is missing/removed/partial: baseline before file overrides (not Dark/Light).
+// Встроенный fallback Custom = Amber Hi-Fi; при файле парсер перезаписывает поля поверх этого baseline.
 static const YoRadioPalette kPaletteCustomBuiltin = {
-    lv_color_hex(0x000000),
-    lv_color_hex(0x121212),
-    lv_color_hex(0x333333),
-    lv_color_hex(0xFFFFFF),
-    lv_color_hex(0x808080),
-    lv_color_hex(0x888888),
-    lv_color_hex(0x5B94C9),
-    lv_color_hex(0x243A4D),
-    lv_color_hex(0x444444),
-    lv_color_hex(0x202020),
-    lv_color_hex(0xFFFFFF),
-    lv_color_hex(0xAAAAAA),
-    lv_color_hex(0xAEB4BC),
-    lv_color_hex(0xC4CAD2),
-    lv_color_hex(0x101010),
-    lv_color_hex(0xFFFFFF),
-    lv_color_hex(0xFF5555),
-    lv_color_hex(0xFFFFFF),
-    lv_color_hex(0xCCCCCC),
-    lv_color_hex(0xCCCCCC),
-    lv_color_hex(0xAAAAAA),
-    lv_color_hex(0x151515),
-    lv_color_hex(0x5A6572),
-    lv_color_hex(0xCCCCCC),
-    lv_color_hex(0xCCCCCC),
-    lv_color_hex(0xCCCCCC),
-    lv_color_hex(0xEEEEEE),
-    lv_color_hex(0x3A3A3A),
-    lv_color_hex(0xFFFFFF),
-    lv_color_hex(0x444444),
-    lv_color_hex(0x2C2C2C),
-    lv_color_hex(0xFFFFFF),
-    lv_color_hex(0xCCCCCC),
-    lv_color_hex(0x000000),
-    lv_color_hex(0xFFFFFF),
-    lv_color_hex(0x000000),
-    lv_color_hex(0xCCCCCC),
-    lv_color_hex(0x333333),
-    lv_color_hex(0xE7D32A),
-    // §4.7 Main chrome (6.6R-GA) — Dark-style fallback when file omits these keys.
-    lv_color_hex(0x252D38), // main_chrome_bg
-    lv_color_hex(0x6B7D8F), // main_chrome_border
-    lv_color_hex(0xC6EBFF), // main_chrome_glow_top
-    lv_color_hex(0xA2CCE0), // main_chrome_glow_bottom
-    lv_color_hex(0xFFFFFF), // main_chrome_pressed_bg
+    // §4.1 Foundation — Amber Hi-Fi / Tube Amp
+    lv_color_hex(0x0D0806), // device_background
+    lv_color_hex(0x1A120D), // panel_background
+    lv_color_hex(0x5A422B), // panel_border
+    lv_color_hex(0xF4E7D2), // text_primary
+    lv_color_hex(0xB8A48C), // text_secondary
+    lv_color_hex(0x8C7A66), // text_meta
+    lv_color_hex(0xD89A2B), // accent
+    lv_color_hex(0x4A2F17), // accent_soft
+    lv_color_hex(0x3A2A1F), // divider
+    lv_color_hex(0x130F0B), // overlay_scrim
+    // §4.2 Main / player
+    lv_color_hex(0xE8DCC7), // status_line_text
+    lv_color_hex(0xA9937E), // status_line_meta
+    lv_color_hex(0xD89A2B), // status_weather_icon
+    lv_color_hex(0xF4E7D2), // status_weather_temp
+    lv_color_hex(0x17100C), // status_line_bg
+    lv_color_hex(0xF4E7D2), // clock_text
+    lv_color_hex(0xD66A3A), // live_indicator_text
+    lv_color_hex(0xF4E7D2), // station_name_text
+    lv_color_hex(0xB8A48C), // artist_text
+    lv_color_hex(0xF0D1A2), // track_text
+    lv_color_hex(0xB47A3A), // meta_row_text
+    lv_color_hex(0x3A2A1F), // volume_bar_track
+    lv_color_hex(0xD89A2B), // volume_bar_fill
+    lv_color_hex(0xB86E1E), // buffer_meter_fill
+    lv_color_hex(0xCBB89F), // bottom_weather_text
+    lv_color_hex(0xCBB89F), // bottom_ai_text
+    // §4.3 Lists
+    lv_color_hex(0xF0E4D0), // list_row_text
+    lv_color_hex(0x4A2F17), // list_row_selected_bg
+    lv_color_hex(0xF6EAD5), // list_row_selected_text
+    lv_color_hex(0x3A2A1F), // list_row_separator
+    // §4.4 Overlay
+    lv_color_hex(0x20160F), // overlay_card_bg
+    lv_color_hex(0xF4E7D2), // overlay_title_text
+    lv_color_hex(0xB8A48C), // overlay_body_text
+    // §4.5 Screensaver
+    lv_color_hex(0x080705), // screensaver_background
+    lv_color_hex(0xD89A2B), // screensaver_clock_text
+    // §4.6 Boot — parser/fallback only; runtime Boot screen is fixed dark (scr_boot.cpp).
+    lv_color_hex(0x0D0806), // boot_background
+    lv_color_hex(0xCBB89F), // boot_status_text
+    lv_color_hex(0x3A2A1F), // boot_progress_track
+    lv_color_hex(0xD89A2B), // boot_progress_fill
+    // §4.7 Main chrome — tube-amp shelf glow / pressed (pairs with main_custom.bin bg).
+    lv_color_hex(0x1A120D), // main_chrome_bg
+    lv_color_hex(0x8A5A24), // main_chrome_border
+    lv_color_hex(0xF0C06A), // main_chrome_glow_top
+    lv_color_hex(0xB86E1E), // main_chrome_glow_bottom
+    lv_color_hex(0x3A2A1F), // main_chrome_pressed_bg
 };
 
 static YoRadioPalette s_customPalette = kPaletteCustomBuiltin;

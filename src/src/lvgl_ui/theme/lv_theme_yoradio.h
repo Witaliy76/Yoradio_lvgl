@@ -28,7 +28,7 @@ enum class ThemePreset : uint8_t {
 /**
  * Semantic colors aligned with docs/YoRadio_LVGL_Theme_Bible.txt §4.1–§4.6 (+ §4.7 Main chrome, 6.6R-GA).
  * Dark/Light: const factory tables (Light = Cloud Ivory / Warm Cloudscape, 6.6R-GB).
- * Custom: kPaletteCustomBuiltin + optional /data/theme_custom.txt overrides.
+ * Custom: kPaletteCustomBuiltin (Amber Hi-Fi / Tube Amp) + optional /data/theme_custom.txt overrides.
  * boot_* fields exist for parser/fallback; Boot screen uses fixed dark (scr_boot.cpp), not pal.
  * theme_dark is metadata (NOT a palette field). Main-chrome geometry/opacity stay local in scr_main.cpp.
  */

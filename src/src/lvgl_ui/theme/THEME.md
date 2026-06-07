@@ -1,277 +1,234 @@
-# YoRadio LVGL theme — developer map (Stage 6.6R)
+# YoRadio Custom Theme Guide
 
-Canonical token semantics: **`docs/YoRadio_LVGL_Theme_Bible.txt`** (v1.2).  
-This file documents **where code lives**, **runtime behavior**, and **boundaries** after Stages **6.6R-F2 / GA / GB / GB2** — not legacy Canvas / `config.theme`.
-
-> **6.6R-G track summary:** GA tokenized Main shelf/glow/pressed chrome (5 new `main_chrome_*` tokens, live glow reapply); GB set factory Light to **Cloud Ivory / Warm Cloudscape**; GB1 tuned Light shelf opacity + pressed feedback; GB2 made the debug perf-monitor text theme-aware. No `CONFIG_VERSION` / parser / WebUI changes in that track.
+How to create and deploy `theme_custom.txt` for the **Custom** appearance preset on YoRadio LVGL devices.
 
 ---
 
-## 1. Theme pipeline (current)
+## What this file controls
 
-```text
-LittleFS                          DspTask (display queue)
-──────────                        ───────────────────────
-/data/theme.dat        ──load──►  ThemePreset (Dark|Light|Custom)
-  preset name only                yoradio_theme_set_preset()
-
-/data/theme_custom.txt ──load──►  s_customPalette (mutable)
-  color overrides + theme_dark      s_customThemeDark (metadata)
-                                  yoradio_palette() / yoradio_theme_is_dark()
-
-lv_theme_yoradio.cpp              lv_theme_default_init + yoradio_theme_reinit
-  kPaletteDark   (const factory)  accent, accent_soft, dark flag for LVGL widgets
-  kPaletteLight  (const factory)
-  kPaletteCustomBuiltin (const fallback baseline)
-  s_customPalette (runtime, file-backed)
-
-Screens / widgets                 PageChain runtime switch (6.6R-C)
-  yoradio_palette()               liveReapplyTheme() per page
-  pal.<token>                     PageChain::reapplyThemeToCreatedPages()
-```
-
-| Component | Role |
-|-----------|------|
-| **`lv_theme_yoradio.h`** | `ThemePreset`, `YoRadioPalette`, public APIs (`yoradio_palette`, `yoradio_theme_init/reinit`, custom file load, `yoradio_theme_is_dark`, `yoradio_palette_service`) |
-| **`lv_theme_yoradio.cpp`** | Factory Dark/Light tables; built-in Custom fallback; parser for `/data/theme_custom.txt`; `lv_theme_default_init` bridge |
-| **`lvgl_ui.cpp`** | `onThemePresetChanged`, `onCustomThemeFileUpdated` — **DspTask only** |
-| **`display.cpp`** | `SET_THEME_PRESET`, `CUSTOM_THEME_FILE_UPDATED` queue handlers |
-| **`netserver.cpp`** | WebUI: `/set_theme`, `/upload_theme`, `/remove_theme`, `/bg_status` — **no `lv_*`** |
-
-Init entry (once): **`yoradio_theme_init(s_disp)`** after `lv_disp_drv_register` in `initDisplayDriver` (`lvgl_ui.cpp`).
-
-**Not LVGL source of truth:** `config.theme`, `mytheme.h`, legacy `COLOR_*` macros (Canvas path).
+- **`theme_custom.txt` controls Custom preset colors only.** It does not change Dark or Light factory themes.
+- **Factory Dark** and **Factory Light (Cloud Ivory)** are built into firmware (`kPaletteDark`, `kPaletteLight`).
+- **Background images are separate files** in LittleFS (`/bg/main_*.bin`). They are **not** part of `theme_custom.txt`.
+- **Boot screen** always uses a fixed dark branded look. Your custom file does not change Boot at runtime.
+- **Wi‑Fi setup / recovery flow** always uses the factory Dark service palette for readability.
+- **`theme.dat`** stores only the **selected preset name** (`dark`, `light`, or `custom`). It does **not** contain colors.
 
 ---
 
-## 2. Two files — two meanings (do not merge)
+## Where the file lives
 
-### `/data/theme.dat`
+| Location | Path | Purpose |
+|----------|------|---------|
+| **On device (runtime)** | `/data/theme_custom.txt` | Active Custom color file on LittleFS |
+| **Repository seed** | `data/theme_custom.txt` | Shipped with `uploadfs` on fresh flash |
+| **Example / template** | `src/src/lvgl_ui/theme/theme_custom.example.txt` | Copy this to start editing |
 
-| | |
-|---|---|
-| **Purpose** | Selected **preset name only** (which of Dark / Light / Custom is active) |
-| **Values** | `dark`, `light`, or `custom` (one token, trimmed) |
-| **Does NOT contain** | Colors, `theme_dark`, or layout |
-| **Written when** | User picks Dark/Light/Custom in WebUI (`yoradio_theme_save_persisted_preset`) |
-| **Loaded when** | Boot, before first `yoradio_theme_init` |
+**How it gets onto the device:**
 
-### `/data/theme_custom.txt`
+1. **`uploadfs`** — files from repo `data/` (including `data/theme_custom.txt`) are written to LittleFS.
+2. **WebUI → Appearance → Custom theme upload** — overwrites `/data/theme_custom.txt` on the running device.
+3. **WebUI → Remove from device** — deletes the runtime file. Custom colors then fall back to the built-in **Amber Hi-Fi** palette in firmware (`kPaletteCustomBuiltin`).
 
-| | |
-|---|---|
-| **Purpose** | **Color overrides** for **Custom preset only** (+ optional metadata) |
-| **Format** | `key=#RRGGBB` (or `RRGGBB` without `#`); `#` comments; empty lines ignored |
-| **Max size** | **4096 bytes** (upload rejected above) |
-| **Does NOT select** | Active preset — use `theme.dat` + WebUI preset row |
-| **Upload does NOT** | Auto-switch to Custom; user must select **Custom** in Appearance |
-
-**Rules:** partial file OK; unknown keys ignored; invalid colors/lines counted in stats; duplicate keys → last valid wins; missing file → built-in Custom fallback (`kPaletteCustomBuiltin`).
+Uploading a custom file does **not** switch the active preset. Select **Custom** in Appearance after upload.
 
 ---
 
-## 3. Preset behavior
+## File format
 
-| Preset | Palette source | Affected by `theme_custom.txt`? |
-|--------|----------------|----------------------------------|
-| **Dark** | `kPaletteDark` (const, compiled-in) | **No** |
-| **Light** | `kPaletteLight` (const, compiled-in) — **Cloud Ivory / Warm Cloudscape** (6.6R-GB) | **No** |
-| **Custom** | `s_customPalette` = builtin fallback + file overrides | **Yes** (colors only) |
+- **Encoding:** UTF-8 plain text.
+- **One key per line:** `key=#RRGGBB`
+- **`#` optional on colors:** `key=RRGGBB` is also accepted (parser strips an optional `#`).
+- **Comments:** lines starting with `#` are ignored.
+- **Empty lines:** ignored.
+- **Unknown keys:** ignored (no error).
+- **Invalid lines / bad colors:** skipped; other valid lines still apply.
+- **Duplicate keys:** last valid value wins.
+- **Maximum size:** **4096 bytes** (WebUI upload rejects larger files).
 
-- `yoradio_palette()` with active **Custom** → **`s_customPalette`** (runtime), not a bare const copy of Dark.
-- If file missing / invalid → safe **builtin Custom fallback** (same baseline as early Custom factory table).
-- **Dark/Light** are never modified by upload/remove of custom file.
-
----
-
-## 4. Runtime switching & persistence (6.6R)
-
-| Action | Path |
-|--------|------|
-| User selects Dark/Light/Custom in WebUI | `POST /set_theme` → `SET_THEME_PRESET` → DspTask → `onThemePresetChanged` |
-| Save preset for reboot | `yoradio_theme_save_persisted_preset` → `/data/theme.dat` |
-| Upload custom file | `POST /upload_theme` → FS commit → `CUSTOM_THEME_FILE_UPDATED` → DspTask → `onCustomThemeFileUpdated` |
-| Remove custom file | `POST /remove_theme` → same queue |
-
-**Live apply:**
-
-- **Custom active** + upload/remove custom file → reload palette + `yoradio_theme_reinit` + `reapplyThemeToCreatedPages()` (Main, Info, Station, stubs).
-- **Dark/Light active** + upload custom file → file stored; UI stays on Dark/Light until user selects **Custom**.
-
-**Threading:** NetServer must **not** call LVGL. Parsing palette for UI effect is **authoritative on DspTask** (after F2 dedupe). `/bg_status` may read file size from disk; `applied_keys` come from last DspTask parse.
+Colors are 24-bit RGB hex (`#RRGGBB`). Alpha is not supported.
 
 ---
 
-## 5. `theme_dark` metadata (Custom only)
-
-In `theme_custom.txt` (not a `YoRadioPalette` field):
+## Metadata
 
 ```ini
 theme_dark=true
-# or
+```
+
+or
+
+```ini
 theme_dark=false
 ```
 
 | Value | Meaning |
 |-------|---------|
-| `true`, `1`, `yes`, `on` | Custom uses **dark** LVGL default widget states (`lv_theme_default_init` dark flag) |
+| `true`, `1`, `yes`, `on` | Custom uses **dark** LVGL widget states (checkboxes, lists, etc.) |
 | `false`, `0`, `no`, `off` | Custom uses **light** LVGL widget states |
-| missing / invalid | Defaults to **`true`** (same as F1) |
+| missing / invalid | defaults to **`true`** |
 
-Case-insensitive. Does **not** change Dark/Light. Does **not** count as a color key in `applied_keys`. When `theme_dark` changes while Custom is active, reload triggers `yoradio_theme_reinit` like color changes.
+This is **metadata only** — not a color. It does not affect Dark or Light presets.
 
----
+**Recommendations:**
 
-## 5b. Main chrome tokens (6.6R-GA) & Cloud Ivory Light (6.6R-GB)
-
-### Main chrome tokens
-
-GA added 5 semantic tokens so Main control-shelf colors are no longer local hardcode and are **Custom-overridable**:
-
-| Token | Used for |
-|-------|----------|
-| `main_chrome_bg` | control band body **and** rim glow edge stops |
-| `main_chrome_border` | control band border **and** art-slot frame (reused) |
-| `main_chrome_glow_top` | rim glow top peak |
-| `main_chrome_glow_bottom` | rim glow bottom peak |
-| `main_chrome_pressed_bg` | control-button pressed background |
-
-**Reuse / not tokenized (by design):**
-- Icons reuse `text_primary` (transport) / `text_secondary` (list, settings).
-- Separators / buffer line reuse `divider`.
-- Shelf glow **edge** reuses `main_chrome_bg` (no separate edge token).
-- Shadow stays **local black + opacity**.
-- **Geometry / radius / padding / opacity stay local** in `scr_main.cpp` (e.g. theme-aware shelf `bg_opa`/`border_opa` and pressed opa from GB1) — **not** theme tokens.
-
-**Live reapply:** since GA the rim glow gradient stops are refreshed in `LvglMainScreen::liveReapplyTheme()` (descriptors are file-scope static, objects stored as members) → **no stale glow** after a runtime theme switch; shelf body/border/opacity, art frame, pressed bg/opa update together.
-
-### Cloud Ivory / Warm Cloudscape (factory Light, 6.6R-GB)
-
-Light direction: warm ivory device background, warm beige panels/borders, graphite primary text, taupe secondary/meta, restrained amber accent, warm cream shelf glow. Screensaver **intentionally stays dark** on Light (night/device behavior).
-
-| Token | Light value |
-|-------|-------------|
-| `device_background` | `#F8EFE3` |
-| `panel_background` | `#F9EFE2` |
-| `panel_border` | `#D3C4B3` |
-| `text_primary` | `#2F2926` |
-| `text_secondary` | `#6F6459` |
-| `accent` | `#C8942E` |
-| `accent_soft` | `#E0CBA0` (softened — raw gold too active for LVGL soft/checked states) |
-| `buffer_meter_fill` | `#8A7D70` (quiet taupe — not amber) |
-| `volume_bar_fill` | `#E7AF58` |
-| `main_chrome_bg` | `#F9EFE2` |
-| `main_chrome_border` | `#D3C4B3` |
-| `main_chrome_glow_top` | `#FEF6E6` |
-| `main_chrome_glow_bottom` | `#F4E3CC` |
-| `main_chrome_pressed_bg` | `#D8C3A2` (GB1 — darker so press reads on ivory) |
+- **`theme_dark=true`** — dark Custom themes (e.g. Amber Hi-Fi / tube-amp look).
+- **`theme_dark=false`** — light Custom themes (warm ivory / paper-style UIs).
 
 ---
 
-## 6. Boundaries & exceptions (F2 / GA / GB2)
+## Backgrounds
 
-| Area | Policy |
-|------|--------|
-| **Boot** (`scr_boot.cpp`) | **Fixed branded dark** (`#000000` bg, `#CCCCCC` status). Does **not** use `yoradio_palette()` or user custom file. Saved Light/Custom preset does **not** whiten Boot. Shuttle/track/glow = local chrome in `scr_boot.cpp`. |
-| **Wi‑Fi Flow** (`scr_wifi_flow.cpp`) | **`yoradio_palette_service()`** → always factory **Dark**. Arbitrary Custom palette cannot break recovery UI. No `liveReapplyTheme`. |
-| **Main shelf / glow / control band** | **Tokenized** since GA (`main_chrome_*`) — **Custom-overridable** via `theme_custom.txt`. Geometry/opacity stay local in `scr_main.cpp`. |
-| **Perf monitor** (`lvgl_ui.cpp`) | **Debug overlay**, not product UI (`LV_USE_PERF_MONITOR`). Background **transparent**; text color follows `yoradio_palette().text_primary` (GB2, theme-aware). Disabled when perf monitor is off. |
-| **Background images** | Separate LittleFS slots: `/bg/main_dark.bin`, `main_light.bin`, `main_custom.bin` — not `theme_custom.txt`. |
-| **Fonts / layout** | Profiles (`lv_profile_*.h`), `lv_conf.h`, per-widget code — not theme file. |
-| **Station art** | Performance follow-up is separate; not a theme concern. |
+`theme_custom.txt` does **not** contain images. Backgrounds are separate LittleFS slots:
 
-`boot_*` keys exist in `YoRadioPalette` and parser for completeness; **Boot screen ignores them at runtime** after F2.
+| Preset | Device path | Repo seed (4848S040) |
+|--------|-------------|----------------------|
+| Dark | `/bg/main_dark.bin` | `data/bg/main_dark.bin` |
+| Light | `/bg/main_light.bin` | `data/bg/main_light.bin` |
+| Custom | `/bg/main_custom.bin` | `data/bg/main_custom.bin` |
 
----
+Format: LVGL v8 **RGB565** `.bin` (4-byte header + pixels). Resolution must match your board (480×480 on 4848S040). Upload via WebUI Appearance or place under `data/bg/` before `uploadfs`.
 
-## 7. WebUI workflow (Appearance)
-
-1. **Preset row:** Dark / Light / Custom → immediate apply + save `theme.dat`.
-2. **Custom file block:**
-   - **Choose file** — pick `.txt` on PC.
-   - **Upload** — write `/data/theme_custom.txt` (atomic temp → commit).
-   - **Remove from device** — delete file, reset runtime Custom palette to fallback.
-3. **Status (two lines):**
-   - **On device:** file name, size, color keys loaded, ignored line count (from `/bg_status`).
-   - **Action hint:** ready to upload / applying on device / file on device.
-
-**Note:** Normal user theme upload does **not** require `uploadfs`. Hard refresh / `uploadfs` only when **WebUI assets** (`appearance.html`, `bg.js`) change during development.
-
-Example file for upload: **`src/src/lvgl_ui/theme/theme_custom.example.txt`** (canonical).  
-Mirror (identical): **`docs/examples/theme_custom.example.txt`**.
+Converter (developers): `tools/lvgl_png_to_rgb565_bin.py`
 
 ---
 
-## 8. Where to change what
+## Editable color keys
 
-| Task | Where |
-|------|--------|
-| Factory **Dark/Light** colors | `lv_theme_yoradio.cpp` → `kPaletteDark` / `kPaletteLight` |
-| **Custom** user colors | `/data/theme_custom.txt` via WebUI, or edit `theme_custom.example.txt` and upload |
-| Built-in **Custom fallback** (no file) | `kPaletteCustomBuiltin` in `lv_theme_yoradio.cpp` |
-| Add/rename palette token | `YoRadioPalette` in `.h` + factory palettes + `kPaletteKeyTable` in `.cpp` + **both** example files + Bible + this doc |
-| **Main chrome visual colors** | `main_chrome_*` tokens in `lv_theme_yoradio.cpp` (per preset) |
-| **Main chrome geometry / opacity** | `scr_main.cpp` (local: radius/padding, theme-aware `bg_opa`/`border_opa`, pressed opa) |
-| **Boot** look (fixed dark) | `scr_boot.cpp` → `kBootFixedBackground` / `kBootFixedStatusText` |
-| **Wi‑Fi** service colors | `scr_wifi_flow.cpp` uses `yoradio_palette_service()` only |
-| **Perf monitor** debug overlay | `lvgl_ui.cpp` (transparent bg; text = `yoradio_palette().text_primary`) |
-| LVGL default font | `lv_conf.h` → `LV_FONT_DEFAULT` |
-| Board fonts / layout | `profiles/lv_profile_*.h` |
-| Runtime preset switch wiring | `netserver.cpp`, `display.cpp`, `lvgl_ui.cpp` (do not call LVGL from NetServer) |
+Use the groups below when editing. The canonical full example is **`theme_custom.example.txt`** (Amber Hi-Fi / Tube Amp).
+
+### Foundation
+
+| Key | What it affects |
+|-----|-----------------|
+| `device_background` | Main screen base / device backdrop behind panels |
+| `panel_background` | Cards, panels, list rows background |
+| `panel_border` | Panel and card borders |
+| `text_primary` | Primary text (titles, station name, main labels) |
+| `text_secondary` | Secondary text (artist, hints, utility icons) |
+| `text_meta` | Tertiary / meta captions |
+| `accent` | Primary accent (highlights, selected accents, weather icon) |
+| `accent_soft` | Softer accent fills (LVGL soft/checked states) |
+| `divider` | Lines, separators, buffer meter baseline |
+| `overlay_scrim` | Dimmed backdrop behind overlays |
+
+### Main / player
+
+| Key | What it affects |
+|-----|-----------------|
+| `status_line_text` | Top status line primary text |
+| `status_line_meta` | Top status line secondary / meta text |
+| `status_weather_icon` | Weather glyph on status line |
+| `status_weather_temp` | Temperature on status line |
+| `status_line_bg` | Status line strip background |
+| `clock_text` | Clock digits on Main |
+| `live_indicator_text` | “LIVE” / on-air indicator |
+| `station_name_text` | Current station title |
+| `artist_text` | Artist line |
+| `track_text` | Track title line |
+| `meta_row_text` | Bitrate / codec meta row |
+| `volume_bar_track` | Volume bar empty track |
+| `volume_bar_fill` | Volume bar filled portion |
+| `buffer_meter_fill` | Buffer line under bottom divider |
+| `bottom_weather_text` | Bottom bar weather text |
+| `bottom_ai_text` | Bottom bar AI interpretation text |
+
+### Lists
+
+| Key | What it affects |
+|-----|-----------------|
+| `list_row_text` | Station list row text |
+| `list_row_selected_bg` | Selected row background |
+| `list_row_selected_text` | Selected row text |
+| `list_row_separator` | Row dividers |
+
+### Overlay
+
+| Key | What it affects |
+|-----|-----------------|
+| `overlay_card_bg` | Popup / overlay card background |
+| `overlay_title_text` | Overlay title |
+| `overlay_body_text` | Overlay body text |
+
+### Screensaver
+
+| Key | What it affects |
+|-----|-----------------|
+| `screensaver_background` | Screensaver backdrop |
+| `screensaver_clock_text` | Screensaver clock color |
+
+### Boot (parser / fallback only)
+
+Parsed if present; **Boot screen runtime stays fixed dark** and does not read this file.
+
+| Key | What it affects |
+|-----|-----------------|
+| `boot_background` | Boot fallback background token |
+| `boot_status_text` | Boot fallback status text |
+| `boot_progress_track` | Boot progress bar track |
+| `boot_progress_fill` | Boot progress bar fill |
+
+### Main chrome
+
+Control shelf, rim glow, art frame, and pressed button feedback on Main.
+
+| Key | What it affects |
+|-----|-----------------|
+| `main_chrome_bg` | Control band body and rim-glow edge color |
+| `main_chrome_border` | Control band border and art-slot frame |
+| `main_chrome_glow_top` | Top glow peak on control shelf |
+| `main_chrome_glow_bottom` | Bottom glow peak on control shelf |
+| `main_chrome_pressed_bg` | Pressed state on control-bar icon buttons |
+
+Shelf opacity, radius, and padding are **not** in this file — they are fixed in firmware layout code.
 
 ---
 
-## 9. API quick reference (`lv_theme_yoradio.h`)
+## Minimal example
 
-```text
-yoradio_palette()                    → active preset palette (Custom → s_customPalette)
-yoradio_palette_service()            → factory Dark (Wi‑Fi Flow)
-yoradio_theme_active_preset()
-yoradio_theme_set_preset(p)
-yoradio_theme_is_dark(p)             → LVGL dark flag; Custom uses theme_dark metadata
-yoradio_theme_init(disp)             → once after disp register; loads theme.dat + theme_custom.txt
-yoradio_theme_reinit(disp)           → DspTask only; after preset/custom file change
-yoradio_theme_load/save_persisted_preset()
-yoradio_theme_load_custom_palette_file()
-yoradio_theme_custom_parse_stats()   → for /bg_status
+```ini
+theme_dark=true
+device_background=#120D09
+panel_background=#1F1711
+text_primary=#F4E7D2
+accent=#D89A2B
 ```
 
-Screen pattern:
-
-```cpp
-const YoRadioPalette& pal = yoradio_palette();
-lv_obj_set_style_text_color(label, pal.station_name_text, LV_PART_MAIN);
-```
-
-Runtime reapply: override `liveReapplyTheme()` on `ILvglScreen` pages; call chain from `onThemePresetChanged` / `onCustomThemeFileUpdated`.
+Add more keys as needed. Stay under 4096 bytes.
 
 ---
 
-## 10. Who uses which tokens (repository map)
+## Full example
 
-Search: `yoradio_palette`, `yoradio_palette_service`, `pal.` in `lvgl_ui/`.
+Copy and edit either:
 
-| Area | File | Notes |
-|------|------|--------|
-| Main | `screens/scr_main.cpp` | Palette tokens + **local** shelf chrome |
-| Info | `screens/scr_info.cpp` | `liveReapplyTheme` |
-| Station | `screens/scr_station.cpp` | `liveReapplyTheme` |
-| Stubs | `screens/scr_stub.cpp` | Visual / Weather / Settings |
-| Status line | `widgets/wgt_status_line.cpp` | `reapplyTheme` |
-| Overlays | `lv_overlay.cpp` | scrim, titles |
-| Screensaver | `lv_screensaver.cpp` | saver tokens |
-| Boot | `screens/scr_boot.cpp` | **Fixed dark** — not `yoradio_palette()` |
-| Wi‑Fi Flow | `screens/scr_wifi_flow.cpp` | **`yoradio_palette_service()`** only |
+- **`src/src/lvgl_ui/theme/theme_custom.example.txt`** — Amber Hi-Fi / Tube Amp (all supported keys)
+- **`data/theme_custom.txt`** — same content, used as LittleFS seed on `uploadfs`
+
+Both files in the repository are kept **byte-identical**.
 
 ---
 
-## 11. Do not change without plan
+## Safe workflow
 
-- `yoradio_theme_init` placement (after display register only).
-- LVGL flush / buffer model (Stage 8A topic).
-- `CONFIG_VERSION` / `config_t` / NVS for theme (LittleFS only for 6.6R).
-- PlatformIO / LVGL dependency versions for theme work.
+1. Copy `theme_custom.example.txt` to a new file on your PC.
+2. Edit colors (`key=#RRGGBB`). Keep `theme_dark` appropriate for your palette.
+3. Check size ≤ **4096 bytes**.
+4. Deploy:
+   - **WebUI:** Appearance → choose file → Upload → select **Custom** preset.
+   - **Or** save as `data/theme_custom.txt` in the repo and run `uploadfs` (overwrites whole LittleFS image from `data/`).
+5. Reboot and verify Main, lists, and overlays.
+6. To revert colors only: WebUI **Remove** (falls back to firmware Amber builtin) or upload a new file.
+
+**Note:** `uploadfs` replaces the entire LittleFS partition from repo `data/`. User files on the device that are not in `data/` will be lost. Back up playlists / Wi‑Fi CSV if needed.
 
 ---
 
-*Updated for Stage **6.6R-GC** (docs). Runtime behavior reflects **GA** (Main chrome tokens + live glow), **GB/GB1** (Cloud Ivory Light + shelf/pressed tuning), **GB2** (perf-monitor text theme-aware).*
+## Presets at a glance
+
+| Preset | Colors from | Background slot |
+|--------|-------------|-----------------|
+| **Dark** | Firmware | `/bg/main_dark.bin` |
+| **Light** | Firmware (Cloud Ivory) | `/bg/main_light.bin` |
+| **Custom** | `theme_custom.txt` + Amber builtin fallback | `/bg/main_custom.bin` |
+
+Selected preset is stored in `/data/theme.dat` (name only). Default after fresh flash with no `theme.dat`: **Dark**.
