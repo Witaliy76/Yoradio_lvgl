@@ -162,6 +162,17 @@ String OpenAICompatProvider::_buildRequestJSON(const String& model, const String
     DynamicJsonDocument doc(1024);
     
     doc["model"] = model;
+
+    // DeepSeek V4: явно отключаем thinking (non-thinking, как legacy deepseek-chat)
+    // DeepSeek V4: explicitly disable thinking (non-thinking, like legacy deepseek-chat)
+    if (model.startsWith("deepseek-v4-")) {
+#if AI_LAYER_DEBUG
+        AI_DLOG("[OpenAICompatProvider] DeepSeek V4: thinking disabled");
+#endif
+        JsonObject thinking = doc.createNestedObject("thinking");
+        thinking["type"] = "disabled";
+    }
+
     JsonArray messages = doc.createNestedArray("messages");
     
     // System prompt с правилами согласно манифесту
