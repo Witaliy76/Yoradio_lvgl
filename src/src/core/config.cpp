@@ -41,7 +41,7 @@ void aiSetDefaults(AIConfig& cfg) {
   cfg.enabled = false;
   strlcpy(cfg.host, "api.deepseek.com", sizeof(cfg.host));
   cfg.port = 443;
-  strlcpy(cfg.path, "/v1", sizeof(cfg.path));
+  strlcpy(cfg.path, "/chat/completions", sizeof(cfg.path));
   cfg.timeout_ms = 6000;
   cfg.api_key[0] = '\0';
   strlcpy(cfg.model, "deepseek-v4-flash", sizeof(cfg.model));
@@ -109,7 +109,7 @@ bool aiLoadFromFS(AIConfig& out) {
   out.enabled = doc["enabled"] | false;
   strlcpy(out.host, doc["host"] | "api.deepseek.com", sizeof(out.host));
   out.port = doc["port"] | 443;
-  strlcpy(out.path, doc["path"] | "/v1", sizeof(out.path));
+  strlcpy(out.path, doc["path"] | "/chat/completions", sizeof(out.path));
   out.timeout_ms = doc["timeout_ms"] | 6000;
   strlcpy(out.api_key, doc["api_key"] | "", sizeof(out.api_key));
   strlcpy(out.model, doc["model"] | "deepseek-v4-flash", sizeof(out.model));
