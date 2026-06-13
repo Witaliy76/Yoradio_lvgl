@@ -1,0 +1,38 @@
+﻿E21C1.1 AI TLS Profile B - DTLS off + dynamic buffer
+Build date: 2026-06-01 22:46:21
+Stamp: 20260601_223905
+IDF: v5.5.2 (G:\Github\esp32-arduino-lib-builder\esp-idf)
+Arduino: framework-arduinoespressif32 3.3.6 / libs 5.5.0+sha.f56bea3d1f
+
+=== FINAL KCONFIG (verified before build) ===
+# CONFIG_MBEDTLS_SSL_PROTO_DTLS is not set
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_CA_CERT=y
+# CONFIG_MBEDTLS_SSL_VARIABLE_BUFFER_LENGTH is not set
+CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=16384
+CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=4096
+CONFIG_LWIP_MAX_ACTIVE_TCP=64
+CONFIG_LWIP_TCP_WND_DEFAULT=32768
+CONFIG_LWIP_TCPIP_CORE_LOCKING_INPUT=y
+build/config: CONFIG_MBEDTLS_DYNAMIC_BUFFER=1 in sdkconfig.h
+
+=== STAGED LIBRARIES ===
+libmbedx509.a | 675410 | 06/01/2026 22:42:46 | SHA256=9C7A300CFFA30C6FAC218DA734C525D0585ED6CAA4C50CEDE6ADAF922C4D1375
+  source: G:\Github\esp32-arduino-lib-builder-clean\build\esp-idf\mbedtls\mbedtls\library\libmbedx509.a
+libesp_http_client.a | 326770 | 06/01/2026 22:42:19 | SHA256=2291DF3B20BECEE403F7FC773E101AB25A62A16F9B670152221DDB887D33FF96
+  source: G:\Github\esp32-arduino-lib-builder-clean\build\esp-idf\esp_http_client\libesp_http_client.a
+libhttp_parser.a | 154464 | 06/01/2026 22:42:21 | SHA256=74DBFC8C47C849F5172C551F79ADF54CF3F3DC630B314CD7535B548FA9B025C1
+  source: G:\Github\esp32-arduino-lib-builder-clean\build\esp-idf\http_parser\libhttp_parser.a
+libesp_netif.a | 528956 | 06/01/2026 22:42:30 | SHA256=6A6DCBA43FBDE0D811D85315364BE767EFC61E57F7C5EFB0379A994A80A99749
+  source: G:\Github\esp32-arduino-lib-builder-clean\build\esp-idf\esp_netif\libesp_netif.a
+libtcp_transport.a | 340662 | 06/01/2026 22:42:20 | SHA256=CC71B7DB287608DEA854BE16A14D6A7E009A8FB0D0BE7529168950EAA3834DF4
+  source: G:\Github\esp32-arduino-lib-builder-clean\build\esp-idf\tcp_transport\libtcp_transport.a
+libmbedtls.a | 120864 | 06/01/2026 22:42:47 | SHA256=2ACDA20BF932B0016422264CF90B729705729E423B0F31779B960B1435A31DCE
+  source: G:\Github\esp32-arduino-lib-builder-clean\build\esp-idf\mbedtls\libmbedtls.a
+liblwip.a | 4111086 | 06/01/2026 22:42:31 | SHA256=95AB0F09BE3A7B588CAA26DB68CCD27CC20BB5E32F68C2B6ADAAAE4087A204AF
+  source: G:\Github\esp32-arduino-lib-builder-clean\build\esp-idf\lwip\liblwip.a
+libesp-tls.a | 273384 | 06/01/2026 22:42:21 | SHA256=E63FD4ABC10ED93B73DF5E97229BA87BCD025BF91FF0A8E13C2F7E7D49065E68
+  source: G:\Github\esp32-arduino-lib-builder-clean\build\esp-idf\esp-tls\libesp-tls.a
+libmbedcrypto.a | 4942338 | 06/01/2026 22:42:46 | SHA256=3180F95E27B503B0A05A7981C0232B49D10C490C408332F42BAF8C107FEF5532
+  source: G:\Github\esp32-arduino-lib-builder-clean\build\esp-idf\mbedtls\mbedtls\library\libmbedcrypto.a
