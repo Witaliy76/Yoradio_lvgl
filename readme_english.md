@@ -101,6 +101,13 @@ Special thanks to:
 
 ### License
 
-MIT — see `LICENSE`.
+This project is derived from [YoRadio](https://github.com/e2002/yoradio) (e2002) and is licensed under the **GNU General Public License v3 or later** — see [`LICENSE`](LICENSE).
+
+Modifications (RGB Panel support, LVGL UI, AI layer, etc.): Copyright **Witaliy76** (2025–2026).  
+Upstream YoRadio: **e2002** and YoRadio contributors.
+
+Third-party components (LVGL, AsyncWebServer, libfaad, Tabler Icons, etc.): see [`NOTICE`](NOTICE).
+
+If you distribute compiled firmware (.bin), GPL v3 requires making the corresponding source available (this repository + build instructions in `platformio.ini`).
 
 

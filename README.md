@@ -104,7 +104,14 @@ https://github.com/user-attachments/assets/ea316f44-2394-4d24-8178-0bb7b66141dc
 
 ### Лицензия
 
-MIT — см. `LICENSE`.
+Проект основан на [YoRadio](https://github.com/e2002/yoradio) (e2002) и распространяется на условиях **GNU General Public License v3 or later** — полный текст в [`LICENSE`](LICENSE).
+
+Copyright модификаций (RGB Panel, LVGL UI, AI layer и др.): **Witaliy76** (2025–2026).  
+Upstream YoRadio: **e2002** и участники оригинального проекта.
+
+Сторонние компоненты (LVGL, AsyncWebServer, libfaad, Tabler Icons и др.) — см. [`NOTICE`](NOTICE).
+
+При распространении скомпилированной прошивки (.bin) по GPL v3 необходимо обеспечить доступ к соответствующим исходникам (этот репозиторий + инструкции сборки в `platformio.ini`).
 
 ---
 

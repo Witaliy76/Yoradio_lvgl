@@ -1,0 +1,54 @@
+YoRadio LVGL — RGB Panel fork / форк YoRadio с LVGL UI
+================================================================
+
+Program copyright / авторство проекта (modifications)
+-----------------------------------------------------
+Copyright (C) 2025-2026 Witaliy76
+
+Derived from YoRadio / производен от YoRadio
+--------------------------------------------
+Copyright (C) e2002 and YoRadio contributors
+https://github.com/e2002/yoradio
+
+License / лицензия
+------------------
+This program as a whole is free software: you can redistribute it and/or
+modify it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or (at your
+option) any later version.
+
+See the file `LICENSE` for the full GPL v3 text.
+
+Этот проект в целом распространяется на условиях GNU GPL v3 (см. `LICENSE`).
+Ранее указанная MIT-лицензия на весь репозиторий не отменяет GPL-обязательства
+от унаследованного кода YoRadio и совместимых компонентов.
+
+Third-party components / сторонние компоненты
+---------------------------------------------
+The firmware bundles code under several licenses. Each component retains its
+original license; see source headers and vendor directories for full texts.
+
+| Component | Location (typical) | License |
+|-----------|-------------------|---------|
+| YoRadio core | `src/src/core/`, legacy `src/src/displays/` | GPL v3 (upstream) |
+| LVGL UI layer | `src/src/lvgl_ui/` | GPL v3 (this fork) + LVGL library MIT |
+| LVGL library | PlatformIO / `.pio` | MIT |
+| ESP32-audioI2S | `src/src/audioI2S/` | See upstream (schreibfaul1 / Wolle) |
+| libfaad (AAC) | `src/src/audioI2S/aac_decoder/libfaad/` | GPL v2 |
+| Opus / CELT / SILK decoders | `src/src/audioI2S/opus_decoder/` | BSD-style (see file headers) |
+| AsyncWebServer | `src/src/AsyncWebServer/` | LGPL 2.1+ |
+| IRremoteESP8266 | `src/src/IRremoteESP8266/` | GPL v3 |
+| Arduino_GFX | PlatformIO dependency | See moononournation repository |
+| Adafruit BusIO / CST8XX | `src/src/Adafruit_*` | MIT |
+| Tabler Icons (font source) | `@tabler/icons-webfont` | MIT |
+
+Distribution of binary firmware / распространение прошивки
+----------------------------------------------------------
+If you distribute compiled firmware (.bin), GPL v3 requires that recipients
+can obtain the corresponding source code (e.g. via this repository and build
+instructions in `README.md` / `platformio.ini`).
+
+Distribution note for FAAD2 / libfaad
+-----------------------------------
+Code from FAAD2 is copyright (c) Nero AG, www.nero.com — see GPL v2 headers in
+`src/src/audioI2S/aac_decoder/libfaad/`.

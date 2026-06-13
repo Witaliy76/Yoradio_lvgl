@@ -19,6 +19,7 @@ SPECTRUM*.md
 !/.gitignore
 !/.gitattributes
 !/LICENSE
+!/NOTICE
 !/platformio.ini
 !/partitions.csv
 !/minimal_spiffs.csv
