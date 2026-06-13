@@ -971,16 +971,24 @@ void LvglMainScreen::create() {
         lv_obj_set_flex_grow(_spacer_bottom, k_spacer_grow_with_art_bottom);
     }
 
-    // Reserved height slot for Stage 6.1E / 7 visual widget — no drawing in 6.1B.
-    // Резерв под visual zone (6.1E / 7) — пока 1 px, без контента.
+    // Stage 8 E22A: this formerly 1px reserved slot now hosts the Sound Presence Rail.
+    // Fixed height; transparent/non-interactive; rail lines live inside (see wgt_presence_rail).
+    // Этап 8 E22A: бывший резерв 1px теперь хост Sound Presence Rail (фикс. высота, прозрачный, не интерактивный).
+    constexpr lv_coord_t k_presence_rail_h = 36;
     lv_obj_t* zone_visual = lv_obj_create(_screen);
     if (zone_visual) {
         lv_obj_set_width(zone_visual, LV_PCT(100));
-        lv_obj_set_height(zone_visual, 1);
+        lv_obj_set_height(zone_visual, k_presence_rail_h);
         lv_obj_set_flex_grow(zone_visual, 0);
         lv_obj_set_style_bg_opa(zone_visual, LV_OPA_TRANSP, LV_PART_MAIN);
         lv_obj_set_style_border_width(zone_visual, 0, LV_PART_MAIN);
+        // Zero the theme "card" pad so the rail uses the full zone height/width / убрать pad темы.
+        lv_obj_set_style_pad_all(zone_visual, 0, LV_PART_MAIN);
         lv_obj_clear_flag(zone_visual, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_clear_flag(zone_visual, LV_OBJ_FLAG_CLICKABLE);
+        // Rail created here: after background/center, before bottom/control zone (correct Z + Y).
+        // Rail создаётся здесь: после фона/центра, до нижней зоны/полки (корректный Z и Y).
+        wgt_presence_rail::create(zone_visual, _presence_rail);
     }
 
     // Invisible flex row: height set after layout so heapbar bottom matches screen bottom inset (divider symmetry).
@@ -1684,9 +1692,16 @@ void LvglMainScreen::reloadStationArtFromLittlefs() {
 }
 
 void LvglMainScreen::enter() {
+    // Stage 8 E22A: resume the presence-rail animation while Main is the live carousel page.
+    // Timer callback still early-outs on screensaver/blank (mode != PLAYER/VOL).
+    // Этап 8 E22A: возобновляем анимацию rail, пока Main — активная страница карусели.
+    wgt_presence_rail::start(_presence_rail);
 }
 
 void LvglMainScreen::exit() {
+    // Stage 8 E22A: pause the rail when leaving Main (carousel swipe to another slot).
+    // Этап 8 E22A: пауза rail при уходе с Main (свайп карусели на другой слот).
+    wgt_presence_rail::stop(_presence_rail);
 }
 
 void LvglMainScreen::update() {
@@ -1913,6 +1928,10 @@ void LvglMainScreen::liveReapplyTheme() {
     // Status line widget colors / Цвета виджета status line
     wgt_status_line::reapplyTheme(_status_line);
 
+    // Stage 8 E22A: presence rail recolor from active palette (divider / accent_soft / accent).
+    // Этап 8 E22A: перекраска presence rail из активной палитры.
+    wgt_presence_rail::reapplyTheme(_presence_rail);
+
     // Background image slot: reload for new preset (PSRAM free + reload from LittleFS slot).
     // Scrim: preset-aware visibility (Dark-only; handled by main_sync_dark_bg_scrim).
     // Фоновый слот: перезагрузить для нового пресета. Scrim: только Dark.
@@ -1924,6 +1943,10 @@ void LvglMainScreen::liveReapplyTheme() {
 }
 
 void LvglMainScreen::destroy() {
+    // Stage 8 E22A: delete the presence-rail timer (NOT owned by the LVGL tree) + its subtree first.
+    // Этап 8 E22A: сначала удаляем таймер rail (он не в дереве LVGL) и его поддерево.
+    wgt_presence_rail::destroy(_presence_rail);
+
     // Single lv_obj_del(_screen) drops full tree; null handles to avoid stale pointers.
     // Удаляем экран целиком; обнуляем указатели.
     if (_screen) {

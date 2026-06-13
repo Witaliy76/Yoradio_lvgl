@@ -93,6 +93,12 @@ struct YoRadioPalette {
     lv_color_t main_chrome_glow_top;    // rim glow top peak / верхний пик блика
     lv_color_t main_chrome_glow_bottom; // rim glow bottom peak / нижний пик блика
     lv_color_t main_chrome_pressed_bg;  // control icon pressed state bg / фон pressed кнопок
+
+    // §4.8 Presence Rail (Stage 8 E22M) — decorative line effects over zone_visual.
+    // rail_accent: line color; rail_opa_scale: per-theme opacity multiplier in percent (100 = 1.0).
+    // §4.8 Presence Rail — цвет линий + общий процентный множитель прозрачности темы.
+    lv_color_t rail_accent;
+    uint8_t    rail_opa_scale;          // percent 0..200, applied to every rail opacity / процент
 };
 
 // Stage 6.6R-F1: last parse of /data/theme_custom.txt (for WebUI /bg_status).

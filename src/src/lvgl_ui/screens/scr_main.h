@@ -14,6 +14,7 @@
 
 #include "../lv_screen.h"
 #include "../widgets/wgt_status_line.h"
+#include "../widgets/wgt_presence_rail.h"
 
 namespace lvgl_ui {
 
@@ -67,6 +68,10 @@ private:
 
     // Top status strip: Wi‑Fi + weather glance + clock (experimental). / Верх: Wi‑Fi, погода, часы.
     wgt_status_line::Instance _status_line{};
+
+    // Stage 8 E22A: Sound Presence Rail — procedural decorative life-indicator hosted in zone_visual.
+    // Этап 8 E22A: Sound Presence Rail — процедурный декоративный индикатор в зоне zone_visual.
+    wgt_presence_rail::Instance _presence_rail{};
 
     // Flex spacers around cont_mid (equal by default; with left art — asymmetric grow, see create()).
     // Спейсеры вокруг cont_mid: по умолчанию равны; с left art — асимметричный grow.

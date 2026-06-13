@@ -181,6 +181,27 @@ Control shelf, rim glow, art frame, and pressed button feedback on Main.
 
 Shelf opacity, radius, and padding are **not** in this file — they are fixed in firmware layout code.
 
+### Presence Rail (Stage 8 E22M)
+
+Decorative procedural line effects on the Main control band use these tokens (not `accent` / `buffer_meter_fill` mix).
+
+| Key | What it affects |
+|-----|-----------------|
+| `rail_accent` | Primary line color for all Presence Rail profiles |
+| `rail_opa_scale` | Global opacity multiplier in **percent** (`100` = 1.0). Applied to every profile opacity. Range `0`–`200`. |
+
+**Built-in factory values (firmware, not editable via this file):**
+
+| Preset | `rail_accent` | `rail_opa_scale` |
+|--------|---------------|------------------|
+| Dark | `#5AA7E8` (icy cyan-blue) | `100` |
+| Light (Cloud Ivory) | `#7A8F9A` (soft cloud blue-gray) | `60` |
+| Custom builtin (Amber Hi-Fi) | `#B06A24` (burnt copper) | `90` |
+
+**Backward compatibility:** older `theme_custom.txt` files without these keys keep the Custom **builtin** `rail_accent` / `rail_opa_scale` already loaded from firmware. Missing keys do not fail parsing.
+
+`rail_opa_scale` is numeric metadata (like `theme_dark`), not a color — use `rail_opa_scale=90`, not `#...`.
+
 ---
 
 ## Minimal example

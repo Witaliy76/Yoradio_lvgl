@@ -80,6 +80,9 @@ static const YoRadioPalette kPaletteDark = {
     lv_color_hex(0xC6EBFF), // main_chrome_glow_top
     lv_color_hex(0xA2CCE0), // main_chrome_glow_bottom
     lv_color_hex(0xFFFFFF), // main_chrome_pressed_bg
+    // §4.8 Presence Rail (E22M) — icy cyan-blue in family with accent/glow, not warm copper.
+    lv_color_hex(0x5AA7E8), // rail_accent — cold cosmic rail / холодный «космический» цвет линий
+    100,                    // rail_opa_scale — dark bg tolerates full opacity / тёмный фон терпит 100%
 };
 
 // Light preset — same field order as kPaletteDark / YoRadioPalette.
@@ -137,6 +140,10 @@ static const YoRadioPalette kPaletteLight = {
     lv_color_hex(0xFEF6E6), // main_chrome_glow_top
     lv_color_hex(0xF4E3CC), // main_chrome_glow_bottom
     lv_color_hex(0xD8C3A2), // main_chrome_pressed_bg — 6.6R-GB1: darker warm beige; #EFE1CE too close to shelf to read
+    // §4.8 Presence Rail (E22M) — ink/slate-blue, not black: line reads as colored ink on ivory.
+    // E22M1: softer cloud blue-gray — E22M #4C6476 read too dark / almost black on ivory.
+    lv_color_hex(0x7A8F9A), // rail_accent — мягкий cloud blue-gray, не чёрный/грязный
+    60,                     // rail_opa_scale — ниже 70, меньше «царапины» на светлом фоне
 };
 
 // Built-in Custom fallback — Amber Hi-Fi / Tube Amp (matches theme_custom.example.txt + data seed).
@@ -194,6 +201,9 @@ static const YoRadioPalette kPaletteCustomBuiltin = {
     lv_color_hex(0xF0C06A), // main_chrome_glow_top
     lv_color_hex(0xB86E1E), // main_chrome_glow_bottom
     lv_color_hex(0x3A2A1F), // main_chrome_pressed_bg
+    // §4.8 Presence Rail (E22M) — burnt copper, matches the liked pre-E22M mix result.
+    lv_color_hex(0xB06A24), // rail_accent — жжёная медь (бывший mix buffer_meter×chrome_border)
+    90,                     // rail_opa_scale — slightly restrained on amber bg / чуть сдержаннее
 };
 
 static YoRadioPalette s_customPalette = kPaletteCustomBuiltin;
@@ -267,6 +277,8 @@ static const PaletteKeyMap kPaletteKeyTable[] = {
     YORA_PAL_KEY(main_chrome_glow_top),
     YORA_PAL_KEY(main_chrome_glow_bottom),
     YORA_PAL_KEY(main_chrome_pressed_bg),
+    // §4.8 Presence Rail (E22M) — rail_opa_scale is numeric, parsed separately (not in this table).
+    YORA_PAL_KEY(rail_accent),
 };
 
 #undef YORA_PAL_KEY
@@ -392,6 +404,20 @@ static void parse_custom_theme_line(char* line, ThemeCustomParseStats& st) {
             return;
         }
         s_customThemeDark = dark;
+        return;
+    }
+    // §4.8 (E22M): rail_opa_scale — optional numeric percent key (0..200), not a color.
+    // Missing key keeps the builtin fallback already copied into s_customPalette.
+    // Опциональный числовой ключ; при отсутствии остаётся builtin fallback.
+    if (str_ieq(key, "rail_opa_scale")) {
+        char* end = nullptr;
+        const long v = strtol(val, &end, 10);
+        if (!end || *end != '\0' || v < 0 || v > 200) {
+            ++st.invalid_lines;
+            return;
+        }
+        s_customPalette.rail_opa_scale = static_cast<uint8_t>(v);
+        ++st.applied_keys;
         return;
     }
     lv_color_t c{};
