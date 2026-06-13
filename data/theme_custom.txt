@@ -62,3 +62,9 @@ main_chrome_border=#8A5A24
 main_chrome_glow_top=#F0C06A
 main_chrome_glow_bottom=#B86E1E
 main_chrome_pressed_bg=#3A2A1F
+
+# --- Presence Rail (E22M): decorative line effects on Main (Stage 8) ---
+# rail_accent: line color for all Presence Rail profiles.
+# rail_opa_scale: global opacity multiplier in percent (100 = 1.0). Lower on light themes.
+rail_accent=#B06A24
+rail_opa_scale=90
