@@ -156,5 +156,7 @@
 // 0 = release (only important logs), 1 = debug (all logs)
 // 0 = релиз (только важные логи), 1 = отладка (все логи)
 #define AI_LAYER_DEBUG 0
+#define YORADIO_WEATHER_DIAG 0
+#define PRESENCE_RAIL_PERF_PROBE 0
 
 #endif
