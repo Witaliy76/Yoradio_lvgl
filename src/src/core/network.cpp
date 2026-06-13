@@ -186,8 +186,27 @@ static bool isWeatherGraceElapsed() {
 }
 
 #if !defined(HIDE_WEATHER)
-// E21W0-A: compact per-attempt weather diagnostics (no behavior change) / диагностика погоды
+#ifndef YORADIO_WEATHER_DIAG
+#define YORADIO_WEATHER_DIAG 0
+#endif
+
+// E21W0-C: quiet runtime + optional verbose diag / тихий runtime и опциональная диагностика
 namespace weather_diag {
+
+// One compact failure line per failed attempt / одна компактная строка на неудачную попытку
+static void logFailCompact(const char* stage, uint32_t t0, uint8_t retry,
+                           const IPAddress* ip, int httpCode) {
+  Serial.printf("[WEATHER] fail stage=%s retry=%u", stage, (unsigned)retry);
+  if (ip != nullptr && static_cast<uint32_t>(*ip) != 0U) {
+    Serial.printf(" ip=%s", ip->toString().c_str());
+  }
+  if (httpCode >= 0) {
+    Serial.printf(" http=%d", httpCode);
+  }
+  Serial.printf(" elapsed_ms=%lu\n", (unsigned long)(millis() - t0));
+}
+
+#if YORADIO_WEATHER_DIAG
 static void heapSnapshot() {
   Serial.printf("[WEATHER] heap.free=%u internal_largest=%u psram_free=%u\n",
                 (unsigned)ESP.getFreeHeap(),
@@ -224,27 +243,6 @@ static void logStart() {
   s_weather_last_attempt_ms = now;
 }
 
-static void logFail(const char* stage, uint32_t t0, uint8_t retry,
-                    WiFiClient* client = nullptr, int httpCode = -1, size_t bodyBytes = 0,
-                    const char* detail = nullptr) {
-  Serial.printf("[WEATHER] fail stage=%s retry=%u elapsed_ms=%lu",
-                stage, (unsigned)retry, (unsigned long)(millis() - t0));
-  if (client != nullptr) {
-    Serial.printf(" connected=%d", (int)client->connected());
-  }
-  if (httpCode >= 0) {
-    Serial.printf(" http_code=%d", httpCode);
-  }
-  if (bodyBytes > 0U) {
-    Serial.printf(" body_bytes~=%u", (unsigned)bodyBytes);
-  }
-  if (detail != nullptr && detail[0] != '\0') {
-    Serial.printf(" detail=%s", detail);
-  }
-  Serial.println();
-  heapSnapshot();
-}
-
 static void logBodyPrefix(const char* raw) {
   if (raw == nullptr || raw[0] == '\0') {
     return;
@@ -274,6 +272,12 @@ static void logSuccess(uint32_t t0, int httpCode, float tempC, const char* icon,
       httpCode, tempC, icon, desc, (unsigned long)(millis() - t0));
   heapSnapshot();
 }
+#else
+static inline void logStart() {}
+static inline void logParseFail(const char*, uint32_t, int, size_t, const char*) {}
+static inline void logSuccess(uint32_t, int, float, const char*, const char*) {}
+#endif
+
 } // namespace weather_diag
 #endif // !HIDE_WEATHER
 
@@ -706,23 +710,26 @@ bool getWeather(char *wstr) {
   // E21W0-B: one fresh-DNS retry on TCP connect fail after DNS ok / один retry connect
   auto resolveDns = [&](uint8_t retry) -> bool {
     if (!networkResolveHostForConnect(host, serverIP)) {
-      weather_diag::logFail("dns", t0, retry);
+      weather_diag::logFailCompact("dns", t0, retry, nullptr, -1);
       Serial.println("##WEATHER###: DNS resolve failed");
       return false;
     }
+#if YORADIO_WEATHER_DIAG
     Serial.printf("[WEATHER] dns ok retry=%u ip=%s elapsed_ms=%lu\n",
                   (unsigned)retry, serverIP.toString().c_str(),
                   (unsigned long)(millis() - t0));
+#endif
     return true;
   };
 
   auto tryConnect = [&](uint8_t retry) -> bool {
     if (!client.connect(serverIP, 80)) {
-      weather_diag::logFail("connect", t0, retry, &client);
       return false;
     }
+#if YORADIO_WEATHER_DIAG
     Serial.printf("[WEATHER] connect ok retry=%u elapsed_ms=%lu\n",
                   (unsigned)retry, (unsigned long)(millis() - t0));
+#endif
     return true;
   };
 
@@ -737,6 +744,7 @@ bool getWeather(char *wstr) {
     }
     weatherConnectRetry = 1;
     if (!tryConnect(1)) {
+      weather_diag::logFailCompact("connect", t0, 1, &serverIP, -1);
       Serial.println("##WEATHER###: connection  failed");
       return false;
     }
@@ -748,7 +756,7 @@ bool getWeather(char *wstr) {
   unsigned long timeout = millis();
   while (client.available() == 0) {
     if (millis() - timeout > 2000UL) {
-      weather_diag::logFail("read_wait", t0, weatherConnectRetry, &client);
+      weather_diag::logFailCompact("read_wait", t0, weatherConnectRetry, &serverIP, httpCode);
       Serial.println("##WEATHER###: client available timeout !");
       client.stop();
       return false;
@@ -767,8 +775,10 @@ bool getWeather(char *wstr) {
           const int sp2 = line.indexOf(' ', sp1 + 1);
           httpCode = line.substring(sp1 + 1, sp2 > 0 ? sp2 : line.length()).toInt();
         }
+#if YORADIO_WEATHER_DIAG
         Serial.printf("[WEATHER] http_status=%d elapsed_ms=%lu\n",
                       httpCode, (unsigned long)(millis() - t0));
+#endif
       }
       if (strstr(line.c_str(), "\"temp\"") != NULL) {
         client.stop();
@@ -777,20 +787,24 @@ bool getWeather(char *wstr) {
       if ((millis() - timeout) > 500)
       {
         client.stop();
-        weather_diag::logFail("read", t0, weatherConnectRetry, &client, httpCode, bodyBytes);
+        weather_diag::logFailCompact("read", t0, weatherConnectRetry, &serverIP, httpCode);
         Serial.println("##WEATHER###: client read timeout !");
         return false;
       }
     }
   }
   if (strstr(line.c_str(), "\"temp\"") == NULL) {
-    weather_diag::logFail("http_body", t0, weatherConnectRetry, &client, httpCode, bodyBytes);
+    weather_diag::logFailCompact("http_body", t0, weatherConnectRetry, &serverIP, httpCode);
+#if YORADIO_WEATHER_DIAG
     weather_diag::logBodyPrefix(line.c_str());
+#endif
     Serial.println("##WEATHER###: weather not found !");
     return false;
   }
+#if YORADIO_WEATHER_DIAG
   Serial.printf("[WEATHER] body_match line_bytes=%u elapsed_ms=%lu\n",
                 (unsigned)line.length(), (unsigned long)(millis() - t0));
+#endif
 
 //		  Serial.printf("## OPENWEATHERMAP ###: *\n%s,\n*\n", line.c_str());
 
@@ -806,7 +820,13 @@ bool getWeather(char *wstr) {
   char desc[120], temp[20], hum[20], press[20], icon[5], gust[20], porv[10], stanc[50];
 
   auto failParse = [&](const char* field, const char* legacyMsg) -> bool {
+#if YORADIO_WEATHER_DIAG
     weather_diag::logParseFail(field, t0, httpCode, bodyBytes, line.c_str());
+#else
+    (void)field;
+    (void)bodyBytes;
+    weather_diag::logFailCompact("parse", t0, weatherConnectRetry, &serverIP, httpCode);
+#endif
     Serial.println(legacyMsg);
     return false;
   };
@@ -937,7 +957,9 @@ bool getWeather(char *wstr) {
   strlcpy(stanc, tmps, tmpe - tmps + 1);		// ������� � stanc ������������
 //    Serial.printf("#CONTROL#: station: %s\n", stanc);
   
+#if YORADIO_WEATHER_DIAG
   weather_diag::logSuccess(t0, httpCode, tempf, icon, desc);
+#endif
   Serial.printf("##WEATHER###: descr.: %s, temp.: %+.1f*C (feels like %+.0f*C) \007 press.: %d mm \007 hum.: %s%% \007 wind %s %.0f%s m/s (st. %s)\n", desc, tempf, tempfl, pressi, hum, wind[wind_deg], wind_speed, gust, stanc);
 //  Serial.printf("##WEATHER###: description: %s, temp:%+.1f C, pressure:%dmmHg, humidity:%s%%\n", desc, tempf, pressi, hum);
   strlcpy(network.weatherOwmIcon, icon, sizeof(network.weatherOwmIcon));
