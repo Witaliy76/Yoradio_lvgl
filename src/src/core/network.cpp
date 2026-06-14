@@ -306,7 +306,10 @@ void ticks() {
     }
     const bool weatherSyncReady = network.forceWeather && weatherEnabled && isWeatherGraceElapsed();
     if(network.forceTimeSync || weatherSyncReady){
-      xTaskCreatePinnedToCore(doSync, "doSync", 1024 * 4, NULL, 0, &syncTaskHandle, 0);
+      // HF1: stack bumped 4→7 KB — two WiFiClient calls back-to-back (getWeather + weatherFetchForecast)
+      // exceed the 4 KB budget under audio load (interrupt frames push it over the canary).
+      // HF1: стек увеличен 4→7 КБ — два WiFiClient подряд не помещались в 4 КБ под нагрузкой.
+      xTaskCreatePinnedToCore(doSync, "doSync", 1024 * 7, NULL, 0, &syncTaskHandle, 0);
     }
     if(timeSyncTicks >= timeSyncInterval){
       timeSyncTicks=0;

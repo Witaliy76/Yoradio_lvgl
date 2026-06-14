@@ -224,7 +224,9 @@ bool weatherFetchForecast(const char* units, const char* lang) {
     // HTTP/1.0 → server returns a non-chunked body, safe to stream straight into the parser.
     // HTTP/1.0 → тело без chunked, поток можно отдавать прямо парсеру.
     {
-        char req[320];
+        // HF1: static → moves 320 B off the doSync stack into .bss; safe: single-threaded by contract.
+        // HF1: static → 320 Б уходят со стека doSync в .bss; безопасно: однопоточно по контракту.
+        static char req[320];
         snprintf(req, sizeof(req),
                  "GET /data/2.5/forecast?lat=%s&lon=%s&units=%s&lang=%s&cnt=%u&appid=%s HTTP/1.0\r\n"
                  "Host: %s\r\nConnection: close\r\n\r\n",
@@ -246,7 +248,7 @@ bool weatherFetchForecast(const char* units, const char* lang) {
     // Status line: "HTTP/1.0 200 OK".
     int httpCode = -1;
     {
-        char line[96];
+        static char line[96]; // HF1: 96 B off stack → .bss / 96 Б со стека в .bss
         read_line(client, line, sizeof(line), kReadWaitTimeoutMs);
         const char* sp = strchr(line, ' ');
         if (sp) httpCode = atoi(sp + 1);
@@ -259,7 +261,7 @@ bool weatherFetchForecast(const char* units, const char* lang) {
 
     // Skip headers until the blank separator line.
     {
-        char line[160];
+        static char line[160]; // HF1: 160 B off stack → .bss / 160 Б со стека в .bss
         bool ended = false;
         for (uint8_t i = 0; i < 64; ++i) { // bounded header scan
             const size_t n = read_line(client, line, sizeof(line), kReadWaitTimeoutMs);
