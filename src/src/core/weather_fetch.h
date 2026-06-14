@@ -28,4 +28,11 @@
  */
 bool weatherFetchForecast(const char* units, const char* lang);
 
+/*
+ * A2b: request an async weather refresh from UI or other non-network tasks.
+ * Sets the core scheduler flag only — HTTP runs later in doSync (Core 0), never here.
+ * A2b: асинхронный запрос обновления из UI; только флаг — HTTP позже в doSync, не здесь.
+ */
+void weatherRequestManualRefresh();
+
 #endif // weather_fetch_h

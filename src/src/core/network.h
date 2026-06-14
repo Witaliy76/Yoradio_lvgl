@@ -35,7 +35,12 @@ class MyNetwork {
     MyNetwork() {};
     void begin();
     void requestTimeSync(bool withTelnetOutput=false, uint8_t clientId=0);
+    // Legacy hook — intentionally no-op (was empty stub; do not re-arm forceWeather here).
+    // Устаревший хук — намеренно no-op (не ставить forceWeather повторно).
     void requestWeatherSync();
+    // A2b: explicit UI/manual refresh entry — sets forceWeather for one doSync cycle.
+    // A2b: явный вход ручного refresh из UI — один цикл doSync.
+    void forceWeatherRefreshFromUi();
     void setWifiParams();
     bool wifiBegin(bool silent=false);
     // Wi-Fi S6V7A: idempotent softAP for LVGL Recovery Hotspot / безопасный повторный подъём AP для Hotspot UI.

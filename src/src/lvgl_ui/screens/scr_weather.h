@@ -7,7 +7,7 @@
 namespace lvgl_ui {
 
 // Weather W2 — LVGL-native 480×480 Weather Page (read-only consumer of core WeatherState).
-// Reads weatherGetStateSnapshot() only; never triggers network fetch (that stays in W1 / doSync).
+// Reads weatherGetStateSnapshot() only; network fetch stays in W1 / doSync (A2b: footer requests refresh via flag).
 // Renders: hero (icon + temp + condition + feels), metrics (wind/humidity/pressure/rain),
 // hourly strip (4), daily strip (3), footer status. Handles valid / waiting / unavailable states.
 //
@@ -38,7 +38,9 @@ private:
     // W2F: общий сброс указателей (без lv_obj_del) для destroy() и releaseAfterAutoDelete().
     void _nullHandles();
 
-    static constexpr int kHourlyCells = 4;  // visible hourly cells / видимых почасовых ячеек
+    // A2: right column shows +3h/+6h/+9h (3 cells, slot 0 = "Now" is skipped).
+    // A2: правый столбец +3h/+6h/+9h (3 ячейки, слот 0 «Now» пропускается).
+    static constexpr int kHourlyCells = 3;  // visible hourly cells / видимых почасовых ячеек
     static constexpr int kDailyCells  = 3;  // visible daily cells / видимых посуточных ячеек
 
     // One hourly cell: time / icon / temp / pop labels. / Одна почасовая ячейка.
@@ -81,6 +83,10 @@ private:
     lv_obj_t* _footer_box  = nullptr;
     lv_obj_t* _lbl_footer  = nullptr;
 
+    // A2: top-row split container (left hero card + right hourly column).
+    // A2: верхний ROW-контейнер: левая карточка hero + правый столбец прогноза.
+    lv_obj_t* _cont_top  = nullptr;
+
     // Hero block / Блок hero
     lv_obj_t* _cont_hero    = nullptr;
     lv_obj_t* _lbl_hero_icon = nullptr;
@@ -100,6 +106,16 @@ private:
 
     lv_obj_t* _cont_daily = nullptr;
     DailyCell _daily[kDailyCells]{};
+
+    // A2b: footer tap → async weather refresh (no HTTP in LVGL callback).
+    // A2b: тап по футеру → асинхронный refresh (без HTTP в LVGL-callback).
+    static void _onFooterRefreshClick(lv_event_t* e);
+    uint32_t _last_refresh_tap_ms = 0;
+    bool     _manual_refresh_pending = false;
+    uint32_t _refresh_watch_version = 0;
+    uint32_t _refresh_pending_since_ms = 0;
+    static constexpr uint32_t kRefreshTapThrottleMs = 12000u;
+    static constexpr uint32_t kRefreshPendingTimeoutMs = 90000u;
 };
 
 } // namespace lvgl_ui

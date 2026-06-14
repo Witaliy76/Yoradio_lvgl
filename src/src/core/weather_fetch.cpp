@@ -425,12 +425,24 @@ bool weatherFetchForecast(const char* units, const char* lang) {
     return true;
 }
 
+// A2b: UI-safe manual refresh hook — flag only; doSync runs getWeather + forecast.
+// A2b: ручной refresh из UI — только флаг; doSync выполнит getWeather + прогноз.
+void weatherRequestManualRefresh() {
+    Serial.println("[WEATHER] manual refresh requested");
+    Serial.println("[WEATHER_FC] manual refresh requested");
+    network.forceWeatherRefreshFromUi();
+}
+
 #else // HIDE_WEATHER
 
 bool weatherFetchForecast(const char* units, const char* lang) {
     (void)units;
     (void)lang;
     return false;
+}
+
+void weatherRequestManualRefresh() {
+    (void)0;
 }
 
 #endif // !HIDE_WEATHER

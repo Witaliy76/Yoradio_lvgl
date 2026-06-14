@@ -654,6 +654,13 @@ void MyNetwork::recoverySuspendReconnectForSetup() {
 }
 
 void MyNetwork::requestWeatherSync(){
+  // Intentionally empty — legacy call sites (e.g. getWeather success) must not re-arm polling.
+  // W1: forecast runs in the same doSync pass after getWeather(); UI uses forceWeatherRefreshFromUi().
+  // Намеренно пусто — success path getWeather() не должен снова ставить forceWeather (вечный poll).
+}
+
+void MyNetwork::forceWeatherRefreshFromUi() {
+  forceWeather = true;
 }
 
 
@@ -984,7 +991,9 @@ bool getWeather(char *wstr) {
       sprintf(wstr, weatherFmt, desc, tempf, pressi, hum);
     #endif
   #endif
-  network.requestWeatherSync();
+  // W1+A2b-loop-guard: do NOT call requestWeatherSync() here — forecast already runs in the same
+  // doSync pass (weatherFetchForecast). Re-arming forceWeather caused infinite 1 Hz polling.
+  // W1+A2b-loop-guard: не вызывать requestWeatherSync() — прогноз уже в том же doSync.
   return true;
 #endif // if !defined(HIDE_WEATHER)
   return false;
