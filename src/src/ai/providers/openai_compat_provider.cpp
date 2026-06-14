@@ -157,8 +157,9 @@ String OpenAICompatProvider::_buildRequestJSON(const String& model, const String
     #undef WORDS_TO_BYTES
     #endif
     
-    // Строим JSON запрос для OpenAI-compatible Chat Completions API
-    // Build JSON request for OpenAI-compatible Chat Completions API
+    // ArduinoJson v7: elastic heap pool (grows as needed). v6-style capacity args are gone;
+    // DynamicJsonDocument(N) in v7 also ignores N — use overflowed() to detect OOM.
+    // ArduinoJson v7: эластичный heap-пул; аргумент ёмкости не нужен — OOM через overflowed().
     JsonDocument doc;
     
     doc["model"] = model;
@@ -194,6 +195,11 @@ String OpenAICompatProvider::_buildRequestJSON(const String& model, const String
     // Response format - require JSON (supported by OpenAI-compatible API)
     JsonObject response_format = doc["response_format"].to<JsonObject>();
     response_format["type"] = "json_object";
+
+    if (doc.overflowed()) {
+        AI_LOG("[OpenAICompatProvider] JSON request build overflow (heap exhausted)");
+        return String();
+    }
     
     String json_request;
     serializeJson(doc, json_request);
@@ -271,6 +277,10 @@ bool OpenAICompatProvider::_makeHTTPRequest(
     
     String json_request = _buildRequestJSON(model, prompt);
     prompt = String();  // Release prompt RAM before TLS / Освободить prompt до TLS
+    if (json_request.isEmpty()) {
+        AI_LOG("[OpenAICompatProvider] JSON request empty, aborting request");
+        return false;
+    }
     
     // Нормализация пути / Normalize path
     String normalized_path = normalizeChatCompletionsPath(cfg.path);
@@ -477,8 +487,12 @@ bool OpenAICompatProvider::_parseJSONResponse(const String& json_raw, LLMRespons
     JsonDocument doc;
     DeserializationError error = deserializeJson(doc, json);
     
-    if (error) {
-        AI_LOG("[OpenAICompatProvider] JSON deserialize error: %s", error.c_str());
+    if (error || doc.overflowed()) {
+        if (error) {
+            AI_LOG("[OpenAICompatProvider] JSON deserialize error: %s", error.c_str());
+        } else {
+            AI_LOG("[OpenAICompatProvider] JSON deserialize overflow (heap exhausted)");
+        }
         AI_LOG("[OpenAICompatProvider] HTTP code: %d", httpCode);
         
         if (!content_type.isEmpty()) {
@@ -543,8 +557,12 @@ bool OpenAICompatProvider::_parseJSONResponse(const String& json_raw, LLMRespons
     JsonDocument content_doc;
     DeserializationError content_error = deserializeJson(content_doc, content);
     
-    if (content_error) {
-        AI_LOG("[OpenAICompatProvider] Content JSON deserialize error: %s", content_error.c_str());
+    if (content_error || content_doc.overflowed()) {
+        if (content_error) {
+            AI_LOG("[OpenAICompatProvider] Content JSON deserialize error: %s", content_error.c_str());
+        } else {
+            AI_LOG("[OpenAICompatProvider] Content JSON deserialize overflow (heap exhausted)");
+        }
         return false;
     }
     
