@@ -1,11 +1,11 @@
 # Main screen — LVGL object tree (`scr_main`)
 
-**English:** Parent → child hierarchy for `LvglMainScreen::create()` in `scr_main.cpp`. Use when reasoning about layout, flex, and theme padding.  
-**Русский:** Иерархия родитель → потомок для `LvglMainScreen::create()` в `scr_main.cpp`. Удобно для разметки, flex и паддингов темы.
+**English:** Parent → child hierarchy for the Main screen object tree created by `LvglMainScreen::create()` and its private static layout builders in `scr_main.cpp`. Use when reasoning about layout, flex, and theme padding.  
+**Русский:** Иерархия родитель → потомок для Main screen object tree, создаваемого `LvglMainScreen::create()` и private static layout builders в `scr_main.cpp`. Удобно для разметки, flex и паддингов темы.
 
-**Source of truth:** `[scr_main.cpp](scr_main.cpp)` — update this file when the tree changes.
+**Source of truth:** `[scr_main.cpp](scr_main.cpp)` — `LvglMainScreen::create()` plus private static layout builders (`create_status_line`, `create_mid_block`, `create_visual_rail`, `create_bottom_zone`) are the source of truth.
 
-**Maintenance / Поддержка:** After editing `create()` (new containers, reorder, rename), refresh the ASCII block and the Mermaid block below so they stay accurate.
+**Maintenance / Поддержка:** After editing `create()` or any `create_*` layout builder (new containers, reorder, rename), refresh the ASCII block and the Mermaid block below so they stay accurate.
 
 ---
 
@@ -18,7 +18,7 @@
 3. `spacer_top` (flex grow; Mode A: **1** / Mode B: **1** — paired with `spacer_bottom` **5** to lift `cont_mid` higher)
 4. `cont_mid` (outer COLUMN wrapper — 6.1E-visual)
 5. `spacer_bottom` (flex grow; Mode A: **1** / Mode B: **5**)
-6. `zone_visual` (1 px placeholder)
+6. `zone_visual` (Presence Rail host; 36 px fixed height; transparent/non-interactive)
 7. `zone_bottom_sym_spacer` (symmetry, height may be set after layout)
 8. `zone_bottom`
 
@@ -50,7 +50,10 @@ _screen
 │           ├── _lbl_track
 │           └── _lbl_artist
 ├── spacer_bottom
-├── zone_visual
+├── zone_visual  (Presence Rail host; h=36px; transparent, non-interactive)
+│   └── wgt_presence_rail.root  (full-size transparent lv_obj; see ../widgets/wgt_presence_rail.cpp)
+│       ├── wave_line  (lv_line; OscilloscopeLine mode — active when vumeter off)
+│       └── seg_line[0..29]  (lv_line ×30; FenceTremor mode — active when vumeter on)
 ├── zone_bottom_sym_spacer
 ├── zone_bottom
 │   ├── control_band (shared shelf underlay; flex row; chrome colors = pal.main_chrome_* tokens — 6.6R-GA)
@@ -106,6 +109,12 @@ flowchart TB
     WT[lbl_weather_temp]
   end
 
+  subgraph zv["zone_visual (Presence Rail host)"]
+    PRR["wgt_presence_rail.root"]
+    WL["wave_line (lv_line; OscilloscopeLine)"]
+    SL["seg_line[0..29] (lv_line ×30; FenceTremor)"]
+  end
+
   subgraph cm["cont_mid"]
     CMR[cont_mid_row]
   end
@@ -146,6 +155,9 @@ flowchart TB
     BAR[_bar_volume]
   end
 
+  ZV --> PRR
+  PRR --> WL
+  PRR --> SL
   SL --> WIFI
   SL --> SP
   SL --> CWX
@@ -184,4 +196,8 @@ flowchart TB
 - **Main chrome tokens (Stage 6.6R-GA):** shelf body/border, art frame, rim glow stops, and control-button pressed bg are now palette tokens (`pal.main_chrome_bg`, `main_chrome_border`, `main_chrome_glow_top`, `main_chrome_glow_bottom`, `main_chrome_pressed_bg`) instead of hardcoded colors. `_edge_glow_top` / `_edge_glow_bot` are stored as members so `liveReapplyTheme()` refreshes gradient stops on runtime theme switch (no stale glow). Geometry/opacity/radius stay local in `create()`.  
 **Хром главного экрана (6.6R-GA):** тело/рамка полки, рамка арта, стопы glow и pressed-фон кнопок — теперь токены палитры; glow-объекты сохранены как члены и обновляются при смене темы (без «застрявшего» блика). Геометрия/прозрачность/радиус остаются локальными.
 - Widget `wgt_status_line` is defined in `[../widgets/wgt_status_line.cpp](../widgets/wgt_status_line.cpp)`.
+- Widget `wgt_presence_rail` is defined in `[../widgets/wgt_presence_rail.cpp](../widgets/wgt_presence_rail.cpp)`. Its internal `wave_line` / `seg_line[]` objects are implementation details; only the `root` container is relevant to the layout contract.  
+**Виджет `wgt_presence_rail`** определён в `../widgets/wgt_presence_rail.cpp`. Внутренние `wave_line` / `seg_line[]` — детали реализации; в контракте разметки значим только `root`.
+- **MAINREF-A:** `LvglMainScreen::create()` is intentionally a short skeleton; object creation is split into private static layout builders (`create_status_line`, `create_mid_block`, `create_visual_rail`, `create_bottom_zone`) in `scr_main.cpp`. This document still describes the resulting LVGL object tree, not the physical location of every `lv_obj_create()` call.  
+**MAINREF-A:** `LvglMainScreen::create()` теперь короткий skeleton; создание объектов разнесено по private static layout builders в `scr_main.cpp`. Этот документ описывает итоговое LVGL object tree, а не физическое место каждого `lv_obj_create()`.
 

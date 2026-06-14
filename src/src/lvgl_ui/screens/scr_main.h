@@ -18,6 +18,11 @@
 
 namespace lvgl_ui {
 
+// Forward declaration sufficient for const-ref parameter in private static builder signatures.
+// Full definition is in lv_theme_yoradio.h, included by scr_main.cpp.
+// Предварительное объявление — достаточно для const-ref в сигнатурах builder-методов.
+struct YoRadioPalette;
+
 // Main player screen — station / track / artist; meta row in lower stack (6.1E-c+); volume (6.1D+).
 // Главный экран: текст; meta в нижнем stack; громкость.
 class LvglMainScreen final : public ILvglScreen {
@@ -153,6 +158,16 @@ private:
     // Перезагрузка арта для текущей станции из LittleFS (только DspTask).
     // Источник ключа: stationByNum() — не config.station.name.
     void _reloadArtIfNeeded();
+
+    // Layout builders — private static to keep create() a short skeleton while retaining
+    // full access to private members via self. Called only from create().
+    // Строители секций — private static для краткости create() + доступа к private-членам через self.
+    // create_status_line returns the status divider (needed by create_bottom_zone for symmetry calc).
+    // create_status_line возвращает divider статуса (нужен create_bottom_zone для симметрии).
+    static lv_obj_t* create_status_line(LvglMainScreen& self, const YoRadioPalette& pal);
+    static void      create_mid_block(LvglMainScreen& self, const YoRadioPalette& pal);
+    static void      create_visual_rail(LvglMainScreen& self, const YoRadioPalette& pal);
+    static void      create_bottom_zone(LvglMainScreen& self, const YoRadioPalette& pal, lv_obj_t* status_divider);
 };
 
 } // namespace lvgl_ui
