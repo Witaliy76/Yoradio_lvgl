@@ -362,8 +362,12 @@ static void vol_popup_update_position(lv_obj_t* popup, lv_obj_t* bar, int32_t vo
     const lv_coord_t pad_left = lv_obj_get_style_pad_left(bar, LV_PART_MAIN);
     const lv_coord_t pad_right = lv_obj_get_style_pad_right(bar, LV_PART_MAIN);
     const lv_coord_t content_w = bar_w - pad_left - pad_right;
-    // X position of fill end.
-    lv_coord_t fill_x = bar_abs_x + pad_left + (content_w * vol) / 254;
+    // X position of fill end (guard matches vol_from_touch_x — avoid div by zero/negative).
+    // Позиция конца fill; та же защита, что в vol_from_touch_x — без деления на 0/отриц.
+    lv_coord_t fill_x = bar_abs_x + pad_left;
+    if (content_w > 0) {
+        fill_x += (content_w * vol) / 254;
+    }
     // Popup width.
     const lv_coord_t popup_w = lv_obj_get_width(popup);
     // Center popup over fill_x, but clamp to bar bounds.
