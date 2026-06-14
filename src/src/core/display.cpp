@@ -451,6 +451,16 @@ void Display::loop() {
         lastMainRefresh = millis();
       }
     }
+    // Weather W2: refresh Weather page while its carousel slot is active (reached via swipe; no
+    // dedicated display mode). Same ~1 Hz throttle as Info/Main; reads WeatherState only.
+    // Weather W2: обновление страницы погоды, пока активен её слот карусели (доступ свайпом).
+    if (lvgl_ui::isLvglCarouselOnWeatherSlot()) {
+      static uint32_t lastWeatherRefresh = 0;
+      if (millis() - lastWeatherRefresh >= 1000) {
+        lvgl_ui::refreshWeatherScreen();
+        lastWeatherRefresh = millis();
+      }
+    }
   }
   lvgl_ui::taskHandler();
   dsp.loop();

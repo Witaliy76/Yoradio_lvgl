@@ -426,6 +426,81 @@ static bool bg_load_into_psram(const char* fs_path, uint8_t*& out_buf, lv_img_ds
     return true;
 }
 
+// ── Main background PSRAM cache (W2G-A) ──────────────────────────────────────────────────────────
+//
+// Survives Main LVGL object lifecycle (W2F auto-delete). The 480×480 RGB565 background buffer
+// (~460 KB) is loaded from LittleFS once and stays in PSRAM until the theme slot changes, the
+// user re-uploads a background via WebUI, or memory pressure requires clearing.
+//
+// Ownership contract:
+//   - s_bg_cache owns the ps_malloc'd buffer; Main page only borrows the pointer.
+//   - Main destroy/releaseAfterAutoDelete MUST NOT free _bg_psram_buf (it belongs to the cache).
+//   - The cache is freed by main_bg_cache_invalidate() or on a path change (theme slot switch).
+//
+// Контракт владения:
+//   - s_bg_cache владеет буфером ps_malloc; страница Main только заимствует указатель.
+//   - destroy/releaseAfterAutoDelete НЕ должны освобождать _bg_psram_buf (владелец — кэш).
+//   - Кэш освобождается через main_bg_cache_invalidate() или при смене слота темы.
+
+struct MainBgCache {
+    char         path[64] = {};      // LittleFS path of cached background / путь к закэшированному фону
+    uint8_t*     data     = nullptr; // ps_malloc'd pixel buffer (owned) / пиксельный буфер ps_malloc (владелец)
+    lv_img_dsc_t dsc      = {};      // descriptor ready for lv_img_set_src() / дескриптор для LVGL
+    bool valid() const { return data != nullptr && path[0] != '\0'; }
+};
+static MainBgCache s_bg_cache;  // zero-initialised at load time / нулевая инициализация при загрузке
+
+// Free the cached buffer and reset all fields.
+// Освободить буфер кэша и сбросить все поля.
+static void main_bg_cache_invalidate() {
+    if (s_bg_cache.data) {
+        Serial.printf("[BG_CACHE] clear %s\n", s_bg_cache.path);
+        free(s_bg_cache.data);
+        s_bg_cache.data = nullptr;
+    }
+    s_bg_cache.path[0] = '\0';
+    s_bg_cache.dsc = {};
+}
+
+// Look up or load fs_path. Returns true if data is available (hit or freshly loaded).
+// out_dsc receives a descriptor whose .data points INTO the cache buffer — do NOT free it.
+// Поиск или загрузка. Возвращает true если данные доступны (попадание или свежая загрузка).
+// out_dsc.data указывает в кэш-буфер — не освобождать.
+static bool main_bg_cache_get(const char* fs_path, lv_img_dsc_t& out_dsc) {
+    if (!fs_path || fs_path[0] == '\0') return false;
+
+    // Cache hit — same path, buffer present.
+    // Попадание — тот же путь, буфер есть.
+    if (s_bg_cache.valid() &&
+        strncmp(s_bg_cache.path, fs_path, sizeof(s_bg_cache.path) - 1) == 0) {
+        Serial.printf("[BG_CACHE] hit %s (%u bytes)\n", fs_path,
+                      (unsigned)s_bg_cache.dsc.data_size);
+        out_dsc = s_bg_cache.dsc;
+        return true;
+    }
+
+    // Cache miss or path change — release old buffer and load fresh.
+    // Промах или смена пути — освобождаем старый буфер, загружаем новый.
+    if (s_bg_cache.data) {
+        Serial.printf("[BG_CACHE] reload old=%s new=%s\n", s_bg_cache.path, fs_path);
+    } else {
+        Serial.printf("[BG_CACHE] miss %s\n", fs_path);
+    }
+    main_bg_cache_invalidate();
+
+    uint8_t* buf = nullptr;
+    lv_img_dsc_t dsc = {};
+    if (!bg_load_into_psram(fs_path, buf, dsc)) {
+        return false;
+    }
+
+    s_bg_cache.data = buf;
+    s_bg_cache.dsc  = dsc;
+    strlcpy(s_bg_cache.path, fs_path, sizeof(s_bg_cache.path));
+    out_dsc = dsc;
+    return true;
+}
+
 // F-c: black scrim — only when file bg is shown AND Dark preset (readability). / Scrim только Dark + есть фон.
 // LVGL v8 named opa (lv_opa.h): LV_OPA_TRANSP=0; LV_OPA_10…LV_OPA_90 (~10%…90% of cover); LV_OPA_100/LV_OPA_COVER=255.
 // Именованные ступени: 0, 10…90, 100/COVER; можно любое lv_opa_t 0–255.
@@ -1477,6 +1552,11 @@ void LvglMainScreen::reloadFileBackgroundFromLittlefs() {
     if (!_bg_img) {
         return;
     }
+    // W2G-A: WebUI uploaded a new background file → must bypass the cache and reload from LittleFS.
+    // W2G-A: WebUI загрузил новый фон → инвалидируем кэш и принудительно перезагружаем из LittleFS.
+    main_bg_cache_invalidate();
+    _bg_psram_buf = nullptr;
+    _bg_psram_dsc = {};
     _applyBgTheme(true);
     if (_bg_scrim) {
         main_sync_dark_bg_scrim(_bg_img, _bg_scrim);
@@ -1500,12 +1580,16 @@ void LvglMainScreen::_applyBgTheme(bool force) {
     uint8_t slot = static_cast<uint8_t>(yoradio_theme_active_preset());
     if (slot > 2) slot = 0;
 
-    // Fast path: PSRAM buffer loaded for this slot → just check for deletion, no lv_img_set_src.
-    // Быстрый путь: буфер PSRAM уже загружен → только проверка удаления файла.
+    // Fast path: buffer for this slot already borrowed from cache → just check for deletion.
+    // No lv_img_set_src → no LVGL invalidation → no LFS read on next frame.
+    // Быстрый путь: буфер этого слота уже заимствован из кэша → только проверка удаления файла.
     if (!force && slot == _bg_last_slot && _bg_psram_buf != nullptr) {
         if (!LittleFS.exists(k_fs[slot])) {
-            free(_bg_psram_buf);
+            // File deleted from LittleFS: invalidate cache + clear borrowed pointer.
+            // Файл удалён из LittleFS: инвалидировать кэш + сбросить заимствованный указатель.
+            main_bg_cache_invalidate();
             _bg_psram_buf = nullptr;
+            _bg_psram_dsc = {};
             lv_img_set_src(_bg_img, nullptr);
             lv_obj_add_flag(_bg_img, LV_OBJ_FLAG_HIDDEN);
             _syncBgImgLayout();
@@ -1513,12 +1597,13 @@ void LvglMainScreen::_applyBgTheme(bool force) {
         return; // No lv_img_set_src → no LVGL invalidation → no LFS read on next frame
     }
 
-    // Slow path: slot changed, forced reload, or no PSRAM buffer yet.
+    // Slow path: slot changed, forced reload, or no buffer yet.
+    // W2G-A: do NOT free _bg_psram_buf here — the cache owns the allocation.
+    //        Just clear the borrowed pointer and update the slot tracker.
     // Медленный путь: смена слота, принудительная загрузка или буфер ещё не создан.
-    if (_bg_psram_buf) {
-        free(_bg_psram_buf);
-        _bg_psram_buf = nullptr;
-    }
+    // W2G-A: не освобождать _bg_psram_buf — буфер принадлежит кэшу; только очищаем заимствованный указатель.
+    _bg_psram_buf = nullptr;
+    _bg_psram_dsc = {};
     _bg_last_slot = slot;
 
     if (!LittleFS.exists(k_fs[slot])) {
@@ -1528,7 +1613,12 @@ void LvglMainScreen::_applyBgTheme(bool force) {
         return;
     }
 
-    if (bg_load_into_psram(k_fs[slot], _bg_psram_buf, _bg_psram_dsc)) {
+    // W2G-A: ask the cache for the background buffer (hit = PSRAM reuse, miss = LFS load + cache).
+    // _bg_psram_buf borrows the pointer from the cache; must NOT be freed in destroy/release.
+    // W2G-A: запрашиваем буфер у кэша (попадание = reuse PSRAM, промах = LFS-загрузка + кэш).
+    // _bg_psram_buf заимствует указатель у кэша; в destroy/release НЕ освобождать.
+    if (main_bg_cache_get(k_fs[slot], _bg_psram_dsc)) {
+        _bg_psram_buf = const_cast<uint8_t*>(_bg_psram_dsc.data); // borrowed / заимствован
         lv_img_set_src(_bg_img, &_bg_psram_dsc);
     } else {
         // Fallback: file-backed path (LFS reads on DspTask — slow, but better than no image).
@@ -1966,16 +2056,39 @@ void LvglMainScreen::liveReapplyTheme() {
 }
 
 void LvglMainScreen::destroy() {
-    // Stage 8 E22A: delete the presence-rail timer (NOT owned by the LVGL tree) + its subtree first.
-    // Этап 8 E22A: сначала удаляем таймер rail (он не в дереве LVGL) и его поддерево.
+    // Manual delete path (Stage 8 E22A): delete the presence-rail timer (NOT owned by the LVGL tree)
+    // + its subtree first, then drop the full screen tree, then null handles + free non-LVGL.
+    // Ручное удаление: сначала таймер rail (он не в дереве) + поддерево, затем дерево экрана, затем сброс.
     wgt_presence_rail::destroy(_presence_rail);
 
-    // Single lv_obj_del(_screen) drops full tree; null handles to avoid stale pointers.
-    // Удаляем экран целиком; обнуляем указатели.
     if (_screen) {
         lv_obj_del(_screen);
         _screen = nullptr;
     }
+    _nullHandlesAndFreeNonLvgl();
+}
+
+void LvglMainScreen::prepareForAutoDelete() {
+    // W2F: PageChain is about to load the next screen with auto_del=true while Main is STILL the
+    // active LVGL screen. Tear down the PresenceRail lv_timer (and its subtree) NOW — the timer is
+    // not part of the screen tree, so LVGL's auto-delete would leave a live timer pointing at freed
+    // objects. wgt_presence_rail::destroy() is safe/idempotent (guards timer!=null, lv_obj_is_valid).
+    // W2F: до auto_del гасим таймер rail (он вне дерева) — иначе он переживёт удаление экрана.
+    wgt_presence_rail::destroy(_presence_rail);
+}
+
+void LvglMainScreen::releaseAfterAutoDelete() {
+    // W2F: LVGL has ALREADY deleted the Main screen tree (auto_del). NEVER lv_obj_del here.
+    // The rail timer was stopped in prepareForAutoDelete(); call destroy() again defensively
+    // (idempotent) in case this is ever reached without a prior prepare. Then null + free non-LVGL.
+    // W2F: дерево Main уже удалено LVGL; lv_obj_del не звать. Таймер rail погашен в prepare
+    // (повторный вызов идемпотентен). Затем обнуляем указатели + free PSRAM-фон.
+    wgt_presence_rail::destroy(_presence_rail);
+    _nullHandlesAndFreeNonLvgl();
+}
+
+void LvglMainScreen::_nullHandlesAndFreeNonLvgl() {
+    _screen = nullptr;  // dangling after auto_del; already nulled on the manual destroy() path
     _status_line = {};
     _lbl_stream_info = nullptr;
     _lbl_station_name = _lbl_track = _lbl_artist = nullptr;
@@ -1988,7 +2101,11 @@ void LvglMainScreen::destroy() {
     _lbl_vol_popup = nullptr;
     _bar_buffer = nullptr;
     _lbl_ai_line = nullptr;
-    if (_bg_psram_buf) { free(_bg_psram_buf); _bg_psram_buf = nullptr; }
+    // W2G-A: _bg_psram_buf borrows from s_bg_cache — do NOT free here; the cache owns it.
+    // Clear the borrowed pointer and descriptor (cache buffer remains alive for next create()).
+    // W2G-A: _bg_psram_buf заимствован из s_bg_cache — не освобождать; очищаем заимствованный указатель.
+    _bg_psram_buf = nullptr;
+    _bg_psram_dsc = {};
     _bg_img = nullptr;
     _bg_scrim = nullptr;
     _control_band = nullptr; // deleted with _screen tree / удалено вместе с деревом

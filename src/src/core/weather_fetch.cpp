@@ -113,8 +113,45 @@ void fc_log_heap(const char* tag) {
                   (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
                   (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
 }
+
+// W1.5 diag readback buffer — file scope so the dump never touches the 4 KB doSync stack.
+// Only compiled when the forecast diag flag is on (no production RAM cost otherwise).
+// W1.5: буфер чтения для дампа — file scope, чтобы не задевать 4 КБ стек doSync; компилируется только под диаг-флагом.
+WeatherState s_fc_diag_snap;
+
+// Dump the just-published WeatherState (read back via the public seqlock getter, so it also
+// exercises the reader path). Summary counts come from local fetch state (parsed vs published).
+// Дамп опубликованного WeatherState через публичный seqlock-getter (заодно проверка читателя);
+// счётчики summary — из локального состояния fetch (распарсено vs опубликовано).
+void fc_dump_published(uint16_t parsed_points, uint8_t hourly_published,
+                       uint8_t daily_published, int32_t tz) {
+    if (!weatherGetStateSnapshot(&s_fc_diag_snap)) {
+        Serial.println("[WEATHER_FC] dump skipped: snapshot busy");
+        return;
+    }
+    const WeatherState& s = s_fc_diag_snap;
+    Serial.printf("[WEATHER_FC] dump summary parsed_points=%u hourly_published=%u "
+                  "daily_published=%u updated_at=%lu version=%lu tz=%ld\n",
+                  (unsigned)parsed_points, (unsigned)hourly_published, (unsigned)daily_published,
+                  (unsigned long)s.forecast_updated_at, (unsigned long)s.version, (long)tz);
+    for (uint8_t i = 0; i < WEATHER_HOURLY_SLOTS; ++i) {
+        const WeatherHourly& h = s.hourly[i];
+        Serial.printf("[WEATHER_FC] hourly[%u] valid=%d ts=%lu temp=%.1f pop=%u icon=%s code=%u\n",
+                      (unsigned)i, (int)h.valid, (unsigned long)h.ts, (double)h.temp_c,
+                      (unsigned)h.rain_probability, h.owm_icon, (unsigned)h.owm_code);
+    }
+    for (uint8_t i = 0; i < WEATHER_DAILY_SLOTS; ++i) {
+        const WeatherDaily& d = s.daily[i];
+        Serial.printf("[WEATHER_FC] daily[%u] valid=%d day_ts=%lu tmin=%.1f tmax=%.1f "
+                      "popmax=%u icon=%s dom=%u\n",
+                      (unsigned)i, (int)d.valid, (unsigned long)d.day_ts, (double)d.temp_min_c,
+                      (double)d.temp_max_c, (unsigned)d.rain_probability_max, d.owm_icon,
+                      (unsigned)d.dominant_owm_code);
+    }
+}
 #else
 inline void fc_log_heap(const char*) {}
+inline void fc_dump_published(uint16_t, uint8_t, uint8_t, int32_t) {}
 #endif
 
 // Read one CRLF-terminated line into buf (CR/LF stripped). Returns chars stored.
@@ -380,6 +417,9 @@ bool weatherFetchForecast(const char* units, const char* lang) {
 
     fc_log_heap("after");
     fc_log_success(t0, httpCode, point_count, day_count);
+    // W1.5: detailed parsed/published dump (gated; one-shot per successful publish, not per UI update).
+    // W1.5: подробный дамп распарсенного/опубликованного (под флагом; раз на публикацию, не на кадр UI).
+    fc_dump_published(point_count, hourly_count, day_count, tz);
     return true;
 }
 

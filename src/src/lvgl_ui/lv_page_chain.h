@@ -21,7 +21,9 @@ public:
     static constexpr int PAGE_COUNT = 6;
     static constexpr int INFO_INDEX = 0;
     static constexpr int MAIN_INDEX = 1;
+    static constexpr int VISUAL_INDEX = 2;   // W2: explicit (was bare literal 2 in registration) / явный индекс
     static constexpr int STATION_INDEX = 3;
+    static constexpr int WEATHER_INDEX = 4;  // W2: real Weather page slot (was bare literal 4) / слот Weather
     static constexpr int SETTINGS_INDEX = 5;
 
     void registerPage(int index, ILvglScreen* page);
@@ -100,6 +102,12 @@ private:
     ILvglScreen* _rebootScreen = nullptr;
 
     SpecialMode _special = SpecialMode::None;
+
+    // W2F: re-entrancy guard for goTo() — prevents a gesture from starting a second carousel
+    // switch while one is in progress. Instant (ANIM_NONE) path is synchronous, but the guard is
+    // cheap and future-safe (e.g. if an animated/auto_del path is added later).
+    // W2F: защита от повторного входа в goTo() во время перехода (жест поверх жеста).
+    bool _transitionActive = false;
 };
 
 } // namespace lvgl_ui

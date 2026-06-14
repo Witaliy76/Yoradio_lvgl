@@ -20,6 +20,7 @@
 #include "screens/scr_main.h"
 #include "screens/scr_station.h"
 #include "screens/scr_stub.h"
+#include "screens/scr_weather.h"
 #include "screens/scr_boot.h"
 #include "screens/scr_wifi_flow.h"
 #include "../core/config.h"
@@ -39,7 +40,7 @@ static LvglInfoPage s_info_page;
 static LvglMainScreen s_main_screen;
 static LvglStubPage s_stub_visual("Visual");
 static LvglStationPage s_station_page;
-static LvglStubPage s_stub_weather("Weather");
+static LvglWeatherPage s_weather_page;  // Weather W2: real page replaces the stub / реальная страница вместо заглушки
 static LvglStubPage s_stub_settings("Settings");
 static LvglBootScreen s_boot_screen;
 static LvglWifiFlowScreen s_wifi_flow_screen;
@@ -96,9 +97,9 @@ static void ensurePageChainRegistered() {
     if (s_registered) return;
     s_page_chain.registerPage(PageChain::INFO_INDEX, &s_info_page);
     s_page_chain.registerPage(PageChain::MAIN_INDEX, &s_main_screen);
-    s_page_chain.registerPage(2, &s_stub_visual);
+    s_page_chain.registerPage(PageChain::VISUAL_INDEX, &s_stub_visual);
     s_page_chain.registerPage(PageChain::STATION_INDEX, &s_station_page);
-    s_page_chain.registerPage(4, &s_stub_weather);
+    s_page_chain.registerPage(PageChain::WEATHER_INDEX, &s_weather_page);
     s_page_chain.registerPage(PageChain::SETTINGS_INDEX, &s_stub_settings);
     s_registered = true;
 }
@@ -262,6 +263,14 @@ void lvgl_ui::refreshInfoScreen() {
 void lvgl_ui::refreshMainScreen() {
     if (!lvgl_page_refresh_allowed()) return;
     s_main_screen.update();
+}
+
+// Weather W2: refresh the Weather page labels from WeatherState. Call only while the Weather
+// carousel slot is active; throttle ~1 Hz (same policy as Info). No network from UI.
+// Weather W2: обновление страницы погоды из WeatherState; только когда активен слот Weather, ≤1 Гц.
+void lvgl_ui::refreshWeatherScreen() {
+    if (!lvgl_page_refresh_allowed()) return;
+    s_weather_page.update();
 }
 
 void lvgl_ui::onMainBackgroundSlotCommitted(uint8_t slot) {
@@ -673,6 +682,12 @@ void lvgl_ui::toggleStationListUiFromProductInput() {
 
 bool lvgl_ui::isLvglCarouselOnStationSlot() {
     return s_page_chain.currentIndex() == PageChain::STATION_INDEX;
+}
+
+// Weather W2: carousel currently on the Weather slot (index 4) — drives ~1 Hz refresh in Display::loop.
+// Weather W2: карусель на слоте Weather (индекс 4) — основание для refresh ~1 Гц в Display::loop.
+bool lvgl_ui::isLvglCarouselOnWeatherSlot() {
+    return s_page_chain.currentIndex() == PageChain::WEATHER_INDEX;
 }
 
 bool lvgl_ui::isWifiSetupFlowActive() {

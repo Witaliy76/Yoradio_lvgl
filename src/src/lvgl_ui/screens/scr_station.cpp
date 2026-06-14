@@ -897,10 +897,26 @@ void LvglStationPage::liveReapplyTheme() {
 }
 
 void LvglStationPage::destroy() {
+    // Manual delete path: drop the LVGL root tree, then null handles + free non-LVGL resources.
+    // Ручное удаление: удаляем дерево LVGL, затем обнуляем указатели + освобождаем не-LVGL ресурсы.
     if (_screen) {
         lv_obj_del(_screen);
         _screen = nullptr;
     }
+    _nullHandles();
+}
+
+void LvglStationPage::releaseAfterAutoDelete() {
+    // W2F: LVGL already deleted the screen tree (auto_del). Focus/current station live in
+    // config/adapter; scroll position is intentionally not preserved (enter() scrolls to current).
+    // Still must free the heap list-text buffer (not an LVGL object). Never lv_obj_del here.
+    // W2F: дерево уже удалено LVGL; фокус/станция — в config/adapter; скролл не сохраняем (enter()).
+    // Heap-буфер списка освобождаем здесь; lv_obj_del не вызываем.
+    _nullHandles();
+}
+
+void LvglStationPage::_nullHandles() {
+    _screen = nullptr;  // dangling after auto_del; already nulled on the manual destroy() path
     _status_line = {};
     _lbl_title = nullptr;
     _lbl_count = nullptr;

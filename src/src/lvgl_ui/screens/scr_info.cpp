@@ -548,10 +548,24 @@ void LvglInfoPage::liveReapplyTheme() {
 }
 
 void LvglInfoPage::destroy() {
+    // Manual delete path: drop the LVGL root tree, then null handles.
+    // Ручное удаление: удаляем дерево LVGL, затем обнуляем указатели.
     if (_screen) {
         lv_obj_del(_screen);
         _screen = nullptr;
     }
+    _nullHandles();
+}
+
+void LvglInfoPage::releaseAfterAutoDelete() {
+    // W2F: LVGL already deleted the screen tree (auto_del). All Info values are runtime-derived,
+    // so there is nothing to persist — just null handles. Never lv_obj_del here.
+    // W2F: дерево уже удалено LVGL; все значения Info вычисляются в update() — только обнуляем.
+    _nullHandles();
+}
+
+void LvglInfoPage::_nullHandles() {
+    _screen = nullptr;  // dangling after auto_del; already nulled on the manual destroy() path
     _status_line = {};
     _lbl_info_title = nullptr;
     _val_ssid = _val_ip = _val_wifi = _val_mac = nullptr;

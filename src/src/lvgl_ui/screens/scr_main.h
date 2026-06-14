@@ -35,6 +35,16 @@ public:
     void destroy() override;
     lv_obj_t* screen() override;
 
+    // W2F: unified carousel auto-delete hooks.
+    // prepareForAutoDelete(): stop + delete the PresenceRail lv_timer (it is NOT in the LVGL tree)
+    //   BEFORE LVGL deletes the Main screen, so the timer callback can never touch freed objects.
+    // releaseAfterAutoDelete(): LVGL already deleted the screen tree → null handles + free non-LVGL
+    //   resources (PSRAM background buffer). Never lv_obj_del here.
+    // W2F: prepare — гасим таймер rail (он вне дерева LVGL) ДО удаления экрана;
+    //      release — дерево уже удалено LVGL → обнуляем указатели + free PSRAM-фон; без lv_obj_del.
+    void prepareForAutoDelete() override;
+    void releaseAfterAutoDelete() override;
+
     // WebUI replaced LittleFS .bin for a slot — force PSRAM reload (call from DspTask only).
     // Веб перезаписал .bin слота — принудительно перезагрузить PSRAM (только DspTask).
     void reloadFileBackgroundFromLittlefs();
@@ -168,6 +178,13 @@ private:
     static void      create_mid_block(LvglMainScreen& self, const YoRadioPalette& pal);
     static void      create_visual_rail(LvglMainScreen& self, const YoRadioPalette& pal);
     static void      create_bottom_zone(LvglMainScreen& self, const YoRadioPalette& pal, lv_obj_t* status_divider);
+
+    // W2F: shared handle nulling + non-LVGL resource release (PSRAM bg buffer, art sentinels).
+    // Does NOT call lv_obj_del(_screen) and does NOT tear down the PresenceRail timer (callers
+    // handle the rail explicitly: destroy() and prepareForAutoDelete() both stop it first).
+    // W2F: общий сброс указателей + освобождение не-LVGL (PSRAM-фон, sentinels арта). Без lv_obj_del
+    // и без таймера rail (его гасят явно в destroy()/prepareForAutoDelete()).
+    void _nullHandlesAndFreeNonLvgl();
 };
 
 } // namespace lvgl_ui

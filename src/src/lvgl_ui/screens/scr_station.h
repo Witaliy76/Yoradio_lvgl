@@ -29,11 +29,19 @@ public:
     void destroy() override;
     lv_obj_t* screen() override;
     void liveReapplyTheme() override;
+    // W2F: LVGL tree already auto-deleted by PageChain → null handles + free list heap buffer.
+    // W2F: дерево уже удалено LVGL → обнулить указатели + освободить heap-буфер списка.
+    void releaseAfterAutoDelete() override;
 
     // 6.3D-b1: DspTask-only hook from displayQueue (NEWSTATION); list rebuild on page entry.
     void refreshCurrentStationVisuals();
 
 private:
+    // W2F: shared teardown (no lv_obj_del) used by destroy() and releaseAfterAutoDelete().
+    // Releases the heap list-text buffer (non-LVGL) and nulls all handles.
+    // W2F: общий сброс (без lv_obj_del) для destroy()/releaseAfterAutoDelete(); освобождает heap-буфер.
+    void _nullHandles();
+
     lv_obj_t* _screen = nullptr;
     wgt_status_line::Instance _status_line{};
 

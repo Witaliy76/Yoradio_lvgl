@@ -63,10 +63,23 @@ void LvglStubPage::liveReapplyTheme() {
 }
 
 void LvglStubPage::destroy() {
+    // Manual delete path: drop the LVGL root tree, then null handles.
+    // Ручное удаление: удаляем дерево LVGL, затем обнуляем указатели.
     if (_screen) {
         lv_obj_del(_screen);
         _screen = nullptr;
     }
+    _nullHandles();
+}
+
+void LvglStubPage::releaseAfterAutoDelete() {
+    // W2F: LVGL already deleted the screen tree (auto_del). Never lv_obj_del here.
+    // W2F: дерево уже удалено LVGL (auto_del). Здесь lv_obj_del не вызываем.
+    _nullHandles();
+}
+
+void LvglStubPage::_nullHandles() {
+    _screen = nullptr;
     _lbl = nullptr;
 }
 

@@ -52,6 +52,10 @@ void refreshInfoScreen();
 // Stage 5.5: обновление label'ов Main. Только при PLAYER + Lvgl backend; ≤1 Гц.
 void refreshMainScreen();
 
+// Weather W2: refresh Weather page from WeatherState. Call only when Weather slot active; ~1 Hz.
+// Weather W2: обновление страницы погоды из WeatherState; только когда активен слот Weather; ≤1 Гц.
+void refreshWeatherScreen();
+
 // 8.1H-I-B: forced Main redraw for WebUI settings/reset (replaces the old CLEAR;PLAYER guard-buster).
 // Goes to Main page + refreshes, without a mode transition. Use only from REFRESH_MAIN handler (DspTask).
 // force_full_redraw: invalidate whole screen + flush now — needed after panel orientation flip.
@@ -142,6 +146,10 @@ void openSettingsPageFromProductInput();
 bool isLvglCarouselOnInfoSlot();
 // Block 8-E12: carousel on Station slot (List button / NEWMODE STATIONS / swipe).
 bool isLvglCarouselOnStationSlot();
+
+// Weather W2: carousel on Weather slot (index 4, swipe) — gates ~1 Hz refresh in Display::loop.
+// Weather W2: карусель на слоте Weather (индекс 4) — основание refresh ~1 Гц в Display::loop.
+bool isLvglCarouselOnWeatherSlot();
 
 // Wi-Fi 3A: cancel ops, dismiss RebootRequired shell, return display mode to PLAYER (DspTask only).
 // Wi-Fi 3A: cancel ops, снять RebootRequired, режим PLAYER (только DspTask).
