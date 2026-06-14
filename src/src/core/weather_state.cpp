@@ -62,12 +62,27 @@ bool weatherGetStateSnapshot(WeatherState* out) {
         }
     }
 
-    // Best-effort fallback (30-min cadence makes sustained contention implausible).
-    // Запасной путь при редкой гонке.
+    // Fallback: one attempt with pre- AND post-copy seq verification.
+    //
+    // Without the post-copy check the double-buffer alone cannot prevent a torn read:
+    // if one full write cycle completes between the reader's s_active load and its buffer
+    // copy, the formerly-active slot becomes inactive and a new writer can start overwriting
+    // it concurrently with the reader's copy — seq is never re-checked in the old path.
+    //
+    // Запасной путь: одна попытка с проверкой seq ДО и ПОСЛЕ копирования.
+    // Без пост-проверки двойной буфер не защищает: один полный цикл записи между load idx
+    // и копированием делает «активный» слот inactive — следующий писатель начинает его
+    // переписывать одновременно с читателем (первая проверка seq это не увидит).
     const uint32_t seq = s_seq.load(std::memory_order_acquire);
     if (seq & 1u) {
         return false;
     }
     *out = s_buf[s_active.load(std::memory_order_acquire)];
-    return true;
+    std::atomic_thread_fence(std::memory_order_acquire);
+    const uint32_t seq2 = s_seq.load(std::memory_order_acquire);
+    if (seq == seq2 && !(seq2 & 1u)) {
+        return true;
+    }
+    return false; // write activity detected between checks — do not expose potentially torn data
+    // Активность записи между проверками — не возвращаем потенциально разорванный снапшот.
 }
