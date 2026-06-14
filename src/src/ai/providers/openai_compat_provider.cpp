@@ -159,7 +159,7 @@ String OpenAICompatProvider::_buildRequestJSON(const String& model, const String
     
     // Строим JSON запрос для OpenAI-compatible Chat Completions API
     // Build JSON request for OpenAI-compatible Chat Completions API
-    DynamicJsonDocument doc(1024);
+    JsonDocument doc;
     
     doc["model"] = model;
 
@@ -169,21 +169,21 @@ String OpenAICompatProvider::_buildRequestJSON(const String& model, const String
 #if AI_LAYER_DEBUG
         AI_DLOG("[OpenAICompatProvider] DeepSeek V4: thinking disabled");
 #endif
-        JsonObject thinking = doc.createNestedObject("thinking");
+        JsonObject thinking = doc["thinking"].to<JsonObject>();
         thinking["type"] = "disabled";
     }
 
-    JsonArray messages = doc.createNestedArray("messages");
+    JsonArray messages = doc["messages"].to<JsonArray>();
     
     // System prompt с правилами согласно манифесту
     // System prompt with rules per manifest
-    JsonObject system_msg = messages.createNestedObject();
+    JsonObject system_msg = messages.add<JsonObject>();
     system_msg["role"] = "system";
     system_msg["content"] = system_prompt;
     
     // User prompt с данными о треке
     // User prompt with track data
-    JsonObject user_msg = messages.createNestedObject();
+    JsonObject user_msg = messages.add<JsonObject>();
     user_msg["role"] = "user";
     user_msg["content"] = user_prompt;
     doc["temperature"] = 0.3;
@@ -192,7 +192,7 @@ String OpenAICompatProvider::_buildRequestJSON(const String& model, const String
     
     // Response format - требуем JSON (поддерживается OpenAI-compatible API)
     // Response format - require JSON (supported by OpenAI-compatible API)
-    JsonObject response_format = doc.createNestedObject("response_format");
+    JsonObject response_format = doc["response_format"].to<JsonObject>();
     response_format["type"] = "json_object";
     
     String json_request;
@@ -474,7 +474,7 @@ bool OpenAICompatProvider::_parseJSONResponse(const String& json_raw, LLMRespons
     #endif
     
     // Используем ArduinoJson для парсинга / Use ArduinoJson for parsing
-    DynamicJsonDocument doc(2048);
+    JsonDocument doc;
     DeserializationError error = deserializeJson(doc, json);
     
     if (error) {
@@ -508,7 +508,7 @@ bool OpenAICompatProvider::_parseJSONResponse(const String& json_raw, LLMRespons
     AI_DLOG("[OpenAICompatProvider] JSON deserialized successfully");
     
     // Извлекаем content из choices[0].message.content
-    if (!doc.containsKey("choices")) {
+    if (doc["choices"].isNull()) {
         AI_LOG("[OpenAICompatProvider] No 'choices' key in JSON");
         return false;
     }
@@ -524,11 +524,11 @@ bool OpenAICompatProvider::_parseJSONResponse(const String& json_raw, LLMRespons
     AI_DLOG("[OpenAICompatProvider] Found choices array");
     
     JsonObject choice = doc["choices"][0];
-    if (!choice.containsKey("message")) {
+    if (choice["message"].isNull()) {
         AI_LOG("[OpenAICompatProvider] No 'message' key in choice");
         return false;
     }
-    if (!choice["message"].containsKey("content")) {
+    if (choice["message"]["content"].isNull()) {
         AI_LOG("[OpenAICompatProvider] No 'content' key in message");
         return false;
     }
@@ -540,7 +540,7 @@ bool OpenAICompatProvider::_parseJSONResponse(const String& json_raw, LLMRespons
     AI_DLOG("[OpenAICompatProvider] Content preview (first 200 chars): %s", content.substring(0, 200).c_str());
     
     // Парсим внутренний JSON из content
-    DynamicJsonDocument content_doc(1024);
+    JsonDocument content_doc;
     DeserializationError content_error = deserializeJson(content_doc, content);
     
     if (content_error) {
@@ -551,7 +551,7 @@ bool OpenAICompatProvider::_parseJSONResponse(const String& json_raw, LLMRespons
     AI_DLOG("[OpenAICompatProvider] Content JSON deserialized successfully");
     
     // Проверяем обязательное поле "ok"
-    if (!content_doc.containsKey("ok")) {
+    if (content_doc["ok"].isNull()) {
         AI_LOG("[OpenAICompatProvider] No 'ok' key in content JSON");
         return false;
     }
@@ -565,11 +565,11 @@ bool OpenAICompatProvider::_parseJSONResponse(const String& json_raw, LLMRespons
     }
     
     // Проверяем обязательные поля для успешного ответа
-    if (!content_doc.containsKey("text") || !content_doc.containsKey("mode")) {
+    if (content_doc["text"].isNull() || content_doc["mode"].isNull()) {
         response.ok = false;
         // Debug summary для диагностики контракта / Debug summary for contract diagnostics
         AI_DLOG("[OpenAICompatProvider] HTTP 200 -> not_ok: contract missing text=%d mode=%d",
-                 content_doc.containsKey("text") ? 1 : 0, content_doc.containsKey("mode") ? 1 : 0);
+                 !content_doc["text"].isNull() ? 1 : 0, !content_doc["mode"].isNull() ? 1 : 0);
         return true;
     }
     
@@ -577,7 +577,7 @@ bool OpenAICompatProvider::_parseJSONResponse(const String& json_raw, LLMRespons
     response.mode = content_doc["mode"].as<String>();
     
     // confidence опционален, по умолчанию 0.5
-    if (content_doc.containsKey("confidence")) {
+    if (!content_doc["confidence"].isNull()) {
         response.confidence = content_doc["confidence"].as<float>();
     } else {
         response.confidence = 0.5f;
