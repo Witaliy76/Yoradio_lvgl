@@ -7,6 +7,7 @@
 #include "netserver.h"
 #include "player.h"
 #include "mqtt.h"
+#include "weather_fetch.h"  // Weather W1: forecast fetch hook (core weather-sync only) / хук прогноза
 #include "freertos/semphr.h"
 #include "esp_heap_caps.h"
 #include "lwip/dns.h"
@@ -689,6 +690,12 @@ void doSync( void * pvParameters ) {
     s_weather_diag_forced = true;
     network.forceWeather = false;
     network.trueWeather=getWeather(network.weatherBuf);
+    // Weather W1: forecast fetch in the same weather-sync context (Core 0 doSync), HTTP only,
+    // never from UI. Parsing/aggregation lives in weather_fetch.* — not here. Failure is non-fatal
+    // (keeps last-known-good WeatherState) and does not affect current weather / status row.
+    // Weather W1: прогноз в том же weather-sync контексте (Core 0), HTTP, не из UI.
+    // Парсинг/агрегация — в weather_fetch.*; ошибка некритична (last-known-good).
+    weatherFetchForecast(weatherUnits, weatherLang);
     s_weather_diag_forced = false;
   }
   vTaskDelete( NULL );
