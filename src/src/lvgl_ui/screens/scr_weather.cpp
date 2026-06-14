@@ -83,10 +83,13 @@ static void wx_diag_dump(const char* tag, lv_obj_t* root) {
 }
 #endif // YORADIO_WEATHER_UI_DIAG
 
-// Font ladder for this page (reuse existing generated fonts only; no new assets in W2).
-// Лестница шрифтов страницы — только существующие сгенерированные шрифты.
-static const void* k_font_hero_icon  = reinterpret_cast<const void*>(&lv_font_yora_weather_icons_28);
-static const void* k_font_strip_icon = reinterpret_cast<const void*>(&lv_font_yora_weather_icons_20);
+// A1: font ladder updated with new discrete sizes; no artificial scaling.
+// A1: лестница шрифтов обновлена новыми дискретными размерами; искусственного масштабирования нет.
+// Hero icon: 64 px dedicated font (Weather page); strip/forecast icons: 28 px (already existed).
+// Metric icons: dedicated 22 px metric subset font (wind/humidity/pressure/rain).
+static const void* k_font_hero_icon    = reinterpret_cast<const void*>(&lv_font_yora_weather_icons_64);
+static const void* k_font_strip_icon   = reinterpret_cast<const void*>(&lv_font_yora_weather_icons_28);
+static const void* k_font_metric_icon  = reinterpret_cast<const void*>(&lv_font_yora_weather_metric_icons_22);
 static const void* k_font_hero_temp  = reinterpret_cast<const void*>(&lv_font_yora_montserrat_40_cyr);
 static const void* k_font_cond       = reinterpret_cast<const void*>(&lv_font_yora_montserrat_16_cyr);
 static const void* k_font_small      = reinterpret_cast<const void*>(&lv_font_yora_montserrat_14_cyr);
@@ -149,7 +152,11 @@ static lv_obj_t* add_thin_divider(lv_obj_t* parent, const YoRadioPalette& pal) {
 }
 
 // Metric mini-cell: [value][caption]. Returns value label via out_val. / Мини-ячейка метрики.
-static void add_metric_cell(lv_obj_t* row, const char* caption, lv_obj_t** out_val,
+// A1: icon_glyph is a Tabler PUA UTF-8 string from YORA_WEATHER_METRIC_GLYPH_* macros.
+// A1: icon_glyph — строка Tabler PUA UTF-8 из макросов YORA_WEATHER_METRIC_GLYPH_*.
+// Layout: value row (top, Montserrat) + metric icon glyph (bottom, metric icon font).
+// The icon replaces the previous text caption; value row is unchanged.
+static void add_metric_cell(lv_obj_t* row, const char* icon_glyph, lv_obj_t** out_val,
                             const YoRadioPalette& pal) {
     if (!row) return;
     lv_obj_t* cell = lv_obj_create(row);
@@ -168,10 +175,12 @@ static void add_metric_cell(lv_obj_t* row, const char* caption, lv_obj_t** out_v
         lv_obj_set_style_text_color(v, pal.text_primary, LV_PART_MAIN);
         lv_obj_set_style_text_align(v, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     }
+    // Metric icon glyph (Tabler subset, 22 px) replaces text caption.
+    // Глиф метрической иконки (подмножество Tabler, 22 пкс) вместо текстовой подписи.
     lv_obj_t* c = lv_label_create(cell);
     if (c) {
-        lv_label_set_text(c, caption);
-        wx_set_font(c, k_font_caption);
+        lv_label_set_text(c, icon_glyph ? icon_glyph : "");
+        wx_set_font(c, k_font_metric_icon);
         lv_obj_set_style_text_color(c, pal.text_secondary, LV_PART_MAIN);
         lv_obj_set_style_text_align(c, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     }
@@ -357,10 +366,12 @@ void LvglWeatherPage::create() {
             lv_obj_set_height(_cont_metrics, LV_SIZE_CONTENT);
             lv_obj_set_flex_flow(_cont_metrics, LV_FLEX_FLOW_ROW);
             lv_obj_set_flex_align(_cont_metrics, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-            add_metric_cell(_cont_metrics, "Wind", &_val_wind, pal);
-            add_metric_cell(_cont_metrics, "Humidity", &_val_humidity, pal);
-            add_metric_cell(_cont_metrics, "Pressure", &_val_pressure, pal);
-            add_metric_cell(_cont_metrics, "Rain", &_val_rain, pal);
+            // A1: text captions replaced with Tabler metric glyph icons.
+            // A1: текстовые подписи заменены Tabler-глифами метрических иконок.
+            add_metric_cell(_cont_metrics, YORA_WEATHER_METRIC_GLYPH_WIND,     &_val_wind,     pal);
+            add_metric_cell(_cont_metrics, YORA_WEATHER_METRIC_GLYPH_HUMIDITY, &_val_humidity, pal);
+            add_metric_cell(_cont_metrics, YORA_WEATHER_METRIC_GLYPH_PRESSURE, &_val_pressure, pal);
+            add_metric_cell(_cont_metrics, YORA_WEATHER_METRIC_GLYPH_RAIN,     &_val_rain,     pal);
         }
 
         _div_mid = add_thin_divider(_cont_data, pal);

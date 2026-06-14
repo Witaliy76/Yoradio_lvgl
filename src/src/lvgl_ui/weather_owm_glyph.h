@@ -3,8 +3,22 @@
 
 #include <cstring>
 
-// OWM `icon` string (e.g. "01n") → UTF-8 for Tabler weather subset font (Main mini only).
-// Строка OWM `icon` → UTF-8 глифов Tabler (только компактная погода на Main).
+// OWM `icon` string (e.g. "01n") → UTF-8 for Tabler weather subset font.
+// Weather page hero/forecast icons: lv_font_yora_weather_icons_64 / _28.
+// Строка OWM `icon` → UTF-8 глифов Tabler (страница погоды + мини на Main).
+
+// ── Metric row icons (A1) ─────────────────────────────────────────────────────────────────
+// lv_font_yora_weather_metric_icons_22: wind / droplets / gauge / cloud-rain
+// Таблер-иконки для строки метрик (ветер, влажность, давление, осадки).
+// Source: @tabler/icons-webfont 3.26.0 (MIT).
+//
+// Glyph strings for lv_label_set_text() with lv_font_yora_weather_metric_icons_22.
+// Строки глифов для lv_label_set_text() с lv_font_yora_weather_metric_icons_22.
+#define YORA_WEATHER_METRIC_GLYPH_WIND      (reinterpret_cast<const char*>(u8"\uEC34"))
+#define YORA_WEATHER_METRIC_GLYPH_HUMIDITY  (reinterpret_cast<const char*>(u8"\uFC12"))
+#define YORA_WEATHER_METRIC_GLYPH_PRESSURE  (reinterpret_cast<const char*>(u8"\uEAB1"))
+#define YORA_WEATHER_METRIC_GLYPH_RAIN      (reinterpret_cast<const char*>(u8"\uEA72"))
+// ─────────────────────────────────────────────────────────────────────────────────────────
 
 namespace lvgl_ui {
 

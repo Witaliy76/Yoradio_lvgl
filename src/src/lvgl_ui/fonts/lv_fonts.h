@@ -29,12 +29,17 @@ extern const lv_font_t lv_font_yora_status_icons_22;
 /* Tabler subset: Wi-Fi Flow header icon @ 24|36 px — lv_font_yora_wifi_flow_icons.md (per-row icons removed: heap). */
 extern const lv_font_t lv_font_yora_wifi_flow_icons_24;
 extern const lv_font_t lv_font_yora_wifi_flow_icons_36;
-/* Tabler-derived subset: OWM weather mini @ 18/20/22/24/28 px — Main bottom row (see lv_font_yora_weather_icons_22.md). */
+/* Tabler-derived subset: OWM weather glyphs.
+ * 18/20/22/24/28 px — status row / Main mini (see lv_font_yora_weather_icons_22.md).
+ * 64 px            — Weather Page hero icon (A1). */
 extern const lv_font_t lv_font_yora_weather_icons_18;
 extern const lv_font_t lv_font_yora_weather_icons_20;
 extern const lv_font_t lv_font_yora_weather_icons_22;
 extern const lv_font_t lv_font_yora_weather_icons_24;
 extern const lv_font_t lv_font_yora_weather_icons_28;
+extern const lv_font_t lv_font_yora_weather_icons_64;
+/* Tabler-derived subset: Weather Page metric row icons (wind/droplet/gauge/cloud-rain) @ 22 px (A1). */
+extern const lv_font_t lv_font_yora_weather_metric_icons_22;
 /* Tabler-derived subset: Main control band transport + utility icons @ 18/20/22/24/26/28 px (see lv_font_yora_control_icons.md). */
 extern const lv_font_t lv_font_yora_control_icons_18;
 extern const lv_font_t lv_font_yora_control_icons_20;
