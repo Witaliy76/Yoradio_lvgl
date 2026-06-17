@@ -11,8 +11,8 @@
  * Accepted W2 narrowing (no WeatherState change):
  *   - WeatherState.current is filled from the forecast (W1), so "current valid" == "forecast valid".
  *     → states collapse to: full / waiting (enabled, no forecast) / unavailable (disabled or no key).
- *   - Hourly/daily time labels are RELATIVE (Now/+3h…, Today/Tomorrow/+2d) because the snapshot does
- *     not carry the city timezone. Wall-clock labels are a follow-up (needs tz in WeatherState).
+ *   - Hourly fallback offsets (+3 ч…) when ts missing; daily cards show weekday+DD.MM (A3.1h).
+ *     Condition text from WeatherState/API (locale via weatherLang).
  * W2C: bottom status footer — Station _hint_area pill (panel_background 30%, divider border,
  * radius 14) pinned via _body_area flex-grow + _cont_footer sibling. Footer text carries state.
  * W2C: нижний футер — pill как _hint_area на Station; прижат через flex-grow body + footer sibling.
@@ -28,6 +28,7 @@
 #include "Arduino.h"
 #include <cstdio>
 #include <cstring>
+#include <time.h>
 
 #include "../fonts/lv_fonts.h"
 #include "../profiles/lv_profile_select.h"
@@ -35,6 +36,7 @@
 #include "../weather_owm_glyph.h"
 #include "lvgl_ui.h"
 #include "../../core/config.h"   // pulls options.h → myoptions.h (YORADIO_WEATHER_UI_DIAG)
+#include "../../core/network.h"  // A3.1: network.timeinfo (NTP-synced local date, read-only) / дата из NTP
 #include "../../core/weather_fetch.h"  // A2b: weatherRequestManualRefresh() / async refresh flag
 #include "../../core/weather_state.h"
 
@@ -88,10 +90,22 @@ static void wx_diag_dump(const char* tag, lv_obj_t* root) {
 // ── Weather UI string constants ───────────────────────────────────────────────────────────
 // Gathered here for l10n readiness; do NOT scatter raw literals through the widget code.
 // Собраны здесь для будущей локализации; не разбрасывать строки по коду виджетов.
-static const char* const kStrFeelsLike      = "Feels ";       // prefix before temp
-static const char* const kStrTomorrow       = "Tomorrow";
-static const char* const kStrPlus2d         = "+2d";
-static const char* const kStrPlus3d         = "+3d";
+// A3: Weather page content labels (Russian); footer refresh strings stay English in A3.
+// A3: подписи контента страницы погоды (RU); строки refresh футера — EN.
+static const char* const kStrFeelsLike      = "\xD0\x9E\xD1\x89\xD1\x83\xD1\x89\xD0\xB0\xD0\xB5\xD1\x82\xD1\x81\xD1\x8F "; // Ощущается 
+static const char* const kStrMetricWind     = "\xD0\x92\xD0\xB5\xD1\x82\xD0\xB5\xD1\x80";       // Ветер
+static const char* const kStrMetricHumidity = "\xD0\x92\xD0\xBB\xD0\xB0\xD0\xB6\xD0\xBD\xD0\xBE\xD1\x81\xD1\x82\xD1\x8C"; // Влажность
+static const char* const kStrMetricPressure = "\xD0\x94\xD0\xB0\xD0\xB2\xD0\xBB\xD0\xB5\xD0\xBD\xD0\xB8\xD0\xB5";         // Давление
+static const char* const kStrMetricRain     = "\xD0\x9E\xD1\x81\xD0\xB0\xD0\xB4\xD0\xBA\xD0\xB8"; // Осадки
+static const char* const kStrTomorrow       = "\xD0\x97\xD0\xB0\xD0\xB2\xD1\x82\xD1\x80\xD0\xB0"; // Завтра (hourly header only)
+static const char* const kStrPlus3h         = "+3 \xD1\x87";                                      // +3 ч
+static const char* const kStrPlus6h         = "+6 \xD1\x87";                                      // +6 ч
+static const char* const kStrPlus9h         = "+9 \xD1\x87";                                      // +9 ч
+static const char* const kStrTodayOnly      = "\xD0\xA1\xD0\xB5\xD0\xB3\xD0\xBE\xD0\xB4\xD0\xBD\xD1\x8F"; // Сегодня
+// A3.1f: right hourly block day header strings / заголовок дня в правом hourly-блоке.
+static const char* const kStrHourlyNearest       = "\xD0\x91\xD0\xBB\xD0\xB8\xD0\xB6\xD0\xB0\xD0\xB9\xD1\x88\xD0\xB8\xD0\xB5 \xD1\x87\xD0\xB0\xD1\x81\xD1\x8B"; // Ближайшие часы
+static const char* const kStrTodaySlashTomorrow  = "\xD0\xA1\xD0\xB5\xD0\xB3\xD0\xBE\xD0\xB4\xD0\xBD\xD1\x8F / \xD0\xB7\xD0\xB0\xD0\xB2\xD1\x82\xD1\x80\xD0\xB0"; // Сегодня / завтра
+static const char* const kStrTomorrowSlashLater  = "\xD0\x97\xD0\xB0\xD0\xB2\xD1\x82\xD1\x80\xD0\xB0 / \xD0\xBF\xD0\xBE\xD0\xB7\xD0\xB6\xD0\xB5"; // Завтра / позже
 static const char* const kStrForecastWaiting = "Waiting for weather";
 static const char* const kStrWeatherUnavail  = "Weather unavailable";
 static const char* const kStrCheckSettings   = "Check weather settings";
@@ -104,17 +118,251 @@ static const char* const kStrFooterTapRefresh       = "Tap to refresh";
 static const char* const kStrFooterTapRetry         = "Tap to retry";
 // ─────────────────────────────────────────────────────────────────────────────────────────
 
-// A1: font ladder updated with new discrete sizes; no artificial scaling.
-// A1: лестница шрифтов обновлена новыми дискретными размерами; искусственного масштабирования нет.
-// Hero icon: 64 px dedicated font (Weather page); strip/forecast icons: 28 px (already existed).
-// Metric icons: dedicated 22 px metric subset font (wind/humidity/pressure/rain).
+// A3.1: Russian genitive months + weekdays for hero date line (local to Weather page).
+// A3.1: месяцы (род. п.) и дни недели для строки даты в hero (только эта страница).
+static const char* const kRuMonthsGenitive[12] = {
+    "\xD1\x8F\xD0\xBD\xD0\xB2\xD0\xB0\xD1\x80\xD1\x8F",       // января
+    "\xD1\x84\xD0\xB5\xD0\xB2\xD1\x80\xD0\xB0\xD0\xBB\xD1\x8F", // февраля
+    "\xD0\xBC\xD0\xB0\xD1\x80\xD1\x82\xD0\xB0",               // марта
+    "\xD0\xB0\xD0\xBF\xD1\x80\xD0\xB5\xD0\xBB\xD1\x8F",       // апреля
+    "\xD0\xBC\xD0\xB0\xD1\x8F",                               // мая
+    "\xD0\xB8\xD1\x8E\xD0\xBD\xD1\x8F",                       // июня
+    "\xD0\xB8\xD1\x8E\xD0\xBB\xD1\x8F",                       // июля
+    "\xD0\xB0\xD0\xB2\xD0\xB3\xD1\x83\xD1\x81\xD1\x82\xD0\xB0", // августа
+    "\xD1\x81\xD0\xB5\xD0\xBD\xD1\x82\xD1\x8F\xD0\xB1\xD1\x80\xD1\x8F", // сентября
+    "\xD0\xBE\xD0\xBA\xD1\x82\xD1\x8F\xD0\xB1\xD1\x80\xD1\x8F", // октября
+    "\xD0\xBD\xD0\xBE\xD1\x8F\xD0\xB1\xD1\x80\xD1\x8F",       // ноября
+    "\xD0\xB4\xD0\xB5\xD0\xBA\xD0\xB0\xD0\xB1\xD1\x80\xD1\x8F", // декабря
+};
+// tm_wday: 0 = Sunday … 6 = Saturday / 0 = воскресенье
+static const char* const kRuWeekdayLower[7] = {
+    "\xD0\xB2\xD0\xBE\xD1\x81\xD0\xBA\xD1\x80\xD0\xB5\xD1\x81\xD0\xB5\xD0\xBD\xD1\x8C\xD0\xB5", // воскресенье
+    "\xD0\xBF\xD0\xBE\xD0\xBD\xD0\xB5\xD0\xB4\xD0\xB5\xD0\xBB\xD1\x8C\xD0\xBD\xD0\xB8\xD0\xBA", // понедельник
+    "\xD0\xB2\xD1\x82\xD0\xBE\xD1\x80\xD0\xBD\xD0\xB8\xD0\xBA",                               // вторник
+    "\xD1\x81\xD1\x80\xD0\xB5\xD0\xB4\xD0\xB0",                                               // среда
+    "\xD1\x87\xD0\xB5\xD1\x82\xD0\xB2\xD0\xB5\xD1\x80\xD0\xB3",                               // четверг
+    "\xD0\xBF\xD1\x8F\xD1\x82\xD0\xBD\xD0\xB8\xD1\x86\xD0\xB0",                               // пятница
+    "\xD1\x81\xD1\x83\xD0\xB1\xD0\xB1\xD0\xBE\xD1\x82\xD0\xB0",                               // суббота
+};
+static const char* const kRuWeekdayTitle[7] = {
+    "\xD0\x92\xD0\xBE\xD1\x81\xD0\xBA\xD1\x80\xD0\xB5\xD1\x81\xD0\xB5\xD0\xBD\xD1\x8C\xD0\xB5", // Воскресенье
+    "\xD0\x9F\xD0\xBE\xD0\xBD\xD0\xB5\xD0\xB4\xD0\xB5\xD0\xBB\xD1\x8C\xD0\xBD\xD0\xB8\xD0\xBA", // Понедельник
+    "\xD0\x92\xD1\x82\xD0\xBE\xD1\x80\xD0\xBD\xD0\xB8\xD0\xBA",                               // Вторник
+    "\xD0\xA1\xD1\x80\xD0\xB5\xD0\xB4\xD0\xB0",                                               // Среда
+    "\xD0\xA7\xD0\xB5\xD1\x82\xD0\xB2\xD0\xB5\xD1\x80\xD0\xB3",                               // Четверг
+    "\xD0\x9F\xD1\x8F\xD1\x82\xD0\xBD\xD0\xB8\xD1\x86\xD0\xB0",                               // Пятница
+    "\xD0\xA1\xD1\x83\xD0\xB1\xD0\xB1\xD0\xBE\xD1\x82\xD0\xB0",                               // Суббота
+};
+// A3.1h: short weekday for daily card date line (Вс…Сб). / Краткий день недели для daily.
+static const char* const kRuWeekdayShort[7] = {
+    "\xD0\x92\xD1\x81",             // Вс
+    "\xD0\x9F\xD0\xBD",             // Пн
+    "\xD0\x92\xD1\x82",             // Вт
+    "\xD0\xA1\xD1\x80",             // Ср
+    "\xD0\xA7\xD1\x82",             // Чт
+    "\xD0\x9F\xD1\x82",             // Пт
+    "\xD0\xA1\xD0\xB1",             // Сб
+};
+
+// Same validity gate as status line / screensaver (tm_year > 100 ≈ year > 2000).
+// Тот же gate, что у status line / screensaver (tm_year > 100).
+static bool wx_system_date_valid(const struct tm* tm) {
+    return tm && tm->tm_year > 100;
+}
+
+// A3: font ladder — hero 64 px; strip forecast 36 px; metric icons 26 px (discrete lv_font_conv sizes).
+// A3: лестница шрифтов — hero 64 пкс; прогноз 36 пкс; метрики 26 пкс (дискретные размеры).
 static const void* k_font_hero_icon    = reinterpret_cast<const void*>(&lv_font_yora_weather_icons_64);
-static const void* k_font_strip_icon   = reinterpret_cast<const void*>(&lv_font_yora_weather_icons_28);
-static const void* k_font_metric_icon  = reinterpret_cast<const void*>(&lv_font_yora_weather_metric_icons_22);
+static const void* k_font_daily_icon   = reinterpret_cast<const void*>(&lv_font_yora_weather_icons_36); // daily wx / посуточная погода
+static const void* k_font_daily_pop    = reinterpret_cast<const void*>(&lv_font_yora_weather_metric_icons_22); // umbrella / зонт
+static const void* k_font_hourly_icon  = reinterpret_cast<const void*>(&lv_font_yora_weather_icons_28);
+static const void* k_font_hourly_pop   = reinterpret_cast<const void*>(&lv_font_yora_weather_metric_icons_22); // umbrella / зонт
+static const void* k_font_daily_range  = reinterpret_cast<const void*>(&lv_font_yora_montserrat_16_cyr); // tmin° / tmax°
+static const void* k_font_metric_icon  = reinterpret_cast<const void*>(&lv_font_yora_weather_metric_icons_26);
+static const void* k_font_metric_value = reinterpret_cast<const void*>(&lv_font_yora_montserrat_14_cyr); // narrow cells / узкие ячейки
 static const void* k_font_hero_temp  = reinterpret_cast<const void*>(&lv_font_yora_montserrat_40_cyr);
 static const void* k_font_cond       = reinterpret_cast<const void*>(&lv_font_yora_montserrat_16_cyr);
 static const void* k_font_small      = reinterpret_cast<const void*>(&lv_font_yora_montserrat_14_cyr);
 static const void* k_font_caption    = reinterpret_cast<const void*>(&lv_font_yora_montserrat_12_cyr);
+
+// Hero date: full line preferred; compact if caption font exceeds hero inner width.
+// Дата hero: полная строка; компактная, если не влезает по ширине.
+static void wx_format_hero_date(char* buf, size_t cap, const struct tm* tm, lv_coord_t max_text_w) {
+    if (!buf || cap == 0) return;
+    if (!wx_system_date_valid(tm)) {
+        snprintf(buf, cap, "%s", kStrTodayOnly);
+        return;
+    }
+    const int mon  = tm->tm_mon;
+    const int wday = tm->tm_wday;
+    if (mon < 0 || mon > 11 || wday < 0 || wday > 6) {
+        snprintf(buf, cap, "%s", kStrTodayOnly);
+        return;
+    }
+
+    char full[96];
+    snprintf(full, sizeof(full),
+             "\xD0\xA1\xD0\xB5\xD0\xB3\xD0\xBE\xD0\xB4\xD0\xBD\xD1\x8F, %d %s %d, %s", // Сегодня, …
+             tm->tm_mday, kRuMonthsGenitive[mon], tm->tm_year + 1900, kRuWeekdayLower[wday]);
+
+    const lv_font_t* cap_font = static_cast<const lv_font_t*>(k_font_caption);
+    if (max_text_w > 0) {
+        const lv_coord_t fw = lv_txt_get_width(full, strlen(full), cap_font, 0, LV_TEXT_FLAG_NONE);
+        if (fw > max_text_w) {
+            snprintf(buf, cap, "%s, %d %s",
+                     kRuWeekdayTitle[wday], tm->tm_mday, kRuMonthsGenitive[mon]);
+            return;
+        }
+    }
+    snprintf(buf, cap, "%s", full);
+}
+
+// A3.1f: local calendar Y-M-D from unix ts (localtime_r); not from HH:MM label text.
+// A3.1f: локальная дата из unix ts (localtime_r); не из текста метки HH:MM.
+static bool wx_ymd_from_unix(uint32_t unix_ts, int* y, int* m, int* d) {
+    if (!y || !m || !d || unix_ts == 0u) return false;
+    const time_t t = static_cast<time_t>(unix_ts);
+    struct tm loc;
+    if (localtime_r(&t, &loc) == nullptr) return false;
+    *y = loc.tm_year;
+    *m = loc.tm_mon;
+    *d = loc.tm_mday;
+    return true;
+}
+
+static bool wx_ymd_from_tm(const struct tm* tm, int* y, int* m, int* d) {
+    if (!wx_system_date_valid(tm) || !y || !m || !d) return false;
+    *y = tm->tm_year;
+    *m = tm->tm_mon;
+    *d = tm->tm_mday;
+    return true;
+}
+
+static bool wx_ymd_equal(int y1, int m1, int d1, int y2, int m2, int d2) {
+    return y1 == y2 && m1 == m2 && d1 == d2;
+}
+
+static int wx_ymd_cmp(int y1, int m1, int d1, int y2, int m2, int d2) {
+    if (y1 != y2) return y1 - y2;
+    if (m1 != m2) return m1 - m2;
+    return d1 - d2;
+}
+
+// Tomorrow calendar date from today's tm (mktime + 86400, local TZ).
+// Завтрашняя дата из today_tm (mktime + 86400, локальный TZ).
+static bool wx_tomorrow_ymd(const struct tm* today_tm, int* y, int* m, int* d) {
+    if (!wx_system_date_valid(today_tm) || !y || !m || !d) return false;
+    struct tm t = *today_tm;
+    time_t tt = mktime(&t);
+    if (tt == static_cast<time_t>(-1)) return false;
+    tt += 86400;
+    struct tm tom;
+    if (localtime_r(&tt, &tom) == nullptr) return false;
+    *y = tom.tm_year;
+    *m = tom.tm_mon;
+    *d = tom.tm_mday;
+    return true;
+}
+
+// A3.1f: day header for visible hourly[1..3] vs network.timeinfo local today.
+// A3.1f: заголовок дня для видимых hourly[1..3] относительно network.timeinfo.
+static void wx_format_hourly_day_header(char* buf, size_t cap, const struct tm* today_tm,
+                                        const WeatherHourly* visible_slots, int slot_count) {
+    if (!buf || cap == 0) return;
+    if (!wx_system_date_valid(today_tm) || !visible_slots || slot_count <= 0) {
+        snprintf(buf, cap, "%s", kStrHourlyNearest);
+        return;
+    }
+    int ty = 0, tmon = 0, td = 0;
+    int tmy = 0, tmm = 0, tmd = 0;
+    if (!wx_ymd_from_tm(today_tm, &ty, &tmon, &td) || !wx_tomorrow_ymd(today_tm, &tmy, &tmm, &tmd)) {
+        snprintf(buf, cap, "%s", kStrHourlyNearest);
+        return;
+    }
+
+    bool has_today = false;
+    bool has_tomorrow = false;
+    bool has_later = false;
+    int valid_count = 0;
+
+    for (int i = 0; i < slot_count; ++i) {
+        const WeatherHourly& h = visible_slots[i];
+        if (!h.valid || h.ts == 0u) continue;
+        int y = 0, m = 0, d = 0;
+        if (!wx_ymd_from_unix(h.ts, &y, &m, &d)) continue;
+        ++valid_count;
+        if (wx_ymd_equal(y, m, d, ty, tmon, td)) {
+            has_today = true;
+        } else if (wx_ymd_equal(y, m, d, tmy, tmm, tmd)) {
+            has_tomorrow = true;
+        } else if (wx_ymd_cmp(y, m, d, tmy, tmm, tmd) > 0) {
+            has_later = true;
+        }
+    }
+
+    if (valid_count == 0) {
+        snprintf(buf, cap, "%s", kStrHourlyNearest);
+    } else if (has_today && !has_tomorrow && !has_later) {
+        snprintf(buf, cap, "%s", kStrTodayOnly);
+    } else if (has_tomorrow && !has_today && !has_later) {
+        snprintf(buf, cap, "%s", kStrTomorrow);
+    } else if (has_today && has_tomorrow) {
+        snprintf(buf, cap, "%s", kStrTodaySlashTomorrow);
+    } else if (has_tomorrow && has_later) {
+        snprintf(buf, cap, "%s", kStrTomorrowSlashLater);
+    } else {
+        snprintf(buf, cap, "%s", kStrHourlyNearest);
+    }
+}
+
+// A3.1g/1h: local DD.MM fragment. / Локальный фрагмент DD.MM.
+static void wx_format_dd_mm_local(char* buf, size_t cap, const struct tm* loc) {
+    if (!buf || cap == 0 || !loc) return;
+    snprintf(buf, cap, "%02d.%02d", loc->tm_mday, loc->tm_mon + 1);
+}
+
+// A3.1h: daily card date — short weekday + DD.MM (e.g. Чт 18.06).
+// A3.1h: дата карточки — краткий день недели + DD.MM.
+static void wx_format_daily_weekday_date(char* buf, size_t cap, const struct tm* loc) {
+    if (!buf || cap == 0 || !loc) return;
+    const int wday = loc->tm_wday;
+    if (wday < 0 || wday > 6) {
+        wx_format_dd_mm_local(buf, cap, loc);
+        return;
+    }
+    snprintf(buf, cap, "%s %02d.%02d",
+             kRuWeekdayShort[wday], loc->tm_mday, loc->tm_mon + 1);
+}
+
+static bool wx_local_tm_from_unix(uint32_t unix_ts, struct tm* out) {
+    if (!out || unix_ts == 0u) return false;
+    const time_t t = static_cast<time_t>(unix_ts);
+    return localtime_r(&t, out) != nullptr;
+}
+
+static bool wx_local_tm_days_after(const struct tm* today_tm, int days_after, struct tm* out) {
+    if (!wx_system_date_valid(today_tm) || !out || days_after <= 0) return false;
+    struct tm t = *today_tm;
+    time_t tt = mktime(&t);
+    if (tt == static_cast<time_t>(-1)) return false;
+    tt += static_cast<time_t>(days_after) * 86400;
+    return localtime_r(&tt, out) != nullptr;
+}
+
+static void wx_format_daily_date_label(char* buf, size_t cap, uint32_t day_ts,
+                                       const struct tm* today_tm, int days_after_today) {
+    if (!buf || cap == 0) return;
+    struct tm loc;
+    if (wx_local_tm_from_unix(day_ts, &loc)) {
+        wx_format_daily_weekday_date(buf, cap, &loc);
+        return;
+    }
+    if (wx_local_tm_days_after(today_tm, days_after_today, &loc)) {
+        wx_format_daily_weekday_date(buf, cap, &loc);
+        return;
+    }
+    buf[0] = '\0';
+}
 
 static void wx_set_font(lv_obj_t* obj, const void* font_slot) {
     if (!obj || !font_slot) return;
@@ -134,16 +382,15 @@ static void wx_show(lv_obj_t* obj, bool show) {
     else      lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
 }
 
-// A2: flat panel style for hero card and daily block (theme-derived, no gradient/blur/shadow).
-// A2: плоский стиль панели для карточки hero и блока дней (из темы, без градиента/размытия/тени).
-// Call AFTER wx_flat_base(o, false) — removes all defaults first, then we set what we need.
+// A3: stronger flat panel — readable on real RGB panel; still theme tokens, no gradient/shadow.
+// A3: более заметная плоская панель на реальном дисплее; токены темы, без градиента/тени.
 static void wx_style_panel(lv_obj_t* o, const YoRadioPalette& pal) {
     lv_obj_set_style_bg_color(o, pal.panel_background, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(o, LV_OPA_20, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(o, LV_OPA_40, LV_PART_MAIN);
     lv_obj_set_style_bg_grad_dir(o, LV_GRAD_DIR_NONE, LV_PART_MAIN);
     lv_obj_set_style_radius(o, 8, LV_PART_MAIN);
     lv_obj_set_style_border_color(o, pal.divider, LV_PART_MAIN);
-    lv_obj_set_style_border_opa(o, LV_OPA_40, LV_PART_MAIN);
+    lv_obj_set_style_border_opa(o, LV_OPA_70, LV_PART_MAIN);
     lv_obj_set_style_border_width(o, 1, LV_PART_MAIN);
 }
 
@@ -185,72 +432,265 @@ static lv_obj_t* add_thin_divider(lv_obj_t* parent, const YoRadioPalette& pal) {
     return d;
 }
 
-// Metric mini-cell: [value][caption]. Returns value label via out_val. / Мини-ячейка метрики.
-// A1: icon_glyph is a Tabler PUA UTF-8 string from YORA_WEATHER_METRIC_GLYPH_* macros.
-// A1: icon_glyph — строка Tabler PUA UTF-8 из макросов YORA_WEATHER_METRIC_GLYPH_*.
-// Layout: value row (top, Montserrat) + metric icon glyph (bottom, metric icon font).
-// The icon replaces the previous text caption; value row is unchanged.
-static void add_metric_cell(lv_obj_t* row, const char* icon_glyph, lv_obj_t** out_val,
-                            const YoRadioPalette& pal) {
+// Fixed slot heights — keep icon / value / label rows aligned across all 4 metric cells.
+// Фиксированные высоты слотов — иконки и подписи на одной линии во всех ячейках.
+static constexpr lv_coord_t k_metric_icon_slot_h  = 26;
+static constexpr lv_coord_t k_metric_value_slot_h = 18;
+static constexpr lv_coord_t k_metric_label_slot_h = 17;
+
+// Fixed-height centered slot inside a metric cell. / Слот фиксированной высоты по центру.
+static lv_obj_t* add_metric_slot(lv_obj_t* cell, lv_coord_t slot_h, const void* font,
+                                 lv_color_t col, lv_label_long_mode_t long_mode,
+                                 bool label_fit_content, lv_obj_t** out_lbl) {
+    if (!cell) return nullptr;
+    lv_obj_t* slot = lv_obj_create(cell);
+    if (!slot) return nullptr;
+    wx_flat_base(slot);
+    lv_obj_set_width(slot, LV_PCT(100));
+    lv_obj_set_height(slot, slot_h);
+    lv_obj_set_style_min_height(slot, slot_h, LV_PART_MAIN);
+    lv_obj_set_style_max_height(slot, slot_h, LV_PART_MAIN);
+    lv_obj_set_flex_flow(slot, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(slot, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+    lv_obj_t* l = lv_label_create(slot);
+    if (l) {
+        lv_label_set_text(l, "--");
+        wx_set_font(l, font);
+        lv_obj_set_style_text_color(l, col, LV_PART_MAIN);
+        lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+        lv_obj_set_width(l, label_fit_content ? LV_SIZE_CONTENT : LV_PCT(100));
+        lv_label_set_long_mode(l, long_mode);
+    }
+    if (out_lbl) *out_lbl = l;
+    return slot;
+}
+
+// A3: equal-width column (flex_grow 1) — four cells span full hero metrics row.
+// A3: колонка равной ширины (flex_grow 1) — 4 ячейки на всю ширину hero.
+static void add_metric_cell(lv_obj_t* row, const char* icon_glyph, const char* label_text,
+                            lv_obj_t** out_val, lv_obj_t** out_lbl, const YoRadioPalette& pal) {
     if (!row) return;
     lv_obj_t* cell = lv_obj_create(row);
     if (!cell) return;
     wx_flat_base(cell);
     lv_obj_set_height(cell, LV_SIZE_CONTENT);
     lv_obj_set_flex_grow(cell, 1);
+    lv_obj_set_style_min_width(cell, 0, LV_PART_MAIN);
     lv_obj_set_flex_flow(cell, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(cell, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_align(cell, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_row(cell, 1, LV_PART_MAIN);
+    lv_obj_set_style_pad_hor(cell, 0, LV_PART_MAIN);
 
-    lv_obj_t* v = lv_label_create(cell);
-    if (v) {
-        lv_label_set_text(v, "--");
-        wx_set_font(v, k_font_cond);
-        lv_obj_set_style_text_color(v, pal.text_primary, LV_PART_MAIN);
-        lv_obj_set_style_text_align(v, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_t* icon_lbl = nullptr;
+    add_metric_slot(cell, k_metric_icon_slot_h, k_font_metric_icon, pal.text_secondary,
+                    LV_LABEL_LONG_CLIP, false, &icon_lbl);
+    if (icon_lbl && icon_glyph) {
+        lv_label_set_text(icon_lbl, icon_glyph);
     }
-    // Metric icon glyph (Tabler subset, 22 px) replaces text caption.
-    // Глиф метрической иконки (подмножество Tabler, 22 пкс) вместо текстовой подписи.
-    lv_obj_t* c = lv_label_create(cell);
-    if (c) {
-        lv_label_set_text(c, icon_glyph ? icon_glyph : "");
-        wx_set_font(c, k_font_metric_icon);
-        lv_obj_set_style_text_color(c, pal.text_secondary, LV_PART_MAIN);
-        lv_obj_set_style_text_align(c, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    add_metric_slot(cell, k_metric_value_slot_h, k_font_metric_value, pal.text_primary,
+                    LV_LABEL_LONG_CLIP, false, out_val);
+    lv_obj_t* cap_lbl = nullptr;
+    // A3.1a: caption uses content width — avoids rounding clip on «Влажность» (ь).
+    // A3.1a: подпись по ширине текста — без обрезки «ь» у «Влажность».
+    add_metric_slot(cell, k_metric_label_slot_h, k_font_caption, pal.text_secondary,
+                    LV_LABEL_LONG_CLIP, true, &cap_lbl);
+    if (cap_lbl && label_text) {
+        lv_label_set_text(cap_lbl, label_text);
+        // Single-line captions only — no wrap inside narrow flex columns.
+        // Подписи только в одну строку — без переноса внутри колонки.
+        lv_obj_set_style_text_line_space(cap_lbl, 0, LV_PART_MAIN);
     }
-    if (out_val) *out_val = v;
+    if (out_lbl) *out_lbl = cap_lbl;
 }
 
-// Generic vertical strip cell with 4 stacked labels. / Универсальная ячейка ленты из 4 строк.
-static lv_obj_t* add_strip_cell(lv_obj_t* row, const YoRadioPalette& pal,
-                                lv_obj_t** l0, lv_obj_t** l1, lv_obj_t** l2, lv_obj_t** l3) {
+// Hourly slot label: wall-clock HH:00 from OWM unix ts (local TZ); fallback to +N ч.
+// Подпись слота: локальные часы HH:00 из unix ts; иначе относительный fallback (+3 ч).
+static void wx_format_hour_slot_label(char* buf, size_t cap, uint32_t forecast_unix_ts,
+                                      const char* relative_fallback) {
+    if (!buf || cap == 0) return;
+    if (forecast_unix_ts == 0u) {
+        snprintf(buf, cap, "%s", relative_fallback ? relative_fallback : "--");
+        return;
+    }
+    const time_t t = static_cast<time_t>(forecast_unix_ts);
+    struct tm tm_loc;
+    if (localtime_r(&t, &tm_loc) != nullptr) {
+        snprintf(buf, cap, "%02u:00", static_cast<unsigned>(tm_loc.tm_hour));
+        return;
+    }
+    snprintf(buf, cap, "%s", relative_fallback ? relative_fallback : "--");
+}
+
+// Equalize hero + hourly panel heights after natural layout (LVGL 8 has no cross-axis STRETCH).
+// Выравниваем высоту hero и почасовой панели после естественного layout.
+static void wx_sync_top_row_heights(lv_obj_t* hero, lv_obj_t* hourly) {
+    if (!hero || !hourly) return;
+    lv_obj_set_height(hero, LV_SIZE_CONTENT);
+    lv_obj_set_height(hourly, LV_SIZE_CONTENT);
+    lv_obj_update_layout(hero);
+    lv_obj_update_layout(hourly);
+    const lv_coord_t hh = lv_obj_get_height(hero);
+    const lv_coord_t oh = lv_obj_get_height(hourly);
+    const lv_coord_t h  = (hh > oh) ? hh : oh;
+    if (h <= 0) return;
+    lv_obj_set_height(hero, h);
+    lv_obj_set_height(hourly, h);
+    lv_obj_update_layout(hero);
+    lv_obj_update_layout(hourly);
+}
+
+// A3.1j: synced top row + small bump over pre-A3.1i baseline (hero/hourly readable).
+// A3.1j: выравнивание top row + небольшой прирост над baseline до A3.1i.
+static constexpr lv_coord_t kWeatherTopRowExtraH = 10;
+
+static void wx_finalize_top_row_heights(lv_obj_t* hero, lv_obj_t* hourly) {
+    wx_sync_top_row_heights(hero, hourly);
+    if (kWeatherTopRowExtraH <= 0) return;
+    if (hero) {
+        const lv_coord_t h = lv_obj_get_height(hero);
+        if (h > 0) lv_obj_set_height(hero, h + kWeatherTopRowExtraH);
+    }
+    if (hourly) {
+        const lv_coord_t h = lv_obj_get_height(hourly);
+        if (h > 0) lv_obj_set_height(hourly, h + kWeatherTopRowExtraH);
+    }
+}
+
+// A3b: hourly row — time (left, wide gap) | compact group: wx icon | temp | umbrella | pop%.
+// A3b: строка — время слева с отступом | группа: погода | t° | зонт | %.
+static lv_obj_t* add_hourly_row(lv_obj_t* col, const YoRadioPalette& pal,
+                                lv_obj_t** out_time, lv_obj_t** out_icon,
+                                lv_obj_t** out_temp, lv_obj_t** out_pop_icon,
+                                lv_obj_t** out_pop) {
+    lv_obj_t* row = lv_obj_create(col);
+    if (!row) return nullptr;
+    wx_flat_base(row);
+    lv_obj_set_width(row, LV_PCT(100));
+    lv_obj_set_height(row, LV_SIZE_CONTENT);
+    lv_obj_set_flex_grow(row, 1);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(row, 0, LV_PART_MAIN);
+
+    lv_obj_t* time = lv_label_create(row);
+    if (time) {
+        lv_label_set_text(time, "--");
+        wx_set_font(time, k_font_caption);
+        lv_obj_set_style_text_color(time, pal.text_secondary, LV_PART_MAIN);
+        lv_obj_set_style_min_width(time, 40, LV_PART_MAIN);
+        lv_obj_set_style_pad_right(time, 3, LV_PART_MAIN); // gap after time / отступ после времени (was 7)
+        lv_label_set_long_mode(time, LV_LABEL_LONG_CLIP);
+    }
+
+    // Tight cluster: weather icon + temp + umbrella + % (small internal gaps).
+    // Плотная группа: иконка погоды + t° + зонт + %.
+    lv_obj_t* group = lv_obj_create(row);
+    if (group) {
+        wx_flat_base(group);
+        lv_obj_set_height(group, LV_SIZE_CONTENT);
+        lv_obj_set_flex_grow(group, 1);
+        lv_obj_set_flex_flow(group, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(group, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(group, 2, LV_PART_MAIN);
+    }
+
+    auto make_in_group = [&](const void* font, lv_color_t col) -> lv_obj_t* {
+        if (!group) return nullptr;
+        lv_obj_t* l = lv_label_create(group);
+        if (!l) return nullptr;
+        lv_label_set_text(l, "--");
+        wx_set_font(l, font);
+        lv_obj_set_style_text_color(l, col, LV_PART_MAIN);
+        lv_label_set_long_mode(l, LV_LABEL_LONG_CLIP);
+        return l;
+    };
+
+    lv_obj_t* icon     = make_in_group(k_font_hourly_icon, pal.status_weather_icon);
+    lv_obj_t* temp     = make_in_group(k_font_small, pal.text_primary);
+    lv_obj_t* pop_icon = make_in_group(k_font_hourly_pop, pal.text_secondary);
+    if (pop_icon) {
+        lv_label_set_text(pop_icon, YORA_WEATHER_METRIC_GLYPH_UMBRELLA);
+    }
+    lv_obj_t* pop = make_in_group(k_font_caption, pal.text_secondary);
+
+    if (out_time)     *out_time     = time;
+    if (out_icon)     *out_icon     = icon;
+    if (out_temp)     *out_temp     = temp;
+    if (out_pop_icon) *out_pop_icon = pop_icon;
+    if (out_pop)      *out_pop      = pop;
+    return row;
+}
+
+// A3.1h: daily forecast card — date | wx icon | tmin° / tmax° | umbrella + pop%.
+// A3.1h: карточка прогноза — дата | иконка | tmin° / tmax° | зонт + %.
+static lv_obj_t* add_daily_cell(lv_obj_t* row, const YoRadioPalette& pal,
+                                lv_obj_t** out_day, lv_obj_t** out_icon,
+                                lv_obj_t** out_range, lv_obj_t** out_pop_icon,
+                                lv_obj_t** out_pop) {
     lv_obj_t* cell = lv_obj_create(row);
     if (!cell) return nullptr;
     wx_flat_base(cell);
-    lv_obj_set_height(cell, LV_SIZE_CONTENT);
     lv_obj_set_flex_grow(cell, 1);
+    lv_obj_set_height(cell, LV_PCT(100)); // A3.1i: stretch with daily panel height / растягиваем с панелью
     lv_obj_set_flex_flow(cell, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(cell, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(cell, 2, LV_PART_MAIN);
+    lv_obj_set_flex_align(cell, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(cell, 5, LV_PART_MAIN); // A3.1i: 3→5 — calmer vertical rhythm / ритм по высоте
+    lv_obj_set_style_pad_top(cell, 6, LV_PART_MAIN);
+    lv_obj_set_style_pad_bottom(cell, 6, LV_PART_MAIN);
 
-    auto make = [&](const void* font, lv_color_t col) -> lv_obj_t* {
+    auto make_label = [&](const void* font, lv_color_t col) -> lv_obj_t* {
         lv_obj_t* l = lv_label_create(cell);
-        if (l) {
-            lv_label_set_text(l, "--");
-            wx_set_font(l, font);
-            lv_obj_set_style_text_color(l, col, LV_PART_MAIN);
-            lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-        }
+        if (!l) return nullptr;
+        lv_label_set_text(l, "");
+        wx_set_font(l, font);
+        lv_obj_set_style_text_color(l, col, LV_PART_MAIN);
+        lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+        lv_obj_set_width(l, LV_PCT(100));
+        lv_label_set_long_mode(l, LV_LABEL_LONG_CLIP);
         return l;
     };
-    lv_obj_t* a = make(k_font_caption, pal.text_secondary);    // time / day
-    lv_obj_t* b = make(k_font_strip_icon, pal.status_weather_icon); // icon
-    lv_obj_t* c = make(k_font_small, pal.text_primary);        // temp / range
-    lv_obj_t* d = make(k_font_caption, pal.text_secondary);    // pop
-    if (l0) *l0 = a;
-    if (l1) *l1 = b;
-    if (l2) *l2 = c;
-    if (l3) *l3 = d;
+
+    lv_obj_t* day   = make_label(k_font_caption, pal.text_secondary);
+    lv_obj_t* icon  = make_label(k_font_daily_icon, pal.status_weather_icon);
+    lv_obj_t* range = make_label(k_font_daily_range, pal.text_primary);
+
+    // Precipitation row: umbrella glyph + percent (centered cluster).
+    // Строка осадков: зонт + процент (центрированная группа).
+    lv_obj_t* pop_row = lv_obj_create(cell);
+    if (pop_row) {
+        wx_flat_base(pop_row);
+        lv_obj_set_height(pop_row, LV_SIZE_CONTENT);
+        lv_obj_set_width(pop_row, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(pop_row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(pop_row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(pop_row, 2, LV_PART_MAIN);
+    }
+
+    lv_obj_t* pop_icon = nullptr;
+    lv_obj_t* pop      = nullptr;
+    if (pop_row) {
+        pop_icon = lv_label_create(pop_row);
+        if (pop_icon) {
+            lv_label_set_text(pop_icon, YORA_WEATHER_METRIC_GLYPH_UMBRELLA);
+            wx_set_font(pop_icon, k_font_daily_pop);
+            lv_obj_set_style_text_color(pop_icon, pal.text_secondary, LV_PART_MAIN);
+            lv_label_set_long_mode(pop_icon, LV_LABEL_LONG_CLIP);
+        }
+        pop = lv_label_create(pop_row);
+        if (pop) {
+            lv_label_set_text(pop, "");
+            wx_set_font(pop, k_font_caption);
+            lv_obj_set_style_text_color(pop, pal.text_secondary, LV_PART_MAIN);
+            lv_label_set_long_mode(pop, LV_LABEL_LONG_CLIP);
+        }
+    }
+
+    if (out_day)      *out_day      = day;
+    if (out_icon)     *out_icon     = icon;
+    if (out_range)    *out_range    = range;
+    if (out_pop_icon) *out_pop_icon = pop_icon;
+    if (out_pop)      *out_pop      = pop;
     return cell;
 }
 
@@ -400,30 +840,34 @@ void LvglWeatherPage::create() {
     lv_obj_set_width(_body_area, LV_PCT(100));
     lv_obj_set_flex_grow(_body_area, 1);
     lv_obj_set_flex_flow(_body_area, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(_body_area, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(_body_area, 8, LV_PART_MAIN);
+    lv_obj_set_flex_align(_body_area, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_row(_body_area, 4, LV_PART_MAIN); // A3.1i: 8→4 — tighter to footer / ближе к футеру
 
     // ── A2: Data block — hidden until forecast_valid ──────────────────────────
-    // Layout: [top ROW: hero card (left) + hourly col (right)] / [divider] / [daily panel]
-    // Раскладка: [верхний ROW: hero-карточка + столбец прогноза] / [разделитель] / [дни]
+    // Layout: [top ROW: fixed-height hero+hourly] / [divider] / [daily — flex-grow to footer]
+    // A3.1j: top row content-sized (flex_grow=0); daily absorbs slack — не сжимает hero/hourly.
+    // Раскладка: [hero+hourly фикс. высота] / [разделитель] / [daily flex-grow до футера]
     _cont_data = lv_obj_create(_body_area);
     if (_cont_data) {
         wx_flat_base(_cont_data);
         lv_obj_set_width(_cont_data, LV_PCT(100));
-        lv_obj_set_height(_cont_data, LV_SIZE_CONTENT);
+        lv_obj_set_height(_cont_data, LV_PCT(100)); // A3.1i: fill body, not content-only / на всю body_area
+        lv_obj_set_flex_grow(_cont_data, 1);
         lv_obj_set_flex_flow(_cont_data, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_flex_align(_cont_data, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-        lv_obj_set_style_pad_row(_cont_data, 8, LV_PART_MAIN);
+        lv_obj_set_flex_align(_cont_data, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
+        lv_obj_set_style_pad_row(_cont_data, 6, LV_PART_MAIN); // A3.1i: 8→6
 
-        // ── A2: top row — hero card (left, ~60%) + hourly column (right, ~40%) ─
+        // ── Top row — hero (left) + hourly (right); bounded height, not flex-grown ──
+        // Верхний ROW: hero + hourly; фиксированная высота, без flex_grow.
         _cont_top = lv_obj_create(_cont_data);
         if (_cont_top) {
             wx_flat_base(_cont_top);
             lv_obj_set_width(_cont_top, LV_PCT(100));
             lv_obj_set_height(_cont_top, LV_SIZE_CONTENT);
+            lv_obj_set_flex_grow(_cont_top, 0); // A3.1j: no slack steal from daily / не забирать slack у daily
             lv_obj_set_flex_flow(_cont_top, LV_FLEX_FLOW_ROW);
             lv_obj_set_flex_align(_cont_top, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-            lv_obj_set_style_pad_column(_cont_top, 8, LV_PART_MAIN);
+            lv_obj_set_style_pad_column(_cont_top, 4, LV_PART_MAIN);
 
             // Left: current weather card (icon, temp, condition, feels, metrics).
             // Левая карточка: иконка, температура, условие, ощущается, метрики.
@@ -432,21 +876,40 @@ void LvglWeatherPage::create() {
                 wx_flat_base(_cont_hero, false);
                 wx_style_panel(_cont_hero, pal);
                 lv_obj_set_height(_cont_hero, LV_SIZE_CONTENT);
-                lv_obj_set_flex_grow(_cont_hero, 3);
+                // A3.1d: hero:hourly 16:9 — middle between 17:8 (A3.1b) and 15:10 (A3.1c).
+                // A3.1d: hero:hourly 16:9 — середина между 17:8 и 15:10.
+                lv_obj_set_flex_grow(_cont_hero, 16);
                 lv_obj_set_flex_flow(_cont_hero, LV_FLEX_FLOW_COLUMN);
-                lv_obj_set_flex_align(_cont_hero, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-                lv_obj_set_style_pad_all(_cont_hero, 8, LV_PART_MAIN);
-                lv_obj_set_style_pad_row(_cont_hero, 8, LV_PART_MAIN);
+                // A3.1a: cross-axis CENTER — date + hero_inner group centered in card.
+                // A3.1a: cross-axis CENTER — дата и блок icon+temp по центру карточки.
+                lv_obj_set_flex_align(_cont_hero, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+                lv_obj_set_style_pad_top(_cont_hero, 8, LV_PART_MAIN);
+                lv_obj_set_style_pad_bottom(_cont_hero, 8, LV_PART_MAIN);
+                lv_obj_set_style_pad_left(_cont_hero, 2, LV_PART_MAIN);   // A3.1b: 4→2 — metrics closer to edges
+                lv_obj_set_style_pad_right(_cont_hero, 2, LV_PART_MAIN);  // A3.1b: 4→2 — не вплотную к border
+                lv_obj_set_style_pad_row(_cont_hero, 4, LV_PART_MAIN);
 
-                // Hero inner: 64 px icon (left) + text column (right).
-                // Верхняя строка карточки: иконка 64 пкс + текстовый столбец.
+                // A3.1: today date from network.timeinfo (NTP/local TZ); no weather API date.
+                // A3.1: строка «Сегодня …» из network.timeinfo (NTP/локальный TZ); не из API погоды.
+                _lbl_hero_date = lv_label_create(_cont_hero);
+                if (_lbl_hero_date) {
+                    lv_label_set_text(_lbl_hero_date, kStrTodayOnly);
+                    wx_set_font(_lbl_hero_date, k_font_caption);
+                    lv_obj_set_style_text_color(_lbl_hero_date, pal.text_meta, LV_PART_MAIN);
+                    lv_obj_set_width(_lbl_hero_date, LV_PCT(100));
+                    lv_label_set_long_mode(_lbl_hero_date, LV_LABEL_LONG_CLIP);
+                    lv_obj_set_style_text_align(_lbl_hero_date, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+                }
+
+                // Hero inner: 64 px icon + text column — content-sized row, centered in card.
+                // Блок icon + temp: ширина по контенту, по центру карточки.
                 lv_obj_t* hero_inner = lv_obj_create(_cont_hero);
                 if (hero_inner) {
                     wx_flat_base(hero_inner);
-                    lv_obj_set_width(hero_inner, LV_PCT(100));
+                    lv_obj_set_width(hero_inner, LV_SIZE_CONTENT);
                     lv_obj_set_height(hero_inner, LV_SIZE_CONTENT);
                     lv_obj_set_flex_flow(hero_inner, LV_FLEX_FLOW_ROW);
-                    lv_obj_set_flex_align(hero_inner, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+                    lv_obj_set_flex_align(hero_inner, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
                     lv_obj_set_style_pad_column(hero_inner, 10, LV_PART_MAIN);
 
                     _lbl_hero_icon = lv_label_create(hero_inner);
@@ -459,10 +922,10 @@ void LvglWeatherPage::create() {
                     lv_obj_t* hero_text = lv_obj_create(hero_inner);
                     if (hero_text) {
                         wx_flat_base(hero_text);
+                        lv_obj_set_width(hero_text, LV_SIZE_CONTENT);
                         lv_obj_set_height(hero_text, LV_SIZE_CONTENT);
-                        lv_obj_set_flex_grow(hero_text, 1);
                         lv_obj_set_flex_flow(hero_text, LV_FLEX_FLOW_COLUMN);
-                        lv_obj_set_flex_align(hero_text, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+                        lv_obj_set_flex_align(hero_text, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
                         lv_obj_set_style_pad_row(hero_text, 2, LV_PART_MAIN);
 
                         _lbl_hero_temp = lv_label_create(hero_text);
@@ -470,77 +933,108 @@ void LvglWeatherPage::create() {
                             lv_label_set_text(_lbl_hero_temp, "--");
                             wx_set_font(_lbl_hero_temp, k_font_hero_temp);
                             lv_obj_set_style_text_color(_lbl_hero_temp, pal.text_primary, LV_PART_MAIN);
+                            lv_obj_set_style_text_align(_lbl_hero_temp, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
                         }
                         _lbl_hero_cond = lv_label_create(hero_text);
                         if (_lbl_hero_cond) {
                             lv_label_set_text(_lbl_hero_cond, "");
                             lv_label_set_long_mode(_lbl_hero_cond, LV_LABEL_LONG_DOT);
-                            lv_obj_set_width(_lbl_hero_cond, LV_PCT(100));
+                            lv_obj_set_width(_lbl_hero_cond, LV_SIZE_CONTENT);
                             wx_set_font(_lbl_hero_cond, k_font_cond);
                             lv_obj_set_style_text_color(_lbl_hero_cond, pal.text_secondary, LV_PART_MAIN);
+                            lv_obj_set_style_text_align(_lbl_hero_cond, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
                         }
                         _lbl_hero_feels = lv_label_create(hero_text);
                         if (_lbl_hero_feels) {
                             lv_label_set_text(_lbl_hero_feels, "");
                             wx_set_font(_lbl_hero_feels, k_font_small);
                             lv_obj_set_style_text_color(_lbl_hero_feels, pal.text_meta, LV_PART_MAIN);
+                            lv_obj_set_style_text_align(_lbl_hero_feels, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
                         }
                     }
                 }
 
-                // Metrics row inside hero card (4 cells: wind / humidity / pressure / rain).
-                // Строка метрик внутри карточки: ветер / влажность / давление / осадки.
+                // Metrics row: 4 equal columns edge-to-edge; reduced pad for wider cells.
+                // Строка метрик: 4 колонки на всю ширину; меньше pad — шире ячейки.
                 _cont_metrics = lv_obj_create(_cont_hero);
                 if (_cont_metrics) {
                     wx_flat_base(_cont_metrics);
                     lv_obj_set_width(_cont_metrics, LV_PCT(100));
                     lv_obj_set_height(_cont_metrics, LV_SIZE_CONTENT);
                     lv_obj_set_flex_flow(_cont_metrics, LV_FLEX_FLOW_ROW);
-                    lv_obj_set_flex_align(_cont_metrics, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-                    add_metric_cell(_cont_metrics, YORA_WEATHER_METRIC_GLYPH_WIND,     &_val_wind,     pal);
-                    add_metric_cell(_cont_metrics, YORA_WEATHER_METRIC_GLYPH_HUMIDITY, &_val_humidity, pal);
-                    add_metric_cell(_cont_metrics, YORA_WEATHER_METRIC_GLYPH_PRESSURE, &_val_pressure, pal);
-                    add_metric_cell(_cont_metrics, YORA_WEATHER_METRIC_GLYPH_RAIN,     &_val_rain,     pal);
+                    lv_obj_set_flex_align(_cont_metrics, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+                    lv_obj_set_style_pad_top(_cont_metrics, 4, LV_PART_MAIN);
+                    lv_obj_set_style_pad_column(_cont_metrics, 2, LV_PART_MAIN); // A3.1c: 3→2 — hero narrower, protect labels
+                    lv_obj_set_style_pad_left(_cont_metrics, 0, LV_PART_MAIN);
+                    lv_obj_set_style_pad_right(_cont_metrics, 0, LV_PART_MAIN);
+                    add_metric_cell(_cont_metrics, YORA_WEATHER_METRIC_GLYPH_WIND,     kStrMetricWind,
+                                    &_val_wind,     &_lbl_wind,     pal);
+                    add_metric_cell(_cont_metrics, YORA_WEATHER_METRIC_GLYPH_HUMIDITY, kStrMetricHumidity,
+                                    &_val_humidity, &_lbl_humidity, pal);
+                    add_metric_cell(_cont_metrics, YORA_WEATHER_METRIC_GLYPH_PRESSURE, kStrMetricPressure,
+                                    &_val_pressure, &_lbl_pressure, pal);
+                    add_metric_cell(_cont_metrics, YORA_WEATHER_METRIC_GLYPH_UMBRELLA, kStrMetricRain,
+                                    &_val_rain,     &_lbl_rain,     pal);
                 }
             }
 
-            // Right: short-term forecast column (+3h / +6h / +9h; slot 0 = Now is skipped).
-            // Правый столбец: краткосрочный прогноз +3h/+6h/+9h (слот 0 «Now» пропущен).
+            // Right: 3 horizontal hourly rows (time | icon | temp | pop%), height matches hero card.
+            // Справа: 3 горизонтальные строки прогноза; высота панели = hero.
             _cont_hourly = lv_obj_create(_cont_top);
             if (_cont_hourly) {
-                wx_flat_base(_cont_hourly);
+                wx_flat_base(_cont_hourly, false);
+                wx_style_panel(_cont_hourly, pal);
                 lv_obj_set_height(_cont_hourly, LV_SIZE_CONTENT);
-                lv_obj_set_flex_grow(_cont_hourly, 2);
+                lv_obj_set_flex_grow(_cont_hourly, 9); // A3.1d: 10→9 — pair with hero 16 (ratio 16:9)
                 lv_obj_set_flex_flow(_cont_hourly, LV_FLEX_FLOW_COLUMN);
-                lv_obj_set_flex_align(_cont_hourly, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-                lv_obj_set_style_pad_row(_cont_hourly, 6, LV_PART_MAIN);
+                lv_obj_set_flex_align(_cont_hourly, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+                lv_obj_set_style_pad_all(_cont_hourly, 4, LV_PART_MAIN); // A3.1c: 6→4 — more inner content width
+                lv_obj_set_style_pad_row(_cont_hourly, 1, LV_PART_MAIN); // A3.1f: 2→1 — room for day header
+
+                // A3.1f: day context header — same style as hero date line.
+                // A3.1f: заголовок дня — тот же стиль, что строка даты в hero.
+                _lbl_hourly_day = lv_label_create(_cont_hourly);
+                if (_lbl_hourly_day) {
+                    lv_label_set_text(_lbl_hourly_day, kStrHourlyNearest);
+                    wx_set_font(_lbl_hourly_day, k_font_caption);
+                    lv_obj_set_style_text_color(_lbl_hourly_day, pal.text_meta, LV_PART_MAIN);
+                    lv_obj_set_width(_lbl_hourly_day, LV_PCT(100));
+                    lv_label_set_long_mode(_lbl_hourly_day, LV_LABEL_LONG_CLIP);
+                    lv_obj_set_style_text_align(_lbl_hourly_day, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+                }
+
                 for (int i = 0; i < kHourlyCells; ++i) {
-                    _hourly[i].cont = add_strip_cell(_cont_hourly, pal,
-                        &_hourly[i].time, &_hourly[i].icon, &_hourly[i].temp, &_hourly[i].pop);
-                    if (_hourly[i].cont) {
-                        lv_obj_set_flex_grow(_hourly[i].cont, 0);
-                        lv_obj_set_width(_hourly[i].cont, LV_PCT(100));
-                    }
+                    _hourly[i].cont = add_hourly_row(_cont_hourly, pal,
+                        &_hourly[i].time, &_hourly[i].icon, &_hourly[i].temp,
+                        &_hourly[i].pop_icon, &_hourly[i].pop);
                 }
             }
+
+            // A3.1j: content-based equal heights + kWeatherTopRowExtraH (restores pre-A3.1i + bump).
+            // A3.1j: равная высота по контенту + kWeatherTopRowExtraH (восстановление + прирост).
+            wx_finalize_top_row_heights(_cont_hero, _cont_hourly);
         } // _cont_top
 
         _div_mid = add_thin_divider(_cont_data, pal);
 
-        // Bottom: daily forecast panel (Tomorrow / +2d / +3d; slot 0 = Today is skipped).
-        // Нижний блок: прогноз по дням (Tomorrow/+2d/+3d; слот 0 «Today» пропущен).
+        // Bottom: daily forecast panel (weekday+date cards; slot 0 = today skipped — in hero).
+        // Нижний блок: карточки с датой; слот 0 «сегодня» — в hero.
         _cont_daily = lv_obj_create(_cont_data);
         if (_cont_daily) {
             wx_flat_base(_cont_daily, false);
             wx_style_panel(_cont_daily, pal);
             lv_obj_set_width(_cont_daily, LV_PCT(100));
             lv_obj_set_height(_cont_daily, LV_SIZE_CONTENT);
+            lv_obj_set_flex_grow(_cont_daily, 1); // A3.1j: sole slack absorber toward footer / только daily тянется
             lv_obj_set_flex_flow(_cont_daily, LV_FLEX_FLOW_ROW);
-            lv_obj_set_flex_align(_cont_daily, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+            lv_obj_set_flex_align(_cont_daily, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_START,
+                                  LV_FLEX_ALIGN_CENTER);
             lv_obj_set_style_pad_all(_cont_daily, 8, LV_PART_MAIN);
+            lv_obj_set_style_pad_column(_cont_daily, 4, LV_PART_MAIN);
             for (int i = 0; i < kDailyCells; ++i) {
-                _daily[i].cont = add_strip_cell(_cont_daily, pal,
-                    &_daily[i].day, &_daily[i].icon, &_daily[i].range, &_daily[i].pop);
+                _daily[i].cont = add_daily_cell(_cont_daily, pal,
+                    &_daily[i].day, &_daily[i].icon, &_daily[i].range,
+                    &_daily[i].pop_icon, &_daily[i].pop);
             }
         }
 
@@ -692,6 +1186,14 @@ void LvglWeatherPage::update() {
 
     const WeatherCurrent& cur = s_snap.current;
 
+    lv_coord_t hero_inner_w = 0;
+    if (_cont_hero) {
+        lv_obj_update_layout(_cont_hero);
+        hero_inner_w = lv_obj_get_content_width(_cont_hero);
+    }
+    wx_format_hero_date(buf, sizeof(buf), &network.timeinfo, hero_inner_w);
+    wx_set_text_if_changed(_lbl_hero_date, buf);
+
     wx_set_text_if_changed(_lbl_hero_icon, weather_owm_icon_to_glyph_utf8(cur.owm_icon));
     snprintf(buf, sizeof(buf), "%+.0f\xC2\xB0\x43", static_cast<double>(cur.temp_c)); // "+NN°C"
     wx_set_text_if_changed(_lbl_hero_temp, buf);
@@ -708,45 +1210,52 @@ void LvglWeatherPage::update() {
     snprintf(buf, sizeof(buf), "%u%%", (unsigned)cur.rain_probability);
     wx_set_text_if_changed(_val_rain, buf);
 
-    // Hourly right column: +3h / +6h / +9h — skip slot 0 ("Now" = current conditions).
-    // A2: показываем hourly[1..3]; hourly[0] — «сейчас» — уже в hero card.
-    const uint32_t base_ts = s_snap.hourly[0].valid ? s_snap.hourly[0].ts : 0u;
+    // Hourly right column: day header + horizontal rows; wall-clock from forecast ts (local TZ).
+    // Правый блок: заголовок дня + строки; время из ts прогноза (локальный TZ).
+    wx_format_hourly_day_header(buf, sizeof(buf), &network.timeinfo,
+                                &s_snap.hourly[1], kHourlyCells);
+    wx_set_text_if_changed(_lbl_hourly_day, buf);
+
+    static const char* const k_hourly_fallback[kHourlyCells] = {kStrPlus3h, kStrPlus6h, kStrPlus9h};
     for (int i = 0; i < kHourlyCells; ++i) {
-        const WeatherHourly& h = s_snap.hourly[i + 1]; // A2: skip slot 0 (current)
+        const WeatherHourly& h = s_snap.hourly[i + 1]; // skip slot 0 (current / «сейчас»)
         if (!h.valid) {
-            wx_set_text_if_changed(_hourly[i].time, "--");
+            wx_format_hour_slot_label(buf, sizeof(buf), 0u, k_hourly_fallback[i]);
+            wx_set_text_if_changed(_hourly[i].time, buf);
             wx_set_text_if_changed(_hourly[i].icon, weather_owm_icon_to_glyph_utf8(nullptr));
             wx_set_text_if_changed(_hourly[i].temp, "--");
             wx_set_text_if_changed(_hourly[i].pop, "");
             continue;
         }
-        const uint32_t dh = (base_ts > 0u && h.ts > base_ts) ? (h.ts - base_ts) / 3600u : 0u;
-        snprintf(buf, sizeof(buf), "+%uh", (unsigned)dh);
+        wx_format_hour_slot_label(buf, sizeof(buf), h.ts, k_hourly_fallback[i]);
         wx_set_text_if_changed(_hourly[i].time, buf);
         wx_set_text_if_changed(_hourly[i].icon, weather_owm_icon_to_glyph_utf8(h.owm_icon));
-        snprintf(buf, sizeof(buf), "%.0f\xC2\xB0", static_cast<double>(h.temp_c));
+        snprintf(buf, sizeof(buf), "%+.0f\xC2\xB0", static_cast<double>(h.temp_c));
         wx_set_text_if_changed(_hourly[i].temp, buf);
         snprintf(buf, sizeof(buf), "%u%%", (unsigned)h.rain_probability);
         wx_set_text_if_changed(_hourly[i].pop, buf);
     }
 
-    // Daily bottom block: Tomorrow / +2d / +3d — skip slot 0 ("Today" is in hero card).
-    // A2: показываем daily[1..3]; daily[0] — «сегодня» — уже в hero card.
-    static const char* const k_day_label[kDailyCells] = {kStrTomorrow, kStrPlus2d, kStrPlus3d};
+    // Daily bottom block: weekday+date from day_ts; tmin° / tmax°; skip slot 0 (today in hero).
+    // A3.1h: daily[1..3]; «Чт 18.06» из day_ts; daily[0] — «сегодня» — в hero.
     for (int i = 0; i < kDailyCells; ++i) {
         const WeatherDaily& d = s_snap.daily[i + 1]; // A2: skip slot 0 (today)
         if (!d.valid) {
-            wx_set_text_if_changed(_daily[i].day, "--");
-            wx_set_text_if_changed(_daily[i].icon, weather_owm_icon_to_glyph_utf8(nullptr));
-            wx_set_text_if_changed(_daily[i].range, "--");
+            // Quiet empty placeholder — no lone umbrella / тихий placeholder, без зонта
+            wx_set_text_if_changed(_daily[i].day, "");
+            wx_set_text_if_changed(_daily[i].icon, "");
+            wx_set_text_if_changed(_daily[i].range, "");
             wx_set_text_if_changed(_daily[i].pop, "");
+            wx_set_text_if_changed(_daily[i].pop_icon, "");
             continue;
         }
-        wx_set_text_if_changed(_daily[i].day, k_day_label[i]);
+        wx_format_daily_date_label(buf, sizeof(buf), d.day_ts, &network.timeinfo, i + 1);
+        wx_set_text_if_changed(_daily[i].day, buf);
         wx_set_text_if_changed(_daily[i].icon, weather_owm_icon_to_glyph_utf8(d.owm_icon));
-        snprintf(buf, sizeof(buf), "%.0f/%.0f\xC2\xB0",
+        snprintf(buf, sizeof(buf), "%.0f\xC2\xB0 / %.0f\xC2\xB0",
                  static_cast<double>(d.temp_min_c), static_cast<double>(d.temp_max_c));
         wx_set_text_if_changed(_daily[i].range, buf);
+        wx_set_text_if_changed(_daily[i].pop_icon, YORA_WEATHER_METRIC_GLYPH_UMBRELLA);
         snprintf(buf, sizeof(buf), "%u%%", (unsigned)d.rain_probability_max);
         wx_set_text_if_changed(_daily[i].pop, buf);
     }
@@ -770,6 +1279,8 @@ void LvglWeatherPage::liveReapplyTheme() {
         if (o) lv_obj_set_style_text_color(o, c, LV_PART_MAIN);
     };
 
+    paint(_lbl_hero_date, pal.text_meta);
+    paint(_lbl_hourly_day, pal.text_meta);
     paint(_lbl_hero_icon, pal.status_weather_icon);
     paint(_lbl_hero_temp, pal.text_primary);
     paint(_lbl_hero_cond, pal.text_secondary);
@@ -778,6 +1289,10 @@ void LvglWeatherPage::liveReapplyTheme() {
     paint(_val_humidity, pal.text_primary);
     paint(_val_pressure, pal.text_primary);
     paint(_val_rain, pal.text_primary);
+    paint(_lbl_wind, pal.text_secondary);
+    paint(_lbl_humidity, pal.text_secondary);
+    paint(_lbl_pressure, pal.text_secondary);
+    paint(_lbl_rain, pal.text_secondary);
     paint(_lbl_footer, pal.text_secondary);
     paint(_lbl_message, pal.text_secondary);
 
@@ -802,18 +1317,26 @@ void LvglWeatherPage::liveReapplyTheme() {
         lv_obj_set_style_bg_grad_dir(_cont_daily, LV_GRAD_DIR_NONE, LV_PART_MAIN);
         lv_obj_set_style_border_color(_cont_daily, pal.divider, LV_PART_MAIN);
     }
+    if (_cont_hourly) {
+        lv_obj_set_style_bg_color(_cont_hourly, pal.panel_background, LV_PART_MAIN);
+        lv_obj_set_style_bg_grad_dir(_cont_hourly, LV_GRAD_DIR_NONE, LV_PART_MAIN);
+        lv_obj_set_style_border_color(_cont_hourly, pal.divider, LV_PART_MAIN);
+    }
 
+    // Hourly row icons use k_font_hourly_icon (28 px); daily wx icons use 36 px.
     for (int i = 0; i < kHourlyCells; ++i) {
         paint(_hourly[i].time, pal.text_secondary);
         paint(_hourly[i].icon, pal.status_weather_icon);
         paint(_hourly[i].temp, pal.text_primary);
+        paint(_hourly[i].pop_icon, pal.text_secondary);
         paint(_hourly[i].pop,  pal.text_secondary);
     }
     for (int i = 0; i < kDailyCells; ++i) {
-        paint(_daily[i].day,   pal.text_secondary);
-        paint(_daily[i].icon,  pal.status_weather_icon);
-        paint(_daily[i].range, pal.text_primary);
-        paint(_daily[i].pop,   pal.text_secondary);
+        paint(_daily[i].day,      pal.text_secondary);
+        paint(_daily[i].icon,     pal.status_weather_icon);
+        paint(_daily[i].range,    pal.text_primary);
+        paint(_daily[i].pop_icon, pal.text_secondary);
+        paint(_daily[i].pop,      pal.text_secondary);
     }
 
     // Flat dividers + metric captions; force grad off on any lv_obj in the tree.
@@ -871,9 +1394,10 @@ void LvglWeatherPage::_nullHandles() {
     _content = _body_area = nullptr;
     _cont_data = _cont_top = _div_mid = _cont_empty_center = _lbl_message = nullptr;
     _cont_footer = _footer_box = _lbl_footer = nullptr;
-    _cont_hero = _lbl_hero_icon = _lbl_hero_temp = _lbl_hero_cond = _lbl_hero_feels = nullptr;
+    _cont_hero = _lbl_hero_date = _lbl_hero_icon = _lbl_hero_temp = _lbl_hero_cond = _lbl_hero_feels = nullptr;
     _cont_metrics = _val_wind = _val_humidity = _val_pressure = _val_rain = nullptr;
-    _cont_hourly = _cont_daily = nullptr;
+    _lbl_wind = _lbl_humidity = _lbl_pressure = _lbl_rain = nullptr;
+    _cont_hourly = _lbl_hourly_day = _cont_daily = nullptr;
     for (int i = 0; i < kHourlyCells; ++i) _hourly[i] = HourlyCell{};
     for (int i = 0; i < kDailyCells; ++i)  _daily[i] = DailyCell{};
 }

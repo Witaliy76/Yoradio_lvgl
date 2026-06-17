@@ -37,9 +37,11 @@ extern const lv_font_t lv_font_yora_weather_icons_20;
 extern const lv_font_t lv_font_yora_weather_icons_22;
 extern const lv_font_t lv_font_yora_weather_icons_24;
 extern const lv_font_t lv_font_yora_weather_icons_28;
+extern const lv_font_t lv_font_yora_weather_icons_36;
 extern const lv_font_t lv_font_yora_weather_icons_64;
-/* Tabler-derived subset: Weather Page metric row icons (wind/droplet/gauge/cloud-rain) @ 22 px (A1). */
+/* Tabler-derived subset: Weather Page metric row icons (wind/droplet/gauge/cloud-rain) @ 22|26 px (A1/A3). */
 extern const lv_font_t lv_font_yora_weather_metric_icons_22;
+extern const lv_font_t lv_font_yora_weather_metric_icons_26;
 /* Tabler-derived subset: Main control band transport + utility icons @ 18/20/22/24/26/28 px (see lv_font_yora_control_icons.md). */
 extern const lv_font_t lv_font_yora_control_icons_18;
 extern const lv_font_t lv_font_yora_control_icons_20;

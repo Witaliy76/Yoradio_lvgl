@@ -43,22 +43,25 @@ private:
     static constexpr int kHourlyCells = 3;  // visible hourly cells / видимых почасовых ячеек
     static constexpr int kDailyCells  = 3;  // visible daily cells / видимых посуточных ячеек
 
-    // One hourly cell: time / icon / temp / pop labels. / Одна почасовая ячейка.
+    // A3b: hourly row — time | wx icon | temp | droplets | pop%.
     struct HourlyCell {
-        lv_obj_t* cont = nullptr;
-        lv_obj_t* time = nullptr;
-        lv_obj_t* icon = nullptr;
-        lv_obj_t* temp = nullptr;
-        lv_obj_t* pop  = nullptr;
+        lv_obj_t* cont     = nullptr;
+        lv_obj_t* time     = nullptr;
+        lv_obj_t* icon     = nullptr;
+        lv_obj_t* temp     = nullptr;
+        lv_obj_t* pop_icon = nullptr;
+        lv_obj_t* pop      = nullptr;
     };
 
-    // One daily cell: day / icon / min-max / pop labels. / Одна посуточная ячейка.
+    // A3.1h: daily card — date / wx icon / tmin°–tmax° / umbrella+pop%.
+    // A3.1h: посуточная карточка — дата / иконка / tmin°–tmax° / зонт+%.
     struct DailyCell {
-        lv_obj_t* cont  = nullptr;
-        lv_obj_t* day   = nullptr;
-        lv_obj_t* icon  = nullptr;
-        lv_obj_t* range = nullptr;
-        lv_obj_t* pop   = nullptr;
+        lv_obj_t* cont     = nullptr;
+        lv_obj_t* day      = nullptr;
+        lv_obj_t* icon     = nullptr;
+        lv_obj_t* range    = nullptr;
+        lv_obj_t* pop_icon = nullptr;
+        lv_obj_t* pop      = nullptr;
     };
 
     lv_obj_t* _screen = nullptr;
@@ -89,6 +92,7 @@ private:
 
     // Hero block / Блок hero
     lv_obj_t* _cont_hero    = nullptr;
+    lv_obj_t* _lbl_hero_date = nullptr;
     lv_obj_t* _lbl_hero_icon = nullptr;
     lv_obj_t* _lbl_hero_temp = nullptr;
     lv_obj_t* _lbl_hero_cond = nullptr;
@@ -100,8 +104,13 @@ private:
     lv_obj_t* _val_humidity = nullptr;
     lv_obj_t* _val_pressure = nullptr;
     lv_obj_t* _val_rain     = nullptr;
+    lv_obj_t* _lbl_wind     = nullptr;
+    lv_obj_t* _lbl_humidity = nullptr;
+    lv_obj_t* _lbl_pressure = nullptr;
+    lv_obj_t* _lbl_rain     = nullptr;
 
     lv_obj_t* _cont_hourly = nullptr;
+    lv_obj_t* _lbl_hourly_day = nullptr;  // A3.1f: day header above hourly rows / заголовок дня
     HourlyCell _hourly[kHourlyCells]{};
 
     lv_obj_t* _cont_daily = nullptr;

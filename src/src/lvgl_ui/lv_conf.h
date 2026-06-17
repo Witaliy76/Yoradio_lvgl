@@ -166,15 +166,17 @@
 /* Tabler subset: Wi-Fi Flow header icon only — 24 px (≤320) / 36 px (480+); see lv_font_yora_wifi_flow_icons.md. */
 #define LV_FONT_YORA_WIFI_FLOW_ICONS_24 1
 #define LV_FONT_YORA_WIFI_FLOW_ICONS_36 1
-/* Tabler subset: OWM weather glyphs 18–28 px (Main mini) + 64 px (Weather Page hero). A1: added _64. */
+/* Tabler subset: OWM weather glyphs 18–28 px (Main mini) + 36|64 px (Weather Page). A1/A3. */
 #define LV_FONT_YORA_WEATHER_ICONS_18 1
 #define LV_FONT_YORA_WEATHER_ICONS_20 1
 #define LV_FONT_YORA_WEATHER_ICONS_22 1
 #define LV_FONT_YORA_WEATHER_ICONS_24 1
 #define LV_FONT_YORA_WEATHER_ICONS_28 1
+#define LV_FONT_YORA_WEATHER_ICONS_36 1
 #define LV_FONT_YORA_WEATHER_ICONS_64 1
-/* Tabler subset: Weather Page metric row icons (wind/droplet/gauge/cloud-rain) @ 22 px. A1. */
+/* Tabler subset: Weather Page metric row icons (wind/droplet/gauge/cloud-rain) @ 22|26 px. A1/A3. */
 #define LV_FONT_YORA_WEATHER_METRIC_ICONS_22 1
+#define LV_FONT_YORA_WEATHER_METRIC_ICONS_26 1
 /* Tabler subset: Main control band icons (fonts/lv_font_yora_control_icons_18|20|22|24|26|28.c). Stage 6.1E-b. */
 #define LV_FONT_YORA_CONTROL_ICONS_18 1
 #define LV_FONT_YORA_CONTROL_ICONS_20 1
@@ -250,8 +252,10 @@
     extern const lv_font_t lv_font_yora_weather_icons_22;                                      \
     extern const lv_font_t lv_font_yora_weather_icons_24;                                      \
     extern const lv_font_t lv_font_yora_weather_icons_28;                                      \
+    extern const lv_font_t lv_font_yora_weather_icons_36;                                      \
     extern const lv_font_t lv_font_yora_weather_icons_64;                                      \
     extern const lv_font_t lv_font_yora_weather_metric_icons_22;                               \
+    extern const lv_font_t lv_font_yora_weather_metric_icons_26;                               \
     extern const lv_font_t lv_font_yora_control_icons_18;                                      \
     extern const lv_font_t lv_font_yora_control_icons_20;                                      \
     extern const lv_font_t lv_font_yora_control_icons_22;                                      \
