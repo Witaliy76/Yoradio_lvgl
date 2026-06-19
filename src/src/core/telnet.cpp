@@ -182,8 +182,14 @@ void Telnet::on_connect(const char* str, uint8_t clientId) {
 void Telnet::info() {
   telnet.printf("##CLI.INFO#\n");
   char timeStringBuff[50];
-  strftime(timeStringBuff, sizeof(timeStringBuff), "%Y-%m-%dT%H:%M:%S+03:00", &network.timeinfo);
-  telnet.printf("##SYS.DATE#: %s\n", timeStringBuff); //TODO timezone offset
+  // Same TZ suffix as cli.info / requestTimeSync — was hardcoded +03:00 (legacy MSK default).
+  // Тот же суффикс TZ, что в cli.info / requestTimeSync — раньше был захардкожен +03:00.
+  strftime(timeStringBuff, sizeof(timeStringBuff), "%Y-%m-%dT%H:%M:%S", &network.timeinfo);
+  if (config.store.tzHour < 0) {
+    telnet.printf("##SYS.DATE#: %s%03d:%02d\n", timeStringBuff, config.store.tzHour, config.store.tzMin);
+  } else {
+    telnet.printf("##SYS.DATE#: %s+%02d:%02d\n", timeStringBuff, config.store.tzHour, config.store.tzMin);
+  }
   telnet.printf("##CLI.NAMESET#: %d %s\n", config.lastStation(), config.station.name);
   if (player.status() == PLAYING) {
     telnet.printf("##CLI.META#: %s\n",  config.station.title);
