@@ -13,6 +13,8 @@
 #include "lwip/dns.h"
 #include "lwip/ip_addr.h"
 #include "lwip/tcpip.h"
+#include <cerrno>
+#include <cstring>  // strerror — REQ_DIAG connect errno only / только под REQ_DIAG
 
 #ifndef WIFI_ATTEMPTS
   #define WIFI_ATTEMPTS  16
@@ -189,6 +191,12 @@ static bool isWeatherGraceElapsed() {
 #if !defined(HIDE_WEATHER)
 #ifndef YORADIO_WEATHER_DIAG
 #define YORADIO_WEATHER_DIAG 0
+#endif
+
+// W-R1B: request/response location diagnostics — off by default.
+// W-R1B: диагностика запросов/ответов — выключена по умолчанию.
+#ifndef YORADIO_WEATHER_REQ_DIAG
+#define YORADIO_WEATHER_REQ_DIAG 0
 #endif
 
 // E21W0-C: quiet runtime + optional verbose diag / тихий runtime и опциональная диагностика
@@ -699,6 +707,9 @@ void doSync( void * pvParameters ) {
   } else if(network.forceWeather){
     s_weather_diag_forced = true;
     network.forceWeather = false;
+#if YORADIO_WEATHER_REQ_DIAG
+    Serial.println("[WEATHER_SCHED] run force=1");
+#endif
     network.trueWeather=getWeather(network.weatherBuf);
     // Weather W1: forecast fetch in the same weather-sync context (Core 0 doSync), HTTP only,
     // never from UI. Parsing/aggregation lives in weather_fetch.* — not here. Failure is non-fatal
@@ -720,6 +731,16 @@ bool getWeather(char *wstr) {
   size_t bodyBytes = 0U;
 
   weather_diag::logStart();
+#if YORADIO_WEATHER_REQ_DIAG
+  Serial.printf("[WEATHER_CFG] lat=\"%s\" lon=\"%s\" units=%s lang=%s key_present=%d key_len=%u\n",
+                config.store.weatherlat, config.store.weatherlon,
+                weatherUnits, weatherLang,
+                strlen(config.store.weatherkey) > 0 ? 1 : 0,
+                (unsigned)strlen(config.store.weatherkey));
+  Serial.printf("[WEATHER_REQ] path=current lat=%s lon=%s units=%s lang=%s\n",
+                config.store.weatherlat, config.store.weatherlon,
+                weatherUnits, weatherLang);
+#endif
 
   IPAddress serverIP;
   uint8_t weatherConnectRetry = 0;
@@ -741,6 +762,12 @@ bool getWeather(char *wstr) {
 
   auto tryConnect = [&](uint8_t retry) -> bool {
     if (!client.connect(serverIP, 80)) {
+#if YORADIO_WEATHER_REQ_DIAG
+      // Capture immediately — later logs may clobber errno / сразу, иначе errno перезапишется
+      const int connect_errno = errno;
+      Serial.printf("[WEATHER] connect fail try=%u errno=%d (%s)\n",
+                    (unsigned)retry, connect_errno, strerror(connect_errno));
+#endif
       return false;
     }
 #if YORADIO_WEATHER_DIAG
@@ -976,6 +1003,10 @@ bool getWeather(char *wstr) {
   
 #if YORADIO_WEATHER_DIAG
   weather_diag::logSuccess(t0, httpCode, tempf, icon, desc);
+#endif
+#if YORADIO_WEATHER_REQ_DIAG
+  Serial.printf("[WEATHER_RES] path=current ok=1 name=\"%s\" temp=%.1f icon=%s\n",
+                stanc, (double)tempf, icon);
 #endif
   Serial.printf("##WEATHER###: descr.: %s, temp.: %+.1f*C (feels like %+.0f*C) \007 press.: %d mm \007 hum.: %s%% \007 wind %s %.0f%s m/s (st. %s)\n", desc, tempf, tempfl, pressi, hum, wind[wind_deg], wind_speed, gust, stanc);
 //  Serial.printf("##WEATHER###: description: %s, temp:%+.1f C, pressure:%dmmHg, humidity:%s%%\n", desc, tempf, pressi, hum);

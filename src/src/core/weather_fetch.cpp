@@ -9,6 +9,8 @@
 #include <esp_heap_caps.h>
 #include <math.h>
 #include <string.h>
+#include <cerrno>
+#include <cstring>  // strerror — REQ_DIAG connect errno only / только под REQ_DIAG
 
 /*
  * Weather W1 — forecast fetch + parse + daily aggregation + publish.
@@ -29,6 +31,12 @@
 // Компиляционная подробная диагностика — по аналогии с YORADIO_WEATHER_DIAG.
 #ifndef YORADIO_WEATHER_FC_DIAG
 #define YORADIO_WEATHER_FC_DIAG 0
+#endif
+
+// W-R1B: request/response/aggregation diagnostics — off by default.
+// W-R1B: диагностика запросов/ответов/агрегации — выключена по умолчанию.
+#ifndef YORADIO_WEATHER_REQ_DIAG
+#define YORADIO_WEATHER_REQ_DIAG 0
 #endif
 
 namespace {
@@ -206,6 +214,18 @@ bool weatherFetchForecast(const char* units, const char* lang) {
         return false; // keep last-known-good
     }
 
+#if YORADIO_WEATHER_REQ_DIAG
+    // Log config and request parameters before first network call. / Логируем параметры до сети.
+    Serial.printf("[WEATHER_CFG] lat=\"%s\" lon=\"%s\" units=%s lang=%s key_present=%d key_len=%u\n",
+                  config.store.weatherlat, config.store.weatherlon,
+                  units, lang,
+                  strlen(config.store.weatherkey) > 0 ? 1 : 0,
+                  (unsigned)strlen(config.store.weatherkey));
+    Serial.printf("[WEATHER_REQ] path=forecast lat=%s lon=%s units=%s lang=%s cnt=%u\n",
+                  config.store.weatherlat, config.store.weatherlon,
+                  units, lang, (unsigned)kForecastCnt);
+#endif
+
     // ── Resolve + connect (reuse existing DNS approach; HTTP/80, no TLS). ──
     const char* host = "api.openweathermap.org";
     IPAddress ip;
@@ -217,6 +237,11 @@ bool weatherFetchForecast(const char* units, const char* lang) {
     WiFiClient client;
     if (!client.connect(ip, 80, kConnectTimeoutMs)) {
         client.stop();
+#if YORADIO_WEATHER_REQ_DIAG
+        const int connect_errno = errno;
+        Serial.printf("[WEATHER_FC] connect fail errno=%d (%s)\n",
+                      connect_errno, strerror(connect_errno));
+#endif
         fc_log_fail("connect", t0, -1);
         return false;
     }
@@ -281,6 +306,14 @@ bool weatherFetchForecast(const char* units, const char* lang) {
 
     JsonDocument filter(&alloc);
     filter["city"]["timezone"] = true; // for local-day grouping
+#if YORADIO_WEATHER_REQ_DIAG
+    // W-R1B: extra city metadata retained only when diagnostics are on — no WeatherState change.
+    // W-R1B: метаданные города только под диагностикой; WeatherState не меняется.
+    filter["city"]["name"] = true;
+    filter["city"]["country"] = true;
+    filter["city"]["coord"]["lat"] = true;
+    filter["city"]["coord"]["lon"] = true;
+#endif
     // Array filter template: applies to every element of "list".
     // Шаблон фильтра для массива: применяется к каждому элементу "list".
     filter["list"][0]["dt"] = true;
@@ -313,6 +346,37 @@ bool weatherFetchForecast(const char* units, const char* lang) {
         return false;
     }
     const int32_t tz = doc["city"]["timezone"] | 0;
+
+#if YORADIO_WEATHER_REQ_DIAG
+    // Response metadata: city name, coordinates from server response, timezone offset.
+    // Метаданные ответа: имя города, координаты из ответа сервера, смещение timezone.
+    {
+        const char* d_city    = doc["city"]["name"]    | "";
+        const char* d_country = doc["city"]["country"] | "";
+        const float d_lat     = doc["city"]["coord"]["lat"] | 0.0f;
+        const float d_lon     = doc["city"]["coord"]["lon"] | 0.0f;
+        const uint32_t d_first = list.size() > 0 ? (list[0]["dt"]                | 0u) : 0u;
+        const uint32_t d_last  = list.size() > 0 ? (list[list.size()-1]["dt"]    | 0u) : 0u;
+        Serial.printf("[WEATHER_RES] path=forecast ok=1 city=\"%s\" country=\"%s\""
+                      " coord_lat=%.4f coord_lon=%.4f tz=%ld list=%u"
+                      " first_dt=%lu last_dt=%lu\n",
+                      d_city, d_country,
+                      (double)d_lat, (double)d_lon,
+                      (long)tz, (unsigned)list.size(),
+                      (unsigned long)d_first, (unsigned long)d_last);
+    }
+    // Device NTP state vs OWM timezone. / Состояние NTP устройства vs timezone OWM.
+    {
+        const struct tm& devtm   = network.timeinfo;
+        const bool       ntpok   = devtm.tm_year > 100;
+        Serial.printf("[WEATHER_TIME] ntp_valid=%d device_year=%d device_mon=%d device_day=%d"
+                      " owm_tz=%ld device_tz_h=%d device_tz_m=%d\n",
+                      (int)ntpok,
+                      devtm.tm_year + 1900, devtm.tm_mon + 1, devtm.tm_mday,
+                      (long)tz,
+                      (int)config.store.tzHour, (int)config.store.tzMin);
+    }
+#endif
 
     // ── Build into the scratch builder; publish only on full success. ──
     memset(&s_builder, 0, sizeof(s_builder));
@@ -410,6 +474,20 @@ bool weatherFetchForecast(const char* units, const char* lang) {
         fc_log_fail("no_points", t0, httpCode);
         return false;
     }
+
+#if YORADIO_WEATHER_REQ_DIAG
+    // Aggregation summary: how many points parsed, hourly/daily buckets produced.
+    // Сводка агрегации: сколько точек разобрано, сколько hourly/daily бакетов получено.
+    Serial.printf("[WEATHER_AGG] parsed=%u hourly=%u daily=%u current_valid=%d\n",
+                  (unsigned)point_count, (unsigned)hourly_count, (unsigned)day_count,
+                  (int)s_builder.current.valid);
+    for (uint8_t _di = 0; _di < day_count; ++_di) {
+        const WeatherDaily& _nd = s_builder.daily[_di];
+        Serial.printf("[WEATHER_AGG] daily[%u] ts=%lu local_key=%ld valid=%d\n",
+                      (unsigned)_di, (unsigned long)_nd.day_ts,
+                      (long)day_keys[_di], (int)_nd.valid);
+    }
+#endif
 
     s_builder.forecast_valid      = true;
     s_builder.stale               = false;
