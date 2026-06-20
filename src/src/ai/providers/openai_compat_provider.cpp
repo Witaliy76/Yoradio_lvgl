@@ -161,8 +161,17 @@ String OpenAICompatProvider::_buildRequestJSON(const String& model, const String
     // DynamicJsonDocument(N) in v7 also ignores N — use overflowed() to detect OOM.
     // ArduinoJson v7: эластичный heap-пул; аргумент ёмкости не нужен — OOM через overflowed().
     JsonDocument doc;
+
+    // Bail before touching nested arrays/objects on an exhausted doc.
+    // Выход до работы с вложенными структурами при исчерпании памяти.
+    auto abortIfJsonOverflow = [&]() -> bool {
+        if (!doc.overflowed()) return false;
+        AI_LOG("[OpenAICompatProvider] JSON request build overflow (heap exhausted)");
+        return true;
+    };
     
     doc["model"] = model;
+    if (abortIfJsonOverflow()) return String();
 
     // DeepSeek V4: явно отключаем thinking (non-thinking, как legacy deepseek-chat)
     // DeepSeek V4: explicitly disable thinking (non-thinking, like legacy deepseek-chat)
@@ -171,22 +180,29 @@ String OpenAICompatProvider::_buildRequestJSON(const String& model, const String
         AI_DLOG("[OpenAICompatProvider] DeepSeek V4: thinking disabled");
 #endif
         JsonObject thinking = doc["thinking"].to<JsonObject>();
+        if (abortIfJsonOverflow()) return String();
         thinking["type"] = "disabled";
+        if (abortIfJsonOverflow()) return String();
     }
 
     JsonArray messages = doc["messages"].to<JsonArray>();
+    if (abortIfJsonOverflow()) return String();
     
     // System prompt с правилами согласно манифесту
     // System prompt with rules per manifest
     JsonObject system_msg = messages.add<JsonObject>();
+    if (abortIfJsonOverflow()) return String();
     system_msg["role"] = "system";
     system_msg["content"] = system_prompt;
+    if (abortIfJsonOverflow()) return String();
     
     // User prompt с данными о треке
     // User prompt with track data
     JsonObject user_msg = messages.add<JsonObject>();
+    if (abortIfJsonOverflow()) return String();
     user_msg["role"] = "user";
     user_msg["content"] = user_prompt;
+    if (abortIfJsonOverflow()) return String();
     doc["temperature"] = 0.3;
     doc["max_tokens"] = 90;
     doc["stream"] = false;
@@ -194,12 +210,9 @@ String OpenAICompatProvider::_buildRequestJSON(const String& model, const String
     // Response format - требуем JSON (поддерживается OpenAI-compatible API)
     // Response format - require JSON (supported by OpenAI-compatible API)
     JsonObject response_format = doc["response_format"].to<JsonObject>();
+    if (abortIfJsonOverflow()) return String();
     response_format["type"] = "json_object";
-
-    if (doc.overflowed()) {
-        AI_LOG("[OpenAICompatProvider] JSON request build overflow (heap exhausted)");
-        return String();
-    }
+    if (abortIfJsonOverflow()) return String();
     
     String json_request;
     serializeJson(doc, json_request);

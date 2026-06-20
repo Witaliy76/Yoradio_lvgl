@@ -186,7 +186,9 @@ void Telnet::info() {
   // Тот же суффикс TZ, что в cli.info / requestTimeSync — раньше был захардкожен +03:00.
   strftime(timeStringBuff, sizeof(timeStringBuff), "%Y-%m-%dT%H:%M:%S", &network.timeinfo);
   if (config.store.tzHour < 0) {
-    telnet.printf("##SYS.DATE#: %s%03d:%02d\n", timeStringBuff, config.store.tzHour, config.store.tzMin);
+    // Explicit '-' + absolute hour — %03d on negative tzHour embeds its own sign (asymmetric with +%02d).
+    // Явный '-' и модуль часа — %03d для отрицательного tzHour даёт знак внутри числа.
+    telnet.printf("##SYS.DATE#: %s-%02d:%02d\n", timeStringBuff, -(int)config.store.tzHour, config.store.tzMin);
   } else {
     telnet.printf("##SYS.DATE#: %s+%02d:%02d\n", timeStringBuff, config.store.tzHour, config.store.tzMin);
   }
@@ -294,7 +296,7 @@ void Telnet::on_input(const char* str, uint8_t clientId) {
       char timeStringBuff[50];
       strftime(timeStringBuff, sizeof(timeStringBuff), "%Y-%m-%dT%H:%M:%S", &network.timeinfo);
       if (config.store.tzHour < 0) {
-        printf(clientId, "##SYS.DATE#: %s%03d:%02d\n", timeStringBuff, config.store.tzHour, config.store.tzMin);
+        printf(clientId, "##SYS.DATE#: %s-%02d:%02d\n", timeStringBuff, -(int)config.store.tzHour, config.store.tzMin);
       } else {
         printf(clientId, "##SYS.DATE#: %s+%02d:%02d\n", timeStringBuff, config.store.tzHour, config.store.tzMin);
       }
@@ -342,7 +344,7 @@ void Telnet::on_input(const char* str, uint8_t clientId) {
       if (tzm > 59) tzm = 59;
       config.setTimezone((int8_t)tzh, (int8_t)tzm);
       if(tzh<0){
-        printf(clientId, "new timezone offset: %03d:%02d\n", config.store.tzHour, config.store.tzMin);
+        printf(clientId, "new timezone offset: -%02d:%02d\n", -(int)config.store.tzHour, config.store.tzMin);
       }else{
         printf(clientId, "new timezone offset: %02d:%02d\n", config.store.tzHour, config.store.tzMin);
       }
@@ -354,7 +356,7 @@ void Telnet::on_input(const char* str, uint8_t clientId) {
       if (tzh > 14) tzh = 14;
       config.setTimezone((int8_t)tzh, 0);
       if(tzh<0){
-        printf(clientId, "new timezone offset: %03d:%02d\n", config.store.tzHour, config.store.tzMin);
+        printf(clientId, "new timezone offset: -%02d:%02d\n", -(int)config.store.tzHour, config.store.tzMin);
       }else{
         printf(clientId, "new timezone offset: %02d:%02d\n", config.store.tzHour, config.store.tzMin);
       }
