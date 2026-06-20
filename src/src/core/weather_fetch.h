@@ -22,8 +22,8 @@
  *
  * `units` / `lang` are passed in by the caller (locale-owned PROGMEM strings) to avoid
  * coupling this core module to the display-layer l10n include chain / L10N_LANGUAGE.
- * `units`/`lang` передаёт вызывающий (PROGMEM из locale), чтобы не тащить сюда
- * include-цепочку l10n из display-слоя.
+ * Copied from PROGMEM to RAM inside weatherFetchForecast() before snprintf / logs.
+ * `units`/`lang` передаёт вызывающий (PROGMEM из locale); внутри копируются в RAM.
  *
  * Fetch outcome — lets doSync distinguish deferred low-memory from other failures.
  * Результат fetch — doSync отличает отложенный low-memory от прочих ошибок.

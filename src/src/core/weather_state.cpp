@@ -1,23 +1,19 @@
 #include "weather_state.h"
+
+#include <Arduino.h>
 #include <atomic>
-#include <string.h>
+
+#ifndef YORADIO_WEATHER_REQ_DIAG
+#define YORADIO_WEATHER_REQ_DIAG 0
+#endif
 
 /*
  * Weather W1 — double-buffer + seqlock publication for WeatherState.
  * Weather W1 — double-buffer + seqlock публикация WeatherState.
  *
- * Concurrency model / Модель конкуренции:
- *   - Single writer (weatherPublishState) from weather-sync context (doSync, Core 0).
- *   - Multiple readers (weatherGetStateSnapshot), including future DspTask/LVGL readers
- *     that may run on a different core than the writer.
- *   - Lock-free readers: no mutex, no blocking in DspTask.
- *   - Один писатель; несколько читателей, в т.ч. с другого ядра; без mutex.
- *
- * Cross-core safety / Безопасность между ядрами:
- *   - Classic seqlock: odd seq = publish in progress, even seq = stable snapshot.
- *   - std::atomic acquire/release fences visibility across ESP32-S3 cores.
- *   - Double-buffer: writer always fills the inactive slot; readers copy the active slot.
- *   - Seqlock: нечётный seq = публикация идёт, чётный = стабильный снапшот; atomic fences.
+ * W-R3 adds status-only publish helpers that preserve the active payload while
+ * updating fetch_in_progress / last_error / stale / last_attempt_at_ms.
+ * W-R3: status-only публикация сохраняет payload и обновляет только метаданные.
  */
 
 namespace {
@@ -26,32 +22,108 @@ WeatherState              s_buf[2];  // zero-init: version=0, forecast_valid=fal
 std::atomic<uint8_t>      s_active{0};
 std::atomic<uint32_t>     s_seq{0};  // even = stable, odd = writer busy
 
-} // namespace
-
-void weatherPublishState(const WeatherState& src) {
+// Flip inactive slot through the seqlock. bump_version only for full payload publishes.
+// Переключение неактивного слота через seqlock; version++ только при полной публикации.
+void publishStaged(WeatherState staged, bool bump_version) {
     const uint8_t next = static_cast<uint8_t>(s_active.load(std::memory_order_relaxed) ^ 1u);
 
-    // Odd seq → readers spin/retry instead of copying a half-published buffer.
-    // Нечётный seq → читатели retry, не копируют полуопубликованный буфер.
     s_seq.fetch_add(1u, std::memory_order_release);
 
-    WeatherState staged = src;
-    staged.version = s_seq.load(std::memory_order_relaxed) + 1u; // stamped even version
+    if (bump_version) {
+        staged.version = s_seq.load(std::memory_order_relaxed) + 1u;
+    }
+
     s_buf[next] = staged;
 
     s_active.store(next, std::memory_order_release);
-    s_seq.fetch_add(1u, std::memory_order_release); // back to even → snapshot stable
+    s_seq.fetch_add(1u, std::memory_order_release);
+}
+
+WeatherState copyActiveSnapshot() {
+    const uint8_t idx = s_active.load(std::memory_order_acquire);
+    return s_buf[idx];
+}
+
+bool activeHasForecastPayload(const WeatherState& s) {
+    return s.forecast_valid && s.current.valid;
+}
+
+#if YORADIO_WEATHER_REQ_DIAG
+const char* weatherLastErrorTag(WeatherLastError err) {
+    switch (err) {
+        case WeatherLastError::None:           return "none";
+        case WeatherLastError::FetchFailed:    return "fetch_failed";
+        case WeatherLastError::InternalLow:    return "internal_low";
+        case WeatherLastError::NotConfigured:  return "not_configured";
+        case WeatherLastError::NotConnected:   return "not_connected";
+        default:                               return "?";
+    }
+}
+#endif
+
+} // namespace
+
+void weatherPublishState(const WeatherState& src) {
+    WeatherState staged = src;
+    staged.fetch_in_progress = false;
+    staged.last_error        = WeatherLastError::None;
+    staged.last_attempt_at_ms = millis();
+    staged.stale             = false;
+    publishStaged(staged, true);
+}
+
+void weatherStateMarkFetchBegin() {
+    WeatherState staged = copyActiveSnapshot();
+    staged.fetch_in_progress  = true;
+    staged.last_error         = WeatherLastError::None;
+    staged.last_attempt_at_ms = millis();
+    // stale preserved while refresh runs over LKG / stale сохраняется при refresh поверх LKG
+#if YORADIO_WEATHER_REQ_DIAG
+    Serial.printf("[WEATHER_STATE] refresh=begin has_data=%d\n",
+                  (int)activeHasForecastPayload(staged));
+#endif
+    publishStaged(staged, false);
+}
+
+void weatherStateMarkFetchDeferred() {
+    WeatherState staged = copyActiveSnapshot();
+    staged.fetch_in_progress  = false;
+    staged.last_error         = WeatherLastError::InternalLow;
+    staged.last_attempt_at_ms = millis();
+    // Do not force stale on defer when LKG exists / не помечаем stale при defer с LKG
+#if YORADIO_WEATHER_REQ_DIAG
+    Serial.printf("[WEATHER_STATE] refresh=end result=deferred error=internal_low has_data=%d\n",
+                  (int)activeHasForecastPayload(staged));
+#endif
+    publishStaged(staged, false);
+}
+
+void weatherStateMarkFetchFailed(WeatherLastError error) {
+    WeatherState staged = copyActiveSnapshot();
+    staged.fetch_in_progress  = false;
+    staged.last_error         = error;
+    staged.last_attempt_at_ms = millis();
+    if (staged.forecast_valid) {
+        staged.stale = true;
+    } else {
+        staged.stale = false;
+    }
+#if YORADIO_WEATHER_REQ_DIAG
+    Serial.printf("[WEATHER_STATE] refresh=end result=failed error=%s has_data=%d stale=%d\n",
+                  weatherLastErrorTag(error),
+                  (int)activeHasForecastPayload(staged),
+                  (int)staged.stale);
+#endif
+    publishStaged(staged, false);
 }
 
 bool weatherGetStateSnapshot(WeatherState* out) {
     if (!out) return false;
 
-    // Seqlock retry loop — bounded to avoid infinite spin on pathological contention.
-    // Seqlock-retry с ограничением попыток.
     for (int attempt = 0; attempt < 8; ++attempt) {
         const uint32_t seq1 = s_seq.load(std::memory_order_acquire);
         if (seq1 & 1u) {
-            continue; // writer busy / писатель занят
+            continue;
         }
         const uint8_t idx = s_active.load(std::memory_order_acquire);
         *out = s_buf[idx];
@@ -62,17 +134,6 @@ bool weatherGetStateSnapshot(WeatherState* out) {
         }
     }
 
-    // Fallback: one attempt with pre- AND post-copy seq verification.
-    //
-    // Without the post-copy check the double-buffer alone cannot prevent a torn read:
-    // if one full write cycle completes between the reader's s_active load and its buffer
-    // copy, the formerly-active slot becomes inactive and a new writer can start overwriting
-    // it concurrently with the reader's copy — seq is never re-checked in the old path.
-    //
-    // Запасной путь: одна попытка с проверкой seq ДО и ПОСЛЕ копирования.
-    // Без пост-проверки двойной буфер не защищает: один полный цикл записи между load idx
-    // и копированием делает «активный» слот inactive — следующий писатель начинает его
-    // переписывать одновременно с читателем (первая проверка seq это не увидит).
     const uint32_t seq = s_seq.load(std::memory_order_acquire);
     if (seq & 1u) {
         return false;
@@ -83,6 +144,5 @@ bool weatherGetStateSnapshot(WeatherState* out) {
     if (seq == seq2 && !(seq2 & 1u)) {
         return true;
     }
-    return false; // write activity detected between checks — do not expose potentially torn data
-    // Активность записи между проверками — не возвращаем потенциально разорванный снапшот.
+    return false;
 }

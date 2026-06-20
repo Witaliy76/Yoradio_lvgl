@@ -8,6 +8,7 @@
 #include "player.h"
 #include "mqtt.h"
 #include "weather_fetch.h"       // Weather W1: forecast fetch hook / хук прогноза
+#include "weather_state.h"       // W-R3: fetch lifecycle metadata / метаданные цикла fetch
 #include "net_dns_resolver.h"     // HF-W-DNS: generic selected-DNS resolver / выбранный DNS-резолвер
 #include "weather_edge_session.h" // HF-W-DNS: per-cycle edge tracking / отслеживание рёбер
 #include "freertos/semphr.h"
@@ -54,6 +55,43 @@ TaskHandle_t syncTaskHandle;
 // HF-W-DNS: edge-session-aware getWeather — called only from doSync.
 bool getWeather(char *wstr, WeatherEdgeSession& edgeSession);
 void doSync(void * pvParameters);
+
+// W-R3: forecast fetch lifecycle — status-only publish on non-success; success via weatherPublishState.
+// W-R3: цикл forecast — status-only при ошибке; успех через weatherPublishState.
+static void finishWeatherForecastFetch(WeatherForecastFetchResult result) {
+  switch (result) {
+    case WeatherForecastFetchResult::Published:
+#if YORADIO_WEATHER_REQ_DIAG
+      {
+        WeatherState snap{};
+        if (weatherGetStateSnapshot(&snap)) {
+          Serial.printf("[WEATHER_STATE] refresh=end result=success has_data=%d\n",
+                        (int)(snap.forecast_valid && snap.current.valid));
+        }
+      }
+#endif
+      break;
+    case WeatherForecastFetchResult::DeferredInternalLow:
+      weatherStateMarkFetchDeferred();
+      break;
+    case WeatherForecastFetchResult::NotConfigured:
+      weatherStateMarkFetchFailed(WeatherLastError::NotConfigured);
+      break;
+    case WeatherForecastFetchResult::NotConnected:
+      weatherStateMarkFetchFailed(WeatherLastError::NotConnected);
+      break;
+    default:
+      weatherStateMarkFetchFailed(WeatherLastError::FetchFailed);
+      break;
+  }
+}
+
+static void runWeatherForecastFetch(WeatherEdgeSession& session) {
+  weatherStateMarkFetchBegin();
+  const WeatherForecastFetchResult result =
+      weatherFetchForecast(weatherUnits, weatherLang, session);
+  finishWeatherForecastFetch(result);
+}
 
 static bool isDoSyncTaskActive() {
   if (syncTaskHandle == nullptr) {
@@ -360,7 +398,8 @@ static void logSuccess(uint32_t t0, int httpCode, float tempC, const char* icon,
                        const char* desc) {
   Serial.printf(
       "[WEATHER] success stage=done http_code=%d temp=%.1f icon=%s desc=\"%s\" "
-      "elapsed_ms=%lu next_interval_s=1800 trueWeather=1\n",
+      "elapsed_ms=%lu next_interval_s=%u trueWeather=1\n",
+      (unsigned)WEATHER_REGULAR_INTERVAL_SEC,
       httpCode, tempC, icon, desc, (unsigned long)(millis() - t0));
   heapSnapshot();
 }
@@ -376,7 +415,8 @@ static inline void logSuccess(uint32_t, int, float, const char*, const char*) {}
 void ticks() {
   if(!display.ready()) return; //waiting for SD is ready
   aiSubsystem.onTicker();
-  static const uint16_t weatherSyncInterval=1800;
+  static const uint16_t weatherSyncInterval =
+      static_cast<uint16_t>(WEATHER_REGULAR_INTERVAL_SEC);
   //static const uint16_t weatherSyncIntervalFail=10;
 #if RTCSUPPORTED
   static const uint32_t timeSyncInterval=86400;
@@ -841,7 +881,7 @@ void doSync( void * pvParameters ) {
     // (keeps last-known-good WeatherState) and does not affect current weather / status row.
     // Weather W1: прогноз в том же weather-sync контексте (Core 0), HTTP, не из UI.
     // Парсинг/агрегация — в weather_fetch.*; ошибка некритична (last-known-good).
-    (void)weatherFetchForecast(weatherUnits, weatherLang, weatherSession);
+    runWeatherForecastFetch(weatherSession);
     s_weather_diag_forced = false;
   } else if (weatherForecastTakePendingOnlyRun()) {
 #if YORADIO_WEATHER_STACK_DIAG
@@ -860,7 +900,7 @@ void doSync( void * pvParameters ) {
     // HF-W-DNS: свежая сессия для pending-only; preferred от предыдущего цикла не используется.
     WeatherEdgeSession pendingSession;
     pendingSession.resetCycle();
-    (void)weatherFetchForecast(weatherUnits, weatherLang, pendingSession);
+    runWeatherForecastFetch(pendingSession);
   }
 #if YORADIO_WEATHER_STACK_DIAG
   logDoSyncStackUsage(stack_diag_mode, "exit");
@@ -893,15 +933,25 @@ bool getWeather(char *wstr, WeatherEdgeSession& edgeSession) {
   size_t bodyBytes = 0U;
 
   weather_diag::logStart();
+
+  // displayL10n_*.h: units/lang are PROGMEM — copy before snprintf/%s.
+  // displayL10n_*.h: units/lang в PROGMEM — копируем перед snprintf/%s.
+  char weatherUnitsRam[12];
+  char weatherLangRam[8];
+  strncpy_P(weatherUnitsRam, weatherUnits, sizeof(weatherUnitsRam) - 1);
+  weatherUnitsRam[sizeof(weatherUnitsRam) - 1] = '\0';
+  strncpy_P(weatherLangRam, weatherLang, sizeof(weatherLangRam) - 1);
+  weatherLangRam[sizeof(weatherLangRam) - 1] = '\0';
+
 #if YORADIO_WEATHER_REQ_DIAG
   Serial.printf("[WEATHER_CFG] lat=\"%s\" lon=\"%s\" units=%s lang=%s key_present=%d key_len=%u\n",
                 config.store.weatherlat, config.store.weatherlon,
-                weatherUnits, weatherLang,
+                weatherUnitsRam, weatherLangRam,
                 strlen(config.store.weatherkey) > 0 ? 1 : 0,
                 (unsigned)strlen(config.store.weatherkey));
   Serial.printf("[WEATHER_REQ] path=current lat=%s lon=%s units=%s lang=%s\n",
                 config.store.weatherlat, config.store.weatherlon,
-                weatherUnits, weatherLang);
+                weatherUnitsRam, weatherLangRam);
 #endif
 
   // HF-W-DNS: lazy edge-fallback state machine.
@@ -917,7 +967,7 @@ bool getWeather(char *wstr, WeatherEdgeSession& edgeSession) {
            "GET /data/2.5/weather?lat=%s&lon=%s&units=%s&lang=%s&appid=%s HTTP/1.1\r\n"
            "Host: %s\r\nConnection: close\r\n\r\n",
            config.store.weatherlat, config.store.weatherlon,
-           weatherUnits, weatherLang,
+           weatherUnitsRam, weatherLangRam,
            config.store.weatherkey, host);
 
   // ── Attempt loop: system (0), fallback DNS 0 (1), fallback DNS 1 (2) ────────

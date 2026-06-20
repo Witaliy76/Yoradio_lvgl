@@ -104,6 +104,21 @@ void copy_icon(char dst[4], const char* src) {
     strlcpy(dst, src, 4);
 }
 
+// Caller passes displayL10n PROGMEM strings; copy before RAM-only %s / snprintf.
+// Вызывающий передаёт PROGMEM из displayL10n; копируем перед RAM-only %s / snprintf.
+void copyWeatherLocaleProgmem(const char* progmemSrc, char* dst, size_t dstSize, const char* fallbackRam) {
+    if (!dst || dstSize == 0) return;
+    if (progmemSrc) {
+        strncpy_P(dst, progmemSrc, dstSize - 1);
+    } else if (fallbackRam) {
+        strncpy(dst, fallbackRam, dstSize - 1);
+    } else {
+        dst[0] = '\0';
+        return;
+    }
+    dst[dstSize - 1] = '\0';
+}
+
 uint8_t pop_to_pct(float pop) {
     if (pop < 0.0f) pop = 0.0f;
     if (pop > 1.0f) pop = 1.0f;
@@ -309,8 +324,15 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
     if (network.status != CONNECTED) {
         return WeatherForecastFetchResult::NotConnected;
     }
-    if (!units) units = "metric";
-    if (!lang)  lang  = "en";
+
+    // displayL10n_*.h: units/lang are PROGMEM — not safe for snprintf %s as-is.
+    // displayL10n_*.h: units/lang в PROGMEM — нельзя напрямую в snprintf %s.
+    char unitsRam[12];  // metric | imperial | standard
+    char langRam[8];    // en | ru | …
+    copyWeatherLocaleProgmem(units, unitsRam, sizeof(unitsRam), "metric");
+    copyWeatherLocaleProgmem(lang, langRam, sizeof(langRam), "en");
+    const char* unitsUse = unitsRam;
+    const char* langUse  = langRam;
 
     const uint32_t t0 = millis();
     fc_log_heap("before");
@@ -349,12 +371,12 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
     // Log config and request parameters before first network call. / Логируем параметры до сети.
     Serial.printf("[WEATHER_CFG] lat=\"%s\" lon=\"%s\" units=%s lang=%s key_present=%d key_len=%u\n",
                   config.store.weatherlat, config.store.weatherlon,
-                  units, lang,
+                  unitsUse, langUse,
                   strlen(config.store.weatherkey) > 0 ? 1 : 0,
                   (unsigned)strlen(config.store.weatherkey));
     Serial.printf("[WEATHER_REQ] path=forecast lat=%s lon=%s units=%s lang=%s cnt=%u preferred=%d\n",
                   config.store.weatherlat, config.store.weatherlon,
-                  units, lang, (unsigned)kForecastCnt, (int)session.hasPreferred());
+                  unitsUse, langUse, (unsigned)kForecastCnt, (int)session.hasPreferred());
 #endif
 
     // ── HF-W-DNS: lazy edge-fallback transport loop ──────────────────────────────
@@ -384,7 +406,7 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
     snprintf(fc_req, sizeof(fc_req),
              "GET /data/2.5/forecast?lat=%s&lon=%s&units=%s&lang=%s&cnt=%u&appid=%s HTTP/1.0\r\n"
              "Host: %s\r\nConnection: close\r\n\r\n",
-             config.store.weatherlat, config.store.weatherlon, units, lang,
+             config.store.weatherlat, config.store.weatherlon, unitsUse, langUse,
              (unsigned)kForecastCnt, config.store.weatherkey, host);
 
     for (uint8_t attemptIdx = 0; attemptIdx < kWeatherEdgeMaxAttempts; ++attemptIdx) {

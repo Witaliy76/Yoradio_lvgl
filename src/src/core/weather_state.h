@@ -17,14 +17,31 @@
  *   - Читатели: любая задача (позже DspTask/LVGL) — weatherGetStateSnapshot().
  *   - Здесь нет сетевого/JSON кода — только компактное хранилище состояния.
  *
- * Stage scope (W1): data foundation only. No LVGL/UI consumers wired yet.
- * Этап W1: только фундамент данных; UI-потребителей пока нет.
+ * W-R3: runtime metadata (fetch_in_progress, last_error, stale) lives in the same POD
+ * snapshot; UI derives Empty/Loading/Ready/Stale/Unavailable without a broad status enum.
+ * W-R3: runtime-метаданные в том же POD-снапшоте; UI выводит состояния из фактов.
  */
+
+// W-R3/W-R4: single compile-time regular refresh interval (seconds).
+// W-R3/W-R4: единый compile-time интервал регулярного обновления (секунды).
+static constexpr uint32_t WEATHER_REGULAR_INTERVAL_SEC = 1800u;
+static constexpr uint32_t WEATHER_STALE_AFTER_MS =
+    WEATHER_REGULAR_INTERVAL_SEC * 2u * 1000u;
 
 // Slots stored may exceed what a future Weather Page renders (store more than UI needs).
 // Слотов хранится больше, чем потребуется UI (запас на будущее).
 static constexpr uint8_t WEATHER_HOURLY_SLOTS = 8;  // future hourly strip / будущая почасовая лента
 static constexpr uint8_t WEATHER_DAILY_SLOTS  = 5;  // up to 5 days from 3h forecast / до 5 дней
+
+// W-R3: compact terminal/deferred error for UI derivation — runtime only, not NVS.
+// W-R3: компактная ошибка для вывода UI — только runtime, не NVS.
+enum class WeatherLastError : uint8_t {
+    None = 0,
+    FetchFailed,
+    InternalLow,
+    NotConfigured,
+    NotConnected,
+};
 
 // Single "now" snapshot. For W1 it is filled from the closest forecast point (list[0]).
 // Срез «сейчас». В W1 заполняется ближайшей точкой прогноза (list[0]).
@@ -73,16 +90,26 @@ struct WeatherState {
     WeatherHourly  hourly[WEATHER_HOURLY_SLOTS];
     WeatherDaily   daily[WEATHER_DAILY_SLOTS];
     bool           forecast_valid;        // true once a forecast was parsed at least once
-    bool           stale;                 // reserved for future age-based UI hinting
-    uint32_t       forecast_updated_at;   // millis() at publish time
+    bool           stale;                 // W-R3: set on terminal failure when LKG payload exists
+    uint32_t       forecast_updated_at;   // millis() at last successful payload publish
     int32_t        forecast_tz_sec;       // OWM city.timezone at publish (s); runtime-only, not NVS
-    uint32_t       version;               // monotonic publish counter (0 = never published)
+    bool           fetch_in_progress;     // W-R3: doSync forecast attempt in flight
+    WeatherLastError last_error;          // W-R3: last completed attempt outcome (runtime only)
+    uint32_t       last_attempt_at_ms;    // W-R3: millis() at last begin/complete/defer
+    uint32_t       version;               // monotonic payload publish counter (0 = never published)
 };
 
 // Publish a fully-built state (writer / core weather-sync context only).
 // Double-buffered: copies src into the inactive buffer, then flips atomically.
+// Resets W-R3 runtime fields to Ready semantics (see weather_state.cpp).
 // Публикация готового состояния (только писатель в weather-sync контексте).
 void weatherPublishState(const WeatherState& src);
+
+// W-R3: status-only updates — copy active payload, mutate metadata, publish without version bump.
+// W-R3: только метаданные — копия активного payload, без увеличения version.
+void weatherStateMarkFetchBegin();
+void weatherStateMarkFetchDeferred();
+void weatherStateMarkFetchFailed(WeatherLastError error);
 
 // Lock-free reader snapshot copy (seqlock + double-buffer). Safe from DspTask/LVGL,
 // including cross-core readers on ESP32-S3 (std::atomic acquire/release, no mutex).
