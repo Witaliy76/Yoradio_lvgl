@@ -7,7 +7,9 @@
 #include "netserver.h"
 #include "player.h"
 #include "mqtt.h"
-#include "weather_fetch.h"  // Weather W1: forecast fetch hook (core weather-sync only) / хук прогноза
+#include "weather_fetch.h"       // Weather W1: forecast fetch hook / хук прогноза
+#include "net_dns_resolver.h"     // HF-W-DNS: generic selected-DNS resolver / выбранный DNS-резолвер
+#include "weather_edge_session.h" // HF-W-DNS: per-cycle edge tracking / отслеживание рёбер
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "esp_heap_caps.h"
@@ -49,7 +51,8 @@ MyNetwork network;
 TaskHandle_t syncTaskHandle;
 //TaskHandle_t reconnectTaskHandle;
 
-bool getWeather(char *wstr);
+// HF-W-DNS: edge-session-aware getWeather — called only from doSync.
+bool getWeather(char *wstr, WeatherEdgeSession& edgeSession);
 void doSync(void * pvParameters);
 
 static bool isDoSyncTaskActive() {
@@ -826,13 +829,19 @@ void doSync( void * pvParameters ) {
 #if YORADIO_WEATHER_REQ_DIAG
     Serial.println("[WEATHER_SCHED] run force=1");
 #endif
-    network.trueWeather=getWeather(network.weatherBuf);
+    // HF-W-DNS: one edge session per doSync cycle — cycle-level preferred preserved across
+    // current→forecast; request-level tracking reset between them by beginRequest() inside
+    // weatherFetchForecast. Destroyed when doSync exits; never persistent across cycles.
+    // HF-W-DNS: одна edge-сессия на цикл; cycle-level preserved; request-level сбрасывается.
+    WeatherEdgeSession weatherSession;
+    weatherSession.resetCycle();
+    network.trueWeather=getWeather(network.weatherBuf, weatherSession);
     // Weather W1: forecast fetch in the same weather-sync context (Core 0 doSync), HTTP only,
     // never from UI. Parsing/aggregation lives in weather_fetch.* — not here. Failure is non-fatal
     // (keeps last-known-good WeatherState) and does not affect current weather / status row.
     // Weather W1: прогноз в том же weather-sync контексте (Core 0), HTTP, не из UI.
     // Парсинг/агрегация — в weather_fetch.*; ошибка некритична (last-known-good).
-    (void)weatherFetchForecast(weatherUnits, weatherLang);
+    (void)weatherFetchForecast(weatherUnits, weatherLang, weatherSession);
     s_weather_diag_forced = false;
   } else if (weatherForecastTakePendingOnlyRun()) {
 #if YORADIO_WEATHER_STACK_DIAG
@@ -846,7 +855,12 @@ void doSync( void * pvParameters ) {
                   (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                   (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
 #endif
-    (void)weatherFetchForecast(weatherUnits, weatherLang);
+    // HF-W-DNS: fresh session for pending-only forecast — no preferred from any prior cycle.
+    // System DNS is tried first, then Cloudflare, then Quad9 (same as a cold start).
+    // HF-W-DNS: свежая сессия для pending-only; preferred от предыдущего цикла не используется.
+    WeatherEdgeSession pendingSession;
+    pendingSession.resetCycle();
+    (void)weatherFetchForecast(weatherUnits, weatherLang, pendingSession);
   }
 #if YORADIO_WEATHER_STACK_DIAG
   logDoSyncStackUsage(stack_diag_mode, "exit");
@@ -854,7 +868,23 @@ void doSync( void * pvParameters ) {
   vTaskDelete( NULL );
 }
 
-bool getWeather(char *wstr) {
+// HF-W-DNS: current-weather failure-injection hooks — default OFF in production.
+// Enable locally in src/myoptions.h for runtime acceptance tests only.
+// Включить локально в myoptions.h только для acceptance-тестов.
+#ifndef YORADIO_WEATHER_EDGE_TEST_PRIMARY_CONNECT_FAIL
+#define YORADIO_WEATHER_EDGE_TEST_PRIMARY_CONNECT_FAIL 0
+#endif
+#ifndef YORADIO_WEATHER_EDGE_TEST_PRIMARY_READ_WAIT
+#define YORADIO_WEATHER_EDGE_TEST_PRIMARY_READ_WAIT 0
+#endif
+#ifndef YORADIO_WEATHER_EDGE_TEST_DNS0_FAIL
+#define YORADIO_WEATHER_EDGE_TEST_DNS0_FAIL 0
+#endif
+#ifndef YORADIO_WEATHER_EDGE_TEST_FORCE_DUPLICATE
+#define YORADIO_WEATHER_EDGE_TEST_FORCE_DUPLICATE 0
+#endif
+
+bool getWeather(char *wstr, WeatherEdgeSession& edgeSession) {
 #if !defined(HIDE_WEATHER)
   WiFiClient client;
   const char* host  = "api.openweathermap.org";
@@ -874,71 +904,219 @@ bool getWeather(char *wstr) {
                 weatherUnits, weatherLang);
 #endif
 
-  IPAddress serverIP;
-  uint8_t weatherConnectRetry = 0;
+  // HF-W-DNS: lazy edge-fallback state machine.
+  // System path first; fallback DNS queried only after a qualifying transport failure.
+  // Lazy: Cloudflare/Quad9 запрашиваются только после транспортного сбоя.
+  IPAddress serverIP; // IP of the successfully connected edge — used in legacy diag below
+  bool connected = false;
 
-  // E21W0-B: one fresh-DNS retry on TCP connect fail after DNS ok / один retry connect
-  auto resolveDns = [&](uint8_t retry) -> bool {
-    if (!networkResolveHostForConnect(host, serverIP)) {
-      weather_diag::logFailCompact("dns", t0, retry, nullptr, -1);
-      Serial.println("##WEATHER###: DNS resolve failed");
-      return false;
-    }
-#if YORADIO_WEATHER_DIAG
-    Serial.printf("[WEATHER] dns ok retry=%u ip=%s elapsed_ms=%lu\n",
-                  (unsigned)retry, serverIP.toString().c_str(),
-                  (unsigned long)(millis() - t0));
-#endif
-    return true;
-  };
+  // Build the HTTP request once — it is the same for all edge attempts.
+  // Строим HTTP-запрос один раз — он одинаков для всех попыток.
+  static char httpget[250]; // static → off the doSync stack / static → вне стека doSync
+  snprintf(httpget, sizeof(httpget),
+           "GET /data/2.5/weather?lat=%s&lon=%s&units=%s&lang=%s&appid=%s HTTP/1.1\r\n"
+           "Host: %s\r\nConnection: close\r\n\r\n",
+           config.store.weatherlat, config.store.weatherlon,
+           weatherUnits, weatherLang,
+           config.store.weatherkey, host);
 
-  auto tryConnect = [&](uint8_t retry) -> bool {
-    if (!client.connect(serverIP, 80)) {
+  // ── Attempt loop: system (0), fallback DNS 0 (1), fallback DNS 1 (2) ────────
+  // Maximum 3 TCP attempts; maximum 2 fallback DNS queries.
+  // Максимум 3 TCP-попытки; максимум 2 запроса к fallback DNS.
+  for (uint8_t attemptIdx = 0; attemptIdx < kWeatherEdgeMaxAttempts; ++attemptIdx) {
+    IPAddress edgeIP;
+    const char* sourceName = "system";
+
+    if (attemptIdx == 0) {
+      // ── Attempt source 0: system / router DNS ───────────────────────────────
+      if (!networkResolveHostForConnect(host, edgeIP)) {
+        weather_diag::logFailCompact("dns", t0, 0, nullptr, -1);
+        Serial.println("##WEATHER###: DNS resolve failed");
 #if YORADIO_WEATHER_REQ_DIAG
-      // Capture immediately — later logs may clobber errno / сразу, иначе errno перезапишется
+        Serial.printf("[WEATHER_NET] path=current fail attempt=0 source=system stage=dns\n");
+#endif
+        // Resolution failed — try fallback DNS directly
+        // Резолвинг не прошёл — переходим к fallback DNS
+        continue;
+      }
+      if (edgeSession.wasAttempted(edgeIP)) {
+        // Deduplicate: system IP already tried (shouldn't happen on attempt 0, but safe)
+        continue;
+      }
+      edgeSession.markAttempted(edgeIP);
+#if YORADIO_WEATHER_REQ_DIAG
+      Serial.printf("[WEATHER_NET] path=current attempt=0 source=system ip=%s\n",
+                    edgeIP.toString().c_str());
+#endif
+#if YORADIO_WEATHER_DIAG
+      Serial.printf("[WEATHER] dns ok retry=0 ip=%s elapsed_ms=%lu\n",
+                    edgeIP.toString().c_str(), (unsigned long)(millis() - t0));
+#endif
+    } else {
+      // ── Attempt source 1 or 2: fallback DNS server ──────────────────────────
+      const uint8_t fbIdx = (uint8_t)(attemptIdx - 1u);
+      size_t fbCount = 0;
+      const NetDnsServer* fbServers = netDnsDefaultFallbackServers(fbCount);
+      if (fbIdx >= (uint8_t)fbCount) break; // no more configured fallback servers
+
+      sourceName = fbServers[fbIdx].name;
+
+#if YORADIO_WEATHER_EDGE_TEST_DNS0_FAIL
+      if (fbIdx == 0) {
+        Serial.printf("[WEATHER_NET] path=current dns resolver=%s INJECTED_FAIL\n", sourceName);
+        continue; // simulate DNS0 failure
+      }
+#endif
+
+      // Query this fallback DNS server
+      // Запрашиваем этот fallback DNS-сервер
+      IPAddress candidates[4];
+      size_t candidateCount = 0;
+      const NetDnsQueryStatus dnsStatus = netDnsQueryA(
+          host, fbServers[fbIdx].address,
+          candidates, 4, candidateCount,
+          800u, "weather-current");
+
+#if YORADIO_WEATHER_REQ_DIAG
+      Serial.printf("[WEATHER_NET] path=current dns resolver=%s status=%s candidates=%u\n",
+                    sourceName,
+                    dnsStatus == NetDnsQueryStatus::Success ? "ok" : "fail",
+                    (unsigned)candidateCount);
+#endif
+
+      if (dnsStatus != NetDnsQueryStatus::Success || candidateCount == 0) {
+        continue; // DNS query failed — try next fallback server
+      }
+
+      // Select first candidate not already attempted.
+      // Выбираем первый не пробовавшийся IP.
+      edgeIP = IPAddress(0, 0, 0, 0);
+      for (size_t ci = 0; ci < candidateCount; ++ci) {
+#if YORADIO_WEATHER_EDGE_TEST_FORCE_DUPLICATE
+        if (fbIdx == 0 && ci == 0 && edgeSession.attemptedCount > 0) {
+          // Inject: replace this candidate with the already-attempted system IP so the
+          // real wasAttempted() check below genuinely returns true and skips it.
+          // Инъекция: заменяем кандидата на уже пробованный IP — реальный wasAttempted() срабатывает.
+          const IPAddress injected = edgeSession.attempted[0];
+          Serial.printf("[WEATHER_NET] path=current INJECT_DUPLICATE resolver=%s "
+                        "overridden_ip=%s was=%s\n",
+                        sourceName, injected.toString().c_str(),
+                        candidates[ci].toString().c_str());
+          candidates[ci] = injected;
+          // Fall through → wasAttempted(candidates[ci]) == true → real dedupe path runs.
+        }
+#endif
+        if (!edgeSession.wasAttempted(candidates[ci])) {
+          edgeIP = candidates[ci];
+          break;
+        }
+#if YORADIO_WEATHER_REQ_DIAG
+        Serial.printf("[WEATHER_NET] path=current skip resolver=%s reason=duplicate ip=%s\n",
+                      sourceName, candidates[ci].toString().c_str());
+#endif
+      }
+
+      if (edgeIP == IPAddress(0, 0, 0, 0)) {
+        // All candidates were duplicates — advance to next resolver without TCP attempt
+        continue;
+      }
+      edgeSession.markAttempted(edgeIP);
+#if YORADIO_WEATHER_REQ_DIAG
+      Serial.printf("[WEATHER_NET] path=current attempt=%u source=%s ip=%s\n",
+                    (unsigned)attemptIdx, sourceName, edgeIP.toString().c_str());
+#endif
+    }
+
+    // ── TCP connect ───────────────────────────────────────────────────────────
+    client.stop(); // ensure clean state before each connect
+    serverIP = edgeIP; // preserve for legacy diag functions below
+
+#if YORADIO_WEATHER_EDGE_TEST_PRIMARY_CONNECT_FAIL
+    if (attemptIdx == 0) {
+      Serial.printf("[WEATHER_NET] path=current fail attempt=0 source=system stage=connect INJECTED_FAIL\n");
+      continue; // simulate primary connect failure
+    }
+#endif
+
+    if (!client.connect(edgeIP, 80)) {
+#if YORADIO_WEATHER_REQ_DIAG
       const int connect_errno = errno;
       Serial.printf("[WEATHER] connect fail try=%u errno=%d (%s)\n",
-                    (unsigned)retry, connect_errno, strerror(connect_errno));
+                    (unsigned)attemptIdx, connect_errno, strerror(connect_errno));
+      Serial.printf("[WEATHER_NET] path=current fail attempt=%u source=%s stage=connect ip=%s\n",
+                    (unsigned)attemptIdx, sourceName, edgeIP.toString().c_str());
 #endif
-      return false;
+      continue; // ConnectFailed → try next edge
     }
 #if YORADIO_WEATHER_DIAG
     Serial.printf("[WEATHER] connect ok retry=%u elapsed_ms=%lu\n",
-                  (unsigned)retry, (unsigned long)(millis() - t0));
+                  (unsigned)attemptIdx, (unsigned long)(millis() - t0));
 #endif
-    return true;
-  };
 
-  if (!resolveDns(0)) {
+    // ── Send HTTP request (same for all edges — host header is always the hostname) ──
+    client.print(httpget);
+
+    // ── Wait for first response byte ──────────────────────────────────────────
+    // read_wait timeout before ANY byte → qualifies for next edge rotation.
+    // Таймаут до первого байта → переходим к следующему edge.
+#if YORADIO_WEATHER_EDGE_TEST_PRIMARY_READ_WAIT
+    if (attemptIdx == 0) {
+      Serial.printf("[WEATHER_NET] path=current fail attempt=0 source=system stage=read_wait_before_status INJECTED_FAIL\n");
+      client.stop();
+      continue; // simulate read_wait before status
+    }
+#endif
+
+    {
+      const uint32_t rwStart = millis();
+      bool gotByte = false;
+      while ((uint32_t)(millis() - rwStart) < 2000UL) {
+        if (client.available() > 0) { gotByte = true; break; }
+        delay(1);
+      }
+      if (!gotByte) {
+        // ReadWaitBeforeStatus — no HTTP bytes received → try next edge
+        weather_diag::logFailCompact("read_wait", t0, attemptIdx, &serverIP, httpCode);
+        Serial.println("##WEATHER###: client available timeout !");
+#if YORADIO_WEATHER_REQ_DIAG
+        Serial.printf("[WEATHER_NET] path=current fail attempt=%u source=%s stage=read_wait_before_status ip=%s\n",
+                      (unsigned)attemptIdx, sourceName, edgeIP.toString().c_str());
+#endif
+        client.stop();
+        continue; // ReadWaitBeforeStatus → try next edge
+      }
+    }
+
+    // Bytes arrived — this edge is usable for the response.
+    // Bytes arrived after this point: do NOT rotate on response/parse failures.
+    connected = true;
+    if (attemptIdx > 0) {
+      // Store preferred fallback edge — forecast will try this IP first in the same cycle.
+      // Сохраняем preferred fallback edge — forecast попробует его первым в том же цикле.
+      const uint8_t resolverIdx = (uint8_t)(attemptIdx - 1u);
+      edgeSession.setPreferred(edgeIP, resolverIdx);
+#if YORADIO_WEATHER_REQ_DIAG
+      Serial.printf("[WEATHER_NET] path=current success attempt=%u source=%s ip=%s preferred_set=1\n",
+                    (unsigned)attemptIdx, sourceName, edgeIP.toString().c_str());
+#endif
+    } else {
+#if YORADIO_WEATHER_REQ_DIAG
+      Serial.printf("[WEATHER_NET] path=current success attempt=0 source=system ip=%s\n",
+                    edgeIP.toString().c_str());
+#endif
+    }
+    break; // proceed to response parsing
+  }
+
+  if (!connected) {
+    weather_diag::logFailCompact("connect", t0, kWeatherEdgeMaxAttempts, &serverIP, -1);
+    Serial.println("##WEATHER###: connection  failed");
     return false;
   }
-  if (!tryConnect(0)) {
-    client.stop();
-    Serial.println("[WEATHER] retry reason=connect_fail retry=1");
-    if (!resolveDns(1)) {
-      return false;
-    }
-    weatherConnectRetry = 1;
-    if (!tryConnect(1)) {
-      weather_diag::logFailCompact("connect", t0, 1, &serverIP, -1);
-      Serial.println("##WEATHER###: connection  failed");
-      return false;
-    }
-  }
 
-  char httpget[250] = {0};
-  sprintf(httpget, "GET /data/2.5/weather?lat=%s&lon=%s&units=%s&lang=%s&appid=%s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n", config.store.weatherlat, config.store.weatherlon, weatherUnits, weatherLang, config.store.weatherkey, host);
-  client.print(httpget);
+  // ── Response parse — unchanged from baseline; client has bytes available ──
+  // Парсинг ответа — без изменений; client содержит доступные байты.
   unsigned long timeout = millis();
-  while (client.available() == 0) {
-    if (millis() - timeout > 2000UL) {
-      weather_diag::logFailCompact("read_wait", t0, weatherConnectRetry, &serverIP, httpCode);
-      Serial.println("##WEATHER###: client available timeout !");
-      client.stop();
-      return false;
-    }
-  }
-  timeout = millis();
   String line = "";
   if (client.connected()) {
     while (client.available())
@@ -963,14 +1141,14 @@ bool getWeather(char *wstr) {
       if ((millis() - timeout) > 500)
       {
         client.stop();
-        weather_diag::logFailCompact("read", t0, weatherConnectRetry, &serverIP, httpCode);
+        weather_diag::logFailCompact("read", t0, 0, &serverIP, httpCode);
         Serial.println("##WEATHER###: client read timeout !");
         return false;
       }
     }
   }
   if (strstr(line.c_str(), "\"temp\"") == NULL) {
-    weather_diag::logFailCompact("http_body", t0, weatherConnectRetry, &serverIP, httpCode);
+    weather_diag::logFailCompact("http_body", t0, 0, &serverIP, httpCode);
 #if YORADIO_WEATHER_DIAG
     weather_diag::logBodyPrefix(line.c_str());
 #endif
@@ -1001,7 +1179,7 @@ bool getWeather(char *wstr) {
 #else
     (void)field;
     (void)bodyBytes;
-    weather_diag::logFailCompact("parse", t0, weatherConnectRetry, &serverIP, httpCode);
+    weather_diag::logFailCompact("parse", t0, 0, &serverIP, httpCode);
 #endif
     Serial.println(legacyMsg);
     return false;

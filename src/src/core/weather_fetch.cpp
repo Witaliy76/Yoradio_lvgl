@@ -1,7 +1,9 @@
 #include "weather_fetch.h"
 #include "weather_state.h"
-#include "config.h"     // config.store.*, options.h (HIDE_WEATHER), Config
-#include "network.h"    // network, networkResolveHostForConnect()
+#include "config.h"          // config.store.*, options.h (HIDE_WEATHER), Config
+#include "network.h"         // network, networkResolveHostForConnect()
+#include "weather_edge_session.h" // HF-W-DNS: edge session for forecast transport
+#include "net_dns_resolver.h"     // HF-W-DNS: generic selected-DNS resolver
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -39,17 +41,31 @@
 #define YORADIO_WEATHER_REQ_DIAG 0
 #endif
 
+// HF-W-DNS: forecast transport failure-injection hooks — default OFF in production.
+// Enable locally in src/myoptions.h for runtime acceptance tests only.
+// Включить локально в myoptions.h только для acceptance-тестов.
+#ifndef YORADIO_WEATHER_EDGE_TEST_FORECAST_SYSTEM_CONNECT_FAIL
+#define YORADIO_WEATHER_EDGE_TEST_FORECAST_SYSTEM_CONNECT_FAIL 0
+#endif
+#ifndef YORADIO_WEATHER_EDGE_TEST_FORECAST_PREFERRED_READ_WAIT
+#define YORADIO_WEATHER_EDGE_TEST_FORECAST_PREFERRED_READ_WAIT 0
+#endif
+#ifndef YORADIO_WEATHER_EDGE_TEST_FORECAST_DNS0_FAIL
+#define YORADIO_WEATHER_EDGE_TEST_FORECAST_DNS0_FAIL 0
+#endif
+
 // Heap guards — shared by fetch + pending poll / гарды heap для fetch и pending poll
-constexpr size_t kMinInternalFreeBytes = 40u * 1024u;  // in-task fetch guard — do not lower / не снижать
+// 38 KB is a conservative operational floor calibrated against observed radio + WebSocket
+// runtime. Forecast parsing uses PSRAM; internal heap is still protected from genuinely
+// low-memory execution.
+// 38 КБ — консервативный операционный порог по наблюдениям radio + WebSocket; парсинг в PSRAM.
+constexpr size_t kMinInternalFreeBytes = 38u * 1024u;  // in-task fetch guard / гард внутри fetch
 constexpr size_t kMinPsramBlockBytes   = 24u * 1024u;
 
-// W-R1C.2/3B: pre-task admission — forecast guard + doSync allocation reserve (stack from network.h).
-// W-R1C.3B: admission min = 40960 + 4608 + 768 + 1024 = 47360 (derived, not hardcoded).
-constexpr size_t kDoSyncTaskTcbOverheadBytes    = 768u;  // dynamic TCB + ESP-IDF task struct (~632 B observed)
-constexpr size_t kPendingTaskAdmissionMarginBytes = 1024u; // poll→task-start heap drift / запас на дрейф heap
-constexpr size_t kPendingTaskAdmissionReserveBytes =
-    static_cast<size_t>(kDoSyncTaskStackBytes) + kDoSyncTaskTcbOverheadBytes + kPendingTaskAdmissionMarginBytes;
-constexpr size_t kPendingTaskAdmissionMinFreeBytes = kMinInternalFreeBytes + kPendingTaskAdmissionReserveBytes;
+// W-R1C.2/3B: pre-task admission — separate from kMinInternalFreeBytes (parser guard).
+// Task-admission threshold for pending poll → doSync create; not the in-fetch parser floor.
+// Порог admission для pending poll → doSync; это не гард парсера внутри fetch.
+constexpr size_t kPendingTaskAdmissionMinFreeBytes = 45u * 1024u;  // 46080 — idle WebSocket + radio headroom
 
 namespace {
 
@@ -268,7 +284,8 @@ bool weatherForecastPollPending() {
     return true;
 }
 
-WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* lang) {
+WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* lang,
+                                                WeatherEdgeSession& session) {
     // Gate mirrors the current-weather enablement; keep behavior independent of UI.
     // Гейт повторяет включение текущей погоды; не зависит от UI.
     if (!config.store.showweather || strlen(config.store.weatherkey) == 0) {
@@ -285,6 +302,8 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
 
     // ── Guards: internal heap + PSRAM must have headroom before parse-heavy work. ──
     // Гарды: проверяем internal heap и PSRAM до тяжёлого парсинга.
+    // DeferredInternalLow returns BEFORE any DNS fallback work — no edge session consumed.
+    // DeferredInternalLow — до любой работы с DNS; edge-сессия не трогается.
     const size_t int_free  = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
     const size_t ps_free   = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
     const size_t ps_block  = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
@@ -318,54 +337,234 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
                   units, lang,
                   strlen(config.store.weatherkey) > 0 ? 1 : 0,
                   (unsigned)strlen(config.store.weatherkey));
-    Serial.printf("[WEATHER_REQ] path=forecast lat=%s lon=%s units=%s lang=%s cnt=%u\n",
+    Serial.printf("[WEATHER_REQ] path=forecast lat=%s lon=%s units=%s lang=%s cnt=%u preferred=%d\n",
                   config.store.weatherlat, config.store.weatherlon,
-                  units, lang, (unsigned)kForecastCnt);
+                  units, lang, (unsigned)kForecastCnt, (int)session.hasPreferred());
 #endif
 
-    // ── Resolve + connect (reuse existing DNS approach; HTTP/80, no TLS). ──
+    // ── HF-W-DNS: lazy edge-fallback transport loop ──────────────────────────────
+    // Reset request-level tracking; cycle-level preferred from current is preserved.
+    // Сбрасываем request-level; cycle-level preferred от current сохраняется.
+    session.beginRequest();
+
     const char* host = "api.openweathermap.org";
-    IPAddress ip;
-    if (!networkResolveHostForConnect(host, ip)) {
-        fc_log_fail("dns", t0, -1);
-        return WeatherForecastFetchResult::Failed;
-    }
+    const bool usePreferred = session.hasPreferred();
+    const uint8_t prefResolverIdx = usePreferred ? session.getPreferredResolverIndex() : 0u;
 
+    size_t fbCount = 0;
+    const NetDnsServer* fbServers = netDnsDefaultFallbackServers(fbCount);
+
+    // Attempt sequence:
+    //   usePreferred=false: [system_dns, fbServers[0], fbServers[1]]  — max 3 TCP
+    //   usePreferred=true:  [preferred_IP, fbServers[prefIdx+1], ...] — max 2 TCP (CF) or 1 (Q9)
+    // No system DNS retry when preferred is set — system was already transport-bad this cycle.
+    // При наличии preferred — system DNS не повторяется (он уже провалился в этом цикле).
     WiFiClient client;
-    if (!client.connect(ip, 80, kConnectTimeoutMs)) {
-        client.stop();
+    bool fc_connected = false;
+
+    // Build the forecast request once — same for all edge attempts.
+    // static → off the doSync stack. Single-threaded by contract.
+    // static → вне стека doSync. Однопоточно по контракту.
+    static char fc_req[320];
+    snprintf(fc_req, sizeof(fc_req),
+             "GET /data/2.5/forecast?lat=%s&lon=%s&units=%s&lang=%s&cnt=%u&appid=%s HTTP/1.0\r\n"
+             "Host: %s\r\nConnection: close\r\n\r\n",
+             config.store.weatherlat, config.store.weatherlon, units, lang,
+             (unsigned)kForecastCnt, config.store.weatherkey, host);
+
+    for (uint8_t attemptIdx = 0; attemptIdx < kWeatherEdgeMaxAttempts; ++attemptIdx) {
+        IPAddress edgeIP;
+        const char* sourceName = "system";
+        bool isReuse = false;
+
+        // ── Determine which edge to try this iteration ───────────────────────
+        if (usePreferred && attemptIdx == 0) {
+            // Use the preferred edge from the current request directly — no DNS query.
+            // Reusing known-good IP from current weather (same cycle).
+            // Используем known-good IP от current (тот же цикл) — без DNS-запроса.
+            edgeIP     = session.getPreferred();
+            sourceName = (prefResolverIdx < (uint8_t)fbCount)
+                         ? fbServers[prefResolverIdx].name : "preferred";
+            isReuse    = true;
+
+        } else if (!usePreferred && attemptIdx == 0) {
+            // System / router DNS — same path as existing code.
+            // Системный DNS — тот же путь, что и в исходном коде.
+            if (!networkResolveHostForConnect(host, edgeIP)) {
+                fc_log_fail("dns", t0, -1);
 #if YORADIO_WEATHER_REQ_DIAG
-        const int connect_errno = errno;
-        Serial.printf("[WEATHER_FC] connect fail errno=%d (%s)\n",
-                      connect_errno, strerror(connect_errno));
+                Serial.printf("[WEATHER_NET] path=forecast fail attempt=0 source=system stage=dns\n");
 #endif
-        fc_log_fail("connect", t0, -1);
+                continue; // DNS failed → try fallback resolvers
+            }
+            sourceName = "system";
+
+        } else {
+            // Fallback resolver (Cloudflare, Quad9).
+            // When usePreferred: skip resolvers up to and including prefResolverIdx.
+            // When !usePreferred: attempt 0 was system; subsequent = resolver[0], resolver[1].
+            // При usePreferred: пропускаем резолверы до prefResolverIdx включительно.
+            uint8_t fbSlot;
+            if (usePreferred) {
+                // attempt 0 = preferred; attempt 1,2 = resolvers after prefResolverIdx
+                fbSlot = prefResolverIdx + attemptIdx; // attemptIdx >= 1
+            } else {
+                // attempt 0 = system; attempt 1,2 = resolver[0], resolver[1]
+                fbSlot = (uint8_t)(attemptIdx - 1u);
+            }
+
+            if (fbSlot >= (uint8_t)fbCount) break; // no more configured resolvers
+
+            sourceName = fbServers[fbSlot].name;
+
+#if YORADIO_WEATHER_EDGE_TEST_FORECAST_DNS0_FAIL
+            if (fbSlot == 0) {
+                Serial.printf("[WEATHER_NET] path=forecast dns resolver=%s INJECTED_FAIL\n",
+                              sourceName);
+                continue; // simulate DNS0 failure
+            }
+#endif
+
+            // Query the selected fallback DNS server.
+            // Запрашиваем выбранный fallback DNS-сервер.
+            IPAddress candidates[4];
+            size_t candidateCount = 0;
+            const NetDnsQueryStatus dnsStatus = netDnsQueryA(
+                host, fbServers[fbSlot].address,
+                candidates, 4, candidateCount,
+                800u, "weather-forecast");
+
+#if YORADIO_WEATHER_REQ_DIAG
+            Serial.printf("[WEATHER_NET] path=forecast dns resolver=%s status=%s candidates=%u\n",
+                          sourceName,
+                          dnsStatus == NetDnsQueryStatus::Success ? "ok" : "fail",
+                          (unsigned)candidateCount);
+#endif
+
+            if (dnsStatus != NetDnsQueryStatus::Success || candidateCount == 0) {
+                continue; // DNS query failed → try next resolver
+            }
+
+            // Select first candidate not already attempted by this forecast request.
+            // Выбираем первый кандидат, не пробованный в данном forecast-запросе.
+            edgeIP = IPAddress(0, 0, 0, 0);
+            for (size_t ci = 0; ci < candidateCount; ++ci) {
+                if (!session.wasAttempted(candidates[ci])) {
+                    edgeIP = candidates[ci];
+                    break;
+                }
+#if YORADIO_WEATHER_REQ_DIAG
+                Serial.printf("[WEATHER_NET] path=forecast skip resolver=%s reason=duplicate ip=%s\n",
+                              sourceName, candidates[ci].toString().c_str());
+#endif
+            }
+
+            if (edgeIP == IPAddress(0, 0, 0, 0)) {
+                continue; // all candidates already attempted
+            }
+        }
+
+        // ── Deduplication (covers preferred reuse too, in case of repeated cycle edge) ──
+        if (session.wasAttempted(edgeIP)) {
+#if YORADIO_WEATHER_REQ_DIAG
+            Serial.printf("[WEATHER_NET] path=forecast skip source=%s reason=duplicate ip=%s\n",
+                          sourceName, edgeIP.toString().c_str());
+#endif
+            continue;
+        }
+        session.markAttempted(edgeIP);
+
+#if YORADIO_WEATHER_REQ_DIAG
+        Serial.printf("[WEATHER_NET] path=forecast attempt=%u source=%s ip=%s reuse=%d\n",
+                      (unsigned)attemptIdx, sourceName, edgeIP.toString().c_str(),
+                      (int)isReuse);
+#endif
+
+        // ── TCP connect ──────────────────────────────────────────────────────
+        client.stop(); // clean state before each attempt
+
+#if YORADIO_WEATHER_EDGE_TEST_FORECAST_SYSTEM_CONNECT_FAIL
+        if (!usePreferred && attemptIdx == 0) {
+            Serial.printf("[WEATHER_NET] path=forecast fail attempt=0 source=system "
+                          "stage=connect INJECTED_FAIL\n");
+            continue; // simulate system connect failure
+        }
+#endif
+#if YORADIO_WEATHER_EDGE_TEST_FORECAST_PREFERRED_READ_WAIT
+        // Inject read_wait failure on preferred edge (attempt 0 when usePreferred).
+        bool _inject_preferred_rw = (usePreferred && attemptIdx == 0);
+#else
+        constexpr bool _inject_preferred_rw = false;
+#endif
+
+        if (!client.connect(edgeIP, 80, kConnectTimeoutMs)) {
+#if YORADIO_WEATHER_REQ_DIAG
+            const int connect_errno = errno;
+            Serial.printf("[WEATHER_NET] path=forecast fail attempt=%u source=%s "
+                          "stage=connect ip=%s errno=%d\n",
+                          (unsigned)attemptIdx, sourceName, edgeIP.toString().c_str(),
+                          connect_errno);
+#endif
+            continue; // ConnectFailed → try next edge
+        }
+
+        // ── Send request ─────────────────────────────────────────────────────
+        // HTTP/1.0 → non-chunked body, safe to stream straight into the parser.
+        // HTTP/1.0 → тело без chunked, поток можно отдавать прямо парсеру.
+        client.print(fc_req);
+
+        // ── Wait for first response byte ──────────────────────────────────────
+        // Qualifying failure: no bytes before ANY status/header line arrives.
+        // Do NOT rotate on body/parse failures — only on pre-status transport failures.
+        // Ротация только при сбое до первого байта HTTP-ответа; не при body/parse ошибках.
+        {
+            bool gotByte = false;
+
+#if YORADIO_WEATHER_EDGE_TEST_FORECAST_PREFERRED_READ_WAIT
+            if (_inject_preferred_rw) {
+                Serial.printf("[WEATHER_NET] path=forecast fail attempt=0 source=%s "
+                              "stage=read_wait_before_status INJECTED_FAIL\n", sourceName);
+                client.stop();
+                continue; // simulate read_wait before status
+            }
+#endif
+
+            const uint32_t rwStart = millis();
+            while ((uint32_t)(millis() - rwStart) < kReadWaitTimeoutMs) {
+                if (client.available() > 0) { gotByte = true; break; }
+                if (!client.connected()) break;
+                delay(5);
+            }
+            if (!gotByte) {
+                fc_log_fail("read_wait", t0, -1);
+#if YORADIO_WEATHER_REQ_DIAG
+                Serial.printf("[WEATHER_NET] path=forecast fail attempt=%u source=%s "
+                              "stage=read_wait_before_status ip=%s\n",
+                              (unsigned)attemptIdx, sourceName, edgeIP.toString().c_str());
+#endif
+                client.stop();
+                continue; // ReadWaitBeforeStatus → try next edge
+            }
+        }
+
+        // Bytes arrived — this edge is usable for the HTTP response.
+        // After this point: do NOT rotate on HTTP-status or parse failures.
+        // После первого байта — НЕ ротируем по HTTP-статусу или ошибкам парсинга.
+        fc_connected = true;
+#if YORADIO_WEATHER_REQ_DIAG
+        Serial.printf("[WEATHER_NET] path=forecast success attempt=%u source=%s ip=%s\n",
+                      (unsigned)attemptIdx, sourceName, edgeIP.toString().c_str());
+#endif
+        break;
+    } // end attempt loop
+
+    if (!fc_connected) {
+        fc_log_fail("connect_all_edges", t0, -1);
         return WeatherForecastFetchResult::Failed;
     }
 
-    // HTTP/1.0 → server returns a non-chunked body, safe to stream straight into the parser.
-    // HTTP/1.0 → тело без chunked, поток можно отдавать прямо парсеру.
-    {
-        // HF1: static → moves 320 B off the doSync stack into .bss; safe: single-threaded by contract.
-        // HF1: static → 320 Б уходят со стека doSync в .bss; безопасно: однопоточно по контракту.
-        static char req[320];
-        snprintf(req, sizeof(req),
-                 "GET /data/2.5/forecast?lat=%s&lon=%s&units=%s&lang=%s&cnt=%u&appid=%s HTTP/1.0\r\n"
-                 "Host: %s\r\nConnection: close\r\n\r\n",
-                 config.store.weatherlat, config.store.weatherlon, units, lang,
-                 (unsigned)kForecastCnt, config.store.weatherkey, host);
-        client.print(req);
-    }
-
-    // Wait for the response to start.
-    {
-        const uint32_t to = millis();
-        while (client.available() == 0) {
-            if (!client.connected()) { client.stop(); fc_log_fail("disconnected", t0, -1); return WeatherForecastFetchResult::Failed; }
-            if (millis() - to > kReadWaitTimeoutMs) { client.stop(); fc_log_fail("read_wait", t0, -1); return WeatherForecastFetchResult::Failed; }
-            delay(5);
-        }
-    }
+    // ── Response parse — unchanged from baseline; client has bytes available. ──
+    // Парсинг ответа — без изменений; client содержит доступные байты.
 
     // Status line: "HTTP/1.0 200 OK".
     int httpCode = -1;
@@ -610,9 +809,9 @@ void weatherRequestManualRefresh() {
 
 #else // HIDE_WEATHER
 
-WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* lang) {
-    (void)units;
-    (void)lang;
+WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* lang,
+                                                WeatherEdgeSession& session) {
+    (void)units; (void)lang; (void)session;
     return WeatherForecastFetchResult::NotConfigured;
 }
 

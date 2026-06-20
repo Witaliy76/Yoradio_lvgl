@@ -36,7 +36,15 @@ enum class WeatherForecastFetchResult : uint8_t {
     Failed,               // network/HTTP/parse/other guard / сеть/HTTP/parse/другой гард
 };
 
-WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* lang);
+// HF-W-DNS: forward declaration only — full include in weather_fetch.cpp.
+// Using a reference to WeatherEdgeSession does not require complete type in the header.
+struct WeatherEdgeSession;
+
+// session carries cycle-level preferred edge (from current weather) and is used for
+// request-level deduplication inside the forecast transport loop.
+// session несёт cycle-level preferred (от current) и request-level дедупликацию в transport loop.
+WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* lang,
+                                                WeatherEdgeSession& session);
 
 /*
  * A2b: request an async weather refresh from UI or other non-network tasks.

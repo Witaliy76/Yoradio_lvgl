@@ -65,6 +65,12 @@ extern MyNetwork network;
 
 bool networkResolveHostForConnect(const char* host, IPAddress& out, uint32_t timeoutMs = 5000);
 
+// HF-W-DNS: edge-session-aware getWeather — defined in network.cpp, called only from doSync.
+// Forward declaration only; full include lives in network.cpp.
+// Только forward declaration; полный include — в network.cpp.
+struct WeatherEdgeSession;
+bool getWeather(char *wstr, WeatherEdgeSession& edgeSession);
+
 extern __attribute__((weak)) void network_on_connect();
 
 #endif
