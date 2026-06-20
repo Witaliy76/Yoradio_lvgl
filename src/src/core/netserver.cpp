@@ -827,6 +827,7 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
       }
       if (strcmp(cmd, "lat") == 0) {
         config.saveValue(config.store.weatherlat, val, 10, false);
+        network.trueWeather = false;
 #if YORADIO_WEATHER_REQ_DIAG
         Serial.printf("[WEATHER_CFG] save field=lat value=\"%s\"\n", val);
         Serial.printf("[WEATHER_CFG] stored lat=\"%s\" lon=\"%s\"\n",
@@ -836,6 +837,7 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
       }
       if (strcmp(cmd, "lon") == 0) {
         config.saveValue(config.store.weatherlon, val, 10, false);
+        network.trueWeather = false;
 #if YORADIO_WEATHER_REQ_DIAG
         Serial.printf("[WEATHER_CFG] save field=lon value=\"%s\"\n", val);
         Serial.printf("[WEATHER_CFG] stored lat=\"%s\" lon=\"%s\"\n",
@@ -852,9 +854,14 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
       // W-R1C: final Apply signal — one refresh after lat/lon/key saved; no HTTP here.
       // W-R1C: финальный сигнал Apply — один refresh после сохранения lat/lon/key; HTTP не здесь.
       if (strcmp(cmd, "weatherapply") == 0) {
-        network.forceWeatherRefreshFromUi();
+        // Guard: no fetch arm without a persisted API key (coords-only Apply is rejected in WebUI).
+        // Защита: не arm-ить fetch без сохранённого API-ключа.
+        if (config.store.showweather && strlen(config.store.weatherkey) > 0) {
+          network.forceWeatherRefreshFromUi();
+        }
 #if YORADIO_WEATHER_REQ_DIAG
-        Serial.printf("[WEATHER_CFG] apply refresh_requested=1 lat=\"%s\" lon=\"%s\"\n",
+        Serial.printf("[WEATHER_CFG] apply refresh_requested=%d lat=\"%s\" lon=\"%s\"\n",
+                      (config.store.showweather && strlen(config.store.weatherkey) > 0) ? 1 : 0,
                       config.store.weatherlat, config.store.weatherlon);
 #endif
         return;
