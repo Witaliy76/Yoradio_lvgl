@@ -849,6 +849,16 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
         display.putRequest(REFRESH_MAIN);
         return;
       }
+      // W-R1C: final Apply signal — one refresh after lat/lon/key saved; no HTTP here.
+      // W-R1C: финальный сигнал Apply — один refresh после сохранения lat/lon/key; HTTP не здесь.
+      if (strcmp(cmd, "weatherapply") == 0) {
+        network.forceWeatherRefreshFromUi();
+#if YORADIO_WEATHER_REQ_DIAG
+        Serial.printf("[WEATHER_CFG] apply refresh_requested=1 lat=\"%s\" lon=\"%s\"\n",
+                      config.store.weatherlat, config.store.weatherlon);
+#endif
+        return;
+      }
       // AI settings commands / Команды настроек AI
       if (strcmp(cmd, "ai_enabled") == 0) {
         AIConfig aicfg;

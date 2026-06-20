@@ -553,12 +553,13 @@ function buttonClick(){
   let target=this.getAttribute('data-name');
   switch (target) {
     case "applyweather":
+      websocket.send("lat="+document.getElementById("weatherlat").value);
+      websocket.send("lon="+document.getElementById("weatherlon").value);
       let key=document.getElementById("weatherkey").value;
       if(key!=""){
-        websocket.send("lat="+document.getElementById("weatherlat").value);
-        websocket.send("lon="+document.getElementById("weatherlon").value);
         websocket.send("key="+key);
       }
+      websocket.send("weatherapply=1");
       break;
     case "applyai":
       websocket.send("ai_enabled="+(document.getElementById("ai_enabled").classList.contains("on")?1:0));

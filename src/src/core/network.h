@@ -11,6 +11,10 @@
 #define TSYNC_DELAY       3600000     // 1000*60*60   = 1 hour
 #define WEATHER_STRING_L  254
 
+// W-R1C.2/3B: doSync FreeRTOS stack — bytes (ESP-IDF xTaskCreatePinnedToCore API).
+// W-R1C.3B: 4608 B from W-R1C.3A high-water (max_used=3496, reserve≈1112).
+constexpr uint32_t kDoSyncTaskStackBytes = 4608u;
+
 enum n_Status_e { CONNECTED, SOFT_AP, FAILED, SDREADY };
 
 class MyNetwork {

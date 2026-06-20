@@ -39,13 +39,23 @@
 #define YORADIO_WEATHER_REQ_DIAG 0
 #endif
 
+// Heap guards — shared by fetch + pending poll / гарды heap для fetch и pending poll
+constexpr size_t kMinInternalFreeBytes = 40u * 1024u;  // in-task fetch guard — do not lower / не снижать
+constexpr size_t kMinPsramBlockBytes   = 24u * 1024u;
+
+// W-R1C.2/3B: pre-task admission — forecast guard + doSync allocation reserve (stack from network.h).
+// W-R1C.3B: admission min = 40960 + 4608 + 768 + 1024 = 47360 (derived, not hardcoded).
+constexpr size_t kDoSyncTaskTcbOverheadBytes    = 768u;  // dynamic TCB + ESP-IDF task struct (~632 B observed)
+constexpr size_t kPendingTaskAdmissionMarginBytes = 1024u; // poll→task-start heap drift / запас на дрейф heap
+constexpr size_t kPendingTaskAdmissionReserveBytes =
+    static_cast<size_t>(kDoSyncTaskStackBytes) + kDoSyncTaskTcbOverheadBytes + kPendingTaskAdmissionMarginBytes;
+constexpr size_t kPendingTaskAdmissionMinFreeBytes = kMinInternalFreeBytes + kPendingTaskAdmissionReserveBytes;
+
 namespace {
 
 // ── Tunables / Параметры ──────────────────────────────────────────────────────
 constexpr uint8_t  kForecastCnt          = 24;          // 24 × 3h = 72h (≈3 days)
 constexpr uint16_t kMaxForecastPoints    = 48;          // hard cap on parsed points
-constexpr size_t   kMinInternalFreeBytes = 40u * 1024u; // keep internal headroom (WiFiClient/TLS-AI/etc.)
-constexpr size_t   kMinPsramBlockBytes   = 24u * 1024u; // require a usable PSRAM arena
 constexpr uint32_t kConnectTimeoutMs     = 5000;
 constexpr uint32_t kReadWaitTimeoutMs    = 4000;
 
@@ -185,14 +195,87 @@ size_t read_line(WiFiClient& client, char* buf, size_t cap, uint32_t timeoutMs) 
 
 } // namespace
 
-bool weatherFetchForecast(const char* units, const char* lang) {
-    // Gate mirrors the current-weather enablement; keep behavior independent of UI.
-    // Гейт повторяет включение текущей погоды; не зависит от UI.
+// W-R1C.1: pending forecast state — file .bss, Core0/doSync path only (not WebUI/LVGL).
+// W-R1C.1: состояние отложенного прогноза — .bss, только Core0/doSync.
+static bool     s_fc_pending = false;
+static uint32_t s_fc_pending_check_ms = 0;
+static bool     s_fc_pending_only_run = false;
+constexpr uint32_t kPendingCheckIntervalMs = 5000;
+
+void weatherForecastMarkPending() {
+    s_fc_pending = true;
+}
+
+bool weatherForecastIsPending() {
+    return s_fc_pending;
+}
+
+bool weatherForecastTakePendingOnlyRun() {
+    if (!s_fc_pending_only_run) {
+        return false;
+    }
+    s_fc_pending_only_run = false;
+    return true;
+}
+
+void weatherForecastDiscardPendingOnlyArm() {
+    s_fc_pending_only_run = false;
+}
+
+// ticks() path: rate-limited heap poll; arms forecast-only doSync when admission passes.
+// ticks(): опрос heap с cooldown; arm только при прохождении admission-порога.
+bool weatherForecastPollPending() {
+    if (!s_fc_pending) {
+        return false;
+    }
     if (!config.store.showweather || strlen(config.store.weatherkey) == 0) {
         return false;
     }
     if (network.status != CONNECTED) {
         return false;
+    }
+
+    const uint32_t now = millis();
+    if ((uint32_t)(now - s_fc_pending_check_ms) < kPendingCheckIntervalMs) {
+        return false;
+    }
+
+    const size_t int_free  = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    const size_t int_block = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+    const size_t ps_free   = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    const size_t ps_block  = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
+
+    s_fc_pending_check_ms = now;
+
+    if (ps_free == 0 || ps_block < kMinPsramBlockBytes) {
+        return false;
+    }
+
+    if (int_free < kPendingTaskAdmissionMinFreeBytes ||
+        int_block < static_cast<size_t>(kDoSyncTaskStackBytes)) {
+#if YORADIO_WEATHER_REQ_DIAG
+        Serial.printf("[WEATHER_FC] pending wait reason=admission_low int_free=%u required=%u int_block=%u\n",
+                      (unsigned)int_free, (unsigned)kPendingTaskAdmissionMinFreeBytes, (unsigned)int_block);
+#endif
+        return false;
+    }
+
+    s_fc_pending_only_run = true;
+#if YORADIO_WEATHER_REQ_DIAG
+    Serial.printf("[WEATHER_FC] pending armed int_free=%u required=%u\n",
+                  (unsigned)int_free, (unsigned)kPendingTaskAdmissionMinFreeBytes);
+#endif
+    return true;
+}
+
+WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* lang) {
+    // Gate mirrors the current-weather enablement; keep behavior independent of UI.
+    // Гейт повторяет включение текущей погоды; не зависит от UI.
+    if (!config.store.showweather || strlen(config.store.weatherkey) == 0) {
+        return WeatherForecastFetchResult::NotConfigured;
+    }
+    if (network.status != CONNECTED) {
+        return WeatherForecastFetchResult::NotConnected;
     }
     if (!units) units = "metric";
     if (!lang)  lang  = "en";
@@ -207,11 +290,25 @@ bool weatherFetchForecast(const char* units, const char* lang) {
     const size_t ps_block  = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
     if (ps_free == 0 || ps_block < kMinPsramBlockBytes) {
         fc_log_skip("psram_low", int_free, ps_free, ps_block);
-        return false; // keep last-known-good
+        return WeatherForecastFetchResult::Failed; // keep last-known-good
     }
     if (int_free < kMinInternalFreeBytes) {
-        fc_log_skip("internal_low", int_free, ps_free, ps_block);
-        return false; // keep last-known-good
+        weatherForecastMarkPending();
+#if YORADIO_WEATHER_REQ_DIAG
+        Serial.printf("[WEATHER_FC] defer reason=internal_low pending=1 int_free=%u int_block=%u\n",
+                      (unsigned)int_free,
+                      (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+#endif
+        return WeatherForecastFetchResult::DeferredInternalLow;
+    }
+
+    // Real attempt starting — clear pending before network/parse work.
+    // Реальная попытка — сбрасываем pending до сети/парсинга.
+    if (s_fc_pending) {
+#if YORADIO_WEATHER_REQ_DIAG
+        Serial.println("[WEATHER_FC] pending cleared reason=attempt_started");
+#endif
+        s_fc_pending = false;
     }
 
 #if YORADIO_WEATHER_REQ_DIAG
@@ -231,7 +328,7 @@ bool weatherFetchForecast(const char* units, const char* lang) {
     IPAddress ip;
     if (!networkResolveHostForConnect(host, ip)) {
         fc_log_fail("dns", t0, -1);
-        return false;
+        return WeatherForecastFetchResult::Failed;
     }
 
     WiFiClient client;
@@ -243,7 +340,7 @@ bool weatherFetchForecast(const char* units, const char* lang) {
                       connect_errno, strerror(connect_errno));
 #endif
         fc_log_fail("connect", t0, -1);
-        return false;
+        return WeatherForecastFetchResult::Failed;
     }
 
     // HTTP/1.0 → server returns a non-chunked body, safe to stream straight into the parser.
@@ -264,8 +361,8 @@ bool weatherFetchForecast(const char* units, const char* lang) {
     {
         const uint32_t to = millis();
         while (client.available() == 0) {
-            if (!client.connected()) { client.stop(); fc_log_fail("disconnected", t0, -1); return false; }
-            if (millis() - to > kReadWaitTimeoutMs) { client.stop(); fc_log_fail("read_wait", t0, -1); return false; }
+            if (!client.connected()) { client.stop(); fc_log_fail("disconnected", t0, -1); return WeatherForecastFetchResult::Failed; }
+            if (millis() - to > kReadWaitTimeoutMs) { client.stop(); fc_log_fail("read_wait", t0, -1); return WeatherForecastFetchResult::Failed; }
             delay(5);
         }
     }
@@ -281,7 +378,7 @@ bool weatherFetchForecast(const char* units, const char* lang) {
     if (httpCode != 200) {
         client.stop();
         fc_log_fail("http", t0, httpCode);
-        return false;
+        return WeatherForecastFetchResult::Failed;
     }
 
     // Skip headers until the blank separator line.
@@ -297,7 +394,7 @@ bool weatherFetchForecast(const char* units, const char* lang) {
             // Could not find header terminator → bail without publishing.
             client.stop();
             fc_log_fail("headers", t0, httpCode);
-            return false;
+            return WeatherForecastFetchResult::Failed;
         }
     }
 
@@ -337,13 +434,13 @@ bool weatherFetchForecast(const char* units, const char* lang) {
 
     if (derr) {
         fc_log_parse_fail(derr.c_str(), t0, httpCode);
-        return false; // keep last-known-good
+        return WeatherForecastFetchResult::Failed; // keep last-known-good
     }
 
     JsonArray list = doc["list"].as<JsonArray>();
     if (list.isNull() || list.size() == 0) {
         fc_log_fail("empty_list", t0, httpCode);
-        return false;
+        return WeatherForecastFetchResult::Failed;
     }
     const int32_t tz = doc["city"]["timezone"] | 0;
 
@@ -472,7 +569,7 @@ bool weatherFetchForecast(const char* units, const char* lang) {
 
     if (point_count == 0) {
         fc_log_fail("no_points", t0, httpCode);
-        return false;
+        return WeatherForecastFetchResult::Failed;
     }
 
 #if YORADIO_WEATHER_REQ_DIAG
@@ -500,7 +597,7 @@ bool weatherFetchForecast(const char* units, const char* lang) {
     // W1.5: detailed parsed/published dump (gated; one-shot per successful publish, not per UI update).
     // W1.5: подробный дамп распарсенного/опубликованного (под флагом; раз на публикацию, не на кадр UI).
     fc_dump_published(point_count, hourly_count, day_count, tz);
-    return true;
+    return WeatherForecastFetchResult::Published;
 }
 
 // A2b: UI-safe manual refresh hook — flag only; doSync runs getWeather + forecast.
@@ -513,14 +610,20 @@ void weatherRequestManualRefresh() {
 
 #else // HIDE_WEATHER
 
-bool weatherFetchForecast(const char* units, const char* lang) {
+WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* lang) {
     (void)units;
     (void)lang;
-    return false;
+    return WeatherForecastFetchResult::NotConfigured;
 }
 
 void weatherRequestManualRefresh() {
     (void)0;
 }
+
+void weatherForecastMarkPending() {}
+bool weatherForecastIsPending() { return false; }
+bool weatherForecastPollPending() { return false; }
+bool weatherForecastTakePendingOnlyRun() { return false; }
+void weatherForecastDiscardPendingOnlyArm() {}
 
 #endif // !HIDE_WEATHER

@@ -9,12 +9,36 @@
 #include "mqtt.h"
 #include "weather_fetch.h"  // Weather W1: forecast fetch hook (core weather-sync only) / хук прогноза
 #include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "esp_heap_caps.h"
 #include "lwip/dns.h"
 #include "lwip/ip_addr.h"
 #include "lwip/tcpip.h"
 #include <cerrno>
 #include <cstring>  // strerror — REQ_DIAG connect errno only / только под REQ_DIAG
+
+#ifndef YORADIO_WEATHER_REQ_DIAG
+#define YORADIO_WEATHER_REQ_DIAG 0
+#endif
+
+// W-R1C.3A: doSync stack high-water diagnostics — off by default.
+// W-R1C.3A: диагностика high-water стека doSync — выключена по умолчанию.
+#ifndef YORADIO_WEATHER_STACK_DIAG
+#define YORADIO_WEATHER_STACK_DIAG 0
+#endif
+
+#if YORADIO_WEATHER_STACK_DIAG
+// Observation-only: ESP-IDF returns min free stack in bytes (not vanilla FreeRTOS words).
+// Только наблюдение: ESP-IDF возвращает min free stack в байтах.
+static void logDoSyncStackUsage(const char* mode, const char* phase) {
+  const configSTACK_DEPTH_TYPE min_free_stack = uxTaskGetStackHighWaterMark2(nullptr);
+  const uint32_t configured = kDoSyncTaskStackBytes;
+  const uint32_t min_free = static_cast<uint32_t>(min_free_stack);
+  const uint32_t max_used = (min_free <= configured) ? (configured - min_free) : 0u;
+  Serial.printf("[WEATHER_STACK] mode=%s phase=%s configured=%u min_free=%u max_used=%u\n",
+                mode, phase, configured, min_free, max_used);
+}
+#endif
 
 #ifndef WIFI_ATTEMPTS
   #define WIFI_ATTEMPTS  16
@@ -27,6 +51,62 @@ TaskHandle_t syncTaskHandle;
 
 bool getWeather(char *wstr);
 void doSync(void * pvParameters);
+
+static bool isDoSyncTaskActive() {
+  if (syncTaskHandle == nullptr) {
+    return false;
+  }
+  const eTaskState st = eTaskGetState(syncTaskHandle);
+  return st != eDeleted;
+}
+
+// W-R1C.4: schedule outcome — explicit refresh diagnostics + busy handoff semantics.
+// W-R1C.4: результат планирования — диагностика явного refresh и семантика busy.
+enum class DoSyncScheduleResult : uint8_t {
+  Started = 0,
+  Busy,
+  CreateFailed,
+};
+
+namespace {
+SemaphoreHandle_t s_dosync_schedule_mutex = nullptr;
+
+SemaphoreHandle_t doSyncScheduleMutex() {
+  if (!s_dosync_schedule_mutex) {
+    s_dosync_schedule_mutex = xSemaphoreCreateMutex();
+  }
+  return s_dosync_schedule_mutex;
+}
+} // namespace
+
+// Serialized check-and-create — ticks(), LVGL footer and WebUI may call concurrently.
+// Сериализованный check-and-create — ticks(), LVGL footer и WebUI могут вызывать параллельно.
+static DoSyncScheduleResult scheduleDoSyncIfIdleEx() {
+  SemaphoreHandle_t mutex = doSyncScheduleMutex();
+  if (!mutex) {
+    return DoSyncScheduleResult::CreateFailed;
+  }
+  if (xSemaphoreTake(mutex, portMAX_DELAY) != pdTRUE) {
+    return DoSyncScheduleResult::CreateFailed;
+  }
+
+  DoSyncScheduleResult result;
+  if (isDoSyncTaskActive()) {
+    result = DoSyncScheduleResult::Busy;
+  } else {
+    const BaseType_t ok = xTaskCreatePinnedToCore(
+        doSync, "doSync", kDoSyncTaskStackBytes, NULL, 0, &syncTaskHandle, 0);
+    result = (ok == pdPASS) ? DoSyncScheduleResult::Started : DoSyncScheduleResult::CreateFailed;
+  }
+  xSemaphoreGive(mutex);
+  return result;
+}
+
+// Returns true when doSync was created; false if busy or create failed.
+// true — задача создана; false — doSync занят или xTaskCreate не удался.
+static bool scheduleDoSyncIfIdle() {
+  return scheduleDoSyncIfIdleEx() == DoSyncScheduleResult::Started;
+}
 
 static constexpr uint32_t WEATHER_FIRST_SYNC_GRACE_MS = 30000;
 static uint32_t s_weather_ready_at_ms = 0;
@@ -314,10 +394,18 @@ void ticks() {
     }
     const bool weatherSyncReady = network.forceWeather && weatherEnabled && isWeatherGraceElapsed();
     if(network.forceTimeSync || weatherSyncReady){
-      // HF1: stack bumped 4→7 KB — two WiFiClient calls back-to-back (getWeather + weatherFetchForecast)
-      // exceed the 4 KB budget under audio load (interrupt frames push it over the canary).
-      // HF1: стек увеличен 4→7 КБ — два WiFiClient подряд не помещались в 4 КБ под нагрузкой.
-      xTaskCreatePinnedToCore(doSync, "doSync", 1024 * 7, NULL, 0, &syncTaskHandle, 0);
+      scheduleDoSyncIfIdle();
+    }
+    // W-R1C.1: deferred forecast-only retry — no current repeat, heap poll in weather_fetch.
+    // W-R1C.1: отложенный только-прогноз — без повтора current, опрос heap в weather_fetch.
+    if (!network.forceTimeSync && !weatherSyncReady && weatherEnabled && isWeatherGraceElapsed()) {
+      if (weatherForecastPollPending()) {
+        // W-R1C.2: busy doSync — drop arm only; logical pending stays for next cooldown poll.
+        // W-R1C.2: doSync занят — сбрасываем только arm; pending остаётся до следующего poll.
+        if (!scheduleDoSyncIfIdle()) {
+          weatherForecastDiscardPendingOnlyArm();
+        }
+      }
     }
     if(timeSyncTicks >= timeSyncInterval){
       timeSyncTicks=0;
@@ -668,13 +756,37 @@ void MyNetwork::requestWeatherSync(){
 }
 
 void MyNetwork::forceWeatherRefreshFromUi() {
+  // W-R1C.1: explicit user action (Apply/footer) always requests full sync — current + forecast.
+  // Cancel armed pending-only pass so Path A (force=1) takes priority over Path B.
+  // W-R1C.1: явный запрос (Apply/footer) — всегда полный sync; Path A приоритетнее pending-only.
+  weatherForecastDiscardPendingOnlyArm();
   forceWeather = true;
+  // W-R1C.4: immediate non-blocking schedule attempt — HTTP only inside doSync on Core 0.
+  // W-R1C.4: немедленная попытка schedule — HTTP только в doSync на Core 0, не в callback.
+  const DoSyncScheduleResult sched = scheduleDoSyncIfIdleEx();
+#if YORADIO_WEATHER_REQ_DIAG
+  switch (sched) {
+    case DoSyncScheduleResult::Started:
+      Serial.println("[WEATHER_SCHED] explicit request schedule=started");
+      break;
+    case DoSyncScheduleResult::Busy:
+      Serial.println("[WEATHER_SCHED] explicit request schedule=busy");
+      break;
+    case DoSyncScheduleResult::CreateFailed:
+      Serial.println("[WEATHER_SCHED] explicit request schedule=create_failed");
+      break;
+  }
+#endif
+  (void)sched;
 }
 
 
 void doSync( void * pvParameters ) {
   static uint8_t tsFailCnt = 0;
   //static uint8_t wsFailCnt = 0;
+#if YORADIO_WEATHER_STACK_DIAG
+  const char* stack_diag_mode = "other";
+#endif
   if(network.forceTimeSync){
     network.forceTimeSync = false;
     if(getLocalTime(&network.timeinfo)){
@@ -705,8 +817,12 @@ void doSync( void * pvParameters ) {
     // S6V10H: первый запрос погоды ждёт grace, чтобы не пересекаться с ранним audio/Main preload.
     network.forceWeather = true;
   } else if(network.forceWeather){
+#if YORADIO_WEATHER_STACK_DIAG
+    stack_diag_mode = "full";
+#endif
     s_weather_diag_forced = true;
     network.forceWeather = false;
+    weatherForecastDiscardPendingOnlyArm(); // coalesce — full sync covers any armed pending-only pass
 #if YORADIO_WEATHER_REQ_DIAG
     Serial.println("[WEATHER_SCHED] run force=1");
 #endif
@@ -716,9 +832,25 @@ void doSync( void * pvParameters ) {
     // (keeps last-known-good WeatherState) and does not affect current weather / status row.
     // Weather W1: прогноз в том же weather-sync контексте (Core 0), HTTP, не из UI.
     // Парсинг/агрегация — в weather_fetch.*; ошибка некритична (last-known-good).
-    weatherFetchForecast(weatherUnits, weatherLang);
+    (void)weatherFetchForecast(weatherUnits, weatherLang);
     s_weather_diag_forced = false;
+  } else if (weatherForecastTakePendingOnlyRun()) {
+#if YORADIO_WEATHER_STACK_DIAG
+    stack_diag_mode = "pending_forecast";
+#endif
+    // W-R1C.1: forecast-only deferred retry — no getWeather() in this path.
+    // W-R1C.1: отложенный retry только прогноза — без getWeather().
+#if YORADIO_WEATHER_REQ_DIAG
+    Serial.println("[WEATHER_SCHED] run pending_forecast=1");
+    Serial.printf("[WEATHER_FC] pending retry start int_free=%u int_block=%u\n",
+                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+#endif
+    (void)weatherFetchForecast(weatherUnits, weatherLang);
   }
+#if YORADIO_WEATHER_STACK_DIAG
+  logDoSyncStackUsage(stack_diag_mode, "exit");
+#endif
   vTaskDelete( NULL );
 }
 

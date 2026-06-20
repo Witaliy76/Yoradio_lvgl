@@ -1,6 +1,8 @@
 #ifndef weather_fetch_h
 #define weather_fetch_h
 
+#include <cstdint>
+
 /*
  * Weather W1 — OpenWeatherMap 5 day / 3 hour forecast fetch.
  * Weather W1 — загрузка прогноза OWM 5 дней / 3 часа.
@@ -23,10 +25,18 @@
  * `units`/`lang` передаёт вызывающий (PROGMEM из locale), чтобы не тащить сюда
  * include-цепочку l10n из display-слоя.
  *
- * Returns true if a new forecast was parsed AND published; false otherwise.
- * Возвращает true, если новый прогноз разобран И опубликован; иначе false.
+ * Fetch outcome — lets doSync distinguish deferred low-memory from other failures.
+ * Результат fetch — doSync отличает отложенный low-memory от прочих ошибок.
  */
-bool weatherFetchForecast(const char* units, const char* lang);
+enum class WeatherForecastFetchResult : uint8_t {
+    Published,            // parsed + published / разобран и опубликован
+    NotConfigured,        // weather off or no API key / погода выкл или нет ключа
+    NotConnected,         // Wi-Fi not ready / Wi-Fi не готов
+    DeferredInternalLow,  // internal heap guard — pending retry / гард heap — отложенный retry
+    Failed,               // network/HTTP/parse/other guard / сеть/HTTP/parse/другой гард
+};
+
+WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* lang);
 
 /*
  * A2b: request an async weather refresh from UI or other non-network tasks.
@@ -34,5 +44,13 @@ bool weatherFetchForecast(const char* units, const char* lang);
  * A2b: асинхронный запрос обновления из UI; только флаг — HTTP позже в doSync, не здесь.
  */
 void weatherRequestManualRefresh();
+
+// W-R1C.1: coalesced deferred forecast — one pending flag, forecast-only retry in doSync.
+// W-R1C.1: отложенный прогноз — один pending, retry только forecast в doSync.
+void weatherForecastMarkPending();
+bool weatherForecastIsPending();
+bool weatherForecastPollPending();       // ticks: admission + cooldown; may arm pending-only doSync
+bool weatherForecastTakePendingOnlyRun(); // doSync: consume one forecast-only pass
+void weatherForecastDiscardPendingOnlyArm(); // doSync: coalesce when full forceWeather runs
 
 #endif // weather_fetch_h
