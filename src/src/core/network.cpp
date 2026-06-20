@@ -399,8 +399,8 @@ static void logSuccess(uint32_t t0, int httpCode, float tempC, const char* icon,
   Serial.printf(
       "[WEATHER] success stage=done http_code=%d temp=%.1f icon=%s desc=\"%s\" "
       "elapsed_ms=%lu next_interval_s=%u trueWeather=1\n",
-      (unsigned)WEATHER_REGULAR_INTERVAL_SEC,
-      httpCode, tempC, icon, desc, (unsigned long)(millis() - t0));
+      httpCode, tempC, icon, desc, (unsigned long)(millis() - t0),
+      (unsigned)WEATHER_REGULAR_INTERVAL_SEC);
   heapSnapshot();
 }
 #else

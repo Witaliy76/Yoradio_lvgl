@@ -108,6 +108,9 @@ static const char* const kStrTodaySlashTomorrow  = "\xD0\xA1\xD0\xB5\xD0\xB3\xD0
 static const char* const kStrTomorrowSlashLater  = "\xD0\x97\xD0\xB0\xD0\xB2\xD1\x82\xD1\x80\xD0\xB0 / \xD0\xBF\xD0\xBE\xD0\xB7\xD0\xB6\xD0\xB5"; // Завтра / позже
 static const char* const kStrForecastWaiting = "Waiting for weather";
 static const char* const kStrWeatherUnavail  = "Weather unavailable";
+static const char* const kStrUpdatingWeather = "Updating weather...";
+static const char* const kStrTemporarilyUnavailable = "Weather temporarily unavailable";
+static const char* const kStrDataMayBeOutdated = "Data may be outdated";
 static const char* const kStrCheckSettings   = "Check weather settings";
 // A2b: footer action-hint strings (English only in this slice).
 // A2c: separator matches Main/Station k_meta_field_sep — U+2022 • in montserrat_16_cyr (not U+00B7).
@@ -717,13 +720,16 @@ static void wx_style_footer_pill_clickable(lv_obj_t* o, const YoRadioPalette& pa
     lv_obj_set_style_border_color(o, pal.text_meta, LV_STATE_PRESSED);
 }
 
+// W-R3: terminal fetch errors → Unavailable without payload / терминальные ошибки → Unavailable.
+static bool wx_is_terminal_weather_error(WeatherLastError err) {
+    return err == WeatherLastError::FetchFailed ||
+           err == WeatherLastError::NotConfigured ||
+           err == WeatherLastError::NotConnected;
+}
+
 // Relative age fragment for footer (no tz/wall-clock dependency). / Относительный возраст для футера.
-static void wx_format_age(char* buf, size_t cap, uint32_t updated_at_ms, bool stale) {
+static void wx_format_age(char* buf, size_t cap, uint32_t updated_at_ms) {
     if (!buf || cap == 0) return;
-    if (stale) {
-        snprintf(buf, cap, "Weather stale");
-        return;
-    }
     const uint32_t age_min = (millis() - updated_at_ms) / 60000u;
     if (age_min == 0u)        snprintf(buf, cap, "Updated just now");
     else if (age_min < 60u)   snprintf(buf, cap, "Updated %um ago", (unsigned)age_min);
@@ -739,9 +745,10 @@ static void wx_format_footer_action(char* buf, size_t cap, const char* status, c
 }
 
 static void wx_format_footer(char* buf, size_t cap, bool wx_enabled, bool have_data,
-                             const WeatherState& snap, bool manual_refresh) {
+                             bool show_refreshing, bool effective_stale,
+                             uint32_t forecast_updated_at_ms, bool unavailable_no_data) {
     if (!buf || cap == 0) return;
-    if (manual_refresh) {
+    if (show_refreshing) {
         snprintf(buf, cap, "%s", kStrFooterRefreshing);
         return;
     }
@@ -750,15 +757,19 @@ static void wx_format_footer(char* buf, size_t cap, bool wx_enabled, bool have_d
         return;
     }
     if (!have_data) {
-        wx_format_footer_action(buf, cap, "Forecast waiting", kStrFooterTapRefresh);
+        if (unavailable_no_data) {
+            wx_format_footer_action(buf, cap, kStrTemporarilyUnavailable, kStrFooterTapRetry);
+        } else {
+            wx_format_footer_action(buf, cap, "Forecast waiting", kStrFooterTapRefresh);
+        }
         return;
     }
-    if (snap.stale) {
-        wx_format_footer_action(buf, cap, "Weather stale", kStrFooterTapRefresh);
+    if (effective_stale) {
+        wx_format_footer_action(buf, cap, kStrDataMayBeOutdated, kStrFooterTapRefresh);
         return;
     }
     char age[32];
-    wx_format_age(age, sizeof(age), snap.forecast_updated_at, false);
+    wx_format_age(age, sizeof(age), forecast_updated_at_ms);
     snprintf(buf, cap, "%s%s%s", age, kStrFooterSep, kStrFooterTapRefresh);
 }
 
@@ -1130,6 +1141,17 @@ void LvglWeatherPage::update() {
 
     const bool wxEnabled  = config.store.showweather && (strlen(config.store.weatherkey) > 0);
     const bool haveData   = s_snap.forecast_valid && s_snap.current.valid;
+    const bool terminalError = wx_is_terminal_weather_error(s_snap.last_error);
+    const bool loadingWithoutData =
+        !haveData &&
+        (s_snap.fetch_in_progress || s_snap.last_error == WeatherLastError::InternalLow);
+    const bool unavailableWithoutData = !haveData && terminalError;
+    const uint32_t ageMs = haveData ? (millis() - s_snap.forecast_updated_at) : 0u;
+    const bool staleByAge =
+        haveData && s_snap.forecast_updated_at != 0u && ageMs > WEATHER_STALE_AFTER_MS;
+    const bool effectiveStale = haveData && (s_snap.stale || staleByAge);
+    const bool showRefreshingFooter =
+        haveData && (_manual_refresh_pending || s_snap.fetch_in_progress);
 
 #if YORADIO_WEATHER_UI_DIAG
     // Log once per published version when data is present — not every 1 Hz frame (avoid UART churn).
@@ -1143,29 +1165,38 @@ void LvglWeatherPage::update() {
 
     char buf[64];
 
-    // A2b: clear manual-refresh pending when publish version advances or timeout elapses.
-    // A2b: сброс pending при новой версии публикации или по таймауту.
+    // W-R3: clear manual-refresh pending when attempt completes, version advances, or timeout.
+    // W-R3: сброс pending при завершении попытки, новой версии или таймауте.
     if (_manual_refresh_pending) {
-        const uint32_t elapsed = millis() - _refresh_pending_since_ms;
-        if (s_snap.version != _refresh_watch_version) {
+        const bool fetch_done = !s_snap.fetch_in_progress;
+        const int32_t attempt_after_request =
+            (int32_t)(s_snap.last_attempt_at_ms - _refresh_pending_since_ms);
+        if (fetch_done && s_snap.last_attempt_at_ms != 0u && attempt_after_request >= 0) {
             _manual_refresh_pending = false;
-        } else if (elapsed >= kRefreshPendingTimeoutMs) {
+        } else if (s_snap.version != _refresh_watch_version) {
+            _manual_refresh_pending = false;
+        } else if (millis() - _refresh_pending_since_ms >= kRefreshPendingTimeoutMs) {
             _manual_refresh_pending = false;
         }
     }
 
     if (!haveData) {
-        // W2C: body shows centered message; footer pill carries state text at bottom.
-        // W2C: body — центрированное сообщение; футер-pill внизу с текстом состояния.
+        // W-R3: Empty / Loading / Unavailable — centered message; footer at bottom.
+        // W-R3: пусто / загрузка / недоступно — центр; футер внизу.
         wx_show(_cont_data, false);
         wx_show(_cont_empty_center, true);
         wx_show(_cont_footer, true);
-        if (wxEnabled) {
-            wx_set_text_if_changed(_lbl_message, kStrForecastWaiting);
-        } else {
+        if (!wxEnabled) {
             wx_set_text_if_changed(_lbl_message, kStrWeatherUnavail);
+        } else if (unavailableWithoutData) {
+            wx_set_text_if_changed(_lbl_message, kStrTemporarilyUnavailable);
+        } else if (loadingWithoutData) {
+            wx_set_text_if_changed(_lbl_message, kStrUpdatingWeather);
+        } else {
+            wx_set_text_if_changed(_lbl_message, kStrForecastWaiting);
         }
-        wx_format_footer(buf, sizeof(buf), wxEnabled, haveData, s_snap, _manual_refresh_pending);
+        wx_format_footer(buf, sizeof(buf), wxEnabled, haveData, showRefreshingFooter,
+                         effectiveStale, s_snap.forecast_updated_at, unavailableWithoutData);
         wx_set_text_if_changed(_lbl_footer, buf);
         return;
     }
@@ -1251,7 +1282,8 @@ void LvglWeatherPage::update() {
         wx_set_text_if_changed(_daily[i].pop, buf);
     }
 
-    wx_format_footer(buf, sizeof(buf), wxEnabled, haveData, s_snap, _manual_refresh_pending);
+    wx_format_footer(buf, sizeof(buf), wxEnabled, haveData, showRefreshingFooter,
+                     effectiveStale, s_snap.forecast_updated_at, unavailableWithoutData);
     wx_set_text_if_changed(_lbl_footer, buf);
 }
 
