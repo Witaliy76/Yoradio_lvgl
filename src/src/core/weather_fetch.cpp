@@ -13,6 +13,7 @@
 #include <string.h>
 #include <cerrno>
 #include <cstring>  // strerror — REQ_DIAG connect errno only / только под REQ_DIAG
+#include <climits>  // INT32_MAX/MIN for owm_local_day_key bounds / границы day key
 
 /*
  * Weather W1 — forecast fetch + parse + daily aggregation + publish.
@@ -70,7 +71,7 @@ constexpr size_t kPendingTaskAdmissionMinFreeBytes = 45u * 1024u;  // 46080 — 
 namespace {
 
 // ── Tunables / Параметры ──────────────────────────────────────────────────────
-constexpr uint8_t  kForecastCnt          = 24;          // 24 × 3h = 72h (≈3 days)
+constexpr uint8_t  kForecastCnt          = 40;          // 40 × 3h = 120h (OWM 5-day max)
 constexpr uint16_t kMaxForecastPoints    = 48;          // hard cap on parsed points
 constexpr uint32_t kConnectTimeoutMs     = 5000;
 constexpr uint32_t kReadWaitTimeoutMs    = 4000;
@@ -112,6 +113,19 @@ uint8_t pop_to_pct(float pop) {
     return static_cast<uint8_t>(v);
 }
 
+// W-R2: forecast-location calendar day key from UTC epoch + OWM timezone offset.
+// W-R2: ключ локального календарного дня локации прогноза (UTC + city.timezone).
+static inline int32_t owm_local_day_key(int64_t utcSeconds, int32_t timezoneOffsetSeconds) {
+    const int64_t shifted = utcSeconds + static_cast<int64_t>(timezoneOffsetSeconds);
+    int64_t day = shifted / 86400;
+    if (shifted < 0 && (shifted % 86400) != 0) {
+        --day;
+    }
+    if (day > INT32_MAX) return INT32_MAX;
+    if (day < INT32_MIN) return INT32_MIN;
+    return static_cast<int32_t>(day);
+}
+
 // File-scope scratch builder — kept off the 4 KB doSync stack on purpose.
 // Single-threaded by contract (weather-sync context only).
 // Скрэтч-билдер в .bss — намеренно не на 4 КБ стеке doSync; однопоточный по контракту.
@@ -133,9 +147,9 @@ void fc_log_parse_fail(const char* err, uint32_t t0, int httpCode) {
                   err, httpCode, (unsigned long)(millis() - t0));
 }
 
-void fc_log_success(uint32_t t0, int httpCode, uint16_t points, uint8_t days) {
-    Serial.printf("[WEATHER_FC] success http=%d points=%u days=%u elapsed_ms=%lu next_s=1800\n",
-                  httpCode, (unsigned)points, (unsigned)days, (unsigned long)(millis() - t0));
+void fc_log_success(uint32_t t0, int httpCode, uint16_t points, uint8_t future_days) {
+    Serial.printf("[WEATHER_FC] success http=%d points=%u future_days=%u elapsed_ms=%lu next_s=1800\n",
+                  httpCode, (unsigned)points, (unsigned)future_days, (unsigned long)(millis() - t0));
 }
 
 #if YORADIO_WEATHER_FC_DIAG
@@ -158,15 +172,16 @@ WeatherState s_fc_diag_snap;
 // Дамп опубликованного WeatherState через публичный seqlock-getter (заодно проверка читателя);
 // счётчики summary — из локального состояния fetch (распарсено vs опубликовано).
 void fc_dump_published(uint16_t parsed_points, uint8_t hourly_published,
-                       uint8_t daily_published, int32_t tz) {
+                       uint8_t future_days_published, int32_t tz) {
     if (!weatherGetStateSnapshot(&s_fc_diag_snap)) {
         Serial.println("[WEATHER_FC] dump skipped: snapshot busy");
         return;
     }
     const WeatherState& s = s_fc_diag_snap;
     Serial.printf("[WEATHER_FC] dump summary parsed_points=%u hourly_published=%u "
-                  "daily_published=%u updated_at=%lu version=%lu tz=%ld\n",
-                  (unsigned)parsed_points, (unsigned)hourly_published, (unsigned)daily_published,
+                  "future_days_published=%u updated_at=%lu version=%lu tz=%ld\n",
+                  (unsigned)parsed_points, (unsigned)hourly_published,
+                  (unsigned)future_days_published,
                   (unsigned long)s.forecast_updated_at, (unsigned long)s.version, (long)tz);
     for (uint8_t i = 0; i < WEATHER_HOURLY_SLOTS; ++i) {
         const WeatherHourly& h = s.hourly[i];
@@ -676,11 +691,36 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
 
     // ── Build into the scratch builder; publish only on full success. ──
     memset(&s_builder, 0, sizeof(s_builder));
+    s_builder.forecast_tz_sec = tz;
 
-    int32_t day_keys[WEATHER_DAILY_SLOTS];
-    uint8_t day_dom_sev[WEATHER_DAILY_SLOTS] = {0};
-    for (uint8_t i = 0; i < WEATHER_DAILY_SLOTS; ++i) day_keys[i] = INT32_MIN;
-    uint8_t day_count = 0;
+    // W-R2: three future local days → daily[1..3]; today excluded from daily slots.
+    // W-R2: три будущих локальных дня → daily[1..3]; сегодня не публикуется в daily.
+    const struct tm& devtm = network.timeinfo;
+    const bool ntp_valid = devtm.tm_year > 100;
+    int32_t today_key;
+    const char* today_source;
+    if (ntp_valid) {
+        today_key    = owm_local_day_key(static_cast<int64_t>(time(nullptr)), tz);
+        today_source = "ntp";
+    } else {
+        const uint32_t first_dt = list[0]["dt"] | 0u;
+        if (first_dt == 0u) {
+            fc_log_fail("no_first_dt", t0, httpCode);
+            return WeatherForecastFetchResult::Failed;
+        }
+        today_key    = owm_local_day_key(static_cast<int64_t>(first_dt), tz);
+        today_source = "first_point_fallback";
+    }
+    const int32_t target_max_key = today_key + 3;
+
+#if YORADIO_WEATHER_REQ_DIAG
+    Serial.printf("[WEATHER_TIME] location_today_key=%ld today_source=%s tz=%ld\n",
+                  (long)today_key, today_source, (long)tz);
+#endif
+
+    uint8_t day_dom_sev[3] = {0};   // severity scratch for daily[1..3]
+    uint16_t day_points[3] = {0};   // per-target-day point counts (diag)
+    uint32_t skipped_today_points = 0;
 
     uint8_t  hourly_count = 0;
     uint16_t point_count  = 0;
@@ -718,7 +758,7 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
             s_builder.current.updated_at       = dt;
         }
 
-        // hourly strip
+        // hourly strip — first 8 points only (unchanged by W-R2 horizon)
         if (hourly_count < WEATHER_HOURLY_SLOTS) {
             WeatherHourly& h     = s_builder.hourly[hourly_count++];
             h.valid              = true;
@@ -729,39 +769,40 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
             copy_icon(h.owm_icon, icon);
         }
 
-        // daily aggregation keyed by local day (dt + city timezone offset)
-        const int32_t local_day = static_cast<int32_t>((static_cast<int64_t>(dt) + tz) / 86400);
-        int slot = -1;
-        for (uint8_t d = 0; d < day_count; ++d) {
-            if (day_keys[d] == local_day) { slot = d; break; }
-        }
-        if (slot < 0 && day_count < WEATHER_DAILY_SLOTS) {
-            slot = day_count++;
-            day_keys[slot]          = local_day;
-            WeatherDaily& nd        = s_builder.daily[slot];
-            nd.valid                = true;
-            nd.day_ts               = dt;
-            nd.temp_min_c           = (tmin < temp) ? tmin : temp;
-            nd.temp_max_c           = (tmax > temp) ? tmax : temp;
-            nd.rain_probability_max = pop;
-            nd.dominant_owm_code    = code;
-            copy_icon(nd.owm_icon, icon);
-            day_dom_sev[slot]       = owm_severity(code);
-        } else if (slot >= 0) {
-            WeatherDaily& nd = s_builder.daily[slot];
-            if (tmin < nd.temp_min_c) nd.temp_min_c = tmin;
-            if (temp < nd.temp_min_c) nd.temp_min_c = temp;
-            if (tmax > nd.temp_max_c) nd.temp_max_c = tmax;
-            if (temp > nd.temp_max_c) nd.temp_max_c = temp;
-            if (pop  > nd.rain_probability_max) nd.rain_probability_max = pop;
-            const uint8_t sev = owm_severity(code);
-            if (sev > day_dom_sev[slot]) {
-                day_dom_sev[slot]    = sev;
-                nd.dominant_owm_code = code;
+        // W-R2: aggregate directly into daily[1..3] for target future local days.
+        const int32_t local_day = owm_local_day_key(static_cast<int64_t>(dt), tz);
+        if (local_day <= today_key) {
+            ++skipped_today_points;
+        } else if (local_day <= target_max_key) {
+            const uint8_t slot   = static_cast<uint8_t>(local_day - today_key); // 1..3
+            const uint8_t sev_ix = static_cast<uint8_t>(slot - 1u);
+            WeatherDaily& nd     = s_builder.daily[slot];
+            if (!nd.valid) {
+                nd.valid                = true;
+                nd.day_ts               = dt;
+                nd.temp_min_c           = (tmin < temp) ? tmin : temp;
+                nd.temp_max_c           = (tmax > temp) ? tmax : temp;
+                nd.rain_probability_max = pop;
+                nd.dominant_owm_code    = code;
                 copy_icon(nd.owm_icon, icon);
+                day_dom_sev[sev_ix]     = owm_severity(code);
+                day_points[sev_ix]      = 1;
+            } else {
+                if (tmin < nd.temp_min_c) nd.temp_min_c = tmin;
+                if (temp < nd.temp_min_c) nd.temp_min_c = temp;
+                if (tmax > nd.temp_max_c) nd.temp_max_c = tmax;
+                if (temp > nd.temp_max_c) nd.temp_max_c = temp;
+                if (pop  > nd.rain_probability_max) nd.rain_probability_max = pop;
+                const uint8_t sev = owm_severity(code);
+                if (sev > day_dom_sev[sev_ix]) {
+                    day_dom_sev[sev_ix]    = sev;
+                    nd.dominant_owm_code   = code;
+                    copy_icon(nd.owm_icon, icon);
+                }
+                ++day_points[sev_ix];
             }
         }
-        // days beyond WEATHER_DAILY_SLOTS are ignored (cnt=24 ≈ 3 days → safe)
+        // Points after target_max_key are ignored for daily publication.
 
         ++point_count;
     }
@@ -771,18 +812,27 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
         return WeatherForecastFetchResult::Failed;
     }
 
-#if YORADIO_WEATHER_REQ_DIAG
-    // Aggregation summary: how many points parsed, hourly/daily buckets produced.
-    // Сводка агрегации: сколько точек разобрано, сколько hourly/daily бакетов получено.
-    Serial.printf("[WEATHER_AGG] parsed=%u hourly=%u daily=%u current_valid=%d\n",
-                  (unsigned)point_count, (unsigned)hourly_count, (unsigned)day_count,
-                  (int)s_builder.current.valid);
-    for (uint8_t _di = 0; _di < day_count; ++_di) {
-        const WeatherDaily& _nd = s_builder.daily[_di];
-        Serial.printf("[WEATHER_AGG] daily[%u] ts=%lu local_key=%ld valid=%d\n",
-                      (unsigned)_di, (unsigned long)_nd.day_ts,
-                      (long)day_keys[_di], (int)_nd.valid);
+    uint8_t future_days_published = 0;
+    for (uint8_t s = 1; s <= 3; ++s) {
+        if (s_builder.daily[s].valid) {
+            ++future_days_published;
+        }
     }
+    // daily[0] and daily[4] remain invalid (memset + never written).
+
+#if YORADIO_WEATHER_REQ_DIAG
+    Serial.printf("[WEATHER_AGG] skipped_today_points=%u\n",
+                  (unsigned)skipped_today_points);
+    for (uint8_t fi = 0; fi < 3; ++fi) {
+        const uint8_t slot = static_cast<uint8_t>(fi + 1);
+        Serial.printf("[WEATHER_AGG] future_day[%u] key=%ld points=%u slot=%u\n",
+                      (unsigned)fi, (long)(today_key + 1 + fi),
+                      (unsigned)day_points[fi], (unsigned)slot);
+    }
+    Serial.printf("[WEATHER_AGG] parsed_points=%u hourly_published=%u "
+                  "future_days_published=%u current_valid=%d\n",
+                  (unsigned)point_count, (unsigned)hourly_count,
+                  (unsigned)future_days_published, (int)s_builder.current.valid);
 #endif
 
     s_builder.forecast_valid      = true;
@@ -792,10 +842,10 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
     weatherPublishState(s_builder);
 
     fc_log_heap("after");
-    fc_log_success(t0, httpCode, point_count, day_count);
+    fc_log_success(t0, httpCode, point_count, future_days_published);
     // W1.5: detailed parsed/published dump (gated; one-shot per successful publish, not per UI update).
     // W1.5: подробный дамп распарсенного/опубликованного (под флагом; раз на публикацию, не на кадр UI).
-    fc_dump_published(point_count, hourly_count, day_count, tz);
+    fc_dump_published(point_count, hourly_count, future_days_published, tz);
     return WeatherForecastFetchResult::Published;
 }
 

@@ -334,30 +334,21 @@ static void wx_format_daily_weekday_date(char* buf, size_t cap, const struct tm*
              kRuWeekdayShort[wday], loc->tm_mday, loc->tm_mon + 1);
 }
 
-static bool wx_local_tm_from_unix(uint32_t unix_ts, struct tm* out) {
-    if (!out || unix_ts == 0u) return false;
-    const time_t t = static_cast<time_t>(unix_ts);
-    return localtime_r(&t, out) != nullptr;
-}
-
-static bool wx_local_tm_days_after(const struct tm* today_tm, int days_after, struct tm* out) {
-    if (!wx_system_date_valid(today_tm) || !out || days_after <= 0) return false;
-    struct tm t = *today_tm;
-    time_t tt = mktime(&t);
-    if (tt == static_cast<time_t>(-1)) return false;
-    tt += static_cast<time_t>(days_after) * 86400;
-    return localtime_r(&tt, out) != nullptr;
+// W-R2: forecast-location calendar from day_ts + OWM timezone (not device localtime_r).
+// W-R2: календарь локации прогноза из day_ts + OWM timezone (не device localtime_r).
+static bool wx_forecast_loc_tm_from_day_ts(uint32_t day_ts, int32_t forecast_tz_sec, struct tm* out) {
+    if (!out || day_ts == 0u) return false;
+    const int64_t shifted = static_cast<int64_t>(day_ts) + static_cast<int64_t>(forecast_tz_sec);
+    if (shifted < 0) return false;
+    const time_t t = static_cast<time_t>(shifted);
+    return gmtime_r(&t, out) != nullptr;
 }
 
 static void wx_format_daily_date_label(char* buf, size_t cap, uint32_t day_ts,
-                                       const struct tm* today_tm, int days_after_today) {
+                                       int32_t forecast_tz_sec) {
     if (!buf || cap == 0) return;
     struct tm loc;
-    if (wx_local_tm_from_unix(day_ts, &loc)) {
-        wx_format_daily_weekday_date(buf, cap, &loc);
-        return;
-    }
-    if (wx_local_tm_days_after(today_tm, days_after_today, &loc)) {
+    if (wx_forecast_loc_tm_from_day_ts(day_ts, forecast_tz_sec, &loc)) {
         wx_format_daily_weekday_date(buf, cap, &loc);
         return;
     }
@@ -1249,7 +1240,7 @@ void LvglWeatherPage::update() {
             wx_set_text_if_changed(_daily[i].pop_icon, "");
             continue;
         }
-        wx_format_daily_date_label(buf, sizeof(buf), d.day_ts, &network.timeinfo, i + 1);
+        wx_format_daily_date_label(buf, sizeof(buf), d.day_ts, s_snap.forecast_tz_sec);
         wx_set_text_if_changed(_daily[i].day, buf);
         wx_set_text_if_changed(_daily[i].icon, weather_owm_icon_to_glyph_utf8(d.owm_icon));
         snprintf(buf, sizeof(buf), "%.0f\xC2\xB0 / %.0f\xC2\xB0",

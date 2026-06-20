@@ -75,6 +75,7 @@ struct WeatherState {
     bool           forecast_valid;        // true once a forecast was parsed at least once
     bool           stale;                 // reserved for future age-based UI hinting
     uint32_t       forecast_updated_at;   // millis() at publish time
+    int32_t        forecast_tz_sec;       // OWM city.timezone at publish (s); runtime-only, not NVS
     uint32_t       version;               // monotonic publish counter (0 = never published)
 };
 
