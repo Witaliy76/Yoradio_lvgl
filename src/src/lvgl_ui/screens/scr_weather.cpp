@@ -87,84 +87,86 @@ static void wx_diag_dump(const char* tag, lv_obj_t* root) {
 }
 #endif // YORADIO_WEATHER_UI_DIAG
 
-// ── Weather UI string constants ───────────────────────────────────────────────────────────
-// Gathered here for l10n readiness; do NOT scatter raw literals through the widget code.
-// Собраны здесь для будущей локализации; не разбрасывать строки по коду виджетов.
-// A3: Weather page content labels (Russian); footer refresh strings stay English in A3.
-// A3: подписи контента страницы погоды (RU); строки refresh футера — EN.
-static const char* const kStrFeelsLike      = "\xD0\x9E\xD1\x89\xD1\x83\xD1\x89\xD0\xB0\xD0\xB5\xD1\x82\xD1\x81\xD1\x8F "; // Ощущается 
-static const char* const kStrMetricWind     = "\xD0\x92\xD0\xB5\xD1\x82\xD0\xB5\xD1\x80";       // Ветер
-static const char* const kStrMetricHumidity = "\xD0\x92\xD0\xBB\xD0\xB0\xD0\xB6\xD0\xBD\xD0\xBE\xD1\x81\xD1\x82\xD1\x8C"; // Влажность
-static const char* const kStrMetricPressure = "\xD0\x94\xD0\xB0\xD0\xB2\xD0\xBB\xD0\xB5\xD0\xBD\xD0\xB8\xD0\xB5";         // Давление
-static const char* const kStrMetricRain     = "\xD0\x9E\xD1\x81\xD0\xB0\xD0\xB4\xD0\xBA\xD0\xB8"; // Осадки
-static const char* const kStrTomorrow       = "\xD0\x97\xD0\xB0\xD0\xB2\xD1\x82\xD1\x80\xD0\xB0"; // Завтра (hourly header only)
-static const char* const kStrPlus3h         = "+3 \xD1\x87";                                      // +3 ч
-static const char* const kStrPlus6h         = "+6 \xD1\x87";                                      // +6 ч
-static const char* const kStrPlus9h         = "+9 \xD1\x87";                                      // +9 ч
-static const char* const kStrTodayOnly      = "\xD0\xA1\xD0\xB5\xD0\xB3\xD0\xBE\xD0\xB4\xD0\xBD\xD1\x8F"; // Сегодня
+// Weather Page UI strings: Russian baseline until a real i18n layer is added.
+// Keep user-visible copy centralized; do not scatter literals through widget code.
+// Строки Weather Page: русская база до i18n; не разбрасывать литералы по виджетам.
+static const char* const kStrFeelsLike      = "Ощущается ";
+static const char* const kStrMetricWind     = "Ветер";
+static const char* const kStrMetricHumidity = "Влажность";
+static const char* const kStrMetricPressure = "Давление";
+static const char* const kStrMetricRain     = "Осадки";
+static const char* const kStrTomorrow       = "Завтра"; // Завтра (hourly header only)
+static const char* const kStrPlus3h         = "+3 ч";
+static const char* const kStrPlus6h         = "+6 ч";
+static const char* const kStrPlus9h         = "+9 ч";
+static const char* const kStrTodayOnly      = "Сегодня";
 // A3.1f: right hourly block day header strings / заголовок дня в правом hourly-блоке.
-static const char* const kStrHourlyNearest       = "\xD0\x91\xD0\xBB\xD0\xB8\xD0\xB6\xD0\xB0\xD0\xB9\xD1\x88\xD0\xB8\xD0\xB5 \xD1\x87\xD0\xB0\xD1\x81\xD1\x8B"; // Ближайшие часы
-static const char* const kStrTodaySlashTomorrow  = "\xD0\xA1\xD0\xB5\xD0\xB3\xD0\xBE\xD0\xB4\xD0\xBD\xD1\x8F / \xD0\xB7\xD0\xB0\xD0\xB2\xD1\x82\xD1\x80\xD0\xB0"; // Сегодня / завтра
-static const char* const kStrTomorrowSlashLater  = "\xD0\x97\xD0\xB0\xD0\xB2\xD1\x82\xD1\x80\xD0\xB0 / \xD0\xBF\xD0\xBE\xD0\xB7\xD0\xB6\xD0\xB5"; // Завтра / позже
-static const char* const kStrForecastWaiting = "Waiting for weather";
-static const char* const kStrWeatherUnavail  = "Weather unavailable";
-static const char* const kStrUpdatingWeather = "Updating weather...";
-static const char* const kStrTemporarilyUnavailable = "Weather temporarily unavailable";
-static const char* const kStrDataMayBeOutdated = "Data may be outdated";
-static const char* const kStrCheckSettings   = "Check weather settings";
-// A2b: footer action-hint strings (English only in this slice).
+static const char* const kStrHourlyNearest       = "Ближайшие часы";
+static const char* const kStrTodaySlashTomorrow  = "Сегодня / завтра";
+static const char* const kStrTomorrowSlashLater  = "Завтра / позже";
+static const char* const kStrForecastWaiting = "Ожидание данных о погоде";
+static const char* const kStrForecastNotLoaded = "Прогноз ещё не загружен";
+static const char* const kStrWeatherUnavail  = "Погода недоступна";
+static const char* const kStrPleaseWait      = "Пожалуйста, подождите";
+static const char* const kStrTemporarilyUnavailable = "Погода временно недоступна";
+static const char* const kStrDataMayBeOutdated = "Данные могут быть устаревшими";
+static const char* const kStrCheckSettings   = "Проверьте настройки погоды";
+// A2b: footer status + tap hint strings / строки футера: статус и подсказка тапа.
 // A2c: separator matches Main/Station k_meta_field_sep — U+2022 • in montserrat_16_cyr (not U+00B7).
-// A2b: строки футера с подсказкой; A2c: разделитель как на Main/Station — U+2022, не U+00B7.
+// A2c: разделитель как на Main/Station — U+2022, не U+00B7.
 static constexpr const char* kStrFooterSep          = " \xE2\x80\xA2 ";
-static const char* const kStrFooterRefreshing       = "Refreshing weather...";
-static const char* const kStrFooterTapRefresh       = "Tap to refresh";
-static const char* const kStrFooterTapRetry         = "Tap to retry";
-// ─────────────────────────────────────────────────────────────────────────────────────────
+static const char* const kStrFooterRefreshing       = "Обновление погоды...";
+static const char* const kStrFooterTapRefresh       = "Нажать для обновления";
+static const char* const kStrFooterTapRetry         = "Нажмите, чтобы повторить";
+// A3.2: footer format buffers — longest stale line ≈102 B UTF-8 + NUL.
+// A3.2: буферы футера — самая длинная stale-строка ≈102 B UTF-8 + NUL.
+static constexpr size_t kFooterAgeCap  = 48;
+static constexpr size_t kFooterTextCap = 112;
 
 // A3.1: Russian genitive months + weekdays for hero date line (local to Weather page).
 // A3.1: месяцы (род. п.) и дни недели для строки даты в hero (только эта страница).
 static const char* const kRuMonthsGenitive[12] = {
-    "\xD1\x8F\xD0\xBD\xD0\xB2\xD0\xB0\xD1\x80\xD1\x8F",       // января
-    "\xD1\x84\xD0\xB5\xD0\xB2\xD1\x80\xD0\xB0\xD0\xBB\xD1\x8F", // февраля
-    "\xD0\xBC\xD0\xB0\xD1\x80\xD1\x82\xD0\xB0",               // марта
-    "\xD0\xB0\xD0\xBF\xD1\x80\xD0\xB5\xD0\xBB\xD1\x8F",       // апреля
-    "\xD0\xBC\xD0\xB0\xD1\x8F",                               // мая
-    "\xD0\xB8\xD1\x8E\xD0\xBD\xD1\x8F",                       // июня
-    "\xD0\xB8\xD1\x8E\xD0\xBB\xD1\x8F",                       // июля
-    "\xD0\xB0\xD0\xB2\xD0\xB3\xD1\x83\xD1\x81\xD1\x82\xD0\xB0", // августа
-    "\xD1\x81\xD0\xB5\xD0\xBD\xD1\x82\xD1\x8F\xD0\xB1\xD1\x80\xD1\x8F", // сентября
-    "\xD0\xBE\xD0\xBA\xD1\x82\xD1\x8F\xD0\xB1\xD1\x80\xD1\x8F", // октября
-    "\xD0\xBD\xD0\xBE\xD1\x8F\xD0\xB1\xD1\x80\xD1\x8F",       // ноября
-    "\xD0\xB4\xD0\xB5\xD0\xBA\xD0\xB0\xD0\xB1\xD1\x80\xD1\x8F", // декабря
+    "января",
+    "февраля",
+    "марта",
+    "апреля",
+    "мая",
+    "июня",
+    "июля",
+    "августа",
+    "сентября",
+    "октября",
+    "ноября",
+    "декабря",
 };
 // tm_wday: 0 = Sunday … 6 = Saturday / 0 = воскресенье
 static const char* const kRuWeekdayLower[7] = {
-    "\xD0\xB2\xD0\xBE\xD1\x81\xD0\xBA\xD1\x80\xD0\xB5\xD1\x81\xD0\xB5\xD0\xBD\xD1\x8C\xD0\xB5", // воскресенье
-    "\xD0\xBF\xD0\xBE\xD0\xBD\xD0\xB5\xD0\xB4\xD0\xB5\xD0\xBB\xD1\x8C\xD0\xBD\xD0\xB8\xD0\xBA", // понедельник
-    "\xD0\xB2\xD1\x82\xD0\xBE\xD1\x80\xD0\xBD\xD0\xB8\xD0\xBA",                               // вторник
-    "\xD1\x81\xD1\x80\xD0\xB5\xD0\xB4\xD0\xB0",                                               // среда
-    "\xD1\x87\xD0\xB5\xD1\x82\xD0\xB2\xD0\xB5\xD1\x80\xD0\xB3",                               // четверг
-    "\xD0\xBF\xD1\x8F\xD1\x82\xD0\xBD\xD0\xB8\xD1\x86\xD0\xB0",                               // пятница
-    "\xD1\x81\xD1\x83\xD0\xB1\xD0\xB1\xD0\xBE\xD1\x82\xD0\xB0",                               // суббота
+    "воскресенье",
+    "понедельник",
+    "вторник",
+    "среда",
+    "четверг",
+    "пятница",
+    "суббота",
 };
 static const char* const kRuWeekdayTitle[7] = {
-    "\xD0\x92\xD0\xBE\xD1\x81\xD0\xBA\xD1\x80\xD0\xB5\xD1\x81\xD0\xB5\xD0\xBD\xD1\x8C\xD0\xB5", // Воскресенье
-    "\xD0\x9F\xD0\xBE\xD0\xBD\xD0\xB5\xD0\xB4\xD0\xB5\xD0\xBB\xD1\x8C\xD0\xBD\xD0\xB8\xD0\xBA", // Понедельник
-    "\xD0\x92\xD1\x82\xD0\xBE\xD1\x80\xD0\xBD\xD0\xB8\xD0\xBA",                               // Вторник
-    "\xD0\xA1\xD1\x80\xD0\xB5\xD0\xB4\xD0\xB0",                                               // Среда
-    "\xD0\xA7\xD0\xB5\xD1\x82\xD0\xB2\xD0\xB5\xD1\x80\xD0\xB3",                               // Четверг
-    "\xD0\x9F\xD1\x8F\xD1\x82\xD0\xBD\xD0\xB8\xD1\x86\xD0\xB0",                               // Пятница
-    "\xD0\xA1\xD1\x83\xD0\xB1\xD0\xB1\xD0\xBE\xD1\x82\xD0\xB0",                               // Суббота
+    "Воскресенье",
+    "Понедельник",
+    "Вторник",
+    "Среда",
+    "Четверг",
+    "Пятница",
+    "Суббота",
 };
 // A3.1h: short weekday for daily card date line (Вс…Сб). / Краткий день недели для daily.
 static const char* const kRuWeekdayShort[7] = {
-    "\xD0\x92\xD1\x81",             // Вс
-    "\xD0\x9F\xD0\xBD",             // Пн
-    "\xD0\x92\xD1\x82",             // Вт
-    "\xD0\xA1\xD1\x80",             // Ср
-    "\xD0\xA7\xD1\x82",             // Чт
-    "\xD0\x9F\xD1\x82",             // Пт
-    "\xD0\xA1\xD0\xB1",             // Сб
+    "Вс",
+    "Пн",
+    "Вт",
+    "Ср",
+    "Чт",
+    "Пт",
+    "Сб",
 };
 
 // Same validity gate as status line / screensaver (tm_year > 100 ≈ year > 2000).
@@ -205,7 +207,7 @@ static void wx_format_hero_date(char* buf, size_t cap, const struct tm* tm, lv_c
 
     char full[96];
     snprintf(full, sizeof(full),
-             "\xD0\xA1\xD0\xB5\xD0\xB3\xD0\xBE\xD0\xB4\xD0\xBD\xD1\x8F, %d %s %d, %s", // Сегодня, …
+             "Сегодня, %d %s %d, %s",
              tm->tm_mday, kRuMonthsGenitive[mon], tm->tm_year + 1900, kRuWeekdayLower[wday]);
 
     const lv_font_t* cap_font = static_cast<const lv_font_t*>(k_font_caption);
@@ -741,21 +743,21 @@ static bool wx_is_terminal_weather_error(WeatherLastError err) {
            err == WeatherLastError::NotConnected;
 }
 
-// Relative age fragment for footer (no tz/wall-clock dependency). / Относительный возраст для футера.
+// Relative age fragment — «мин. назад» / «ч. назад» (normal RU abbreviations).
+// Фрагмент возраста — обычные сокращения «мин.» / «ч.» + «назад».
 static void wx_format_age(char* buf, size_t cap, uint32_t updated_at_ms) {
     if (!buf || cap == 0) return;
     const uint32_t age_min = (millis() - updated_at_ms) / 60000u;
-    if (age_min == 0u)        snprintf(buf, cap, "Updated just now");
-    else if (age_min < 60u)   snprintf(buf, cap, "Updated %um ago", (unsigned)age_min);
-    else                      snprintf(buf, cap, "Updated %uh ago", (unsigned)(age_min / 60u));
+    if (age_min == 0u)        snprintf(buf, cap, "Обновлено только что");
+    else if (age_min < 60u)   snprintf(buf, cap, "Обновлено %u мин. назад", (unsigned)age_min);
+    else                      snprintf(buf, cap, "Обновлено %u ч. назад", (unsigned)(age_min / 60u));
 }
 
-// A2b: footer status + tap hint (or in-progress / waiting / unavailable variants).
-// A2c: status and action joined via kStrFooterSep (U+2022 bullet).
-// A2b: статус футера + подсказка тапа; A2c: склейка через kStrFooterSep (U+2022).
+// A2b/A3.2: footer segments joined via kStrFooterSep; trailing sep for circular scroll gap.
+// A2b/A3.2: сегменты футера через kStrFooterSep; завершающий sep — зазор при круговой прокрутке.
 static void wx_format_footer_action(char* buf, size_t cap, const char* status, const char* action) {
     if (!buf || cap == 0) return;
-    snprintf(buf, cap, "%s%s%s", status, kStrFooterSep, action);
+    snprintf(buf, cap, "%s%s%s%s", status, kStrFooterSep, action, kStrFooterSep);
 }
 
 static void wx_format_footer(char* buf, size_t cap, bool wx_enabled, bool have_data,
@@ -763,18 +765,18 @@ static void wx_format_footer(char* buf, size_t cap, bool wx_enabled, bool have_d
                              uint32_t forecast_updated_at_ms, bool unavailable_no_data) {
     if (!buf || cap == 0) return;
     if (show_refreshing) {
-        snprintf(buf, cap, "%s", kStrFooterRefreshing);
+        snprintf(buf, cap, "%s%s", kStrFooterRefreshing, kStrFooterSep);
         return;
     }
     if (!wx_enabled) {
-        wx_format_footer_action(buf, cap, "Weather unavailable", kStrFooterTapRetry);
+        wx_format_footer_action(buf, cap, kStrWeatherUnavail, kStrFooterTapRetry);
         return;
     }
     if (!have_data) {
         if (unavailable_no_data) {
             wx_format_footer_action(buf, cap, kStrTemporarilyUnavailable, kStrFooterTapRetry);
         } else {
-            wx_format_footer_action(buf, cap, "Forecast waiting", kStrFooterTapRefresh);
+            wx_format_footer_action(buf, cap, kStrForecastNotLoaded, kStrFooterTapRefresh);
         }
         return;
     }
@@ -782,9 +784,9 @@ static void wx_format_footer(char* buf, size_t cap, bool wx_enabled, bool have_d
         wx_format_footer_action(buf, cap, kStrDataMayBeOutdated, kStrFooterTapRefresh);
         return;
     }
-    char age[32];
+    char age[kFooterAgeCap];
     wx_format_age(age, sizeof(age), forecast_updated_at_ms);
-    snprintf(buf, cap, "%s%s%s", age, kStrFooterSep, kStrFooterTapRefresh);
+    snprintf(buf, cap, "%s%s%s%s", age, kStrFooterSep, kStrFooterTapRefresh, kStrFooterSep);
 }
 
 } // namespace
@@ -812,7 +814,9 @@ void LvglWeatherPage::_onFooterRefreshClick(lv_event_t* e) {
     }
 
     weatherRequestManualRefresh(); // flag only — no HTTP in LVGL / только флаг, без HTTP
-    wx_set_text_if_changed(self->_lbl_footer, kStrFooterRefreshing);
+    char fb[kFooterTextCap];
+    snprintf(fb, sizeof(fb), "%s%s", kStrFooterRefreshing, kStrFooterSep);
+    wx_set_text_if_changed(self->_lbl_footer, fb);
 }
 
 ScreenType LvglWeatherPage::screenType() const {
@@ -1112,15 +1116,19 @@ void LvglWeatherPage::create() {
             _lbl_footer = lv_label_create(_footer_box);
             if (_lbl_footer) {
                 {
-                    char fb[56];
-                    wx_format_footer_action(fb, sizeof(fb), "Forecast waiting", kStrFooterTapRefresh);
+                    char fb[kFooterTextCap];
+                    wx_format_footer_action(fb, sizeof(fb), kStrForecastNotLoaded, kStrFooterTapRefresh);
                     lv_label_set_text(_lbl_footer, fb);
                 }
                 wx_set_font(_lbl_footer, k_font_cond);
                 lv_obj_set_style_text_color(_lbl_footer, pal.text_secondary, LV_PART_MAIN);
                 lv_obj_set_style_text_align(_lbl_footer, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-                lv_label_set_long_mode(_lbl_footer, LV_LABEL_LONG_CLIP);
+                // A3.2: full-width circular scroll on overflow; tap stays on _footer_box.
+                // A3.2: полная ширина + круговой скролл при переполнении; тап на _footer_box.
+                lv_label_set_long_mode(_lbl_footer, LV_LABEL_LONG_SCROLL_CIRCULAR);
                 lv_obj_set_width(_lbl_footer, LV_PCT(100));
+                lv_obj_set_flex_grow(_lbl_footer, 1);
+                lv_obj_set_style_min_width(_lbl_footer, 0, LV_PART_MAIN);
                 lv_obj_clear_flag(_lbl_footer, LV_OBJ_FLAG_CLICKABLE);
             }
         }
@@ -1136,6 +1144,9 @@ void LvglWeatherPage::create() {
 void LvglWeatherPage::enter() {
     // Render immediately on navigation; periodic refresh continues via refreshWeatherScreen().
     // Немедленный рендер при входе; периодика — через refreshWeatherScreen().
+    // A3.2 perf: invalidate cache so the first update() after enter is always a full render.
+    // A3.2 perf: сброс кэша — первый update() после входа всегда полный рендер.
+    _render_cache_valid = false;
 #if YORADIO_WEATHER_UI_DIAG
     wx_diag_dump("enter_before_update", _screen);
 #endif
@@ -1187,9 +1198,6 @@ void LvglWeatherPage::update() {
     }
 #endif
 
-    char buf[64];
-
-    // W-R3: clear manual-refresh pending when attempt completes, version advances, or timeout.
     // W-R3: сброс pending при завершении попытки, новой версии или таймауте.
     if (_manual_refresh_pending) {
         const bool fetch_done = !s_snap.fetch_in_progress;
@@ -1204,6 +1212,59 @@ void LvglWeatherPage::update() {
         }
     }
 
+    // A3.2 perf: compact visible-state signature — detects all transitions that require a body/footer rebuild.
+    // A3.2 perf: компактная сигнатура видимого состояния; ловит все переходы, требующие rebuild.
+    uint32_t view_sig = 0;
+    view_sig |= wxEnabled              ? (1u << 0) : 0u;
+    view_sig |= haveData               ? (1u << 1) : 0u;
+    view_sig |= loadingWithoutData     ? (1u << 2) : 0u;
+    view_sig |= unavailableWithoutData ? (1u << 3) : 0u;
+    view_sig |= effectiveStale         ? (1u << 4) : 0u;
+    view_sig |= showRefreshingFooter   ? (1u << 5) : 0u;
+
+    // Footer age bucket: changes once per displayed minute; UINT32_MAX when age is not shown.
+    // Минутный ключ возраста футера: меняется раз в минуту; UINT32_MAX при отсутствии данных.
+    const uint32_t minute_bucket =
+        (haveData && s_snap.forecast_updated_at != 0u)
+        ? (millis() - s_snap.forecast_updated_at) / 60000u
+        : UINT32_MAX;
+
+    // Day key: triggers hero-date and hourly-label rebuild at midnight without a new payload.
+    // Ключ дня: rebuild hero и hourly при смене суток, без новой публикации WeatherState.
+    const uint32_t day_key =
+        (network.timeinfo.tm_year > 100)
+        ? static_cast<uint32_t>(network.timeinfo.tm_year) * 366u
+          + static_cast<uint32_t>(network.timeinfo.tm_yday)
+        : 0u;
+
+    // Dirty-category derivation / Вычисление категорий изменений.
+    const bool force_full      = !_render_cache_valid;
+    const bool version_changed = force_full || s_snap.version != _rendered_version;
+    const bool view_changed    = force_full || view_sig        != _rendered_view_sig;
+    const bool day_changed     = force_full || day_key         != _rendered_day_key;
+    const bool minute_changed  = force_full || minute_bucket   != _rendered_minute_bucket;
+
+    const bool full_render_needed = force_full || version_changed || view_changed || day_changed;
+    const bool footer_only_needed = !full_render_needed && minute_changed;
+
+    if (!full_render_needed && !footer_only_needed) {
+        return; // fast path: visible state unchanged / быстрый путь: видимое состояние не изменилось
+    }
+
+    char buf[64];
+    char footer_buf[kFooterTextCap];
+
+    if (footer_only_needed) {
+        // A3.2 perf: only the footer age minute changed — skip the full body rebuild.
+        // A3.2 perf: изменилась только минута возраста — пропускаем rebuild тела страницы.
+        wx_format_footer(footer_buf, sizeof(footer_buf), wxEnabled, haveData, showRefreshingFooter,
+                         effectiveStale, s_snap.forecast_updated_at, unavailableWithoutData);
+        wx_set_text_if_changed(_lbl_footer, footer_buf);
+        _rendered_minute_bucket = minute_bucket;
+        return;
+    }
+
+    // ── Full render path ─────────────────────────────────────────────────────
     if (!haveData) {
         // W-R3: Empty / Loading / Unavailable — centered message; footer at bottom.
         // W-R3: пусто / загрузка / недоступно — центр; футер внизу.
@@ -1215,13 +1276,19 @@ void LvglWeatherPage::update() {
         } else if (unavailableWithoutData) {
             wx_set_text_if_changed(_lbl_message, kStrTemporarilyUnavailable);
         } else if (loadingWithoutData) {
-            wx_set_text_if_changed(_lbl_message, kStrUpdatingWeather);
+            wx_set_text_if_changed(_lbl_message, kStrPleaseWait);
         } else {
             wx_set_text_if_changed(_lbl_message, kStrForecastWaiting);
         }
-        wx_format_footer(buf, sizeof(buf), wxEnabled, haveData, showRefreshingFooter,
+        wx_format_footer(footer_buf, sizeof(footer_buf), wxEnabled, haveData, showRefreshingFooter,
                          effectiveStale, s_snap.forecast_updated_at, unavailableWithoutData);
-        wx_set_text_if_changed(_lbl_footer, buf);
+        wx_set_text_if_changed(_lbl_footer, footer_buf);
+        // Commit render cache / Фиксируем кэш рендера.
+        _rendered_version       = s_snap.version;
+        _rendered_view_sig      = view_sig;
+        _rendered_minute_bucket = minute_bucket;
+        _rendered_day_key       = day_key;
+        _render_cache_valid     = true;
         return;
     }
 
@@ -1306,9 +1373,16 @@ void LvglWeatherPage::update() {
         wx_set_text_if_changed(_daily[i].pop, buf);
     }
 
-    wx_format_footer(buf, sizeof(buf), wxEnabled, haveData, showRefreshingFooter,
+    wx_format_footer(footer_buf, sizeof(footer_buf), wxEnabled, haveData, showRefreshingFooter,
                      effectiveStale, s_snap.forecast_updated_at, unavailableWithoutData);
-    wx_set_text_if_changed(_lbl_footer, buf);
+    wx_set_text_if_changed(_lbl_footer, footer_buf);
+
+    // Commit render cache / Фиксируем кэш рендера.
+    _rendered_version       = s_snap.version;
+    _rendered_view_sig      = view_sig;
+    _rendered_minute_bucket = minute_bucket;
+    _rendered_day_key       = day_key;
+    _render_cache_valid     = true;
 }
 
 void LvglWeatherPage::liveReapplyTheme() {
@@ -1441,6 +1515,13 @@ void LvglWeatherPage::releaseAfterAutoDelete() {
 }
 
 void LvglWeatherPage::_nullHandles() {
+    // A3.2 perf: reset render cache — next enter() will force a full render into fresh widgets.
+    // A3.2 perf: сброс кэша — следующий enter() выполнит полный рендер в новые виджеты.
+    _render_cache_valid     = false;
+    _rendered_version       = 0;
+    _rendered_view_sig      = 0;
+    _rendered_minute_bucket = UINT32_MAX;
+    _rendered_day_key       = 0;
     _screen = nullptr;  // dangling after auto_del; already nulled on the manual destroy() path
     _status_line = {};
     _content = _body_area = nullptr;

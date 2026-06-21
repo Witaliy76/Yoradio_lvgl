@@ -125,6 +125,16 @@ private:
     uint32_t _refresh_pending_since_ms = 0;
     static constexpr uint32_t kRefreshTapThrottleMs = 12000u;
     static constexpr uint32_t kRefreshPendingTimeoutMs = 90000u;
+
+    // A3.2 perf: differential-render cache — invalidated on enter()/destroy()/releaseAfterAutoDelete().
+    // Skips body rebuild when visible state is unchanged; footer updated separately on minute change.
+    // A3.2 perf: кэш дифференциального рендера — сброс при enter()/destroy()/release.
+    // Позволяет пропускать rebuild тела страницы, обновляя только футер при смене минуты.
+    bool     _render_cache_valid     = false;
+    uint32_t _rendered_version       = 0;
+    uint32_t _rendered_view_sig      = 0;
+    uint32_t _rendered_minute_bucket = UINT32_MAX;
+    uint32_t _rendered_day_key       = 0;
 };
 
 } // namespace lvgl_ui
