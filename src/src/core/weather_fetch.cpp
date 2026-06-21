@@ -301,8 +301,17 @@ bool weatherForecastPollPending() {
     if (int_free < kPendingTaskAdmissionMinFreeBytes ||
         int_block < static_cast<size_t>(kDoSyncTaskStackBytes)) {
 #if YORADIO_WEATHER_REQ_DIAG
-        Serial.printf("[WEATHER_FC] pending wait reason=admission_low int_free=%u required=%u int_block=%u\n",
-                      (unsigned)int_free, (unsigned)kPendingTaskAdmissionMinFreeBytes, (unsigned)int_block);
+        const bool heap_low  = int_free < kPendingTaskAdmissionMinFreeBytes;
+        const bool stack_low = int_block < static_cast<size_t>(kDoSyncTaskStackBytes);
+        // Distinct reasons — heap floor vs contiguous block for doSync stack allocation.
+        // Разные причины — порог heap vs непрерывный блок под стек doSync.
+        const char* reason = (heap_low && stack_low) ? "heap_and_stack_low"
+                             : heap_low ? "heap_low"
+                             : "stack_block_low";
+        Serial.printf("[WEATHER_FC] pending wait reason=%s int_free=%u heap_required=%u int_block=%u stack_required=%u\n",
+                      reason,
+                      (unsigned)int_free, (unsigned)kPendingTaskAdmissionMinFreeBytes,
+                      (unsigned)int_block, (unsigned)kDoSyncTaskStackBytes);
 #endif
         return false;
     }
