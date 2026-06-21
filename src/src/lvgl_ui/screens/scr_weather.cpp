@@ -118,10 +118,10 @@ static constexpr const char* kStrFooterSep          = " \xE2\x80\xA2 ";
 static const char* const kStrFooterRefreshing       = "Обновление погоды...";
 static const char* const kStrFooterTapRefresh       = "Нажать для обновления";
 static const char* const kStrFooterTapRetry         = "Нажмите, чтобы повторить";
-// A3.2: footer format buffers — longest stale line ≈102 B UTF-8 + NUL.
-// A3.2: буферы футера — самая длинная stale-строка ≈102 B UTF-8 + NUL.
+// A4.1: footer format buffers — city[64] + country + longest Russian status/age/action + seps.
+// A4.1: буферы футера — city[64] + country + самые длинные русские фразы + разделители.
 static constexpr size_t kFooterAgeCap  = 48;
-static constexpr size_t kFooterTextCap = 112;
+static constexpr size_t kFooterTextCap = 192;
 
 // A3.1: Russian genitive months + weekdays for hero date line (local to Weather page).
 // A3.1: месяцы (род. п.) и дни недели для строки даты в hero (только эта страница).
@@ -755,38 +755,83 @@ static void wx_format_age(char* buf, size_t cap, uint32_t updated_at_ms) {
 
 // A2b/A3.2: footer segments joined via kStrFooterSep; trailing sep for circular scroll gap.
 // A2b/A3.2: сегменты футера через kStrFooterSep; завершающий sep — зазор при круговой прокрутке.
-static void wx_format_footer_action(char* buf, size_t cap, const char* status, const char* action) {
+
+// A4.1: location prefix — "" | "city" | "city, country" (UTF-8 byte-safe, bounded).
+// A4.1: префикс локации — "" | "город" | "город, CC".
+static void wx_format_location_prefix(char* buf, size_t cap, const WeatherLocation& loc) {
     if (!buf || cap == 0) return;
-    snprintf(buf, cap, "%s%s%s%s", status, kStrFooterSep, action, kStrFooterSep);
+    buf[0] = '\0';
+    if (!loc.valid || loc.city[0] == '\0') return;
+    if (loc.country[0] != '\0') {
+        snprintf(buf, cap, "%s, %s", loc.city, loc.country);
+    } else {
+        strlcpy(buf, loc.city, cap);
+    }
+}
+
+// A4.1: prepend location + separator when prefix is non-empty.
+// A4.1: добавить локацию + разделитель, если префикс не пустой.
+static void wx_footer_prepend_location(char* out, size_t out_cap,
+                                       const char* location_prefix,
+                                       const char* body) {
+    if (!out || out_cap == 0) return;
+    if (!location_prefix || location_prefix[0] == '\0') {
+        strlcpy(out, body, out_cap);
+    } else {
+        snprintf(out, out_cap, "%s%s%s", location_prefix, kStrFooterSep, body);
+    }
+}
+
+static void wx_format_footer_action(char* buf, size_t cap, const char* status, const char* action,
+                                    const char* location_prefix) {
+    if (!buf || cap == 0) return;
+    char inner[kFooterTextCap];
+    snprintf(inner, sizeof(inner), "%s%s%s%s", status, kStrFooterSep, action, kStrFooterSep);
+    wx_footer_prepend_location(buf, cap, location_prefix, inner);
 }
 
 static void wx_format_footer(char* buf, size_t cap, bool wx_enabled, bool have_data,
                              bool show_refreshing, bool effective_stale,
-                             uint32_t forecast_updated_at_ms, bool unavailable_no_data) {
+                             uint32_t forecast_updated_at_ms, bool unavailable_no_data,
+                             const WeatherLocation* loc) {
     if (!buf || cap == 0) return;
+
+    char location_prefix[72];
+    location_prefix[0] = '\0';
+    // A4.1: location only on payload-backed footer states (have_data).
+    // A4.1: локация только при наличии payload (have_data).
+    if (have_data && loc) {
+        wx_format_location_prefix(location_prefix, sizeof(location_prefix), *loc);
+    }
+    const char* loc_p = (location_prefix[0] != '\0') ? location_prefix : nullptr;
+
     if (show_refreshing) {
-        snprintf(buf, cap, "%s%s", kStrFooterRefreshing, kStrFooterSep);
+        char inner[kFooterTextCap];
+        snprintf(inner, sizeof(inner), "%s%s", kStrFooterRefreshing, kStrFooterSep);
+        wx_footer_prepend_location(buf, cap, loc_p, inner);
         return;
     }
     if (!wx_enabled) {
-        wx_format_footer_action(buf, cap, kStrWeatherUnavail, kStrFooterTapRetry);
+        wx_format_footer_action(buf, cap, kStrWeatherUnavail, kStrFooterTapRetry, nullptr);
         return;
     }
     if (!have_data) {
         if (unavailable_no_data) {
-            wx_format_footer_action(buf, cap, kStrTemporarilyUnavailable, kStrFooterTapRetry);
+            wx_format_footer_action(buf, cap, kStrTemporarilyUnavailable, kStrFooterTapRetry, nullptr);
         } else {
-            wx_format_footer_action(buf, cap, kStrForecastNotLoaded, kStrFooterTapRefresh);
+            wx_format_footer_action(buf, cap, kStrForecastNotLoaded, kStrFooterTapRefresh, nullptr);
         }
         return;
     }
     if (effective_stale) {
-        wx_format_footer_action(buf, cap, kStrDataMayBeOutdated, kStrFooterTapRefresh);
+        wx_format_footer_action(buf, cap, kStrDataMayBeOutdated, kStrFooterTapRefresh, loc_p);
         return;
     }
     char age[kFooterAgeCap];
     wx_format_age(age, sizeof(age), forecast_updated_at_ms);
-    snprintf(buf, cap, "%s%s%s%s", age, kStrFooterSep, kStrFooterTapRefresh, kStrFooterSep);
+    char inner[kFooterTextCap];
+    snprintf(inner, sizeof(inner), "%s%s%s%s", age, kStrFooterSep, kStrFooterTapRefresh, kStrFooterSep);
+    wx_footer_prepend_location(buf, cap, loc_p, inner);
 }
 
 } // namespace
@@ -815,7 +860,10 @@ void LvglWeatherPage::_onFooterRefreshClick(lv_event_t* e) {
 
     weatherRequestManualRefresh(); // flag only — no HTTP in LVGL / только флаг, без HTTP
     char fb[kFooterTextCap];
-    snprintf(fb, sizeof(fb), "%s%s", kStrFooterRefreshing, kStrFooterSep);
+    const bool wxEnabled = config.store.showweather && (strlen(config.store.weatherkey) > 0);
+    const bool haveData = snap.forecast_valid && snap.current.valid;
+    wx_format_footer(fb, sizeof(fb), wxEnabled, haveData, true, false,
+                     snap.forecast_updated_at, false, &snap.location);
     wx_set_text_if_changed(self->_lbl_footer, fb);
 }
 
@@ -1117,7 +1165,7 @@ void LvglWeatherPage::create() {
             if (_lbl_footer) {
                 {
                     char fb[kFooterTextCap];
-                    wx_format_footer_action(fb, sizeof(fb), kStrForecastNotLoaded, kStrFooterTapRefresh);
+                    wx_format_footer_action(fb, sizeof(fb), kStrForecastNotLoaded, kStrFooterTapRefresh, nullptr);
                     lv_label_set_text(_lbl_footer, fb);
                 }
                 wx_set_font(_lbl_footer, k_font_cond);
@@ -1258,7 +1306,8 @@ void LvglWeatherPage::update() {
         // A3.2 perf: only the footer age minute changed — skip the full body rebuild.
         // A3.2 perf: изменилась только минута возраста — пропускаем rebuild тела страницы.
         wx_format_footer(footer_buf, sizeof(footer_buf), wxEnabled, haveData, showRefreshingFooter,
-                         effectiveStale, s_snap.forecast_updated_at, unavailableWithoutData);
+                         effectiveStale, s_snap.forecast_updated_at, unavailableWithoutData,
+                         &s_snap.location);
         wx_set_text_if_changed(_lbl_footer, footer_buf);
         _rendered_minute_bucket = minute_bucket;
         return;
@@ -1281,7 +1330,8 @@ void LvglWeatherPage::update() {
             wx_set_text_if_changed(_lbl_message, kStrForecastWaiting);
         }
         wx_format_footer(footer_buf, sizeof(footer_buf), wxEnabled, haveData, showRefreshingFooter,
-                         effectiveStale, s_snap.forecast_updated_at, unavailableWithoutData);
+                         effectiveStale, s_snap.forecast_updated_at, unavailableWithoutData,
+                         &s_snap.location);
         wx_set_text_if_changed(_lbl_footer, footer_buf);
         // Commit render cache / Фиксируем кэш рендера.
         _rendered_version       = s_snap.version;
@@ -1374,7 +1424,8 @@ void LvglWeatherPage::update() {
     }
 
     wx_format_footer(footer_buf, sizeof(footer_buf), wxEnabled, haveData, showRefreshingFooter,
-                     effectiveStale, s_snap.forecast_updated_at, unavailableWithoutData);
+                     effectiveStale, s_snap.forecast_updated_at, unavailableWithoutData,
+                     &s_snap.location);
     wx_set_text_if_changed(_lbl_footer, footer_buf);
 
     // Commit render cache / Фиксируем кэш рендера.

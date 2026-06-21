@@ -18,6 +18,7 @@
 #include "../wifi_signal_map.h"
 #include "../../core/config.h"
 #include "../../core/network.h"
+#include "../../core/weather_state.h"
 
 namespace lvgl_ui {
 namespace wgt_status_line {
@@ -196,21 +197,22 @@ void update(const Instance& inst) {
     }
     status_line_set_text_if_changed(inst.lbl_clock, s_clock_line);
 
-    // Compact weather in status line (glyph + °C); same data as 6.1C glance fields.
-    // Компактная погода в status line — те же network.weather* поля.
+    // A4.1: compact status weather from WeatherState.current (icon + °C).
+    // A4.1: компактная погода из WeatherState.current (иконка + °C).
     static char weather_temp[16];
     if (inst.cont_weather && inst.lbl_weather_glyph && inst.lbl_weather_temp) {
-        // Compact status weather: key + showweather only; do not gate on legacy full-string weatherBuf.
         const bool wantWx = config.store.showweather && (strlen(config.store.weatherkey) > 0);
-        if (wantWx && network.weatherGlanceValid) {
+        WeatherState weather{};
+        weatherGetStateSnapshot(&weather);
+        if (wantWx && weather.current.valid) {
             status_line_set_text_if_changed(
                 inst.lbl_weather_glyph,
-                weather_owm_icon_to_glyph_utf8(network.weatherOwmIcon));
+                weather_owm_icon_to_glyph_utf8(weather.current.owm_icon));
             snprintf(
                 weather_temp,
                 sizeof(weather_temp),
                 "%+.0f°C",
-                static_cast<double>(network.weatherLastTempC));
+                static_cast<double>(weather.current.temp_c));
             status_line_set_text_if_changed(inst.lbl_weather_temp, weather_temp);
             lv_obj_clear_flag(inst.lbl_weather_glyph, LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(inst.cont_weather, LV_OBJ_FLAG_HIDDEN);

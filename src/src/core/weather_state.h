@@ -49,7 +49,7 @@ enum class WeatherLastError : uint8_t {
 // Хранится на уровне WeatherState root — относится к точке наблюдения, а не к эндпоинту.
 struct WeatherLocation {
     bool valid;
-    char city[48];    // UTF-8 NUL-terminated; strlcpy-safe truncation; > Екатеринбург (24 B UTF-8)
+    char city[64];    // UTF-8 NUL-terminated; strlcpy-safe truncation; localized OWM names
     char country[4];  // ISO 3166-1 alpha-2 NUL-terminated, e.g. "RU\0"
 };
 
