@@ -1248,6 +1248,9 @@ void LvglWeatherPage::update() {
 
     const bool wxEnabled  = config.store.showweather && (strlen(config.store.weatherkey) > 0);
     const bool haveData   = s_snap.forecast_valid && s_snap.current.valid;
+    // E34 corrective: body presentation requires both feature enabled and valid LKG payload.
+    // E34 corrective: тело страницы — только при включённой погоде и валидном LKG.
+    const bool showData   = wxEnabled && haveData;
     const bool terminalError = wx_is_terminal_weather_error(s_snap.last_error);
     const bool loadingWithoutData =
         !haveData &&
@@ -1339,9 +1342,9 @@ void LvglWeatherPage::update() {
     }
 
     // ── Full render path ─────────────────────────────────────────────────────
-    if (!haveData) {
-        // W-R3: Empty / Loading / Unavailable — centered message; footer at bottom.
-        // W-R3: пусто / загрузка / недоступно — центр; футер внизу.
+    if (!showData) {
+        // W-R3 / E34: empty, loading, unavailable, or disabled — center message; footer at bottom.
+        // W-R3 / E34: пусто, загрузка, недоступно или выключено — центр; футер внизу.
         wx_show(_cont_data, false);
         wx_show(_cont_empty_center, true);
         wx_show(_cont_footer, true);

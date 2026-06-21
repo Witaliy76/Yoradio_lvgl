@@ -9,7 +9,6 @@
 #define apPassword  ""
 //#define TSYNC_DELAY 10800000    // 1000*60*60*3 = 3 hours
 #define TSYNC_DELAY       3600000     // 1000*60*60   = 1 hour
-#define WEATHER_STRING_L  254
 
 // W-R1C.2/3B: doSync FreeRTOS stack — bytes (ESP-IDF xTaskCreatePinnedToCore API).
 // W-R1C.3B: 4608 B from W-R1C.3A high-water (max_used=3496, reserve≈1112).
@@ -28,13 +27,6 @@ class MyNetwork {
     bool runtimeReconnectSuspendedForSetup = false;
     //uint8_t tsFailCnt, wsFailCnt;
     Ticker ctimer;
-    char *weatherBuf;
-    bool trueWeather;
-    // Stage 6.1C: compact Main glance (OWM code + °C) — filled in getWeather(); not full weatherBuf.
-    // 6.1C: компактный glance на Main — код OWM + °C; не полная строка погоды.
-    char weatherOwmIcon[8]{};
-    float weatherLastTempC{0.f};
-    bool weatherGlanceValid{false};
   public:
     MyNetwork() {};
     void begin();
@@ -69,7 +61,7 @@ bool networkResolveHostForConnect(const char* host, IPAddress& out, uint32_t tim
 // Forward declaration only; full include lives in network.cpp.
 // Только forward declaration; полный include — в network.cpp.
 struct WeatherEdgeSession;
-bool getWeather(char *wstr, WeatherEdgeSession& edgeSession);
+bool getWeather(WeatherEdgeSession& edgeSession);
 
 extern __attribute__((weak)) void network_on_connect();
 

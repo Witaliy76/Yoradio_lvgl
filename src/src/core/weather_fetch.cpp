@@ -243,8 +243,8 @@ size_t read_line(WiFiClient& client, char* buf, size_t cap, uint32_t timeoutMs) 
 } // namespace
 
 // ── A4.0: current-conditions JSON parser (ArduinoJson v7, PSRAM allocator) ──────────────
-// Single-parse path: feeds both WeatherTrueCurrent (WeatherState) and legacy weatherBuf.
-// Единый проход парсинга: кормит WeatherTrueCurrent (WeatherState) и legacy weatherBuf.
+// Single-parse path: feeds WeatherTrueCurrent (WeatherState) and ##WEATHER### diagnostic fields.
+// Единый проход парсинга: кормит WeatherTrueCurrent (WeatherState) и поля для ##WEATHER###.
 bool weatherParseCurrentBody(const char* body, WeatherCurrentParsed* out) {
     if (!body || !out) return false;
 
@@ -263,7 +263,7 @@ bool weatherParseCurrentBody(const char* body, WeatherCurrentParsed* out) {
     filter["main"]["grnd_level"]        = true;  // preferred for mmHg if present
     filter["wind"]["speed"]             = true;
     filter["wind"]["deg"]               = true;
-    filter["wind"]["gust"]              = true;  // legacy weatherBuf only
+    filter["wind"]["gust"]              = true;  // optional; used by ##WEATHER### gust suffix
     filter["dt"]                        = true;
     filter["name"]                      = true;
     filter["sys"]["country"]            = true;
@@ -317,7 +317,8 @@ bool weatherParseCurrentBody(const char* body, WeatherCurrentParsed* out) {
         strlcpy(out->tc.location.country, country, sizeof(out->tc.location.country));
     }
 
-    // ── Legacy weatherBuf helper fields ──────────────────────────────────────
+    // ── Human-readable ##WEATHER### diagnostic helper fields ─────────────────
+    // ── Вспомогательные поля для serial-диагностики ##WEATHER### ─────────────
     // pressure_mmhg: OWM hPa → mmHg with optional altitude adjustment.
     // Давление: OWM hPa → мм.рт.ст. с поправкой на высоту.
 #ifndef GRND_HEIGHT
@@ -340,7 +341,8 @@ bool weatherParseCurrentBody(const char* body, WeatherCurrentParsed* out) {
     out->has_gust = (gust_f > 0.05f);
     out->gust_mps = (int)gust_f;
 
-    // humidity as decimal string for legacy %s format in weatherFmt.
+    // humidity as decimal string for ##WEATHER### serial line.
+    // Влажность строкой для serial-строки ##WEATHER###.
     snprintf(out->humidity_str, sizeof(out->humidity_str), "%u", (unsigned)out->tc.humidity);
 
     out->tc.valid = true;

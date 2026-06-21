@@ -53,7 +53,7 @@ TaskHandle_t syncTaskHandle;
 //TaskHandle_t reconnectTaskHandle;
 
 // HF-W-DNS: edge-session-aware getWeather — called only from doSync.
-bool getWeather(char *wstr, WeatherEdgeSession& edgeSession);
+bool getWeather(WeatherEdgeSession& edgeSession);
 void doSync(void * pvParameters);
 
 // A4.0: file-scope current-conditions staging — populated by getWeather(), consumed by
@@ -183,6 +183,29 @@ static DoSyncScheduleResult scheduleDoSyncIfIdleEx() {
 // true — задача создана; false — doSync занят или xTaskCreate не удался.
 static bool scheduleDoSyncIfIdle() {
   return scheduleDoSyncIfIdleEx() == DoSyncScheduleResult::Started;
+}
+
+// E34 corrective: common doSync exit — clear syncTaskHandle under schedule mutex, then self-delete.
+// Without this, eTaskGetState(stale handle) may stay non-eDeleted → permanent schedule=busy.
+// E34 corrective: общий выход doSync — сброс syncTaskHandle под schedule mutex, затем self-delete.
+static void doSyncReleaseHandleAndSelfDelete() {
+  SemaphoreHandle_t mutex = doSyncScheduleMutex();
+  if (mutex != nullptr) {
+    if (xSemaphoreTake(mutex, portMAX_DELAY) == pdTRUE) {
+      const TaskHandle_t self = xTaskGetCurrentTaskHandle();
+      if (syncTaskHandle == self) {
+        syncTaskHandle = nullptr;
+      }
+      xSemaphoreGive(mutex);
+    } else if (syncTaskHandle == xTaskGetCurrentTaskHandle()) {
+      // Mutex take failed — still clear own handle to avoid permanent busy.
+      // Не взяли mutex — всё равно сбрасываем свой handle, иначе вечный busy.
+      syncTaskHandle = nullptr;
+    }
+  } else if (syncTaskHandle == xTaskGetCurrentTaskHandle()) {
+    syncTaskHandle = nullptr;
+  }
+  vTaskDelete(nullptr);
 }
 
 static constexpr uint32_t WEATHER_FIRST_SYNC_GRACE_MS = 30000;
@@ -334,10 +357,13 @@ static void markWeatherReadyAfterConnect() {
 }
 
 static bool isWeatherEnabledForSync() {
-  return network.weatherBuf != nullptr &&
-         config.store.showweather &&
+#if !defined(HIDE_WEATHER)
+  return config.store.showweather &&
          strlen(config.store.weatherkey) != 0 &&
          network.status == CONNECTED;
+#else
+  return false;
+#endif
 }
 
 static bool isWeatherGraceElapsed() {
@@ -390,13 +416,12 @@ static void logStart() {
   const uint32_t sinceLast =
       (s_weather_last_attempt_ms == 0U) ? 0U : (now - s_weather_last_attempt_ms);
   Serial.printf(
-      "[WEATHER] start showweather=%d force_requested=%d trueWeather=%d grace_elapsed=%d "
+      "[WEATHER] start showweather=%d force_requested=%d grace_elapsed=%d "
       "host=api.openweathermap.org port=80 scheme=http path_len=%u "
       "avail_to_ms=2000 read_to_ms=500 dns_to_ms=5000 wifi_status=%d ip=%s rssi=%d "
       "boot_ms=%lu since_last_ms=%lu audio_playing=%d\n",
       (int)config.store.showweather,
       (int)s_weather_diag_forced,
-      (int)network.trueWeather,
       (int)isWeatherGraceElapsed(),
       (unsigned)pathLenEstimate(),
       (int)WiFi.status(),
@@ -434,7 +459,7 @@ static void logSuccess(uint32_t t0, int httpCode, float tempC, const char* icon,
                        const char* desc) {
   Serial.printf(
       "[WEATHER] success stage=done http_code=%d temp=%.1f icon=%s desc=\"%s\" "
-      "elapsed_ms=%lu next_interval_s=%u trueWeather=1\n",
+      "elapsed_ms=%lu next_interval_s=%u current_ok=1\n",
       httpCode, tempC, icon, desc, (unsigned long)(millis() - t0),
       (unsigned)WEATHER_REGULAR_INTERVAL_SEC);
   heapSnapshot();
@@ -741,12 +766,6 @@ void MyNetwork::setWifiParams(){
   WiFi.setSleep(false);
   WiFi.onEvent(WiFiReconnected, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_GOT_IP);
   WiFi.onEvent(WiFiLostConnection, WiFiEvent_t::ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
-  weatherBuf=NULL;
-  trueWeather = false;
-#if !defined(HIDE_WEATHER)
-    weatherBuf = (char *) malloc(sizeof(char) * WEATHER_STRING_L);
-    memset(weatherBuf, 0, WEATHER_STRING_L);
-  #endif
   if(strlen(config.store.sntp1)>0 && strlen(config.store.sntp2)>0){
     configTime(config.store.tzHour * 3600 + config.store.tzMin * 60, config.getTimezoneOffset(), config.store.sntp1, config.store.sntp2);
   }else if(strlen(config.store.sntp1)>0){
@@ -921,7 +940,7 @@ void doSync( void * pvParameters ) {
     s_current_tc = WeatherTrueCurrent{};
     s_current_tc_valid = false;
 
-    network.trueWeather = getWeather(network.weatherBuf, weatherSession);
+    const bool current_ok = getWeather(weatherSession);
     // Weather W1: forecast fetch in the same weather-sync context (Core 0 doSync), HTTP only,
     // never from UI. Parsing/aggregation lives in weather_fetch.* — not here. Failure is non-fatal
     // (keeps last-known-good WeatherState) and does not affect current weather / status row.
@@ -930,7 +949,7 @@ void doSync( void * pvParameters ) {
     // A4.0: pass true-current staging if /weather succeeded, nullptr otherwise (Case B).
     // A4.0: передаём true-current staging если /weather успешен; nullptr при отказе (Case B).
     runWeatherForecastFetch(weatherSession,
-                             s_current_tc_valid ? &s_current_tc : nullptr);
+                             current_ok ? &s_current_tc : nullptr);
     s_weather_diag_forced = false;
   } else if (weatherForecastTakePendingOnlyRun()) {
 #if YORADIO_WEATHER_STACK_DIAG
@@ -960,7 +979,7 @@ void doSync( void * pvParameters ) {
 #if YORADIO_WEATHER_STACK_DIAG
   logDoSyncStackUsage(stack_diag_mode, "exit");
 #endif
-  vTaskDelete( NULL );
+  doSyncReleaseHandleAndSelfDelete();
 }
 
 // HF-W-DNS: current-weather failure-injection hooks — default OFF in production.
@@ -979,7 +998,7 @@ void doSync( void * pvParameters ) {
 #define YORADIO_WEATHER_EDGE_TEST_FORCE_DUPLICATE 0
 #endif
 
-bool getWeather(char *wstr, WeatherEdgeSession& edgeSession) {
+bool getWeather(WeatherEdgeSession& edgeSession) {
 #if !defined(HIDE_WEATHER)
   WiFiClient client;
   const char* host  = "api.openweathermap.org";
@@ -1264,8 +1283,8 @@ bool getWeather(char *wstr, WeatherEdgeSession& edgeSession) {
 #endif
 
   // ── A4.0: ArduinoJson v7 parse (replaces strstr block) ────────────────────────
-  // Single parse feeds both WeatherState merge and legacy weatherBuf.
-  // Единый парсинг кормит WeatherState merge и legacy weatherBuf.
+  // Single parse feeds WeatherState merge via true-current staging.
+  // Единый парсинг — staging для merge в WeatherState.
   WeatherCurrentParsed parsed{};
   if (!weatherParseCurrentBody(line.c_str(), &parsed)) {
 #if YORADIO_WEATHER_DIAG
@@ -1283,14 +1302,8 @@ bool getWeather(char *wstr, WeatherEdgeSession& edgeSession) {
   s_current_tc       = parsed.tc;
   s_current_tc_valid = true;
 
-  // ── A4.1 deferred: legacy glance fields (status line / Main mini) ──────────────
-  // A4.1 deferred: поля glance для status line / Main mini — мигрируем в A4.1.
-  strlcpy(network.weatherOwmIcon, parsed.tc.owm_icon, sizeof(network.weatherOwmIcon));
-  network.weatherLastTempC  = parsed.tc.temp_c;
-  network.weatherGlanceValid = true;
-
-  // ── Build legacy gust string for weatherBuf (PROGMEM const_getWeather / prv) ──
-  // Формируем строку порывов для weatherBuf (PROGMEM const_getWeather / prv).
+  // ── Human-readable serial diagnostic (##WEATHER###) ──────────────────────────
+  // ── Человекочитаемая serial-диагностика (##WEATHER###) ─────────────────────
   char gust[20];
   strlcpy(gust, const_getWeather, sizeof(gust));  // default = "" (empty)
   if (parsed.has_gust && parsed.gust_mps > 0) {
@@ -1321,24 +1334,6 @@ bool getWeather(char *wstr, WeatherEdgeSession& edgeSession) {
                 wind[parsed.wind_dir_idx], (double)parsed.tc.wind_speed,
                 gust, parsed.tc.location.city);
 
-  // ── Format legacy weather string (weatherBuf) — mmHg preserved for backward compat ──
-  // Формируем legacy строку погоды (weatherBuf) — mmHg для обратной совместимости.
-  #ifdef WEATHER_FMT_SHORT
-    sprintf(wstr, weatherFmt,
-            (double)parsed.tc.temp_c, parsed.pressure_mmhg, parsed.humidity_str);
-  #else
-    #if EXT_WEATHER
-      sprintf(wstr, weatherFmt,
-              parsed.full_desc, (double)parsed.tc.temp_c, (double)parsed.tc.feels_like_c,
-              parsed.pressure_mmhg, parsed.humidity_str,
-              wind[parsed.wind_dir_idx], (double)parsed.tc.wind_speed,
-              gust, parsed.tc.location.city);
-    #else
-      sprintf(wstr, weatherFmt,
-              parsed.full_desc, (double)parsed.tc.temp_c,
-              parsed.pressure_mmhg, parsed.humidity_str);
-    #endif
-  #endif
   // W1+A2b-loop-guard: do NOT call requestWeatherSync() here — forecast already runs in the same
   // doSync pass (weatherFetchForecast). Re-arming forceWeather caused infinite 1 Hz polling.
   // W1+A2b-loop-guard: не вызывать requestWeatherSync() — прогноз уже в том же doSync.

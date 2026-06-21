@@ -821,13 +821,11 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
       if (strcmp(cmd, "showweather") == 0) {
         bool valb = static_cast<bool>(atoi(val));
         config.saveValue(&config.store.showweather, valb);
-        network.trueWeather=false;
         network.forceWeather = true;
         return;
       }
       if (strcmp(cmd, "lat") == 0) {
         config.saveValue(config.store.weatherlat, val, 10, false);
-        network.trueWeather = false;
 #if YORADIO_WEATHER_REQ_DIAG
         Serial.printf("[WEATHER_CFG] save field=lat value=\"%s\"\n", val);
         Serial.printf("[WEATHER_CFG] stored lat=\"%s\" lon=\"%s\"\n",
@@ -837,7 +835,6 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
       }
       if (strcmp(cmd, "lon") == 0) {
         config.saveValue(config.store.weatherlon, val, 10, false);
-        network.trueWeather = false;
 #if YORADIO_WEATHER_REQ_DIAG
         Serial.printf("[WEATHER_CFG] save field=lon value=\"%s\"\n", val);
         Serial.printf("[WEATHER_CFG] stored lat=\"%s\" lon=\"%s\"\n",
@@ -847,7 +844,6 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
       }
       if (strcmp(cmd, "key") == 0) {
         config.saveValue(config.store.weatherkey, val, WEATHERKEY_LENGTH);
-        network.trueWeather=false;
         display.putRequest(REFRESH_MAIN);
         return;
       }
@@ -1049,7 +1045,6 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
           config.saveValue(config.store.weatherlat, "55.7512", 10, false);
           config.saveValue(config.store.weatherlon, "37.6184", 10, false);
           config.saveValue(config.store.weatherkey, "", WEATHERKEY_LENGTH);
-          network.trueWeather=false;
           display.putRequest(REFRESH_MAIN);
           requestOnChange(GETWEATHER, clientId);
           return;

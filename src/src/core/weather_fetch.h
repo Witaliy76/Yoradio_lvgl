@@ -61,17 +61,16 @@ struct WeatherTrueCurrent {
 };
 
 // A4.0: full parse result from weatherParseCurrentBody().
-// Carries WeatherTrueCurrent for WeatherState plus legacy fields for weatherBuf formatting.
-// A4.0: полный результат парсинга — WeatherTrueCurrent для WeatherState + legacy поля для weatherBuf.
-// Not changed now: legacy fields will be removed in A4.2 when getWeather is fully retired.
+// Carries WeatherTrueCurrent for WeatherState plus human-readable ##WEATHER### diagnostic fields.
+// A4.0: полный результат парсинга — WeatherTrueCurrent для WeatherState + поля для ##WEATHER###.
 struct WeatherCurrentParsed {
     WeatherTrueCurrent tc;        // A4.0 state fields
-    int    pressure_mmhg;         // hPa→mmHg for legacy weatherBuf (with GRND_HEIGHT adjustment)
+    int    pressure_mmhg;         // hPa→mmHg for ##WEATHER### (with GRND_HEIGHT adjustment)
     int    wind_dir_idx;          // 0..15 compass index for wind[] PROGMEM array
     bool   has_gust;              // true if wind.gust present in response
     int    gust_mps;              // gust speed m/s integer
-    char   full_desc[120];        // full weather[0].description (tc.condition is 64 B; full_desc for weatherBuf)
-    char   humidity_str[8];       // humidity as decimal string for legacy %s format
+    char   full_desc[120];        // full weather[0].description (tc.condition is 64 B; full_desc for ##WEATHER###)
+    char   humidity_str[8];       // humidity as decimal string for ##WEATHER### serial line
 };
 
 // A4.0: parse /weather JSON body (already read from HTTP stream).
