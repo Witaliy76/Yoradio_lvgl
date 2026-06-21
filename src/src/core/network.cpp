@@ -56,23 +56,43 @@ TaskHandle_t syncTaskHandle;
 bool getWeather(char *wstr, WeatherEdgeSession& edgeSession);
 void doSync(void * pvParameters);
 
-// W-R3: forecast fetch lifecycle — status-only publish on non-success; success via weatherPublishState.
-// W-R3: цикл forecast — status-only при ошибке; успех через weatherPublishState.
-static void finishWeatherForecastFetch(WeatherForecastFetchResult result) {
+// A4.0: file-scope current-conditions staging — populated by getWeather(), consumed by
+// runWeatherForecastFetch() in the same doSync cycle. Single-threaded by contract.
+// A4.0: staging текущих условий — заполняется getWeather(), потребляется runWeatherForecastFetch().
+// Однопоточно по контракту (только Core0/doSync).
+static WeatherTrueCurrent s_current_tc{};
+static bool               s_current_tc_valid = false;
+
+// W-R3/A4.0: forecast fetch lifecycle — status-only publish on non-success; success via
+// weatherPublishState (called inside weatherFetchForecast on Published result).
+// W-R3/A4.0: цикл fetch — status-only при ошибке; успех через weatherPublishState.
+static void finishWeatherForecastFetch(WeatherForecastFetchResult result,
+                                        bool current_ok,
+                                        const WeatherTrueCurrent* tc) {
   switch (result) {
     case WeatherForecastFetchResult::Published:
+      // Already published by weatherFetchForecast() with true-current overlay applied.
+      // Уже опубликовано weatherFetchForecast() с overlay true-current (если был).
 #if YORADIO_WEATHER_REQ_DIAG
       {
         WeatherState snap{};
         if (weatherGetStateSnapshot(&snap)) {
-          Serial.printf("[WEATHER_STATE] refresh=end result=success has_data=%d\n",
-                        (int)(snap.forecast_valid && snap.current.valid));
+          Serial.printf("[WEATHER_STATE] refresh=end result=success"
+                        " has_data=%d stale=%d error=%d\n",
+                        (int)(snap.forecast_valid && snap.current.valid),
+                        (int)snap.stale, (int)snap.last_error);
         }
       }
 #endif
       break;
     case WeatherForecastFetchResult::DeferredInternalLow:
-      weatherStateMarkFetchDeferred();
+      // A4.0/§11: current ok but forecast deferred — overlay current over LKG, set InternalLow.
+      // A4.0/§11: current ok, forecast отложен — overlay current на LKG, InternalLow.
+      if (current_ok && tc && tc->valid) {
+        weatherPublishCurrentOverLkg(*tc, WeatherLastError::InternalLow, false);
+      } else {
+        weatherStateMarkFetchDeferred();
+      }
       break;
     case WeatherForecastFetchResult::NotConfigured:
       weatherStateMarkFetchFailed(WeatherLastError::NotConfigured);
@@ -81,16 +101,28 @@ static void finishWeatherForecastFetch(WeatherForecastFetchResult result) {
       weatherStateMarkFetchFailed(WeatherLastError::NotConnected);
       break;
     default:
-      weatherStateMarkFetchFailed(WeatherLastError::FetchFailed);
+      // A4.0 Case C: current ok, forecast terminal failure — overlay current over LKG.
+      // A4.0 Case C: current ok, forecast провалился — overlay current на LKG.
+      if (current_ok && tc && tc->valid) {
+        weatherPublishCurrentOverLkg(*tc, WeatherLastError::FetchFailed, true);
+      } else {
+        weatherStateMarkFetchFailed(WeatherLastError::FetchFailed);
+      }
       break;
   }
 }
 
-static void runWeatherForecastFetch(WeatherEdgeSession& session) {
-  weatherStateMarkFetchBegin();
+// A4.0: weatherStateMarkFetchBegin() is now called in doSync BEFORE getWeather(),
+// covering the entire combined current+forecast cycle.
+// A4.0: weatherStateMarkFetchBegin() теперь вызывается в doSync ДО getWeather(),
+// покрывая весь комбинированный цикл current+forecast.
+static void runWeatherForecastFetch(WeatherEdgeSession& session,
+                                     const WeatherTrueCurrent* true_current) {
   const WeatherForecastFetchResult result =
-      weatherFetchForecast(weatherUnits, weatherLang, session);
-  finishWeatherForecastFetch(result);
+      weatherFetchForecast(weatherUnits, weatherLang, session, true_current);
+  finishWeatherForecastFetch(result,
+                              true_current != nullptr && true_current->valid,
+                              true_current);
 }
 
 static bool isDoSyncTaskActive() {
@@ -869,19 +901,32 @@ void doSync( void * pvParameters ) {
 #if YORADIO_WEATHER_REQ_DIAG
     Serial.println("[WEATHER_SCHED] run force=1");
 #endif
+    // A4.0: weatherStateMarkFetchBegin() now covers the ENTIRE combined current+forecast cycle.
+    // A4.0: weatherStateMarkFetchBegin() теперь покрывает ВЕСЬ комбинированный цикл.
+    weatherStateMarkFetchBegin();
+
     // HF-W-DNS: one edge session per doSync cycle — cycle-level preferred preserved across
     // current→forecast; request-level tracking reset between them by beginRequest() inside
     // weatherFetchForecast. Destroyed when doSync exits; never persistent across cycles.
     // HF-W-DNS: одна edge-сессия на цикл; cycle-level preserved; request-level сбрасывается.
     WeatherEdgeSession weatherSession;
     weatherSession.resetCycle();
-    network.trueWeather=getWeather(network.weatherBuf, weatherSession);
+
+    // A4.0: reset staging before each full cycle.
+    // A4.0: сбрасываем staging перед каждым полным циклом.
+    s_current_tc = WeatherTrueCurrent{};
+    s_current_tc_valid = false;
+
+    network.trueWeather = getWeather(network.weatherBuf, weatherSession);
     // Weather W1: forecast fetch in the same weather-sync context (Core 0 doSync), HTTP only,
     // never from UI. Parsing/aggregation lives in weather_fetch.* — not here. Failure is non-fatal
     // (keeps last-known-good WeatherState) and does not affect current weather / status row.
     // Weather W1: прогноз в том же weather-sync контексте (Core 0), HTTP, не из UI.
     // Парсинг/агрегация — в weather_fetch.*; ошибка некритична (last-known-good).
-    runWeatherForecastFetch(weatherSession);
+    // A4.0: pass true-current staging if /weather succeeded, nullptr otherwise (Case B).
+    // A4.0: передаём true-current staging если /weather успешен; nullptr при отказе (Case B).
+    runWeatherForecastFetch(weatherSession,
+                             s_current_tc_valid ? &s_current_tc : nullptr);
     s_weather_diag_forced = false;
   } else if (weatherForecastTakePendingOnlyRun()) {
 #if YORADIO_WEATHER_STACK_DIAG
@@ -895,12 +940,18 @@ void doSync( void * pvParameters ) {
                   (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                   (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
 #endif
+    // A4.0/§12: pending-only path — no /weather request; current_source = ForecastFallback.
+    // A4.0/§12: pending-only — без /weather; current_source = ForecastFallback (list[0] прокси).
+    // Not changed now: cross-task staging of an earlier true current is deliberately NOT used
+    // here — that would require a global with lifetime beyond a single doSync cycle.
+    // Не изменено: использование предыдущего true-current намеренно не поддерживается.
+    weatherStateMarkFetchBegin();
     // HF-W-DNS: fresh session for pending-only forecast — no preferred from any prior cycle.
     // System DNS is tried first, then Cloudflare, then Quad9 (same as a cold start).
     // HF-W-DNS: свежая сессия для pending-only; preferred от предыдущего цикла не используется.
     WeatherEdgeSession pendingSession;
     pendingSession.resetCycle();
-    runWeatherForecastFetch(pendingSession);
+    runWeatherForecastFetch(pendingSession, nullptr);
   }
 #if YORADIO_WEATHER_STACK_DIAG
   logDoSyncStackUsage(stack_diag_mode, "exit");
@@ -1164,13 +1215,12 @@ bool getWeather(char *wstr, WeatherEdgeSession& edgeSession) {
     return false;
   }
 
-  // ── Response parse — unchanged from baseline; client has bytes available ──
-  // Парсинг ответа — без изменений; client содержит доступные байты.
+  // ── Response: read HTTP headers + JSON body into `line` (OWM /weather is compact JSON).
+  // ── Ответ: читаем HTTP-заголовки + тело в `line` (OWM /weather — compact JSON одной строкой).
   unsigned long timeout = millis();
   String line = "";
   if (client.connected()) {
-    while (client.available())
-    {
+    while (client.available()) {
       line = client.readStringUntil('\n');
       bodyBytes += line.length() + 1U;
       if (httpCode < 0 && line.startsWith("HTTP/")) {
@@ -1188,8 +1238,7 @@ bool getWeather(char *wstr, WeatherEdgeSession& edgeSession) {
         client.stop();
         break;
       }
-      if ((millis() - timeout) > 500)
-      {
+      if ((millis() - timeout) > 500) {
         client.stop();
         weather_diag::logFailCompact("read", t0, 0, &serverIP, httpCode);
         Serial.println("##WEATHER###: client read timeout !");
@@ -1210,176 +1259,80 @@ bool getWeather(char *wstr, WeatherEdgeSession& edgeSession) {
                 (unsigned)line.length(), (unsigned long)(millis() - t0));
 #endif
 
-//		  Serial.printf("## OPENWEATHERMAP ###: *\n%s,\n*\n", line.c_str());
-
-  char *tmpe;
-  char *tmps;
-  char *tmpc;
-  int pressi, deg, gusti;
-  #ifndef GRND_HEIGHT
-    #define GRND_HEIGHT  0
-  #endif
-  int g_height = (float)(GRND_HEIGHT / 11);
-  const char* cursor = line.c_str();
-  char desc[120], temp[20], hum[20], press[20], icon[5], gust[20], porv[10], stanc[50];
-
-  auto failParse = [&](const char* field, const char* legacyMsg) -> bool {
+  // ── A4.0: ArduinoJson v7 parse (replaces strstr block) ────────────────────────
+  // Single parse feeds both WeatherState merge and legacy weatherBuf.
+  // Единый парсинг кормит WeatherState merge и legacy weatherBuf.
+  WeatherCurrentParsed parsed{};
+  if (!weatherParseCurrentBody(line.c_str(), &parsed)) {
 #if YORADIO_WEATHER_DIAG
-    weather_diag::logParseFail(field, t0, httpCode, bodyBytes, line.c_str());
+    weather_diag::logParseFail("json_parse", t0, httpCode, bodyBytes, line.c_str());
 #else
-    (void)field;
     (void)bodyBytes;
     weather_diag::logFailCompact("parse", t0, 0, &serverIP, httpCode);
 #endif
-    Serial.println(legacyMsg);
+    Serial.println("##WEATHER###: parse failed !");
     return false;
-  };
+  }
 
-  tmps = strstr(cursor, "\"description\":\"");
-  if (tmps == NULL) { return failParse("description", "##WEATHER###: description not found !"); }
-  tmps += 15;
-  tmpe = strstr(tmps, "\",\"");
-  if (tmpe == NULL) { return failParse("description_content", "##WEATHER###: description content not found !"); }
-  strlcpy(desc, tmps, tmpe - tmps + 1);
-  cursor = tmps;
-//    Serial.printf("#CONTROL#: descr.: %s,\n", desc);
+  // ── A4.0: populate true-current staging for forecast overlay ──────────────────
+  // A4.0: заполняем staging для overlay в forecast.
+  s_current_tc       = parsed.tc;
+  s_current_tc_valid = true;
 
-  // "sky clear","icon":"01d"}],
-  tmps = strstr(cursor, "\"icon\":\"");
-  if (tmps == NULL) { return failParse("icon", "##WEATHER###: icon not found !"); }
-  tmps += 8;
-  tmpe = strstr(tmps, "\"}");
-  if (tmpe == NULL) { return failParse("icon_content", "##WEATHER###: icon content not found !"); }
-  strlcpy(icon, tmps, tmpe - tmps + 1);
-  cursor = tmps;
+  // ── A4.1 deferred: legacy glance fields (status line / Main mini) ──────────────
+  // A4.1 deferred: поля glance для status line / Main mini — мигрируем в A4.1.
+  strlcpy(network.weatherOwmIcon, parsed.tc.owm_icon, sizeof(network.weatherOwmIcon));
+  network.weatherLastTempC  = parsed.tc.temp_c;
+  network.weatherGlanceValid = true;
 
-  tmps = strstr(cursor, "\"temp\":");
-  if (tmps == NULL) { return failParse("temp", "##WEATHER###: temp not found !"); }
-  tmps += 7;
-  tmpe = strstr(tmps, ",\"");
-  if (tmpe == NULL) { return failParse("temp_content", "##WEATHER###: temp content not found !"); }
-  strlcpy(temp, tmps, tmpe - tmps + 1);
-  cursor = tmps;
-  float tempf = atof(temp);
-//    Serial.printf("#CONTROL#: temp: %+.1fC\n", tempf);
+  // ── Build legacy gust string for weatherBuf (PROGMEM const_getWeather / prv) ──
+  // Формируем строку порывов для weatherBuf (PROGMEM const_getWeather / prv).
+  char gust[20];
+  strlcpy(gust, const_getWeather, sizeof(gust));  // default = "" (empty)
+  if (parsed.has_gust && parsed.gust_mps > 0) {
+    char porv[10];
+    strlcpy(gust, prv, sizeof(gust));              // ", порывы " / ", gusts "
+    itoa(parsed.gust_mps, porv, 10);
+    strlcat(gust, porv, sizeof(gust));
+  }
 
-  tmps = strstr(cursor, "\"feels_like\":");
-  if (tmps == NULL) { return failParse("feels_like", "##WEATHER###: feels_like not found !"); }
-  tmps += 13;
-  tmpe = strstr(tmps, ",\"");
-  if (tmpe == NULL) { return failParse("feels_like_content", "##WEATHER###: feels_like content not found !"); }
-  strlcpy(temp, tmps, tmpe - tmps + 1);
-  cursor = tmps;
-  float tempfl = atof(temp);
-//  (void)tempfl;						// ?
-//    Serial.printf("#CONTROL#: feels like: %+.0fC\n", tempfl);
-
-  tmps = strstr(cursor, "\"pressure\":");
-  if (tmps == NULL) { return failParse("pressure", "##WEATHER###: pressure not found !"); }
-  tmps += 11;
-  tmpe = strstr(tmps, ",\"");
-  if (tmpe == NULL) { return failParse("pressure_content", "##WEATHER###: pressure content not found !"); }
-  strlcpy(press, tmps, tmpe - tmps + 1);
-  cursor = tmps;
-      pressi = (float)atoi(press) / 1.333 - g_height;		// ������� � ��.��.��., ���� � ����� ����� pressi �������� (-21) �� ���. ���������
-//      Serial.printf("#CONTROL#: pres.: %d mmHg\n", pressi);
-
-  tmps = strstr(cursor, "humidity\":");
-  if (tmps == NULL) { return failParse("humidity", "##WEATHER###: humidity not found !"); }
-  tmps += 10;
-  tmpe = strstr(tmps, ",\"");
-  tmpc = strstr(tmps, "},");
-  if (tmpe == NULL) { return failParse("humidity_content", "##WEATHER###: humidity not found !"); }
-  cursor = tmps;
-  strlcpy(hum, tmps, tmpe - tmps + (tmpc>tmpe?1:(tmpc - tmpe +1)));
-//      Serial.printf("#CONTROL#: humidity: %s %%\n", hum);
-
-  tmps = strstr(cursor, "\"grnd_level\":");
-  bool grnd_level_pr = (tmps != NULL);
-  if(grnd_level_pr){
-    tmps += 13;
-    tmpe = strstr(tmps, "},");
-    tmpc = strstr(tmps, ",\"");						// ��� ����� �� [},]
-    if (tmpe == NULL) { Serial.println("##WEATHER###: grnd_level not found ! Use pressure");}
-    strlcpy(press, tmps, tmpe - tmps + (tmpc>tmpe?1:(tmpc - tmpe +1)));	// ������� � press ������ ������ (press="991")
-    cursor = tmps;
-    pressi = (float)atoi(press) / 1.333;			// ������������� � ����� �����, �������� � ��.��.��. (pressi=743)
- 			 }
-//      Serial.printf("#CONTROL#: press. grnd_level: %d mmHg\n", pressi);
-
-  tmps = strstr(cursor, "\"speed\":");
-  if (tmps == NULL) { return failParse("wind_speed", "##WEATHER###: wind speed not found !"); }
-  tmps += 8;
-  tmpe = strstr(tmps, ",\"");
-  if (tmpe == NULL) { return failParse("wind_speed_content", "##WEATHER###: wind speed content not found !"); }
-  strlcpy(temp, tmps, tmpe - tmps + 1);
-  cursor = tmps;
-  float wind_speed = atof(temp);
-//  (void)wind_speed;					// ?
-//    Serial.printf("#CONTROL#: wind: %.0f m/s\n", wind_speed);
-  
-  tmps = strstr(cursor, "\"deg\":");
-  if (tmps == NULL) { return failParse("wind_deg", "##WEATHER###: wind deg not found !"); }
-  tmps += 6;
-  tmpe = strstr(tmps, ",\"");
-  tmpc = strstr(tmps, "},");				// ��� ����� ��[},]
-  if (tmpe == NULL) { return failParse("wind_deg_content", "## WEATHER ###: deg content not found !"); }
-  strlcpy(temp, tmps, tmpe - tmps + (tmpc>tmpe?1:(tmpc - tmpe +1)));	// ������� � temp ������ ������ (temp="316")
-  cursor = tmps;
-      deg = atof(temp);
-  int wind_deg = atof(temp)/22.5;		// ������. � ����� ����� � �������� � ��������� (wind_deg=14) 
-//  if(wind_deg<0) wind_deg = 16+wind_deg;			//������������� �� ������
-//    Serial.printf("#CONTROL#: wind deg: %d rumbs (*%d*)\n", wind_deg, deg);
-  
-  		// ��������� ������� ["gust":13.09}] � ��������� ��� ����� ��������� � ������ gust
-  tmps = strstr(cursor, "\"gust\":");			// ����� ["gust":] 7
-  strlcpy(gust, const_getWeather, sizeof(gust));	// ������� � gust ("")
-  if (tmps == NULL) { Serial.println("## WEATHER ###: gust not found !\n");}
-  else {
-	  tmps += 7;						// �������� 7
-	  tmpe = strstr(tmps, "},");				// �� [},]
-	  if (tmpe == NULL) { Serial.println("## WEATHER ###: gust content not found !");}
-	  else {
-		  strlcpy(temp, tmps, tmpe - tmps + 1);	// ������� � temp ��������� ������ (temp="13.09")
-		      gusti = (float)atoi(temp);		// ������������� � ����� ����� (gusti=13)
-		  if (gusti == 0) { Serial.println("## WEATHER ###: gust content is 0 !");}
-		  else {
-			  strlcpy(gust, prv, sizeof(gust));	// ������� � gust ��������� *prv (", ������ ")
-			  itoa(gusti, porv, 10);				// ������������� gusti � ��������� ������ (porv="13")
-			  strlcat(gust, porv, sizeof(gust));		// �������� � gust ��������� ������ porv (", ������ 13")
-			  }
-		  cursor = tmps;
-		  }
-	 }
-//    Serial.printf("#CONTROL#: gusts: %s m/s\n", gust);
-
-  tmps = strstr(cursor, "\"name\":\"");
-  if (tmps == NULL) { return failParse("name", "##WEATHER###: name station not found !"); }
-  tmps += 8;
-  tmpe = strstr(tmps, "\",\"");
-  if (tmpe == NULL) { return failParse("name_content", "##WEATHER###: name station not found !"); }
-  strlcpy(stanc, tmps, tmpe - tmps + 1);		// ������� � stanc ������������
-//    Serial.printf("#CONTROL#: station: %s\n", stanc);
-  
+  // ── Diagnostics ───────────────────────────────────────────────────────────────
 #if YORADIO_WEATHER_DIAG
-  weather_diag::logSuccess(t0, httpCode, tempf, icon, desc);
+  weather_diag::logSuccess(t0, httpCode, parsed.tc.temp_c, parsed.tc.owm_icon,
+                           parsed.full_desc);
 #endif
 #if YORADIO_WEATHER_REQ_DIAG
-  Serial.printf("[WEATHER_RES] path=current ok=1 name=\"%s\" temp=%.1f icon=%s\n",
-                stanc, (double)tempf, icon);
+  Serial.printf("[WEATHER_RES] path=current ok=1"
+                " name=\"%s\" country=\"%s\" temp=%.1f icon=%s"
+                " code=%u dt=%lu\n",
+                parsed.tc.location.city, parsed.tc.location.country,
+                (double)parsed.tc.temp_c, parsed.tc.owm_icon,
+                (unsigned)parsed.tc.owm_code, (unsigned long)parsed.tc.updated_at);
 #endif
-  Serial.printf("##WEATHER###: descr.: %s, temp.: %+.1f*C (feels like %+.0f*C) \007 press.: %d mm \007 hum.: %s%% \007 wind %s %.0f%s m/s (st. %s)\n", desc, tempf, tempfl, pressi, hum, wind[wind_deg], wind_speed, gust, stanc);
-//  Serial.printf("##WEATHER###: description: %s, temp:%+.1f C, pressure:%dmmHg, humidity:%s%%\n", desc, tempf, pressi, hum);
-  strlcpy(network.weatherOwmIcon, icon, sizeof(network.weatherOwmIcon));
-  network.weatherLastTempC = tempf;
-  network.weatherGlanceValid = true;
+  Serial.printf("##WEATHER###: descr.: %s, temp.: %+.1f*C (feels like %+.0f*C)"
+                " \007 press.: %d mm \007 hum.: %s%%"
+                " \007 wind %s %.0f%s m/s (st. %s)\n",
+                parsed.full_desc, (double)parsed.tc.temp_c, (double)parsed.tc.feels_like_c,
+                parsed.pressure_mmhg, parsed.humidity_str,
+                wind[parsed.wind_dir_idx], (double)parsed.tc.wind_speed,
+                gust, parsed.tc.location.city);
+
+  // ── Format legacy weather string (weatherBuf) — mmHg preserved for backward compat ──
+  // Формируем legacy строку погоды (weatherBuf) — mmHg для обратной совместимости.
   #ifdef WEATHER_FMT_SHORT
-  sprintf(wstr, weatherFmt, tempf, pressi, hum);
+    sprintf(wstr, weatherFmt,
+            (double)parsed.tc.temp_c, parsed.pressure_mmhg, parsed.humidity_str);
   #else
     #if EXT_WEATHER
-      sprintf(wstr, weatherFmt, desc, tempf, tempfl, pressi, hum, wind[wind_deg], wind_speed, gust, stanc);
+      sprintf(wstr, weatherFmt,
+              parsed.full_desc, (double)parsed.tc.temp_c, (double)parsed.tc.feels_like_c,
+              parsed.pressure_mmhg, parsed.humidity_str,
+              wind[parsed.wind_dir_idx], (double)parsed.tc.wind_speed,
+              gust, parsed.tc.location.city);
     #else
-      sprintf(wstr, weatherFmt, desc, tempf, pressi, hum);
+      sprintf(wstr, weatherFmt,
+              parsed.full_desc, (double)parsed.tc.temp_c,
+              parsed.pressure_mmhg, parsed.humidity_str);
     #endif
   #endif
   // W1+A2b-loop-guard: do NOT call requestWeatherSync() here — forecast already runs in the same

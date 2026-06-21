@@ -242,6 +242,180 @@ size_t read_line(WiFiClient& client, char* buf, size_t cap, uint32_t timeoutMs) 
 
 } // namespace
 
+// ── A4.0: current-conditions JSON parser (ArduinoJson v7, PSRAM allocator) ──────────────
+// Single-parse path: feeds both WeatherTrueCurrent (WeatherState) and legacy weatherBuf.
+// Единый проход парсинга: кормит WeatherTrueCurrent (WeatherState) и legacy weatherBuf.
+bool weatherParseCurrentBody(const char* body, WeatherCurrentParsed* out) {
+    if (!body || !out) return false;
+
+    PsramJsonAllocator alloc;
+
+    // A4.0: filter — all required fields including new: weather[0].id, dt, sys.country, grnd_level, gust.
+    // A4.0: фильтр — все нужные поля включая новые: id, dt, sys.country, grnd_level, gust.
+    JsonDocument filter(&alloc);
+    filter["weather"][0]["description"] = true;
+    filter["weather"][0]["icon"]        = true;
+    filter["weather"][0]["id"]          = true;
+    filter["main"]["temp"]              = true;
+    filter["main"]["feels_like"]        = true;
+    filter["main"]["pressure"]          = true;
+    filter["main"]["humidity"]          = true;
+    filter["main"]["grnd_level"]        = true;  // preferred for mmHg if present
+    filter["wind"]["speed"]             = true;
+    filter["wind"]["deg"]               = true;
+    filter["wind"]["gust"]              = true;  // legacy weatherBuf only
+    filter["dt"]                        = true;
+    filter["name"]                      = true;
+    filter["sys"]["country"]            = true;
+
+    JsonDocument doc(&alloc);
+    const DeserializationError derr = deserializeJson(doc, body,
+                                                      DeserializationOption::Filter(filter));
+    if (derr) {
+        Serial.printf("[WEATHER_FC] current parse fail err=%s\n", derr.c_str());
+        return false;
+    }
+
+    // Required fields — bail if absent.
+    if (doc["main"]["temp"].isNull() ||
+        doc["weather"][0]["description"].isNull() ||
+        doc["weather"][0]["icon"].isNull()) {
+        Serial.println("[WEATHER_FC] current parse missing required fields");
+        return false;
+    }
+
+    memset(out, 0, sizeof(*out));
+
+    // ── Meteorological values (hPa, m/s, raw degrees) ──────────────────────
+    out->tc.temp_c       = doc["main"]["temp"]       | 0.0f;
+    out->tc.feels_like_c = doc["main"]["feels_like"] | out->tc.temp_c;
+    out->tc.humidity     = doc["main"]["humidity"]   | 0;
+    out->tc.wind_speed   = doc["wind"]["speed"]      | 0.0f;
+    out->tc.wind_deg     = doc["wind"]["deg"]        | 0;
+    out->tc.owm_code     = doc["weather"][0]["id"]   | 0;
+    out->tc.updated_at   = doc["dt"]                 | 0u;
+
+    // Pressure: prefer grnd_level (more accurate at altitude) over sea-level pressure.
+    // Давление: grnd_level предпочтительнее sea-level при наличии.
+    const int grnd_val  = doc["main"]["grnd_level"] | -1;
+    const int pres_hpa  = doc["main"]["pressure"]   | 0;
+    const bool has_grnd = (grnd_val > 0);
+    out->tc.pressure_hpa = (uint16_t)(has_grnd ? grnd_val : pres_hpa);
+
+    const char* icon = doc["weather"][0]["icon"] | "";
+    const char* desc = doc["weather"][0]["description"] | "";
+    copy_icon(out->tc.owm_icon, icon);
+    strlcpy(out->tc.condition,  desc, sizeof(out->tc.condition));
+    strlcpy(out->full_desc,     desc, sizeof(out->full_desc));
+
+    // ── Location from /weather response ──────────────────────────────────────
+    const char* city    = doc["name"]           | "";
+    const char* country = doc["sys"]["country"] | "";
+    if (city[0] != '\0') {
+        out->tc.location.valid = true;
+        strlcpy(out->tc.location.city,    city,    sizeof(out->tc.location.city));
+        strlcpy(out->tc.location.country, country, sizeof(out->tc.location.country));
+    }
+
+    // ── Legacy weatherBuf helper fields ──────────────────────────────────────
+    // pressure_mmhg: OWM hPa → mmHg with optional altitude adjustment.
+    // Давление: OWM hPa → мм.рт.ст. с поправкой на высоту.
+#ifndef GRND_HEIGHT
+#define GRND_HEIGHT 0
+#endif
+    const int g_height = (int)((float)GRND_HEIGHT / 11.0f);
+    if (has_grnd) {
+        out->pressure_mmhg = (int)((float)grnd_val / 1.333f);       // no altitude adjustment
+    } else {
+        out->pressure_mmhg = (int)((float)pres_hpa / 1.333f) - g_height;
+    }
+
+    // wind_dir_idx: raw degrees → 0..15 compass index for wind[] PROGMEM array.
+    out->wind_dir_idx = (int)((float)out->tc.wind_deg / 22.5f);
+    if (out->wind_dir_idx > 15) out->wind_dir_idx = 15;
+    if (out->wind_dir_idx < 0)  out->wind_dir_idx = 0;
+
+    // gust (optional)
+    const float gust_f = doc["wind"]["gust"] | 0.0f;
+    out->has_gust = (gust_f > 0.05f);
+    out->gust_mps = (int)gust_f;
+
+    // humidity as decimal string for legacy %s format in weatherFmt.
+    snprintf(out->humidity_str, sizeof(out->humidity_str), "%u", (unsigned)out->tc.humidity);
+
+    out->tc.valid = true;
+    return true;
+}
+
+// A4.0: Case C / §11 — copy active LKG, overlay true-current fields, publish in one flip.
+// A4.0: Case C / §11 — копируем LKG, накладываем true-current, публикуем за один flip.
+//
+// Called when /weather succeeded but /forecast failed (Case C) or was deferred (§11).
+// Используется когда /weather успешен, а /forecast провалился (Case C) или отложен (§11).
+//
+// Single publication via weatherPublishStateWithResult():
+//   - version++
+//   - last_error  = supplied error
+//   - stale       = (make_stale && forecast_valid)  for Case C
+//                   previously-active stale value    for §11 (deferred, make_stale=false)
+//   - one seqlock flip — no intermediate Ready state exposed to readers
+// Единая публикация через weatherPublishStateWithResult() — нет промежуточного состояния.
+void weatherPublishCurrentOverLkg(const WeatherTrueCurrent& tc,
+                                   WeatherLastError error,
+                                   bool make_stale) {
+    WeatherState staged{};
+    // Seed from active LKG — preserves existing hourly/daily/forecast payload and metadata.
+    // Засеваем из активного LKG — сохраняем hourly/daily/forecast payload и метаданные.
+    if (!weatherGetStateSnapshot(&staged)) {
+        // Snapshot unavailable (seqlock busy) — still publish current so data is not lost.
+        // Снапшот недоступен — публикуем current чтобы данные не потерялись.
+        memset(&staged, 0, sizeof(staged));
+    }
+
+    // Stale policy (computed before overlay, from the LKG snapshot):
+    // Case C (make_stale=true):  stale iff LKG already had forecast data.
+    // §11   (make_stale=false): preserve existing stale — deferred must not clear prior stale.
+    // Политика stale: Case C → stale если был forecast; §11 → сохраняем prior stale.
+    const bool publish_stale = make_stale ? staged.forecast_valid : staged.stale;
+
+    // Overlay true-current meteorological fields.
+    // Накладываем метеоданные true-current.
+    staged.current.valid         = true;
+    staged.current.temp_c        = tc.temp_c;
+    staged.current.feels_like_c  = tc.feels_like_c;
+    staged.current.humidity      = tc.humidity;
+    staged.current.pressure_hpa  = tc.pressure_hpa;
+    staged.current.wind_speed    = tc.wind_speed;
+    staged.current.wind_deg      = tc.wind_deg;
+    copy_icon(staged.current.owm_icon, tc.owm_icon);
+    staged.current.owm_code      = tc.owm_code;
+    strlcpy(staged.current.condition, tc.condition, sizeof(staged.current.condition));
+    staged.current.updated_at    = tc.updated_at;
+    // rain_probability: /weather has no pop field — preserve LKG forecast proxy value.
+    // rain_probability: у /weather нет pop — сохраняем прокси из LKG прогноза.
+
+    staged.current_source = WeatherCurrentSource::CurrentEndpoint;
+
+    // Location priority: current > existing LKG location.
+    // Приоритет локации: current > существующий LKG.
+    if (tc.location.valid) {
+        staged.location = tc.location;
+    }
+    // else: staged.location from LKG is preserved.
+
+#if YORADIO_WEATHER_REQ_DIAG
+    Serial.printf("[WEATHER_STATE] publish current_source=current"
+                  " city=\"%s\" country=\"%s\""
+                  " stale=%d error=%d\n",
+                  staged.location.city, staged.location.country,
+                  (int)publish_stale, (int)error);
+#endif
+
+    // Single-flip version-bumping publication — no intermediate state, no double flip.
+    // Единая публикация с version++ — нет промежуточного состояния, нет двойного flip.
+    weatherPublishStateWithResult(staged, error, publish_stale);
+}
+
 // W-R1C.1: pending forecast state — file .bss, Core0/doSync path only (not WebUI/LVGL).
 // W-R1C.1: состояние отложенного прогноза — .bss, только Core0/doSync.
 static bool     s_fc_pending = false;
@@ -325,7 +499,8 @@ bool weatherForecastPollPending() {
 }
 
 WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* lang,
-                                                WeatherEdgeSession& session) {
+                                                WeatherEdgeSession& session,
+                                                const WeatherTrueCurrent* true_current) {
     // Gate mirrors the current-weather enablement; keep behavior independent of UI.
     // Гейт повторяет включение текущей погоды; не зависит от UI.
     if (!config.store.showweather || strlen(config.store.weatherkey) == 0) {
@@ -648,12 +823,13 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
     PsramJsonAllocator alloc;
 
     JsonDocument filter(&alloc);
-    filter["city"]["timezone"] = true; // for local-day grouping
-#if YORADIO_WEATHER_REQ_DIAG
-    // W-R1B: extra city metadata retained only when diagnostics are on — no WeatherState change.
-    // W-R1B: метаданные города только под диагностикой; WeatherState не меняется.
-    filter["city"]["name"] = true;
+    filter["city"]["timezone"] = true; // for local-day grouping and A4.0 publication
+    // A4.0: city.name + city.country always in filter — needed for WeatherState.location.
+    // A4.0: city.name + city.country всегда в фильтре — нужны для WeatherState.location.
+    filter["city"]["name"]    = true;
     filter["city"]["country"] = true;
+#if YORADIO_WEATHER_REQ_DIAG
+    // W-R1B: extra coordinates retained only when diagnostics are on.
     filter["city"]["coord"]["lat"] = true;
     filter["city"]["coord"]["lon"] = true;
 #endif
@@ -867,6 +1043,58 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
                   (unsigned)future_days_published, (int)s_builder.current.valid);
 #endif
 
+    // ── A4.0: location from forecast city metadata (always in filter now) ──────────
+    // A4.0: локация из метаданных города прогноза (теперь всегда в фильтре).
+    {
+        const char* fc_city    = doc["city"]["name"]    | "";
+        const char* fc_country = doc["city"]["country"] | "";
+
+        // Location priority: true /weather response > forecast city > LKG (no overwrite).
+        // Приоритет локации: /weather > city из прогноза > LKG (пустым не перезаписываем).
+        if (true_current && true_current->valid && true_current->location.valid) {
+            s_builder.location = true_current->location;
+        } else if (fc_city[0] != '\0') {
+            s_builder.location.valid = true;
+            strlcpy(s_builder.location.city,    fc_city,    sizeof(s_builder.location.city));
+            strlcpy(s_builder.location.country, fc_country, sizeof(s_builder.location.country));
+        }
+        // else: location stays invalid/zero — caller may preserve LKG if needed.
+    }
+
+    // ── A4.0: current_source default = ForecastFallback (current proxy from list[0]) ──
+    // A4.0: по умолчанию current_source = ForecastFallback (прокси из list[0]).
+    s_builder.current_source = WeatherCurrentSource::ForecastFallback;
+
+    // ── A4.0: overlay true-current conditions if available (Case A) ────────────────
+    // A4.0: наложить true-current если есть (Case A).
+    if (true_current && true_current->valid) {
+        s_builder.current.temp_c        = true_current->temp_c;
+        s_builder.current.feels_like_c  = true_current->feels_like_c;
+        s_builder.current.humidity      = true_current->humidity;
+        s_builder.current.pressure_hpa  = true_current->pressure_hpa;
+        s_builder.current.wind_speed    = true_current->wind_speed;
+        s_builder.current.wind_deg      = true_current->wind_deg;
+        copy_icon(s_builder.current.owm_icon, true_current->owm_icon);
+        s_builder.current.owm_code      = true_current->owm_code;
+        strlcpy(s_builder.current.condition, true_current->condition,
+                sizeof(s_builder.current.condition));
+        s_builder.current.updated_at    = true_current->updated_at;
+        // rain_probability: no pop in /weather — preserve forecast list[0] proxy value.
+        // rain_probability: pop нет в /weather — сохраняем прокси из list[0] прогноза.
+        s_builder.current_source = WeatherCurrentSource::CurrentEndpoint;
+    }
+
+#if YORADIO_WEATHER_REQ_DIAG
+    Serial.printf("[WEATHER_STATE] publish"
+                  " current_source=%s"
+                  " city=\"%s\" country=\"%s\""
+                  " version=next\n",
+                  s_builder.current_source == WeatherCurrentSource::CurrentEndpoint
+                      ? "current" : "forecast_fallback",
+                  s_builder.location.city,
+                  s_builder.location.country);
+#endif
+
     s_builder.forecast_valid      = true;
     s_builder.stale               = false;
     s_builder.forecast_updated_at = millis();
@@ -892,9 +1120,20 @@ void weatherRequestManualRefresh() {
 #else // HIDE_WEATHER
 
 WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* lang,
-                                                WeatherEdgeSession& session) {
-    (void)units; (void)lang; (void)session;
+                                                WeatherEdgeSession& session,
+                                                const WeatherTrueCurrent* true_current) {
+    (void)units; (void)lang; (void)session; (void)true_current;
     return WeatherForecastFetchResult::NotConfigured;
+}
+
+bool weatherParseCurrentBody(const char* body, WeatherCurrentParsed* out) {
+    (void)body; (void)out;
+    return false;
+}
+
+void weatherPublishCurrentOverLkg(const WeatherTrueCurrent& tc,
+                                   WeatherLastError error, bool make_stale) {
+    (void)tc; (void)error; (void)make_stale;
 }
 
 void weatherRequestManualRefresh() {

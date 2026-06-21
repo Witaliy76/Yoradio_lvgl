@@ -43,8 +43,28 @@ enum class WeatherLastError : uint8_t {
     NotConnected,
 };
 
-// Single "now" snapshot. For W1 it is filled from the closest forecast point (list[0]).
-// Срез «сейчас». В W1 заполняется ближайшей точкой прогноза (list[0]).
+// A4.0: location metadata (city + country) shared by current and forecast sources.
+// A4.0: метаданные локации (город + страна) — общие для current и forecast.
+// Stored at WeatherState root — belongs to the observation point, not to any single endpoint.
+// Хранится на уровне WeatherState root — относится к точке наблюдения, а не к эндпоинту.
+struct WeatherLocation {
+    bool valid;
+    char city[48];    // UTF-8 NUL-terminated; strlcpy-safe truncation; > Екатеринбург (24 B UTF-8)
+    char country[4];  // ISO 3166-1 alpha-2 NUL-terminated, e.g. "RU\0"
+};
+
+// A4.0: source that populated WeatherState.current in this snapshot.
+// A4.0: источник, заполнивший WeatherState.current в этом снапшоте.
+// Publication metadata — not a meteorological value; stored at WeatherState root.
+// Метаданные публикации, не метеовеличина; хранится на уровне root.
+enum class WeatherCurrentSource : uint8_t {
+    None             = 0,  // never published
+    CurrentEndpoint,       // true /weather response
+    ForecastFallback,      // derived from /forecast list[0]
+};
+
+// A4.0: current conditions — may now be true /weather endpoint data or forecast proxy.
+// A4.0: текущие условия — может быть true данные /weather или прокси из /forecast.
 struct WeatherCurrent {
     bool      valid;
     float     temp_c;
@@ -56,7 +76,7 @@ struct WeatherCurrent {
     uint8_t   rain_probability;  // 0..100 (pop * 100)
     char      owm_icon[4];       // e.g. "01d"
     uint16_t  owm_code;          // weather[0].id
-    char      condition[32];     // weather[0].description (truncated)
+    char      condition[64];     // weather[0].description; 64 B for UTF-8 localized descriptions
     uint32_t  updated_at;        // OWM dt of the source point (UTC seconds)
 };
 
@@ -86,24 +106,38 @@ struct WeatherDaily {
 // Full published snapshot. POD — trivially copyable for double-buffer publish/read.
 // Полный публикуемый снапшот. POD — тривиально копируется для double-buffer.
 struct WeatherState {
-    WeatherCurrent current;
-    WeatherHourly  hourly[WEATHER_HOURLY_SLOTS];
-    WeatherDaily   daily[WEATHER_DAILY_SLOTS];
-    bool           forecast_valid;        // true once a forecast was parsed at least once
-    bool           stale;                 // W-R3: set on terminal failure when LKG payload exists
-    uint32_t       forecast_updated_at;   // millis() at last successful payload publish
-    int32_t        forecast_tz_sec;       // OWM city.timezone at publish (s); runtime-only, not NVS
-    bool           fetch_in_progress;     // W-R3: doSync forecast attempt in flight
-    WeatherLastError last_error;          // W-R3: last completed attempt outcome (runtime only)
-    uint32_t       last_attempt_at_ms;    // W-R3: millis() at last begin/complete/defer
-    uint32_t       version;               // monotonic payload publish counter (0 = never published)
+    WeatherCurrent       current;
+    WeatherHourly        hourly[WEATHER_HOURLY_SLOTS];
+    WeatherDaily         daily[WEATHER_DAILY_SLOTS];
+    bool                 forecast_valid;        // true once a forecast was parsed at least once
+    bool                 stale;                 // W-R3: set on terminal failure when LKG payload exists
+    uint32_t             forecast_updated_at;   // millis() at last successful payload publish
+    int32_t              forecast_tz_sec;        // OWM city.timezone at publish (s); runtime-only, not NVS
+    bool                 fetch_in_progress;     // W-R3: doSync forecast attempt in flight
+    WeatherLastError     last_error;            // W-R3: last completed attempt outcome (runtime only)
+    uint32_t             last_attempt_at_ms;    // W-R3: millis() at last begin/complete/defer
+    uint32_t             version;               // monotonic payload publish counter (0 = never published)
+    // A4.0: publication metadata — source of current conditions + observation location.
+    // A4.0: метаданные публикации — источник текущих условий и локация наблюдения.
+    WeatherCurrentSource current_source;        // which endpoint provided current data
+    WeatherLocation      location;              // city/country shared by current + forecast
 };
 
 // Publish a fully-built state (writer / core weather-sync context only).
 // Double-buffered: copies src into the inactive buffer, then flips atomically.
-// Resets W-R3 runtime fields to Ready semantics (see weather_state.cpp).
+// Resets W-R3 runtime fields to Ready semantics (stale=false, last_error=None).
 // Публикация готового состояния (только писатель в weather-sync контексте).
 void weatherPublishState(const WeatherState& src);
+
+// A4.0: version-bumping publish with explicit result metadata — one seqlock flip.
+// For partial-success paths (Case C / §11): overlaid payload + chosen last_error + stale.
+// Equivalent to weatherPublishState() but sets last_error and stale from caller instead
+// of forcing them to None/false.
+// A4.0: публикация с version++ и явными метаданными результата — один seqlock flip.
+// Для частичного успеха (Case C / §11): наложенный payload + выбранные last_error и stale.
+void weatherPublishStateWithResult(const WeatherState& payload,
+                                   WeatherLastError error,
+                                   bool stale);
 
 // W-R3: status-only updates — copy active payload, mutate metadata, publish without version bump.
 // W-R3: только метаданные — копия активного payload, без увеличения version.

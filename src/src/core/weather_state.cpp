@@ -65,11 +65,26 @@ const char* weatherLastErrorTag(WeatherLastError err) {
 
 void weatherPublishState(const WeatherState& src) {
     WeatherState staged = src;
-    staged.fetch_in_progress = false;
-    staged.last_error        = WeatherLastError::None;
+    staged.fetch_in_progress  = false;
+    staged.last_error         = WeatherLastError::None;
     staged.last_attempt_at_ms = millis();
-    staged.stale             = false;
+    staged.stale              = false;
     publishStaged(staged, true);
+}
+
+// A4.0: single-flip version-bumping publish with caller-supplied last_error and stale.
+// Uses the same publishStaged() primitive; does not call weatherPublishState() internally.
+// A4.0: публикация с version++, last_error и stale от вызывающего — один seqlock flip.
+// Использует тот же publishStaged(); не вызывает weatherPublishState() внутри.
+void weatherPublishStateWithResult(const WeatherState& payload,
+                                   WeatherLastError error,
+                                   bool stale) {
+    WeatherState staged       = payload;
+    staged.fetch_in_progress  = false;
+    staged.last_error         = error;
+    staged.last_attempt_at_ms = millis();
+    staged.stale              = stale;
+    publishStaged(staged, true);  // version++, one seqlock flip
 }
 
 void weatherStateMarkFetchBegin() {
