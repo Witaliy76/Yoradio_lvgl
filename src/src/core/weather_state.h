@@ -24,7 +24,7 @@
 
 // W-R3/W-R4: single compile-time regular refresh interval (seconds).
 // W-R3/W-R4: единый compile-time интервал регулярного обновления (секунды).
-static constexpr uint32_t WEATHER_REGULAR_INTERVAL_SEC = 1800u;
+static constexpr uint32_t WEATHER_REGULAR_INTERVAL_SEC = 3600u;
 static constexpr uint32_t WEATHER_STALE_AFTER_MS =
     WEATHER_REGULAR_INTERVAL_SEC * 2u * 1000u;
 

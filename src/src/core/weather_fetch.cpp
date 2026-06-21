@@ -163,8 +163,9 @@ void fc_log_parse_fail(const char* err, uint32_t t0, int httpCode) {
 }
 
 void fc_log_success(uint32_t t0, int httpCode, uint16_t points, uint8_t future_days) {
-    Serial.printf("[WEATHER_FC] success http=%d points=%u future_days=%u elapsed_ms=%lu next_s=1800\n",
-                  httpCode, (unsigned)points, (unsigned)future_days, (unsigned long)(millis() - t0));
+    Serial.printf("[WEATHER_FC] success http=%d points=%u future_days=%u elapsed_ms=%lu next_s=%u\n",
+                  httpCode, (unsigned)points, (unsigned)future_days, (unsigned long)(millis() - t0),
+                  (unsigned)WEATHER_REGULAR_INTERVAL_SEC);
 }
 
 #if YORADIO_WEATHER_FC_DIAG
