@@ -388,6 +388,20 @@ static void wx_style_panel(lv_obj_t* o, const YoRadioPalette& pal) {
     lv_obj_set_style_border_width(o, 1, LV_PART_MAIN);
 }
 
+// A3.1B: calm leading inset — full-width hero row without icon flush to panel edge.
+// A3.1B: спокойный левый отступ — полная ширина hero без иконки у края панели.
+static constexpr lv_coord_t kHeroInnerPadLeft = 16;
+
+// A3.1B: internal daily column separator — right border only on day 0/1 cells.
+// A3.1B: внутренний разделитель колонок — только правый border на ячейках 0/1.
+static void wx_style_daily_internal_separator(lv_obj_t* cell, const YoRadioPalette& pal) {
+    if (!cell) return;
+    lv_obj_set_style_border_side(cell, LV_BORDER_SIDE_RIGHT, LV_PART_MAIN);
+    lv_obj_set_style_border_color(cell, pal.divider, LV_PART_MAIN);
+    lv_obj_set_style_border_opa(cell, LV_OPA_70, LV_PART_MAIN);
+    lv_obj_set_style_border_width(cell, 1, LV_PART_MAIN);
+}
+
 // W2A: strip theme immediately after lv_obj_create(), BEFORE any flex/size/pad setup.
 // W2A: сброс темы сразу после create(), ДО flex/size/pad — иначе layout затирается.
 static void wx_flat_base(lv_obj_t* o, bool transparent = true) {
@@ -903,15 +917,16 @@ void LvglWeatherPage::create() {
                     lv_obj_set_style_text_align(_lbl_hero_date, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
                 }
 
-                // Hero inner: 64 px icon + text column — content-sized row, centered in card.
-                // Блок icon + temp: ширина по контенту, по центру карточки.
+                // A3.1B: full-width hero row — icon + flex-grown text column for wide condition line.
+                // A3.1B: hero на всю ширину — иконка + текстовая колонка с flex_grow для условия.
                 lv_obj_t* hero_inner = lv_obj_create(_cont_hero);
                 if (hero_inner) {
                     wx_flat_base(hero_inner);
-                    lv_obj_set_width(hero_inner, LV_SIZE_CONTENT);
+                    lv_obj_set_width(hero_inner, LV_PCT(100));
                     lv_obj_set_height(hero_inner, LV_SIZE_CONTENT);
                     lv_obj_set_flex_flow(hero_inner, LV_FLEX_FLOW_ROW);
-                    lv_obj_set_flex_align(hero_inner, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+                    lv_obj_set_flex_align(hero_inner, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+                    lv_obj_set_style_pad_left(hero_inner, kHeroInnerPadLeft, LV_PART_MAIN);
                     lv_obj_set_style_pad_column(hero_inner, 10, LV_PART_MAIN);
 
                     _lbl_hero_icon = lv_label_create(hero_inner);
@@ -919,6 +934,7 @@ void LvglWeatherPage::create() {
                         lv_label_set_text(_lbl_hero_icon, "");
                         wx_set_font(_lbl_hero_icon, k_font_hero_icon);
                         lv_obj_set_style_text_color(_lbl_hero_icon, pal.status_weather_icon, LV_PART_MAIN);
+                        lv_obj_set_flex_grow(_lbl_hero_icon, 0);
                     }
 
                     lv_obj_t* hero_text = lv_obj_create(hero_inner);
@@ -926,6 +942,8 @@ void LvglWeatherPage::create() {
                         wx_flat_base(hero_text);
                         lv_obj_set_width(hero_text, LV_SIZE_CONTENT);
                         lv_obj_set_height(hero_text, LV_SIZE_CONTENT);
+                        lv_obj_set_flex_grow(hero_text, 1);
+                        lv_obj_set_style_min_width(hero_text, 0, LV_PART_MAIN);
                         lv_obj_set_flex_flow(hero_text, LV_FLEX_FLOW_COLUMN);
                         lv_obj_set_flex_align(hero_text, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
                         lv_obj_set_style_pad_row(hero_text, 2, LV_PART_MAIN);
@@ -940,8 +958,10 @@ void LvglWeatherPage::create() {
                         _lbl_hero_cond = lv_label_create(hero_text);
                         if (_lbl_hero_cond) {
                             lv_label_set_text(_lbl_hero_cond, "");
-                            lv_label_set_long_mode(_lbl_hero_cond, LV_LABEL_LONG_DOT);
-                            lv_obj_set_width(_lbl_hero_cond, LV_SIZE_CONTENT);
+                            // A3.1B: bounded width + circular scroll on overflow only (Main/Info pattern).
+                            // A3.1B: фиксированная ширина + круговой скролл только при переполнении.
+                            lv_label_set_long_mode(_lbl_hero_cond, LV_LABEL_LONG_SCROLL_CIRCULAR);
+                            lv_obj_set_width(_lbl_hero_cond, LV_PCT(100));
                             wx_set_font(_lbl_hero_cond, k_font_cond);
                             lv_obj_set_style_text_color(_lbl_hero_cond, pal.text_secondary, LV_PART_MAIN);
                             lv_obj_set_style_text_align(_lbl_hero_cond, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
@@ -1038,6 +1058,10 @@ void LvglWeatherPage::create() {
                     &_daily[i].day, &_daily[i].icon, &_daily[i].range,
                     &_daily[i].pop_icon, &_daily[i].pop);
             }
+            // A3.1B: two internal column dividers — day 0/1 right border only; day 2 plain.
+            // A3.1B: два внутренних разделителя — правый border только у day 0/1.
+            if (_daily[0].cont) wx_style_daily_internal_separator(_daily[0].cont, pal);
+            if (_daily[1].cont) wx_style_daily_internal_separator(_daily[1].cont, pal);
         }
 
         // Start hidden until first valid snapshot (enter/update will toggle).
@@ -1340,6 +1364,11 @@ void LvglWeatherPage::liveReapplyTheme() {
         lv_obj_set_style_bg_grad_dir(_cont_daily, LV_GRAD_DIR_NONE, LV_PART_MAIN);
         lv_obj_set_style_border_color(_cont_daily, pal.divider, LV_PART_MAIN);
     }
+    // A3.1B: retint internal daily separators after panel repaint.
+    // A3.1B: перекраска внутренних разделителей daily после repaint панели.
+    if (_daily[0].cont) wx_style_daily_internal_separator(_daily[0].cont, pal);
+    if (_daily[1].cont) wx_style_daily_internal_separator(_daily[1].cont, pal);
+    if (_daily[2].cont) lv_obj_set_style_border_width(_daily[2].cont, 0, LV_PART_MAIN);
     if (_cont_hourly) {
         lv_obj_set_style_bg_color(_cont_hourly, pal.panel_background, LV_PART_MAIN);
         lv_obj_set_style_bg_grad_dir(_cont_hourly, LV_GRAD_DIR_NONE, LV_PART_MAIN);
