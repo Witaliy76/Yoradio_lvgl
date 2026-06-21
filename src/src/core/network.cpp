@@ -144,6 +144,10 @@ enum class DoSyncScheduleResult : uint8_t {
 namespace {
 SemaphoreHandle_t s_dosync_schedule_mutex = nullptr;
 
+// Bounded mutex wait — never portMAX_DELAY (matches net_dns_resolver pattern).
+// Ограниченное ожидание mutex — без portMAX_DELAY (как в net_dns_resolver).
+constexpr uint32_t kDoSyncScheduleMutexWaitMs = 1500;
+
 SemaphoreHandle_t doSyncScheduleMutex() {
   if (!s_dosync_schedule_mutex) {
     s_dosync_schedule_mutex = xSemaphoreCreateMutex();
@@ -159,7 +163,7 @@ static DoSyncScheduleResult scheduleDoSyncIfIdleEx() {
   if (!mutex) {
     return DoSyncScheduleResult::CreateFailed;
   }
-  if (xSemaphoreTake(mutex, portMAX_DELAY) != pdTRUE) {
+  if (xSemaphoreTake(mutex, pdMS_TO_TICKS(kDoSyncScheduleMutexWaitMs)) != pdTRUE) {
     return DoSyncScheduleResult::CreateFailed;
   }
 
