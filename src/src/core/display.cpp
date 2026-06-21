@@ -461,6 +461,16 @@ void Display::loop() {
         lastWeatherRefresh = millis();
       }
     }
+    // E33: refresh Station status line (clock/RSSI/weather glance) while Station slot is active.
+    // No list/focus/scroll work — LvglStationPage::update() only calls wgt_status_line::update().
+    // E33: обновление status line Station (~1 Гц); только clock/RSSI/погода — без rebuild списка.
+    if (lvgl_ui::isLvglCarouselOnStationSlot()) {
+      static uint32_t lastStationRefresh = 0;
+      if (millis() - lastStationRefresh >= 1000) {
+        lvgl_ui::refreshStationScreen();
+        lastStationRefresh = millis();
+      }
+    }
   }
   lvgl_ui::taskHandler();
   dsp.loop();

@@ -273,6 +273,15 @@ void lvgl_ui::refreshWeatherScreen() {
     s_weather_page.update();
 }
 
+// E33: refresh Station status line (clock/RSSI/weather glance) while Station slot is active.
+// LvglStationPage::update() contains only null guards + wgt_status_line::update() — safe at 1 Hz.
+// E33: обновление status line Station (часы/RSSI/погода); только когда активен слот Station, ≤1 Гц.
+// LvglStationPage::update() содержит только guard + wgt_status_line::update() — безопасно.
+void lvgl_ui::refreshStationScreen() {
+    if (!lvgl_page_refresh_allowed()) return;
+    s_station_page.update();
+}
+
 void lvgl_ui::onMainBackgroundSlotCommitted(uint8_t slot) {
     if (slot > 2u) {
         return;

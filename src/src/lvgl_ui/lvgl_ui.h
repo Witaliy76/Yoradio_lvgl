@@ -56,6 +56,10 @@ void refreshMainScreen();
 // Weather W2: обновление страницы погоды из WeatherState; только когда активен слот Weather; ≤1 Гц.
 void refreshWeatherScreen();
 
+// E33: refresh Station status line (clock/RSSI/weather). Call only when Station slot active; ~1 Hz.
+// E33: обновление status line на Station (часы/RSSI/погода); только при активном слоте Station; ≤1 Гц.
+void refreshStationScreen();
+
 // 8.1H-I-B: forced Main redraw for WebUI settings/reset (replaces the old CLEAR;PLAYER guard-buster).
 // Goes to Main page + refreshes, without a mode transition. Use only from REFRESH_MAIN handler (DspTask).
 // force_full_redraw: invalidate whole screen + flush now — needed after panel orientation flip.

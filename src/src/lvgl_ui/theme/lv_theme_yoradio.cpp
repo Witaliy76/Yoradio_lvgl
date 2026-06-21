@@ -42,7 +42,7 @@ static const YoRadioPalette kPaletteDark = {
     // §4.2 Main / player (volume/heap colors refined 6.1D-a2)
     lv_color_hex(0xFFFFFF), // status_line_text
     lv_color_hex(0xAAAAAA), // status_line_meta
-    lv_color_hex(0xAEB4BC), // status_weather_icon
+    lv_color_hex(0x5B94C9), // status_weather_icon — E33: aligned with accent / Station speaker on Dark
     lv_color_hex(0xC4CAD2), // status_weather_temp
     lv_color_hex(0x101010), // status_line_bg
     lv_color_hex(0xFFFFFF), // clock_text

@@ -786,7 +786,9 @@ static void wx_format_footer_action(char* buf, size_t cap, const char* status, c
                                     const char* location_prefix) {
     if (!buf || cap == 0) return;
     char inner[kFooterTextCap];
-    snprintf(inner, sizeof(inner), "%s%s%s%s", status, kStrFooterSep, action, kStrFooterSep);
+    // E33: no trailing sep here — caller appends it only when text overflows.
+    // E33: trailing sep убран — вызывающий добавит его только при переполнении.
+    snprintf(inner, sizeof(inner), "%s%s%s", status, kStrFooterSep, action);
     wx_footer_prepend_location(buf, cap, location_prefix, inner);
 }
 
@@ -806,9 +808,9 @@ static void wx_format_footer(char* buf, size_t cap, bool wx_enabled, bool have_d
     const char* loc_p = (location_prefix[0] != '\0') ? location_prefix : nullptr;
 
     if (show_refreshing) {
-        char inner[kFooterTextCap];
-        snprintf(inner, sizeof(inner), "%s%s", kStrFooterRefreshing, kStrFooterSep);
-        wx_footer_prepend_location(buf, cap, loc_p, inner);
+        // E33: no trailing sep — refreshing text is often short and fits without scroll.
+        // E33: trailing sep убран; "Обновление погоды..." короткое и обычно не скроллируется.
+        wx_footer_prepend_location(buf, cap, loc_p, kStrFooterRefreshing);
         return;
     }
     if (!wx_enabled) {
@@ -830,8 +832,29 @@ static void wx_format_footer(char* buf, size_t cap, bool wx_enabled, bool have_d
     char age[kFooterAgeCap];
     wx_format_age(age, sizeof(age), forecast_updated_at_ms);
     char inner[kFooterTextCap];
-    snprintf(inner, sizeof(inner), "%s%s%s%s", age, kStrFooterSep, kStrFooterTapRefresh, kStrFooterSep);
+    // E33: no trailing sep — appended by caller only if text overflows the label.
+    // E33: trailing sep убран — вызывающий добавит только если текст переполняет label.
+    snprintf(inner, sizeof(inner), "%s%s%s", age, kStrFooterSep, kStrFooterTapRefresh);
     wx_footer_prepend_location(buf, cap, loc_p, inner);
+}
+
+// E33: append trailing kStrFooterSep only when base text overflows the footer label width.
+// Circular scroll needs the gap between repeated copies; static text does not.
+// E33: trailing sep добавляется только при переполнении: circular scroll нужен зазор;
+// статический текст, который влезает, не нуждается в trailing bullet.
+static void wx_footer_maybe_add_trailing_sep(char* buf, size_t cap, lv_obj_t* label) {
+    if (!buf || !label || cap < 2u) return;
+    const lv_font_t* font = lv_obj_get_style_text_font(label, LV_PART_MAIN);
+    if (!font) return;
+    const lv_coord_t letter_space = lv_obj_get_style_text_letter_space(label, LV_PART_MAIN);
+    const lv_coord_t avail = lv_obj_get_content_width(label);
+    if (avail <= 0) return;  // layout not yet valid — skip, no trailing sep
+    const size_t len = strlen(buf);
+    const lv_coord_t text_w = lv_txt_get_width(
+        buf, static_cast<uint32_t>(len), font, letter_space, LV_TEXT_FLAG_NONE);
+    if (text_w > avail) {
+        strlcat(buf, kStrFooterSep, cap);
+    }
 }
 
 } // namespace
@@ -864,6 +887,7 @@ void LvglWeatherPage::_onFooterRefreshClick(lv_event_t* e) {
     const bool haveData = snap.forecast_valid && snap.current.valid;
     wx_format_footer(fb, sizeof(fb), wxEnabled, haveData, true, false,
                      snap.forecast_updated_at, false, &snap.location);
+    wx_footer_maybe_add_trailing_sep(fb, sizeof(fb), self->_lbl_footer);
     wx_set_text_if_changed(self->_lbl_footer, fb);
 }
 
@@ -1308,6 +1332,7 @@ void LvglWeatherPage::update() {
         wx_format_footer(footer_buf, sizeof(footer_buf), wxEnabled, haveData, showRefreshingFooter,
                          effectiveStale, s_snap.forecast_updated_at, unavailableWithoutData,
                          &s_snap.location);
+        wx_footer_maybe_add_trailing_sep(footer_buf, sizeof(footer_buf), _lbl_footer);
         wx_set_text_if_changed(_lbl_footer, footer_buf);
         _rendered_minute_bucket = minute_bucket;
         return;
@@ -1332,6 +1357,7 @@ void LvglWeatherPage::update() {
         wx_format_footer(footer_buf, sizeof(footer_buf), wxEnabled, haveData, showRefreshingFooter,
                          effectiveStale, s_snap.forecast_updated_at, unavailableWithoutData,
                          &s_snap.location);
+        wx_footer_maybe_add_trailing_sep(footer_buf, sizeof(footer_buf), _lbl_footer);
         wx_set_text_if_changed(_lbl_footer, footer_buf);
         // Commit render cache / Фиксируем кэш рендера.
         _rendered_version       = s_snap.version;
@@ -1426,6 +1452,7 @@ void LvglWeatherPage::update() {
     wx_format_footer(footer_buf, sizeof(footer_buf), wxEnabled, haveData, showRefreshingFooter,
                      effectiveStale, s_snap.forecast_updated_at, unavailableWithoutData,
                      &s_snap.location);
+    wx_footer_maybe_add_trailing_sep(footer_buf, sizeof(footer_buf), _lbl_footer);
     wx_set_text_if_changed(_lbl_footer, footer_buf);
 
     // Commit render cache / Фиксируем кэш рендера.
