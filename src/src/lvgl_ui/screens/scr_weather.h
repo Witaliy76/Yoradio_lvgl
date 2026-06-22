@@ -4,7 +4,17 @@
 #include "../lv_screen.h"
 #include "../widgets/wgt_status_line.h"
 
+// WEATHERREF-B: forward declaration — update()/render helpers take const WeatherState& without
+// pulling weather_state.h into this header. Full type comes from weather_state.h in scr_weather.cpp.
+// WEATHERREF-B: forward-декларация — хелперы update() принимают const WeatherState& без include темы.
+struct WeatherState;
+
 namespace lvgl_ui {
+
+// WEATHERREF-A: forward declaration — builders take const YoRadioPalette& without pulling the
+// theme header into this .h (full definition stays in scr_weather.cpp via lv_theme_yoradio.h).
+// WEATHERREF-A: forward-декларация — билдеры принимают const YoRadioPalette& без include темы в .h.
+struct YoRadioPalette;
 
 // Weather W2 — LVGL-native 480×480 Weather Page (read-only consumer of core WeatherState).
 // Reads weatherGetStateSnapshot() only; network fetch stays in W1 / doSync (A2b: footer requests refresh via flag).
@@ -37,6 +47,36 @@ private:
     // W2F: shared handle nulling (no lv_obj_del) used by destroy() and releaseAfterAutoDelete().
     // W2F: общий сброс указателей (без lv_obj_del) для destroy() и releaseAfterAutoDelete().
     void _nullHandles();
+
+    // WEATHERREF-A: private static layout builders — keep create() a short orchestration skeleton
+    // while retaining full access to private members via `self`. Called only from create(), in order.
+    // No behavior/visual change: bodies are moved verbatim from the former monolithic create().
+    // WEATHERREF-A: приватные static-билдеры layout — create() остаётся коротким оркестратором,
+    // доступ к private-членам через self. Вызываются только из create(), по порядку. Тела перенесены дословно.
+    static void create_chrome(LvglWeatherPage& self, const YoRadioPalette& pal);
+    static void create_data_block(LvglWeatherPage& self, const YoRadioPalette& pal);
+    static void create_empty_center(LvglWeatherPage& self, const YoRadioPalette& pal);
+    static void create_footer(LvglWeatherPage& self, const YoRadioPalette& pal);
+
+    // WEATHERREF-B: update() render pipeline — small stack-only POD render types (defined in
+    // scr_weather.cpp; never published) plus the derivation / render / commit steps that update()
+    // orchestrates. Behavior-preserving: identical flags, signature bits, minute/day buckets and
+    // cache semantics as the former monolithic update(). Render helpers consume the single per-pass
+    // snapshot and never re-read WeatherState.
+    // WEATHERREF-B: конвейер рендера update() — мелкие stack-only POD-типы + шаги derivation/render/commit.
+    // Поведение неизменно; хелперы используют единственный снапшот за проход и не перечитывают его.
+    struct WeatherViewState;
+    struct WeatherRenderDecision;
+
+    WeatherViewState _deriveViewState(const WeatherState& snap, uint32_t now_ms) const;
+    void _resolveManualRefresh(const WeatherState& snap, uint32_t now_ms);
+    WeatherRenderDecision _makeRenderDecision(const WeatherState& snap,
+                                              const WeatherViewState& view) const;
+    void _renderWeatherData(const WeatherState& snap);
+    void _renderEmptyState(const WeatherViewState& view);
+    void _updateFooterText(const WeatherState& snap, const WeatherViewState& view);
+    void _commitFullRenderCache(const WeatherState& snap, const WeatherViewState& view);
+    void _commitFooterOnlyCache(const WeatherViewState& view);
 
     // A2: right column shows +3h/+6h/+9h (3 cells, slot 0 = "Now" is skipped).
     // A2: правый столбец +3h/+6h/+9h (3 ячейки, слот 0 «Now» пропускается).
