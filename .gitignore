@@ -37,6 +37,8 @@ SPECTRUM*.md
 !/ai/
 !/data/
 !/src/
+# LVGL screen design doc — must stay tracked / design-док экрана — не игнорировать
+!/src/src/lvgl_ui/screens/scr_weather_layout_tree.md
 !/library!/
 !/boards/
 
