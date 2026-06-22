@@ -1305,10 +1305,14 @@ bool getWeather(WeatherEdgeSession& edgeSession) {
   // ── Human-readable serial diagnostic (##WEATHER###) ──────────────────────────
   // ── Человекочитаемая serial-диагностика (##WEATHER###) ─────────────────────
   char gust[20];
-  strlcpy(gust, const_getWeather, sizeof(gust));  // default = "" (empty)
+  // displayL10n_*.h: const_getWeather/prv are PROGMEM — copy before strlcat.
+  // displayL10n_*.h: const_getWeather/prv в PROGMEM — копируем перед strlcat.
+  strncpy_P(gust, const_getWeather, sizeof(gust) - 1);
+  gust[sizeof(gust) - 1] = '\0';
   if (parsed.has_gust && parsed.gust_mps > 0) {
     char porv[10];
-    strlcpy(gust, prv, sizeof(gust));              // ", порывы " / ", gusts "
+    strncpy_P(gust, prv, sizeof(gust) - 1);
+    gust[sizeof(gust) - 1] = '\0';
     itoa(parsed.gust_mps, porv, 10);
     strlcat(gust, porv, sizeof(gust));
   }
