@@ -1584,6 +1584,19 @@ void LvglMainScreen::_applyBgTheme(bool force) {
     uint8_t slot = static_cast<uint8_t>(yoradio_theme_active_preset());
     if (slot > 2) slot = 0;
 
+    // E36FS1a: missing .bin — hide only; LVGL 8 warns on lv_img_set_src(nullptr).
+    // E36FS1a: нет файла — только скрыть; nullptr в set_src даёт warn в LVGL 8.
+    auto hide_bg_missing_file = [this]() {
+        lv_obj_add_flag(_bg_img, LV_OBJ_FLAG_HIDDEN);
+        _syncBgImgLayout();
+    };
+
+    // Periodic update: slot still missing and already hidden — no lv_* churn.
+    // Периодический update: файл по-прежнему отсутствует, фон уже скрыт — без лишних lv_*.
+    if (!force && slot == _bg_last_slot && _bg_absent_latched && !LittleFS.exists(k_fs[slot])) {
+        return;
+    }
+
     // Fast path: buffer for this slot already borrowed from cache → just check for deletion.
     // No lv_img_set_src → no LVGL invalidation → no LFS read on next frame.
     // Быстрый путь: буфер этого слота уже заимствован из кэша → только проверка удаления файла.
@@ -1594,9 +1607,8 @@ void LvglMainScreen::_applyBgTheme(bool force) {
             main_bg_cache_invalidate();
             _bg_psram_buf = nullptr;
             _bg_psram_dsc = {};
-            lv_img_set_src(_bg_img, nullptr);
-            lv_obj_add_flag(_bg_img, LV_OBJ_FLAG_HIDDEN);
-            _syncBgImgLayout();
+            hide_bg_missing_file();
+            _bg_absent_latched = true;
         }
         return; // No lv_img_set_src → no LVGL invalidation → no LFS read on next frame
     }
@@ -1611,9 +1623,8 @@ void LvglMainScreen::_applyBgTheme(bool force) {
     _bg_last_slot = slot;
 
     if (!LittleFS.exists(k_fs[slot])) {
-        lv_img_set_src(_bg_img, nullptr);
-        lv_obj_add_flag(_bg_img, LV_OBJ_FLAG_HIDDEN);
-        _syncBgImgLayout();
+        hide_bg_missing_file();
+        _bg_absent_latched = true;
         return;
     }
 
@@ -1621,6 +1632,7 @@ void LvglMainScreen::_applyBgTheme(bool force) {
     // _bg_psram_buf borrows the pointer from the cache; must NOT be freed in destroy/release.
     // W2G-A: запрашиваем буфер у кэша (попадание = reuse PSRAM, промах = LFS-загрузка + кэш).
     // _bg_psram_buf заимствует указатель у кэша; в destroy/release НЕ освобождать.
+    _bg_absent_latched = false;
     if (main_bg_cache_get(k_fs[slot], _bg_psram_dsc)) {
         _bg_psram_buf = const_cast<uint8_t*>(_bg_psram_dsc.data); // borrowed / заимствован
         lv_img_set_src(_bg_img, &_bg_psram_dsc);
@@ -2110,6 +2122,8 @@ void LvglMainScreen::_nullHandlesAndFreeNonLvgl() {
     // W2G-A: _bg_psram_buf заимствован из s_bg_cache — не освобождать; очищаем заимствованный указатель.
     _bg_psram_buf = nullptr;
     _bg_psram_dsc = {};
+    _bg_last_slot         = 255;
+    _bg_absent_latched    = false;
     _bg_img = nullptr;
     _bg_scrim = nullptr;
     _control_band = nullptr; // deleted with _screen tree / удалено вместе с деревом

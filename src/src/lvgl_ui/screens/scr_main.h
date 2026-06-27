@@ -72,6 +72,8 @@ private:
     uint8_t*     _bg_psram_buf = nullptr;
     lv_img_dsc_t _bg_psram_dsc = {};
     uint8_t      _bg_last_slot = 255; // 255 = not loaded / не загружен
+    // E36FS1a: latched missing-file state — skip repeat hide path each update tick / нет .bin — без повторов.
+    bool         _bg_absent_latched = false;
 
     // Apply bg from PSRAM (force=true: reload; force=false: skip if slot unchanged and buf present).
     // Применить фон из PSRAM. force=true — перезагрузить; false — пропустить если слот и буфер не изменились.
