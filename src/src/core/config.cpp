@@ -16,8 +16,83 @@
 
 Config config;
 
-// Filesystem ready flag (set after LittleFS.begin() in Config::init())
+// Filesystem ready flag (set after successful LittleFS mount in Config::init())
+// Флаг готовности FS — только после успешного mount в Config::init().
 static bool g_fs_ready = false;
+
+// E36FS2: mount outcome for one-shot format recovery / результат mount с однократным format.
+enum class FsInitState {
+  Unavailable,
+  Mounted,
+  RecoveredAfterFormat
+};
+
+static bool fsEnsureDirectory(const char* path, bool required) {
+  if (LittleFS.exists(path)) {
+    return true;
+  }
+  if (LittleFS.mkdir(path)) {
+    return true;
+  }
+  Serial.printf("[FS] mkdir failed: %s\n", path);
+  return !required;
+}
+
+// /data and /www are required for recovery/WebUI; others are feature dirs / обязательные и опциональные.
+static bool fsEnsureRequiredDirectories() {
+  bool ok = true;
+  ok = fsEnsureDirectory("/data", true) && ok;
+  ok = fsEnsureDirectory("/www", true) && ok;
+  if (!fsEnsureDirectory("/ai", false)) {
+    Serial.println("[FS] warning: /ai not created");
+  }
+  if (!fsEnsureDirectory("/bg", false)) {
+    Serial.println("[FS] warning: /bg not created");
+  }
+  if (!fsEnsureDirectory("/logo", false)) {
+    Serial.println("[FS] warning: /logo not created");
+  }
+  return ok;
+}
+
+static FsInitState fsMountWithRecovery() {
+  if (LittleFS.begin(false)) {
+    Serial.println("[FS] LittleFS mount OK");
+    return FsInitState::Mounted;
+  }
+  Serial.println("[FS] LittleFS mount failed");
+  Serial.println("[FS] Formatting LittleFS once");
+  if (!LittleFS.format()) {
+    Serial.println("[FS] LittleFS format failed");
+    Serial.println("[FS] Filesystem unavailable");
+    return FsInitState::Unavailable;
+  }
+  Serial.println("[FS] LittleFS format OK");
+  if (!LittleFS.begin(false)) {
+    Serial.println("[FS] LittleFS remount failed");
+    Serial.println("[FS] Filesystem unavailable");
+    return FsInitState::Unavailable;
+  }
+  Serial.println("[FS] LittleFS remount OK");
+  return FsInitState::RecoveredAfterFormat;
+}
+
+// E36FS2: explicit mount → optional format → remount; never begin(true) / без неявного format.
+static bool fsInitLittleFS() {
+  const FsInitState state = fsMountWithRecovery();
+  if (state == FsInitState::Unavailable) {
+    g_fs_ready = false;
+    return false;
+  }
+  if (!fsEnsureRequiredDirectories()) {
+    Serial.println("[FS] Required directory setup failed");
+    Serial.println("[FS] Filesystem unavailable");
+    g_fs_ready = false;
+    return false;
+  }
+  g_fs_ready = true;
+  return true;
+}
 
 // Deferred AI widget clear flag / Флаг отложенной очистки AI виджета
 // Set to true when AI is disabled during init (before display is ready)
@@ -292,20 +367,12 @@ void Config::init() {
   store.play_mode = store.play_mode & 0b11;
   if(store.play_mode>1) store.play_mode=PM_WEB;
   _initHW();
-  // Stage 1: migrated from SPIFFS to LittleFS. First boot after migration
-  // will auto-format (losing old SPIFFS data). Re-upload via `pio run -t uploadfs`.
-  g_fs_ready = LittleFS.begin(true);
-  if (!g_fs_ready) {
-    Serial.println("##[ERROR]#\tLittleFS Mount Failed");
+  // E36FS2: controlled LittleFS mount; no implicit format-on-fail / явный mount без begin(true).
+  if (!fsInitLittleFS()) {
+    ssidsCount = 0;
+    _bootDone = false;
     return;
   }
-  BOOTLOG("LittleFS mounted");
-  LittleFS.mkdir("/data");
-  LittleFS.mkdir("/www");
-  LittleFS.mkdir("/ai");
-  LittleFS.mkdir("/bg");
-  LittleFS.mkdir("/logo"); // Station Art MVP: per-station art files /logo/<normalized_name>.bin
-  
   // Load AI configuration from filesystem and apply to store
   // FS config has priority over runtime config (WebUI settings override dev config)
   // IMPORTANT: Must be called AFTER LittleFS.begin() / ВАЖНО: Вызывать ПОСЛЕ LittleFS.begin()
@@ -938,6 +1005,9 @@ bool Config::saveWifi() {
 }
 
 bool Config::initNetwork() {
+  if (!fsIsReady()) {
+    return false;
+  }
   File file = LittleFS.open(SSIDS_PATH, "r");
   if (!file || file.isDirectory()) {
     return false;
