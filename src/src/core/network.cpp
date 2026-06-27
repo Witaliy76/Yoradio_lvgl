@@ -710,6 +710,21 @@ void searchWiFi(void * pvParameters){
 
 #define DBGAP false
 
+// E36FS1: non-zero IP required for AsyncWebServer / для TCP нужен реальный IP.
+static bool networkIpNonZero(const IPAddress& ip) {
+  return static_cast<uint32_t>(ip) != 0U;
+}
+
+bool MyNetwork::isTcpReady() const {
+  if (status == CONNECTED) {
+    return WiFi.status() == WL_CONNECTED && networkIpNonZero(WiFi.localIP());
+  }
+  if (status == SOFT_AP) {
+    return networkIpNonZero(WiFi.softAPIP());
+  }
+  return false;
+}
+
 void MyNetwork::begin() {
   BOOTLOG("network.begin");
   runtimeReconnectSuspendedForSetup = false;
@@ -812,12 +827,22 @@ void MyNetwork::recoveryEnsureSoftAP() {
       if (status != SOFT_AP) {
         status = SOFT_AP;
       }
-      // Idempotent no-op: avoid Serial spam when UI re-enters Hotspot / идемпотентно, без шума в Serial.
+      // E36FS1: deferred NetServer when Hotspot re-entered / NetServer при повторном Hotspot.
+      netserver.begin(true);
       return;
     }
   }
   Serial.println("[Network] Open Hotspot mode active");
   raiseSoftAP();
+  // E36FS1: softAPIP may lag softAP() — brief poll before NetServer / IP может появиться с задержкой.
+  const uint32_t deadline = millis() + 3000U;
+  while ((int32_t)(millis() - deadline) < 0) {
+    if (networkIpNonZero(WiFi.softAPIP())) {
+      break;
+    }
+    delay(10);
+  }
+  netserver.begin(true);
 }
 
 void MyNetwork::recoveryStopSoftAP() {

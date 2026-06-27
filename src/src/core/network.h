@@ -46,6 +46,8 @@ class MyNetwork {
     // S6V9E: after runtime LOST timeout → LVGL Wi-Fi Recovery — stop driver/runtime reconnect; radio for Scan/Connect.
     // S6V9E: после таймаута LOST → Recovery — глушим auto/manual reconnect, радио для Scan/Connect.
     void recoverySuspendReconnectForSetup();
+    // E36FS1: true only when STA or AP has a non-zero IP for TCP services / только при готовом IP для TCP.
+    bool isTcpReady() const;
   private:
     Ticker rtimer;
     void raiseSoftAP();

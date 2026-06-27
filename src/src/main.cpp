@@ -41,7 +41,11 @@ void setup() {
   player.init();
   network.begin();
   if (network.status != CONNECTED && network.status!=SDREADY) {
-    netserver.begin();
+    // E36FS1: FAILED (no creds / S6V9C) — no NetServer until STA or Hotspot AP has IP.
+    // E36FS1: FAILED — NetServer только после IP (STA или Hotspot AP).
+    if (network.status == SOFT_AP) {
+      netserver.begin();
+    }
     initControls();
     Serial.println("[Main] Sending DSP_START request");
     display.putRequest(DSP_START);

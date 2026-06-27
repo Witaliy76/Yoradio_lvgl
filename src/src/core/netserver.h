@@ -69,6 +69,7 @@ class NetServer {
 #endif
 		void resetQueue();
   private:
+    bool _started = false;
     requestType_e request;
     QueueHandle_t nsQueue;
     // 8.1HX-B: broadcast (clientId==0) request coalescing — skip enqueue if an identical

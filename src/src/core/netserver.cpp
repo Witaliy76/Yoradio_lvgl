@@ -94,6 +94,15 @@ char* updateError() {
 
 bool NetServer::begin(bool quiet) {
   if(network.status==SDREADY) return true;
+  if (_started) {
+    return true;
+  }
+  if (!network.isTcpReady()) {
+    if (!quiet) {
+      Serial.println("[NetServer] Start deferred: no usable STA/AP IP");
+    }
+    return false;
+  }
   if(!quiet) Serial.print("##[BOOT]#\tnetserver.begin\t");
   importRequest = IMDONE;
   irRecordEnable = false;
@@ -174,6 +183,12 @@ bool NetServer::begin(bool quiet) {
       if (strcmp((char*)packet.data(), "helle?") == 0)
         packet.println(WiFi.localIP());
     });
+  }
+  _started = true;
+  if (network.status == CONNECTED) {
+    Serial.printf("[NetServer] Started on STA %s\n", WiFi.localIP().toString().c_str());
+  } else if (network.status == SOFT_AP) {
+    Serial.printf("[NetServer] Started on AP %s\n", WiFi.softAPIP().toString().c_str());
   }
   if(!quiet) Serial.println("done");
   return true;
