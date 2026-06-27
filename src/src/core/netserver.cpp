@@ -57,6 +57,7 @@ constexpr uint32_t kWsHeavyClientBootGuardMs = 12000;
 String processor(const String& var);
 void handleUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
 void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
+void handleWebUploadComplete(AsyncWebServerRequest *request);
 void handleUpdate(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
 void handleHTTPArgs(AsyncWebServerRequest * request);
 void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
@@ -112,24 +113,15 @@ bool NetServer::begin(bool quiet) {
   if(config.emptyFS){
     webserver.on("/bg_status", HTTP_GET, handleBgStatusHttp);
     webserver.on("/", HTTP_GET, [](AsyncWebServerRequest * request) { request->send_P(200, "text/html", emptyfs_html, processor); });
-    webserver.on("/", HTTP_POST, [](AsyncWebServerRequest *request) { 
-      if(request->arg("ssid")!="" && request->arg("pass")!=""){
-        char buf[BUFLEN];
-        memset(buf, 0, BUFLEN);
-        snprintf(buf, BUFLEN, "%s\t%s", request->arg("ssid").c_str(), request->arg("pass").c_str());
-        request->redirect("/");
-        config.saveWifiFromPost(buf);
-        return;
-      }
-      request->redirect("/"); 
-      ESP.restart(); 
-    }, handleUploadWeb);
+    // E36FS3a: unified multipart completion for emptyFS bootstrap / единый completion для POST /.
+    webserver.on("/", HTTP_POST, handleWebUploadComplete, handleUploadWeb);
   }else{
     /* /bg_status BEFORE HTTP_ANY "/" — catch-all can swallow GET /bg_status and never send() → 500 */
     webserver.on("/bg_status", HTTP_GET, handleBgStatusHttp);
     webserver.on("/", HTTP_ANY, handleHTTPArgs);
     webserver.on("/webboard", HTTP_GET, [](AsyncWebServerRequest * request) { request->send_P(200, "text/html", emptyfs_html, processor); });
-    webserver.on("/webboard", HTTP_POST, [](AsyncWebServerRequest *request) { request->redirect("/"); }, handleUploadWeb);
+    // E36FS3a: same completion path as emptyFS POST / / тот же completion, что и POST /.
+    webserver.on("/webboard", HTTP_POST, handleWebUploadComplete, handleUploadWeb);
   }
   
   webserver.on(PLAYLIST_PATH, HTTP_GET, handleHTTPArgs);
@@ -2058,15 +2050,180 @@ void handleUpload(AsyncWebServerRequest *request, String filename, size_t index,
   }
 }
 
+// E36FS3a: request-scoped state via AsyncWebServerRequest::_tempObject (freed on disconnect).
+// E36FS3a: состояние на запрос через _tempObject (освобождается при disconnect).
+struct WebUploadReqState {
+  uint16_t files_seen   = 0;
+  uint16_t files_ok     = 0;
+  uint16_t files_failed = 0;
+  bool web_seen         = false;
+  bool web_ok           = false;
+  bool playlist_seen    = false;
+  bool playlist_ok      = false;
+  bool wifi_seen        = false;
+  bool wifi_ok          = false;
+  size_t total_bytes    = 0;
+  char current_name[48] = {};
+  char current_dest[64] = {};
+  size_t current_bytes  = 0;
+  bool current_is_web      = false;
+  bool current_is_playlist = false;
+  bool current_is_wifi     = false;
+};
+
+static Ticker s_webUploadRebootTicker;
+static bool s_webUploadRebootPending = false;
+
+static void webUploadDoReboot() {
+  s_webUploadRebootTicker.detach();
+  s_webUploadRebootPending = false;
+  ESP.restart();
+}
+
+static void webUploadScheduleReboot() {
+  if (s_webUploadRebootPending) return;
+  s_webUploadRebootPending = true;
+  Serial.println("[WebUpload] Upload complete; reboot scheduled");
+  s_webUploadRebootTicker.once(1.0f, webUploadDoReboot);  // response first, then ~1s / сначала ответ, затем ~1 с
+}
+
+// POST / (emptyFS) and POST /webboard share this upload path / общий путь для встроенного uploader.
+static bool webUploadIsEmbeddedRoute(const AsyncWebServerRequest* request) {
+  const String& url = request->url();
+  return url == "/" || url == "/webboard";
+}
+
+static WebUploadReqState* webUploadReqState(AsyncWebServerRequest* request) {
+  if (!request->_tempObject) {
+    request->_tempObject = calloc(1, sizeof(WebUploadReqState));
+  }
+  return static_cast<WebUploadReqState*>(request->_tempObject);
+}
+
+// Basename only — strip browser path prefixes / только basename, без каталогов браузера.
+static String webUploadNormalizeBasename(String filename) {
+  filename.replace('\\', '/');
+  const int slash = filename.lastIndexOf('/');
+  if (slash >= 0) {
+    filename = filename.substring(slash + 1);
+  }
+  return filename;
+}
+
+static bool webUploadBasenameEquals(const String& base, const char* literal) {
+  return base.length() == strlen(literal) && base.equalsIgnoreCase(literal);
+}
+
+static bool webUploadMapDestination(const String& base, String& outDest) {
+  if (base.length() == 0 || base.indexOf("..") >= 0) {
+    return false;
+  }
+  if (webUploadBasenameEquals(base, "playlist.csv")) {
+    outDest = "/data/playlist.csv";
+    return true;
+  }
+  if (webUploadBasenameEquals(base, "wifi.csv")) {
+    outDest = "/data/wifi.csv";
+    return true;
+  }
+  outDest = "/www/" + base;
+  return true;
+}
+
+static void webUploadMarkFileFailed(WebUploadReqState* upSt) {
+  if (!upSt) return;
+  upSt->files_failed++;
+}
+
+static void webUploadBeginFile(WebUploadReqState* upSt, const String& base, const String& dest) {
+  if (!upSt) return;
+  upSt->files_seen++;
+  upSt->current_bytes = 0;
+  upSt->current_is_web = dest.startsWith("/www/");
+  upSt->current_is_playlist = webUploadBasenameEquals(base, "playlist.csv");
+  upSt->current_is_wifi = webUploadBasenameEquals(base, "wifi.csv");
+  if (upSt->current_is_web) upSt->web_seen = true;
+  if (upSt->current_is_playlist) upSt->playlist_seen = true;
+  if (upSt->current_is_wifi) upSt->wifi_seen = true;
+  strncpy(upSt->current_name, base.c_str(), sizeof(upSt->current_name) - 1);
+  strncpy(upSt->current_dest, dest.c_str(), sizeof(upSt->current_dest) - 1);
+  Serial.printf("[WebUpload] begin name='%s' dest='%s'\n", upSt->current_name, upSt->current_dest);
+}
+
+static void webUploadCompleteFile(WebUploadReqState* upSt, bool callIndexPlaylist) {
+  if (!upSt) return;
+  upSt->files_ok++;
+  upSt->total_bytes += upSt->current_bytes;
+  if (upSt->current_is_web) upSt->web_ok = true;
+  if (upSt->current_is_playlist) upSt->playlist_ok = true;
+  if (upSt->current_is_wifi) upSt->wifi_ok = true;
+  Serial.printf("[WebUpload] complete name='%s' bytes=%u\n",
+                upSt->current_name, static_cast<unsigned>(upSt->current_bytes));
+  if (callIndexPlaylist) {
+    config.indexPlaylist();
+  }
+}
+
+void handleWebUploadComplete(AsyncWebServerRequest* request) {
+  // emptyFS Wi-Fi credential form — not a file upload / форма SSID, не multipart файлов.
+  if (request->arg("ssid") != "" && request->arg("pass") != "") {
+    char buf[BUFLEN];
+    memset(buf, 0, BUFLEN);
+    snprintf(buf, BUFLEN, "%s\t%s", request->arg("ssid").c_str(), request->arg("pass").c_str());
+    request->redirect("/");
+    config.saveWifiFromPost(buf);
+    return;
+  }
+
+  WebUploadReqState* const upSt = static_cast<WebUploadReqState*>(request->_tempObject);
+  if (!upSt) {
+    bool anyFile = false;
+    for (size_t i = 0; i < request->params(); i++) {
+      AsyncWebParameter* p = request->getParam(i);
+      if (p && p->isFile()) {
+        anyFile = true;
+        break;
+      }
+    }
+    if (!anyFile) {
+      Serial.println("[WebUpload] Upload failed; reboot cancelled");
+      request->send(400, "text/plain", "No file selected");
+      return;
+    }
+    // Untracked file types (e.g. AI prompt .txt) — redirect only, no reboot / без reboot.
+    request->redirect("/");
+    return;
+  }
+
+  Serial.printf("[WebUpload] request complete files=%u ok=%u failed=%u web=%d playlist=%d wifi=%d\n",
+                upSt->files_seen, upSt->files_ok, upSt->files_failed,
+                upSt->web_ok ? 1 : 0, upSt->playlist_ok ? 1 : 0, upSt->wifi_ok ? 1 : 0);
+
+  const bool ok = upSt->files_seen > 0
+               && upSt->files_ok == upSt->files_seen
+               && upSt->files_failed == 0;
+  if (!ok) {
+    Serial.println("[WebUpload] Upload failed; reboot cancelled");
+    request->send(upSt->files_seen > 0 ? 500 : 400, "text/plain",
+                  upSt->files_seen > 0 ? "Upload failed" : "No file selected");
+    return;
+  }
+  request->redirect("/");
+  webUploadScheduleReboot();
+}
+
 void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
   DBGVB("File: %s, size:%u bytes, index: %u, final: %s\n", filename.c_str(), len, index, final?"true":"false");
+
+  const String base = webUploadNormalizeBasename(filename);
   
   // Handle AI prompt upload / Обработка загрузки AI промпта
   // Accept any .txt file for AI prompt (filename ignored, always saved as /ai/ai_prompt.txt)
   // Принимаем любой .txt файл для AI prompt (имя файла игнорируется, всегда сохраняется как /ai/ai_prompt.txt)
   // Atomic upload: write to /ai/ai_prompt.tmp, replace only on success
   // Атомарная загрузка: пишем в /ai/ai_prompt.tmp, заменяем только при успехе
-  bool is_prompt_file = filename.endsWith(".txt") && filename != "playlist.csv" && filename != "wifi.csv";
+  bool is_prompt_file = base.endsWith(".txt") && !webUploadBasenameEquals(base, "playlist.csv")
+                     && !webUploadBasenameEquals(base, "wifi.csv");
   
   if (is_prompt_file) {
     // Get max prompt size from ai_prompt module / Получить максимальный размер промпта из модуля ai_prompt
@@ -2363,17 +2520,42 @@ void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t ind
   }
   
   // Original logic for other files / Оригинальная логика для других файлов
+  WebUploadReqState* const upSt = webUploadIsEmbeddedRoute(request) ? webUploadReqState(request) : nullptr;
+
   if (!index) {
-    String spath = "/www/";
-    if(filename=="playlist.csv" || filename=="wifi.csv") spath = "/data/";
-    request->_tempFile = LittleFS.open(spath + filename , "w");
+    String dest;
+    if (!webUploadMapDestination(base, dest)) {
+      webUploadMarkFileFailed(upSt);
+      return;
+    }
+    webUploadBeginFile(upSt, base, dest);
+    request->_tempFile = LittleFS.open(dest, "w");
+    if (!request->_tempFile) {
+      webUploadMarkFileFailed(upSt);
+      return;
+    }
   }
   if (len) {
-    request->_tempFile.write(data, len);
+    if (!request->_tempFile) {
+      webUploadMarkFileFailed(upSt);
+      return;
+    }
+    const size_t written = request->_tempFile.write(data, len);
+    if (written != len) {
+      request->_tempFile.close();
+      webUploadMarkFileFailed(upSt);
+      return;
+    }
+    if (upSt) upSt->current_bytes += written;
   }
   if (final) {
+    if (!request->_tempFile) {
+      webUploadMarkFileFailed(upSt);
+      return;
+    }
     request->_tempFile.close();
-    if(filename=="playlist.csv") config.indexPlaylist();
+    const bool isPlaylist = webUploadBasenameEquals(base, "playlist.csv");
+    webUploadCompleteFile(upSt, isPlaylist);
   }
 }
 
