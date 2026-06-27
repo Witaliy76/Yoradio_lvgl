@@ -133,11 +133,11 @@ void Player::stopInfo() {
   netserver.requestOnChange(MODE, 0);
 }
 
-void Player::setError(const char *e){
-  strlcpy(_plError, e, PLERR_LN);
-  if(hasError()) {
-    config.setTitle(_plError);
-    telnet.printf("##ERROR#:\t%s\n", e);
+// E36AUD0A: store transport error only — LVGL reads lastError(); no title/NEWTITLE/AI / ошибка отдельно от metadata
+void Player::setError(const char *e, bool emitErrorLog){
+  strlcpy(_plError, e ? e : "", PLERR_LN);
+  if (hasError() && emitErrorLog) {
+    telnet.printf("##ERROR#:\t%s\n", _plError);
   }
 }
 
@@ -307,7 +307,6 @@ void Player::_play(uint16_t stationId) {
     display.putRequest(NEWMODE, PLAYER);
     if (player_on_start_play) player_on_start_play();
   }else{
-    telnet.printf("##ERROR#:\tError connecting to %s\n", config.station.url);
     SET_PLAY_ERROR("Error connecting to %s", config.station.url);
 #ifdef MEM_WATCHDOG_AUTOREBOOT
     memWatchdog.record(MWEvent::HTTP_FAIL);
@@ -333,7 +332,6 @@ void Player::browseUrl(){
     setOutputPins(true);
     if (player_on_start_play) player_on_start_play();
   }else{
-    telnet.printf("##ERROR#:\tError connecting to %s\n", burl);
     SET_PLAY_ERROR("Error connecting to %s", burl);
 #ifdef MEM_WATCHDOG_AUTOREBOOT
     memWatchdog.record(MWEvent::HTTP_FAIL);

@@ -15,7 +15,10 @@ void audio_info(const char *info) {
   if (strstr(info, "format is ogg")  != NULL) { config.setBitrateFormat(BF_OGG); display.putRequest(DBITRATE); }
   if (strstr(info, "format is vorbis")  != NULL) { config.setBitrateFormat(BF_VOR); display.putRequest(DBITRATE); }
   if (strstr(info, "format is opus")  != NULL) { config.setBitrateFormat(BF_OPU); display.putRequest(DBITRATE); }
-  if (strstr(info, "skip metadata") != NULL) config.setTitle(config.station.name);
+  if (strstr(info, "skip metadata") != NULL) {
+    player.setError("");
+    config.setTitle(config.station.name);
+  }
   if (strstr(info, "Account already in use") != NULL || strstr(info, "HTTP/1.0 401") != NULL) {
     player.setError(info);
     
@@ -103,17 +106,22 @@ void audio_showstreamtitle(const char *info) {
   if (strstr(info, "Account already in use") != NULL || strstr(info, "HTTP/1.0 401") != NULL) player.setError(info);
   bool p = (strlen(info) > 0) && printable(info);
   #ifdef DEBUG_TITLES
+    player.setError("");
     config.setTitle(DEBUG_TITLES);
   #else
-    if (p) config.setTitle(info);
-    else if (strlen(config.station.title)==0) config.setTitle(config.station.name);
+    if (p) {
+      player.setError("");
+      config.setTitle(info);
+    } else if (strlen(config.station.title)==0) {
+      player.setError("");
+      config.setTitle(config.station.name);
+    }
   #endif
 }
 
 void audio_error(const char *info) {
-  //config.setTitle(info);
+  // E36AUD0A: setError owns ##ERROR# telnet; no title pipeline / telnet только в setError
   player.setError(info);
-  telnet.printf("##ERROR#:\t%s\n", info);
 }
 
 void audio_id3artist(const char *info){
@@ -125,6 +133,7 @@ void audio_id3artist(const char *info){
 void audio_id3album(const char *info){
   if(player.lockOutput) return;
   if(printable(info)){
+    player.setError("");
     if(strlen(config.station.title)==0 || strcmp(config.station.title, config.station.name)==0 || strstr(config.station.title, "timeout") != NULL ||
        strstr(config.station.title, "[соединение]") != NULL || strstr(config.station.title, "[connecting]") != NULL ||
        strstr(config.station.title, "(connection)") != NULL || strstr(config.station.title, "[ready]") != NULL ||

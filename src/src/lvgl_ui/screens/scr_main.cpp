@@ -1841,15 +1841,21 @@ void LvglMainScreen::update() {
 
     main_set_text_if_changed(_lbl_station_name, config.station.name);
 
-    // Stream lines: hide track/artist when title empty or equals station name (same as pre-6.1B behavior).
-    // Стрим-метаданные: скрываем трек/артиста, если title пустой или совпадает с именем станции.
-    const char* st_title = config.station.title;
+    // E36AUD0A: transport error renders in track area; station.title keeps last real metadata.
+    // Ошибка — из player.lastError(); title не перезаписывается ошибкой.
+    const char* st_title = player.hasError() ? player.lastError() : config.station.title;
+    const bool showing_player_error = player.hasError();
     const bool has_stream_meta =
+        showing_player_error ||
         (st_title != nullptr && strlen(st_title) > 0 && strcmp(st_title, config.station.name) != 0);
 
     if (_lbl_track && _lbl_artist) {
         if (!has_stream_meta) {
             lv_obj_add_flag(_lbl_track, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(_lbl_artist, LV_OBJ_FLAG_HIDDEN);
+        } else if (showing_player_error) {
+            lv_obj_clear_flag(_lbl_track, LV_OBJ_FLAG_HIDDEN);
+            main_set_text_if_changed(_lbl_track, st_title);
             lv_obj_add_flag(_lbl_artist, LV_OBJ_FLAG_HIDDEN);
         } else {
             lv_obj_clear_flag(_lbl_track, LV_OBJ_FLAG_HIDDEN);

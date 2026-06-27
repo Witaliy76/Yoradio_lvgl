@@ -83,7 +83,8 @@ void loop() {
 #ifdef MEM_WATCHDOG_AUTOREBOOT
   memWatchdog.onStableRun();
   if (memWatchdog.rebootArmed() && !memWatchdog.isSuppressed()) {
-    config.setTitle("LOW RAM: rebooting to recover");
+    // E36AUD0A1: render-only via player error state; ##SYS# diagnostic — not track metadata / не setTitle
+    player.setError("LOW RAM: rebooting to recover", false);
     telnet.printf("##SYS#: LOW RAM: rebooting to recover\n");
     delay(2000);
     ESP.restart();

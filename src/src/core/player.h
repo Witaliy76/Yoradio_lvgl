@@ -57,8 +57,11 @@ class Player: public Audio {
     void init();
     void loop();
     void initHeaders(const char *file);
-    void setError(const char *e);
-    bool hasError() { return strlen(_plError)>0; }
+    // E36AUD0A1: emitErrorLog=false for system warnings (##SYS# only) / без ##ERROR# для системных
+    void setError(const char *e, bool emitErrorLog = true);
+    // E36AUD0A: read-only transport error buffer — not track metadata / только ошибка, не title
+    bool hasError() const { return strlen(_plError) > 0; }
+    const char* lastError() const { return _plError; }
     void sendCommand(playerRequestParams_t request);
     void resetQueue();
     #ifdef MQTT_ROOT_TOPIC
