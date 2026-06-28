@@ -3,6 +3,9 @@ var websocket;
 var wserrcnt = 0;
 var wstimeout;
 var currentItem = 0;
+// E36AUD0B: cache real stream meta separately from player_error overlay / реальный meta отдельно от ошибки
+let cachedRealMeta = "";
+let activePlayerError = "";
 
 window.addEventListener('load', onLoad);
 
@@ -183,7 +186,23 @@ function onMessage(event) {
   }
   if(document.getElementById('meta')){ // index loaded
     if(typeof data.nameset !== 'undefined') { document.getElementById('nameset').innerHTML = data.nameset; return; }
-    if(typeof data.meta !== 'undefined') { document.getElementById('meta').innerHTML = data.meta; return; }
+    if(typeof data.meta !== 'undefined') {
+      cachedRealMeta = data.meta;
+      if (activePlayerError === "") {
+        document.getElementById('meta').innerHTML = data.meta;
+      }
+      return;
+    }
+    if(typeof data.player_error !== 'undefined') {
+      activePlayerError = (data.player_error == null) ? "" : String(data.player_error);
+      const metaEl = document.getElementById('meta');
+      if (activePlayerError !== "") {
+        metaEl.textContent = activePlayerError;
+      } else {
+        metaEl.innerHTML = cachedRealMeta;
+      }
+      return;
+    }
     if(typeof data.vol !== 'undefined') {
       setSlRangeValue(document.getElementById('volrange'),data.vol);
       return;

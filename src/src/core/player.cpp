@@ -135,14 +135,32 @@ void Player::stopInfo() {
 
 // E36AUD0A: store transport error only — LVGL reads lastError(); no title/NEWTITLE/AI / ошибка отдельно от metadata
 void Player::setError(const char *e, bool emitErrorLog){
-  strlcpy(_plError, e ? e : "", PLERR_LN);
+  char nextError[PLERR_LN];
+  strlcpy(nextError, e ? e : "", sizeof(nextError));
+  const bool changed = (strcmp(_plError, nextError) != 0);
+  strlcpy(_plError, nextError, PLERR_LN);
   if (hasError() && emitErrorLog) {
     telnet.printf("##ERROR#:\t%s\n", _plError);
+  }
+#ifdef MEM_WATCHDOG_AUTOREBOOT
+  // E36MEM0D1: every non-empty error resets recovery; WS/MQTT still deduped / health vs remote state
+  if (hasError()) {
+    const MWPlaybackFault fault =
+        (strcmp(nextError, "responseHeaderline overflow") == 0)
+            ? MWPlaybackFault::HEADER_OVERFLOW
+            : MWPlaybackFault::GENERIC_ERROR;
+    memWatchdog.onPlaybackHealthFault(fault);
+  }
+#endif
+  // E36AUD0B: remote player_error state — queue only on change / WS+MQTT без повторов одного значения
+  if (changed) {
+    netserver.requestOnChange(PLAYER_ERROR, 0);
   }
 }
 
 void Player::_stop(bool alreadyStopped){
   log_i("%s called", __func__);
+  beginPlaybackSession();
   if(config.getMode()==PM_SDCARD && !alreadyStopped) config.sdResumePos = player.getFilePos();
   _status = STOPPED;
   setOutputPins(false);
@@ -177,6 +195,36 @@ void Player::initHeaders(const char *file) {
 #ifndef PL_QUEUE_TICKS_ST
   #define PL_QUEUE_TICKS_ST 15
 #endif
+
+#ifdef MEM_WATCHDOG_AUTOREBOOT
+// E36MEM0D: 15 s stable PLAYING+isRunning, reset on failure / стабильное воспроизведение 15 с
+static void mwPollPlaybackRecovery(plStatus_e status, bool audioRunning) {
+  static uint32_t healthySince = 0;
+  static bool recoverNotified = false;
+
+  if (memWatchdog.takeRecoveryTimerReset() || memWatchdog.rebootArmed()) {
+    healthySince = 0;
+    recoverNotified = false;
+    if (memWatchdog.rebootArmed()) return;
+  }
+
+  const bool healthy = (status == PLAYING && audioRunning);
+  if (healthy) {
+    const uint32_t now = millis();
+    if (healthySince == 0) healthySince = now;
+    if (!recoverNotified &&
+        (now - healthySince) >= MW_PLAYBACK_RECOVER_MS &&
+        memWatchdog.canAcceptPlaybackRecovery()) {
+      recoverNotified = true;
+      memWatchdog.onPlaybackRecovered();
+    }
+  } else {
+    healthySince = 0;
+    recoverNotified = false;
+  }
+}
+#endif
+
 void Player::loop() {
   if(playerQueue==NULL) return;
   playerRequestParams_t requestP;
@@ -232,7 +280,25 @@ void Player::loop() {
   }
 
   Audio::loop();
-  if(!isRunning() && _status==PLAYING) _stop(true);
+#ifdef MEM_WATCHDOG_AUTOREBOOT
+  mwPollPlaybackRecovery(_status, isRunning());
+#endif
+  if(!isRunning() && _status==PLAYING) {
+#ifdef MEM_WATCHDOG_AUTOREBOOT
+    const AudioTerminalReason terminalReason = consumeTerminalReason();
+    if (terminalReason == AudioTerminalReason::HEADER_RETRY_EXHAUSTED ||
+        terminalReason == AudioTerminalReason::UNSTABLE_STREAM_EXHAUSTED) {
+      memWatchdog.onStationLocalStop(terminalReason);
+    } else {
+      consumeTerminalReason();
+      // E36MEM0D1: automatic stop after stream loss — not manual PR_STOP / авто-стоп в loop
+      memWatchdog.onPlaybackAutoStopped(hasError());
+    }
+#else
+    consumeTerminalReason();
+#endif
+    _stop(true);
+  }
   if(_volTimer){
     if((millis()-_volTicks)>1500){
       config.saveVolume();
@@ -255,6 +321,11 @@ void Player::setOutputPins(bool isPlaying) {
 void Player::_play(uint16_t stationId) {
   Serial.printf("🎵 [PLAY] _play() started, stationId=%d\n", stationId);
   log_i("%s called, stationId=%d", __func__, stationId);
+  beginPlaybackSession();
+#ifdef MEM_WATCHDOG_AUTOREBOOT
+  // E36MEM0D: episode-local heap monitor starts before TLS/connect alloc / до подключения
+  memWatchdog.onPlaybackAttemptStarted();
+#endif
   setError("");
   remoteStationName = false;
   config.setDspOn(1);
@@ -319,6 +390,7 @@ void Player::_play(uint16_t stationId) {
 #ifdef MQTT_ROOT_TOPIC
 void Player::browseUrl(){
   setError("");
+  beginPlaybackSession();
   remoteStationName = true;
   config.setDspOn(1);
   resumeAfterUrl = _status==PLAYING;

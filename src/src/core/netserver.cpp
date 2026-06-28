@@ -365,6 +365,7 @@ static bool isHeavyClientStateRequest(requestType_e type) {
     case STATIONNAME:
     case ITEM:
     case TITLE:
+    case PLAYER_ERROR:
     case VOLUME:
     case NRSSI:
     case BITRATE:
@@ -457,6 +458,7 @@ void NetServer::processQueue(){
       case GETINDEX:      {
           requestOnChange(STATION, clientId); 
           requestOnChange(TITLE, clientId); 
+          requestOnChange(PLAYER_ERROR, clientId);
           requestOnChange(VOLUME, clientId); 
           requestOnChange(EQUALIZER, clientId); 
           requestOnChange(BALANCE, clientId); 
@@ -551,6 +553,7 @@ void NetServer::processQueue(){
       case STATIONNAME:   wsbufFormat( "{\"nameset\": \"%s\"}", config.station.name); break;
       case ITEM:          wsbufFormat( "{\"current\": %d}", config.lastStation()); break;
       case TITLE:         wsbufFormat( "{\"meta\": \"%s\"}", config.station.title); telnet.printf("##CLI.META#: %s\n> ", config.station.title); break;
+      case PLAYER_ERROR:  wsbufFormat( "{\"player_error\": \"%s\"}", player.lastError()); break;
       case VOLUME:        wsbufFormat( "{\"vol\": %d}", config.store.volume); telnet.printf("##CLI.VOL#: %d\n", config.store.volume); break;
       case NRSSI:         wsbufFormat( "{\"rssi\": %d}", rssi); /*rssi = 255;*/ break;
       case SDPOS:         wsbufFormat( "{\"sdpos\": %d,\"sdend\": %d,\"sdtpos\": %d,\"sdtend\": %d}", 
@@ -576,7 +579,7 @@ void NetServer::processQueue(){
       // S6V10A: safe helpers skip send when no clients or client gone / safe helpers пропускают отправку если нет клиентов
       if (clientId == 0) { safeWsTextAll(wsbuf); }else{ safeWsTextClient(clientId, wsbuf); }
   #ifdef MQTT_ROOT_TOPIC
-      if (clientId == 0 && (request.type == STATION || request.type == ITEM || request.type == TITLE || request.type == MODE)) mqttPublishStatus();
+      if (clientId == 0 && (request.type == STATION || request.type == ITEM || request.type == TITLE || request.type == PLAYER_ERROR || request.type == MODE)) mqttPublishStatus();
       if (clientId == 0 && request.type == VOLUME) mqttPublishVolume();
   #endif
     }

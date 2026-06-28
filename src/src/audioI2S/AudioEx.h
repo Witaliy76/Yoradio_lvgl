@@ -127,6 +127,13 @@ protected:
 //----------------------------------------------------------------------------------------------------------------------
 
 
+// E36REC1B: station-local terminal reasons — consumed once by Player / причины terminal stop
+enum class AudioTerminalReason : uint8_t {
+    NONE = 0,
+    HEADER_RETRY_EXHAUSTED,
+    UNSTABLE_STREAM_EXHAUSTED
+};
+
 class Audio{
 
     AudioBuffer InBuff; // instance of input buffer
@@ -189,6 +196,9 @@ class Audio{
 //    void           setVUmeter() {};
     bool           eofHeader;
     void           setDefaults(); // free buffers and set defaults
+    // E36REC1B: new user playback session — unstable-stream budget only / только счётчик unstable
+    void           beginPlaybackSession();
+    AudioTerminalReason consumeTerminalReason();
     uint32_t     inBufferFilled();            // returns the number of stored bytes in the inputbuffer
 //    uint32_t     inBufferFree();              // returns the number of free bytes in the inputbuffer
 //    uint32_t     getInBufferSize();           // returns the size of the inputbuffer in bytes
@@ -286,6 +296,12 @@ class Audio{
     bool         readID3V1Tag();
     int32_t      newInBuffStart(int32_t m_resumeFilePos);
     boolean      streamDetection(uint32_t bytesAvail);
+    // E36REC1B: short-lived stream session tracking / сессия unstable-stream
+    void         noteStreamAudioProgress();
+    bool         attemptInternalReconnect();
+    void         finishUnstableStreamExhausted();
+    void         resetPerConnectionStreamState();
+    void         pollStreamStability();
     uint32_t     m4a_correctResumeFilePos();
     uint32_t     ogg_correctResumeFilePos();
     int32_t      flac_correctResumeFilePos();
@@ -771,6 +787,16 @@ private:
     audiolib::phreh_t m_phreh;
     audiolib::phrah_t m_phrah;
     audiolib::sdet_t m_sdet;
+    // E36REC1B: session unstable-stream budget (not m_lVar.count) / отдельный счётчик сессии
+    static constexpr uint8_t  MAX_UNSTABLE_STREAM_FAILURES = 3;
+    static constexpr uint32_t UNSTABLE_STREAM_STABLE_MS    = 15000;
+    uint8_t  m_unstableStreamFailures     = 0;
+    bool     m_f_streamHadAudio             = false;
+    bool     m_f_shortLivedCounted          = false;
+    bool     m_f_sessionStreamStable        = false;
+    uint32_t m_streamAudioStartedMs         = 0;
+    uint32_t m_streamLastAudioProgressMs    = 0;
+    AudioTerminalReason m_terminalReason      = AudioTerminalReason::NONE;
     audiolib::fnsy_t m_fnsy;
 
 

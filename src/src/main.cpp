@@ -82,10 +82,18 @@ void setup() {
 void loop() {
 #ifdef MEM_WATCHDOG_AUTOREBOOT
   memWatchdog.onStableRun();
+  memWatchdog.tick();
   if (memWatchdog.rebootArmed() && !memWatchdog.isSuppressed()) {
-    // E36AUD0A1: render-only via player error state; ##SYS# diagnostic — not track metadata / не setTitle
-    player.setError("LOW RAM: rebooting to recover", false);
-    telnet.printf("##SYS#: LOW RAM: rebooting to recover\n");
+    memWatchdog.printRebootDiagnostic();
+    if (memWatchdog.isFunctionalReboot()) {
+      // E36MEM0C: functional fail-storm — not track metadata / не setTitle
+      player.setError("Playback recovery: rebooting", false);
+      telnet.printf("##SYS#: Playback recovery: rebooting\n");
+    } else {
+      // E36AUD0A1 / E36MEM0B: memory-critical recovery
+      player.setError("LOW RAM: rebooting to recover", false);
+      telnet.printf("##SYS#: LOW RAM: rebooting to recover\n");
+    }
     delay(2000);
     ESP.restart();
   }

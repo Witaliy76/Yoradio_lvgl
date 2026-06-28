@@ -39,7 +39,7 @@ void mqttPublishStatus() {
     memset(topic, 0, 140);
     memset(status, 0, BUFLEN*3);
     sprintf(topic, "%s%s", MQTT_ROOT_TOPIC, "status");
-    sprintf(status, "{\"status\": %d, \"station\": %d, \"name\": \"%s\", \"title\": \"%s\", \"on\": %d}", player.status()==PLAYING?1:0, config.lastStation(), config.station.name, config.station.title, config.store.dspon);
+    sprintf(status, "{\"status\": %d, \"station\": %d, \"name\": \"%s\", \"title\": \"%s\", \"player_error\": \"%s\", \"on\": %d}", player.status()==PLAYING?1:0, config.lastStation(), config.station.name, config.station.title, player.lastError(), config.store.dspon);
     mqttClient.publish(topic, 0, true, status);
   }
 }

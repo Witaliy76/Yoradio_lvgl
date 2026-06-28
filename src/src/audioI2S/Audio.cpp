@@ -3089,6 +3089,75 @@ uint32_t Audio::stopSong() {
     return pos;
 }
 //****************************************************************************************
+// E36REC1B: unstable-stream session — Player-owned reset, Audio-owned budget / сессия unstable
+void Audio::beginPlaybackSession() {
+    m_unstableStreamFailures = 0;
+    m_f_sessionStreamStable = false;
+    m_terminalReason = AudioTerminalReason::NONE;
+    resetPerConnectionStreamState();
+}
+
+AudioTerminalReason Audio::consumeTerminalReason() {
+    const AudioTerminalReason reason = m_terminalReason;
+    m_terminalReason = AudioTerminalReason::NONE;
+    return reason;
+}
+
+void Audio::resetPerConnectionStreamState() {
+    m_f_streamHadAudio = false;
+    m_f_shortLivedCounted = false;
+    m_streamAudioStartedMs = 0;
+    m_streamLastAudioProgressMs = 0;
+}
+
+void Audio::noteStreamAudioProgress() {
+    // Real PCM after decode — not header/metadata / реальный выход декодера
+    const uint32_t now = millis();
+    if (!m_f_streamHadAudio) {
+        m_f_streamHadAudio = true;
+        m_streamAudioStartedMs = now;
+    }
+    m_streamLastAudioProgressMs = now;
+}
+
+bool Audio::attemptInternalReconnect() {
+    if (m_f_streamHadAudio && !m_f_shortLivedCounted) {
+        const uint32_t lived = millis() - m_streamAudioStartedMs;
+        if (lived < UNSTABLE_STREAM_STABLE_MS) {
+            m_f_shortLivedCounted = true;
+            m_unstableStreamFailures++;
+            Serial.printf("[AUDIO.RETRY] unstable stream=%u/%u lived_ms=%lu\n",
+                          (unsigned)m_unstableStreamFailures,
+                          (unsigned)MAX_UNSTABLE_STREAM_FAILURES,
+                          (unsigned long)lived);
+            if (m_unstableStreamFailures >= MAX_UNSTABLE_STREAM_FAILURES) {
+                return false;
+            }
+        }
+    }
+    resetPerConnectionStreamState();
+    return true;
+}
+
+void Audio::finishUnstableStreamExhausted() {
+    Serial.println("[AUDIO.RETRY] unstable exhausted");
+    m_terminalReason = AudioTerminalReason::UNSTABLE_STREAM_EXHAUSTED;
+    m_unstableStreamFailures = 0;
+    resetPerConnectionStreamState();
+    stopSong();
+}
+
+void Audio::pollStreamStability() {
+    if (!m_f_streamHadAudio || m_f_sessionStreamStable) return;
+    const uint32_t now = millis();
+    if ((now - m_streamAudioStartedMs) < UNSTABLE_STREAM_STABLE_MS) return;
+    if ((now - m_streamLastAudioProgressMs) > 2000) return;
+    m_unstableStreamFailures = 0;
+    m_f_sessionStreamStable = true;
+    Serial.println("[AUDIO.RETRY] stream stable");
+    resetPerConnectionStreamState();
+}
+//****************************************************************************************
 bool Audio::pauseResume() {
     xSemaphoreTake(mutex_audioTask, 0.3 * configTICK_RATE_HZ);
     bool retVal = false;
@@ -3293,13 +3362,32 @@ exit:
 void Audio::loop() {
     if(!m_f_running) return;
 
+    if(m_dataMode == AUDIO_DATA) pollStreamStability();
+
     if(m_playlistFormat != FORMAT_M3U8) { // normal process
         switch(m_dataMode) {
             case AUDIO_LOCALFILE:
                 processLocalFile(); break;
             case HTTP_RESPONSE_HEADER:
                 if(!parseHttpResponseHeader()) {
-                    if(m_f_timeout && m_lVar.count < 3) {m_f_timeout = false; m_lVar.count++; connecttohost(m_lastHost.get());}
+                    // E36REC1A: header-timeout reconnect budget — 1 initial + up to 3 retries / 1 connect + 3 retry
+                    if(m_f_timeout && m_lVar.count < 3) {
+                        m_f_timeout = false;
+                        if (!attemptInternalReconnect()) {
+                            finishUnstableStreamExhausted();
+                        } else {
+                            m_lVar.count++;
+                            Serial.printf("[AUDIO.RETRY] header retry=%u/3\n", (unsigned)m_lVar.count);
+                            connecttohost(m_lastHost.get());
+                        }
+                    }
+                    else if(m_f_timeout && m_lVar.count >= 3) {
+                        Serial.println("[AUDIO.RETRY] header exhausted");
+                        m_f_timeout = false;
+                        m_lVar.count = 0;
+                        m_terminalReason = AudioTerminalReason::HEADER_RETRY_EXHAUSTED;
+                        stopSong();
+                    }
                 }
                 else{
                     m_lVar.count = 0;
@@ -3323,7 +3411,25 @@ void Audio::loop() {
         switch(m_dataMode) {
             case HTTP_RESPONSE_HEADER:
                 if(!parseHttpResponseHeader()) {
-                    if(m_f_timeout && m_lVar.count < 3) {m_f_timeout = false; m_lVar.count++; m_f_reset_m3u8Codec = false; connecttohost(m_lastHost.get());}
+                    // E36REC1A: same header exhaustion terminal as webstream path / тот же terminal для m3u8 header
+                    if(m_f_timeout && m_lVar.count < 3) {
+                        m_f_timeout = false;
+                        if (!attemptInternalReconnect()) {
+                            finishUnstableStreamExhausted();
+                        } else {
+                            m_lVar.count++;
+                            Serial.printf("[AUDIO.RETRY] header retry=%u/3\n", (unsigned)m_lVar.count);
+                            m_f_reset_m3u8Codec = false;
+                            connecttohost(m_lastHost.get());
+                        }
+                    }
+                    else if(m_f_timeout && m_lVar.count >= 3) {
+                        Serial.println("[AUDIO.RETRY] header exhausted");
+                        m_f_timeout = false;
+                        m_lVar.count = 0;
+                        m_terminalReason = AudioTerminalReason::HEADER_RETRY_EXHAUSTED;
+                        stopSong();
+                    }
                 }
                 else{
                     m_lVar.count = 0;
@@ -5500,6 +5606,8 @@ int Audio::sendBytes(uint8_t* data, size_t len) {
     }
     if(!m_validSamples) return bytesDecoded; //nothing to play
 
+    noteStreamAudioProgress();
+
     uint16_t bytesDecoderOut = m_validSamples;
     if(m_channels == 2) bytesDecoderOut /= 2;
     if(m_bitsPerSample == 16) bytesDecoderOut *= 2;
@@ -6821,6 +6929,10 @@ boolean Audio::streamDetection(uint32_t bytesAvail) {
             m_sdet.cnt_lost = 0;
             AUDIO_INFO("Stream lost -> try new connection");
             m_f_reset_m3u8Codec = false;
+            if (!attemptInternalReconnect()) {
+                finishUnstableStreamExhausted();
+                return false;
+            }
             httpPrint(m_lastHost.get());
             return true;
         }
