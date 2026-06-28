@@ -300,7 +300,7 @@ class Audio{
     void         noteStreamAudioProgress();
     bool         attemptInternalReconnect();
     void         finishUnstableStreamExhausted();
-    void         resetPerConnectionStreamState();
+    void         resetStreamConnectionHealth();
     void         pollStreamStability();
     uint32_t     m4a_correctResumeFilePos();
     uint32_t     ogg_correctResumeFilePos();
@@ -787,13 +787,14 @@ private:
     audiolib::phreh_t m_phreh;
     audiolib::phrah_t m_phrah;
     audiolib::sdet_t m_sdet;
-    // E36REC1B: session unstable-stream budget (not m_lVar.count) / отдельный счётчик сессии
+    // E36REC1B/C: session unstable-stream budget (not m_lVar.count) / счётчик сессии + latch соединения
     static constexpr uint8_t  MAX_UNSTABLE_STREAM_FAILURES = 3;
     static constexpr uint32_t UNSTABLE_STREAM_STABLE_MS    = 15000;
+    static constexpr uint32_t PCM_RECENT_MS                = 2000;
     uint8_t  m_unstableStreamFailures     = 0;
     bool     m_f_streamHadAudio             = false;
     bool     m_f_shortLivedCounted          = false;
-    bool     m_f_sessionStreamStable        = false;
+    bool     m_f_streamConnectionStable     = false;
     uint32_t m_streamAudioStartedMs         = 0;
     uint32_t m_streamLastAudioProgressMs    = 0;
     AudioTerminalReason m_terminalReason      = AudioTerminalReason::NONE;

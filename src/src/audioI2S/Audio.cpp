@@ -3092,9 +3092,8 @@ uint32_t Audio::stopSong() {
 // E36REC1B: unstable-stream session — Player-owned reset, Audio-owned budget / сессия unstable
 void Audio::beginPlaybackSession() {
     m_unstableStreamFailures = 0;
-    m_f_sessionStreamStable = false;
     m_terminalReason = AudioTerminalReason::NONE;
-    resetPerConnectionStreamState();
+    resetStreamConnectionHealth();
 }
 
 AudioTerminalReason Audio::consumeTerminalReason() {
@@ -3103,9 +3102,11 @@ AudioTerminalReason Audio::consumeTerminalReason() {
     return reason;
 }
 
-void Audio::resetPerConnectionStreamState() {
+void Audio::resetStreamConnectionHealth() {
+    // E36REC1C: per physical connection only — not session unstable budget / только текущее соединение
     m_f_streamHadAudio = false;
     m_f_shortLivedCounted = false;
+    m_f_streamConnectionStable = false;
     m_streamAudioStartedMs = 0;
     m_streamLastAudioProgressMs = 0;
 }
@@ -3121,21 +3122,25 @@ void Audio::noteStreamAudioProgress() {
 }
 
 bool Audio::attemptInternalReconnect() {
+    // E36REC1C: classify outgoing connection before reset / классификация до сброса полей
     if (m_f_streamHadAudio && !m_f_shortLivedCounted) {
-        const uint32_t lived = millis() - m_streamAudioStartedMs;
-        if (lived < UNSTABLE_STREAM_STABLE_MS) {
+        const uint32_t livedMs = millis() - m_streamAudioStartedMs;
+        const bool effectivelyStable =
+            m_f_streamConnectionStable ||
+            (m_f_streamHadAudio && livedMs >= UNSTABLE_STREAM_STABLE_MS);
+        if (!effectivelyStable && livedMs < UNSTABLE_STREAM_STABLE_MS) {
             m_f_shortLivedCounted = true;
             m_unstableStreamFailures++;
             Serial.printf("[AUDIO.RETRY] unstable stream=%u/%u lived_ms=%lu\n",
                           (unsigned)m_unstableStreamFailures,
                           (unsigned)MAX_UNSTABLE_STREAM_FAILURES,
-                          (unsigned long)lived);
+                          (unsigned long)livedMs);
             if (m_unstableStreamFailures >= MAX_UNSTABLE_STREAM_FAILURES) {
                 return false;
             }
         }
     }
-    resetPerConnectionStreamState();
+    resetStreamConnectionHealth();
     return true;
 }
 
@@ -3143,19 +3148,18 @@ void Audio::finishUnstableStreamExhausted() {
     Serial.println("[AUDIO.RETRY] unstable exhausted");
     m_terminalReason = AudioTerminalReason::UNSTABLE_STREAM_EXHAUSTED;
     m_unstableStreamFailures = 0;
-    resetPerConnectionStreamState();
+    resetStreamConnectionHealth();
     stopSong();
 }
 
 void Audio::pollStreamStability() {
-    if (!m_f_streamHadAudio || m_f_sessionStreamStable) return;
+    if (!m_f_streamHadAudio || m_f_streamConnectionStable) return;
     const uint32_t now = millis();
     if ((now - m_streamAudioStartedMs) < UNSTABLE_STREAM_STABLE_MS) return;
-    if ((now - m_streamLastAudioProgressMs) > 2000) return;
+    if ((now - m_streamLastAudioProgressMs) > PCM_RECENT_MS) return;
+    m_f_streamConnectionStable = true;
     m_unstableStreamFailures = 0;
-    m_f_sessionStreamStable = true;
     Serial.println("[AUDIO.RETRY] stream stable");
-    resetPerConnectionStreamState();
 }
 //****************************************************************************************
 bool Audio::pauseResume() {
