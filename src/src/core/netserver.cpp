@@ -93,16 +93,53 @@ char* updateError() {
   return ret;
 }
 
+NetServer::TcpRole NetServer::_currentTcpRole() {
+  if (network.status == SOFT_AP) {
+    return TcpRole::Ap;
+  }
+  if (network.status == CONNECTED) {
+    return TcpRole::Sta;
+  }
+  return TcpRole::None;
+}
+
+void NetServer::_logStarted(bool quiet) {
+  if (network.status == CONNECTED) {
+    Serial.printf("[NetServer] Started on STA %s\n", WiFi.localIP().toString().c_str());
+  } else if (network.status == SOFT_AP) {
+    Serial.printf("[NetServer] Started on AP %s\n", WiFi.softAPIP().toString().c_str());
+  }
+  if (!quiet) {
+    Serial.println("done");
+  }
+}
+
 bool NetServer::begin(bool quiet) {
   if(network.status==SDREADY) return true;
-  if (_started) {
-    return true;
-  }
   if (!network.isTcpReady()) {
+    if (_listening) {
+      webserver.end();
+      _listening = false;
+    }
     if (!quiet) {
       Serial.println("[NetServer] Start deferred: no usable STA/AP IP");
     }
     return false;
+  }
+  const TcpRole role = _currentTcpRole();
+  if (_handlersReady && _listening && _tcpRole == role) {
+    return true;
+  }
+  if (_handlersReady) {
+    if (_listening) {
+      webserver.end();
+      _listening = false;
+    }
+    webserver.begin();
+    _listening = true;
+    _tcpRole = role;
+    _logStarted(quiet);
+    return true;
   }
   if(!quiet) Serial.print("##[BOOT]#\tnetserver.begin\t");
   importRequest = IMDONE;
@@ -176,13 +213,10 @@ bool NetServer::begin(bool quiet) {
         packet.println(WiFi.localIP());
     });
   }
-  _started = true;
-  if (network.status == CONNECTED) {
-    Serial.printf("[NetServer] Started on STA %s\n", WiFi.localIP().toString().c_str());
-  } else if (network.status == SOFT_AP) {
-    Serial.printf("[NetServer] Started on AP %s\n", WiFi.softAPIP().toString().c_str());
-  }
-  if(!quiet) Serial.println("done");
+  _handlersReady = true;
+  _listening = true;
+  _tcpRole = role;
+  _logStarted(quiet);
   return true;
 }
 
@@ -2117,6 +2151,22 @@ static bool webUploadBasenameEquals(const String& base, const char* literal) {
   return base.length() == strlen(literal) && base.equalsIgnoreCase(literal);
 }
 
+// AI prompt .txt — handled in handleUploadWeb with its own HTTP response / свой ответ в upload handler.
+static bool webUploadIsAiPromptBasename(const String& base) {
+  return base.endsWith(".txt") && !webUploadBasenameEquals(base, "playlist.csv")
+      && !webUploadBasenameEquals(base, "wifi.csv");
+}
+
+static bool webUploadRequestHasAiPromptFile(AsyncWebServerRequest* request) {
+  for (size_t i = 0; i < request->params(); i++) {
+    AsyncWebParameter* p = request->getParam(i);
+    if (p && p->isFile() && webUploadIsAiPromptBasename(webUploadNormalizeBasename(p->value()))) {
+      return true;
+    }
+  }
+  return false;
+}
+
 static bool webUploadMapDestination(const String& base, String& outDest) {
   if (base.length() == 0 || base.indexOf("..") >= 0) {
     return false;
@@ -2193,7 +2243,12 @@ void handleWebUploadComplete(AsyncWebServerRequest* request) {
       request->send(400, "text/plain", "No file selected");
       return;
     }
-    // Untracked file types (e.g. AI prompt .txt) — redirect only, no reboot / без reboot.
+    // AI prompt: handleUploadWeb already sent 200/4xx/5xx on final chunk — one response only.
+    // AI prompt: ответ уже отправлен в handleUploadWeb — не дублировать redirect/send.
+    if (webUploadRequestHasAiPromptFile(request)) {
+      return;
+    }
+    // Other untracked file types — redirect only, no reboot / прочие типы — только redirect.
     request->redirect("/");
     return;
   }
@@ -2225,8 +2280,7 @@ void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t ind
   // Принимаем любой .txt файл для AI prompt (имя файла игнорируется, всегда сохраняется как /ai/ai_prompt.txt)
   // Atomic upload: write to /ai/ai_prompt.tmp, replace only on success
   // Атомарная загрузка: пишем в /ai/ai_prompt.tmp, заменяем только при успехе
-  bool is_prompt_file = base.endsWith(".txt") && !webUploadBasenameEquals(base, "playlist.csv")
-                     && !webUploadBasenameEquals(base, "wifi.csv");
+  const bool is_prompt_file = webUploadIsAiPromptBasename(base);
   
   if (is_prompt_file) {
     // Get max prompt size from ai_prompt module / Получить максимальный размер промпта из модуля ai_prompt

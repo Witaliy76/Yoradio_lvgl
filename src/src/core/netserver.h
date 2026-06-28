@@ -69,7 +69,14 @@ class NetServer {
 #endif
 		void resetQueue();
   private:
-    bool _started = false;
+    // E36FS1b: split route registration vs TCP listener — allow restart on network transitions.
+    // E36FS1b: маршруты один раз; listener перезапускается при смене STA/AP или потере IP.
+    enum class TcpRole : uint8_t { None = 0, Ap = 1, Sta = 2 };
+    bool _handlersReady = false;
+    bool _listening = false;
+    TcpRole _tcpRole = TcpRole::None;
+    static TcpRole _currentTcpRole();
+    static void _logStarted(bool quiet);
     requestType_e request;
     QueueHandle_t nsQueue;
     // 8.1HX-B: broadcast (clientId==0) request coalescing — skip enqueue if an identical

@@ -586,6 +586,8 @@ void MyNetwork::WiFiReconnected(WiFiEvent_t event, WiFiEventInfo_t info){
   markWeatherReadyAfterConnect();
   player.lockOutput = false;
   delay(100);
+  // E36FS1b: restart WebUI listener after STA GOT_IP / после reconnect перезапуск listener.
+  netserver.begin(true);
   display.putRequest(NEWMODE, PLAYER);
   if(config.getMode()==PM_SDCARD) {
     network.status=CONNECTED;
@@ -620,6 +622,8 @@ void MyNetwork::WiFiLostConnection(WiFiEvent_t event, WiFiEventInfo_t info){
     // S6V9D: only first STA_DISCONNECTED triggers WiFi.reconnect — avoids ESP-IDF "sta is connecting" storm.
     // S6V9D: только первый disconnect вызывает reconnect; повторные события не дергают WiFi.reconnect().
     WiFi.reconnect();
+    // E36FS1b: drop TCP listener while STA has no IP / гасим listener без IP.
+    netserver.begin(true);
   }
 }
 
@@ -858,6 +862,8 @@ void MyNetwork::recoveryStopSoftAP() {
   } else {
     status = FAILED;
   }
+  // E36FS1b: rebind on STA or stop when Hotspot closed / после Hotspot — STA или stop.
+  netserver.begin(true);
 }
 
 void MyNetwork::recoverySuspendReconnectForSetup() {
