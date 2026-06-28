@@ -43,11 +43,11 @@ public:
     static void setCarouselTransitionAnimationEnabled(bool enabled);
     static bool isCarouselTransitionAnimationEnabled();
 
-    // Temporary = Preset only (product); timeout default 20s → dismissTemporary → Main.
-    // Temporary — только Preset; таймаут по умолчанию 20 с → Main.
+    // Temporary = Preset only (product); timeout default 20s; caller may pass kPresetTimeoutMs (~6s).
+    // Temporary — только Preset; дефолт PageChain 20 с; Preset передаёт свой timeout явно.
     void showTemporary(ILvglScreen* scr, uint32_t timeout_ms = 20000);
-    // Always returns to Main (MAIN_INDEX), not previous carousel page.
-    // Всегда возврат на Main (MAIN_INDEX), не на предыдущую страницу карусели.
+    // Returns to origin carousel page captured at showTemporary(); Main only as emergency fallback.
+    // Возврат на origin-страницу карусели; Main — только аварийный fallback.
     void dismissTemporary();
 
     void showBoot(ILvglScreen* scr);
@@ -95,6 +95,9 @@ private:
     int _currentIndex = -1;
 
     ILvglScreen* _tempScreen = nullptr;
+    // Stage 6.4A: carousel slot active when Preset opened; -1 when no Temporary.
+    // Этап 6.4A: слот карусели при открытии Preset; -1 когда Temporary неактивен.
+    int8_t _temporaryOriginIndex = -1;
     uint32_t _tempTimeoutMs = 20000;
     uint32_t _tempStartMillis = 0;
 

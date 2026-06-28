@@ -21,6 +21,7 @@
 #include "screens/scr_station.h"
 #include "screens/scr_stub.h"
 #include "screens/scr_weather.h"
+#include "screens/scr_preset.h"
 #include "screens/scr_boot.h"
 #include "screens/scr_wifi_flow.h"
 #include "../core/config.h"
@@ -42,10 +43,57 @@ static LvglStubPage s_stub_visual("Visual");
 static LvglStationPage s_station_page;
 static LvglWeatherPage s_weather_page;  // Weather W2: real page replaces the stub / реальная страница вместо заглушки
 static LvglStubPage s_stub_settings("Settings");
+static LvglPresetScreen s_preset_screen;
 static LvglBootScreen s_boot_screen;
 static LvglWifiFlowScreen s_wifi_flow_screen;
 
 namespace {
+
+// Stage 6.4A: Preset Temporary timeout — explicit caller value; PageChain default stays 20s.
+// Этап 6.4A: таймаут Preset — явная константа; дефолт PageChain не меняем.
+static constexpr uint32_t kPresetTimeoutMs = 6000;
+
+// Top-edge zone for global swipe-down → Preset (center vertical swipe must not open).
+// Верхняя зона для swipe-down → Preset (вертикальный жест из центра не открывает).
+static constexpr lv_coord_t kPresetTopEdgeZonePx = 48;
+
+// Press Y captured on page root — paired with LV_EVENT_GESTURE on carousel pages.
+// Y нажатия на корне страницы — в паре с LV_EVENT_GESTURE на страницах карусели.
+static lv_coord_t s_page_root_press_y = -1;
+
+// Stage 6.4A: explicit allowlist — Preset only from Info / Main / Visual / Weather.
+// Этап 6.4A: явный allowlist — Preset только с Info / Main / Visual / Weather.
+static bool preset_carousel_slot_allowed(int index) {
+    switch (index) {
+        case PageChain::INFO_INDEX:
+        case PageChain::MAIN_INDEX:
+        case PageChain::VISUAL_INDEX:
+        case PageChain::WEATHER_INDEX:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static bool preset_open_gesture_allowed() {
+    if (s_page_chain.isTemporaryActive()) return false;
+    if (lvgl_ui::isLvglBootActive()) return false;
+    if (lvgl_ui::isWifiSetupFlowActive()) return false;
+    const displayMode_e m = display.mode();
+    if (m == SCREENBLANK || m == SCREENSAVER || m == WIFI || m == LOST || m == UPDATING) return false;
+    if (m == STATIONS) return false;
+    return preset_carousel_slot_allowed(s_page_chain.currentIndex());
+}
+
+static void try_open_preset_from_top_edge_gesture(lv_dir_t dir) {
+    if (dir != LV_DIR_BOTTOM) return;
+    if (!preset_open_gesture_allowed()) return;
+    if (s_page_root_press_y < 0 || s_page_root_press_y > kPresetTopEdgeZonePx) return;
+    s_page_chain.onActivity();
+    s_page_chain.showTemporary(&s_preset_screen, kPresetTimeoutMs);
+    lv_indev_t* indev = lv_indev_get_act();
+    if (indev) lv_indev_wait_release(indev);
+}
 
 // Horizontal carousel: direct mapping from LVGL gesture dir.
 // X normalization is now in lv_touch_read_cb — no per-board swap needed here.
@@ -61,7 +109,19 @@ static void map_horizontal_gesture_to_carousel(lv_dir_t dir) {
 }
 
 static void carousel_gesture_event_cb(lv_event_t* e) {
-    if (lv_event_get_code(e) != LV_EVENT_GESTURE) return;
+    const lv_event_code_t code = lv_event_get_code(e);
+    lv_indev_t* indev = lv_indev_get_act();
+
+    if (code == LV_EVENT_PRESSED) {
+        if (!indev) return;
+        lv_point_t p;
+        lv_indev_get_point(indev, &p);
+        s_page_root_press_y = p.y;
+        return;
+    }
+
+    if (code != LV_EVENT_GESTURE) return;
+
     // SCREENSAVER / SCREENBLANK: horizontal wake + carousel suppressed — lv_touch_read_cb handles wake first.
     // Saver/blank: горизонтальный жест не ведёт в карусель; пробуждение — в lv_touch_read_cb.
     if (display.mode() == SCREENBLANK || display.mode() == SCREENSAVER) {
@@ -72,9 +132,16 @@ static void carousel_gesture_event_cb(lv_event_t* e) {
     if (display.mode() == WIFI) {
         return;
     }
-    lv_indev_t* indev = lv_indev_get_act();
     if (!indev) return;
     const lv_dir_t dir = lv_indev_get_gesture_dir(indev);
+
+    // Stage 6.4A: global top-edge swipe down → Preset Temporary (allowed carousel pages only).
+    // Этап 6.4A: глобальный swipe-down из верхней зоны → Preset Temporary.
+    if (dir == LV_DIR_BOTTOM) {
+        try_open_preset_from_top_edge_gesture(dir);
+        return;
+    }
+
     if (dir != LV_DIR_LEFT && dir != LV_DIR_RIGHT) return;
     s_page_chain.onActivity();
     map_horizontal_gesture_to_carousel(dir);
@@ -656,7 +723,13 @@ void lvgl_ui::bootScreenNotifyBootSignal() {
 void lvgl_ui::installCarouselGesturesOnPageRoot(lv_obj_t* screen_root) {
     if (!screen_root) return;
     lv_obj_add_flag(screen_root, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(screen_root, carousel_gesture_event_cb, LV_EVENT_PRESSED, nullptr);
     lv_obj_add_event_cb(screen_root, carousel_gesture_event_cb, LV_EVENT_GESTURE, nullptr);
+}
+
+void lvgl_ui::dismissActiveTemporary() {
+    ensurePageChainRegistered();
+    s_page_chain.dismissTemporary();
 }
 
 void lvgl_ui::notifyPageChainActivity() {

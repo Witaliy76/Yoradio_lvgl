@@ -132,6 +132,7 @@ ILvglScreen* PageChain::activeScreen() const {
 void PageChain::init() {
     _special = SpecialMode::None;
     _tempScreen = nullptr;
+    _temporaryOriginIndex = -1;
     _bootScreen = nullptr;
     _rebootScreen = nullptr;
 
@@ -254,6 +255,10 @@ void PageChain::goTo(int index) {
 void PageChain::showTemporary(ILvglScreen* scr, uint32_t timeout_ms) {
     if (!scr || navigationBlocked()) return;
 
+    // Capture origin before exit — return-to-origin on dismiss / timeout (Stage 6.4A).
+    // Запоминаем origin до exit — возврат при dismiss / timeout (этап 6.4A).
+    _temporaryOriginIndex = (_currentIndex >= 0 && _currentIndex < PAGE_COUNT) ? static_cast<int8_t>(_currentIndex) : -1;
+
     ILvglScreen* cur = nullptr;
     if (_currentIndex >= 0 && _currentIndex < PAGE_COUNT) cur = _pages[_currentIndex];
     if (cur) cur->exit();
@@ -271,22 +276,50 @@ void PageChain::showTemporary(ILvglScreen* scr, uint32_t timeout_ms) {
 void PageChain::dismissTemporary() {
     if (_special != SpecialMode::Temporary || !_tempScreen) return;
 
-    // Must load a valid screen BEFORE deleting the active temp screen.
-    // LVGL warns / may crash if lv_scr_act() is deleted then lv_scr_load_anim runs.
-    // Сначала переключаемся на Main, иначе удаление активного экрана ломает анимацию перехода.
-    ILvglScreen* main = _pages[MAIN_INDEX];
-    if (!main) return;
+    int idx = static_cast<int>(_temporaryOriginIndex);
+    ILvglScreen* origin = nullptr;
+    if (idx >= 0 && idx < PAGE_COUNT) {
+        origin = _pages[idx];
+    }
+    if (!origin) {
+        idx = MAIN_INDEX;
+        origin = _pages[MAIN_INDEX];
+    }
 
-    main->create();
-    main->enter();
-    lv_obj_t* mainScr = main->screen();
-    if (mainScr) lv_scr_load(mainScr);
-    _currentIndex = MAIN_INDEX;
+    ILvglScreen* temp = _tempScreen;
 
-    _tempScreen->exit();
-    _tempScreen->destroy();
+    if (!origin) {
+        temp->exit();
+        temp->destroy();
+        _tempScreen = nullptr;
+        _special = SpecialMode::None;
+        _temporaryOriginIndex = -1;
+        _tempTimeoutMs = 20000;
+        _tempStartMillis = 0;
+        return;
+    }
+
+    // Approved lifecycle: temp exits before origin re-enters; destroy temp only after origin load.
+    // Утверждённый порядок: temp exit → origin create/enter/load → temp destroy.
+    temp->exit();
+
+    origin->create();
+    origin->enter();
+
+    lv_obj_t* origin_scr = origin->screen();
+    if (origin_scr) {
+        lv_scr_load(origin_scr);
+    }
+
+    temp->destroy();
+
+    _currentIndex = idx;
+
     _tempScreen = nullptr;
     _special = SpecialMode::None;
+    _temporaryOriginIndex = -1;
+    _tempTimeoutMs = 20000;
+    _tempStartMillis = 0;
 }
 
 void PageChain::showBoot(ILvglScreen* scr) {
