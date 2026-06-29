@@ -132,6 +132,12 @@ void installCarouselGesturesOnPageRoot(lv_obj_t* screen_root);
 // Stage 6.4A: dismiss active Preset Temporary (tap / future Back parity). DspTask only.
 // Этап 6.4A: закрыть Preset Temporary (тап / позже Back). Только DspTask.
 void dismissActiveTemporary();
+// Stage 6.4B: extend Preset Temporary timeout while row is pressed / saving. DspTask only.
+// Этап 6.4B: продлить таймаут Preset при удержании строки / save. Только DspTask.
+void refreshActiveTemporaryTimeout();
+// Stage 6.4C: remaining ms until Preset Temporary auto-dismiss (0 if inactive/expired).
+// Этап 6.4C: оставшееся время (мс) до auto-dismiss Preset Temporary.
+uint32_t temporaryRemainingMs();
 // Stage 5.3: screensaver prep — hook from tap/gesture; body stays empty until 5.6.
 // Этап 5.3: задел под screensaver; вызов из тапа/жеста, реализация позже.
 void notifyPageChainActivity();

@@ -51,15 +51,24 @@ namespace {
 
 // Stage 6.4A: Preset Temporary timeout — explicit caller value; PageChain default stays 20s.
 // Этап 6.4A: таймаут Preset — явная константа; дефолт PageChain не меняем.
-static constexpr uint32_t kPresetTimeoutMs = 6000;
+static constexpr uint32_t kPresetTimeoutMs = 15000;
 
-// Top-edge zone for global swipe-down → Preset (center vertical swipe must not open).
-// Верхняя зона для swipe-down → Preset (вертикальный жест из центра не открывает).
-static constexpr lv_coord_t kPresetTopEdgeZonePx = 48;
+// Top-edge zone: swipe starting with start_y <= this value can open Preset.
+// Верхняя зона: свайп, начатый при start_y <= этого значения, может открыть Preset.
+static constexpr int16_t kPresetTopEdgeZonePx = 64;
 
-// Press Y captured on page root — paired with LV_EVENT_GESTURE on carousel pages.
-// Y нажатия на корне страницы — в паре с LV_EVENT_GESTURE на страницах карусели.
-static lv_coord_t s_page_root_press_y = -1;
+// Minimum downward delta (px) to confirm swipe intent. Rejects short taps.
+// Минимальная вертикальная дельта для подтверждения намерения; отсекает короткие тапы.
+static constexpr int16_t kPresetMinVerticalDelta = 22;
+
+// Polling state machine for top-edge swipe (DspTask, updated from taskHandler).
+// Unlike page-root event callbacks, this polls the indev directly — unaffected by child
+// widgets that stop PRESSING/GESTURE event bubbling (e.g. scr_weather, scr_station list).
+// State machine работает на уровне indev — child-виджеты не могут заблокировать обнаружение.
+static bool s_swipe_tracking  = false;
+static int16_t s_swipe_start_y = -1;
+static int16_t s_swipe_start_x = -1;
+static bool s_swipe_triggered  = false;
 
 // Stage 6.4A: explicit allowlist — Preset only from Info / Main / Visual / Weather.
 // Этап 6.4A: явный allowlist — Preset только с Info / Main / Visual / Weather.
@@ -85,16 +94,6 @@ static bool preset_open_gesture_allowed() {
     return preset_carousel_slot_allowed(s_page_chain.currentIndex());
 }
 
-static void try_open_preset_from_top_edge_gesture(lv_dir_t dir) {
-    if (dir != LV_DIR_BOTTOM) return;
-    if (!preset_open_gesture_allowed()) return;
-    if (s_page_root_press_y < 0 || s_page_root_press_y > kPresetTopEdgeZonePx) return;
-    s_page_chain.onActivity();
-    s_page_chain.showTemporary(&s_preset_screen, kPresetTimeoutMs);
-    lv_indev_t* indev = lv_indev_get_act();
-    if (indev) lv_indev_wait_release(indev);
-}
-
 // Horizontal carousel: direct mapping from LVGL gesture dir.
 // X normalization is now in lv_touch_read_cb — no per-board swap needed here.
 // Горизонтальная карусель: прямой маппинг из gesture dir (нормализация X теперь в lv_touch_read_cb).
@@ -108,46 +107,64 @@ static void map_horizontal_gesture_to_carousel(lv_dir_t dir) {
     }
 }
 
+// Horizontal carousel only — vertical swipe (Preset) handled by poll_top_edge_swipe().
+// Только горизонтальная карусель; вертикальный свайп (Preset) — в poll_top_edge_swipe().
 static void carousel_gesture_event_cb(lv_event_t* e) {
-    const lv_event_code_t code = lv_event_get_code(e);
+    if (lv_event_get_code(e) != LV_EVENT_GESTURE) return;
+
+    // Screensaver / blank wake is handled in lv_touch_read_cb — skip here.
+    // Пробуждение saver/blank — в lv_touch_read_cb, здесь пропускаем.
+    if (display.mode() == SCREENBLANK || display.mode() == SCREENSAVER) return;
+    if (display.mode() == WIFI) return;
+
     lv_indev_t* indev = lv_indev_get_act();
-
-    if (code == LV_EVENT_PRESSED) {
-        if (!indev) return;
-        lv_point_t p;
-        lv_indev_get_point(indev, &p);
-        s_page_root_press_y = p.y;
-        return;
-    }
-
-    if (code != LV_EVENT_GESTURE) return;
-
-    // SCREENSAVER / SCREENBLANK: horizontal wake + carousel suppressed — lv_touch_read_cb handles wake first.
-    // Saver/blank: горизонтальный жест не ведёт в карусель; пробуждение — в lv_touch_read_cb.
-    if (display.mode() == SCREENBLANK || display.mode() == SCREENSAVER) {
-        return;
-    }
-    // Wi-Fi 3A: service shell is not a carousel page; ignore horizontal swipe on page roots during WIFI mode.
-    // Wi‑Fi 3A: сервисный shell не в карусели; горизонтальный жест на корнях страниц в режиме WIFI игнорируем.
-    if (display.mode() == WIFI) {
-        return;
-    }
     if (!indev) return;
     const lv_dir_t dir = lv_indev_get_gesture_dir(indev);
-
-    // Stage 6.4A: global top-edge swipe down → Preset Temporary (allowed carousel pages only).
-    // Этап 6.4A: глобальный swipe-down из верхней зоны → Preset Temporary.
-    if (dir == LV_DIR_BOTTOM) {
-        try_open_preset_from_top_edge_gesture(dir);
-        return;
-    }
 
     if (dir != LV_DIR_LEFT && dir != LV_DIR_RIGHT) return;
     s_page_chain.onActivity();
     map_horizontal_gesture_to_carousel(dir);
-    // Consume indev gesture so child widgets do not emit click/SHORT_CLICKED for same stroke (Station focus).
-    // Поглощаем последовательность — дочерние виджеты не получают click за тот же жест карусели.
+    // Consume so child widgets don't receive click/SHORT_CLICKED for the same stroke.
+    // Поглощаем, чтобы дочерние виджеты не получали click за тот же жест.
     lv_indev_wait_release(indev);
+}
+
+// Poll touch indev state directly — bypasses LVGL object tree / event bubbling.
+// Called from taskHandler() every frame. Reliably detects top-edge downward swipe
+// even when the swipe starts over a child widget that stops PRESSING/GESTURE bubbling
+// (e.g. scr_weather metric rows, scr_station list area).
+// Polling indev напрямую: не зависит от bubbling. Работает при старте над любым дочерним виджетом.
+static void poll_top_edge_swipe() {
+    const bool    down = touchIndevIsDown();
+    const int16_t cx   = touchIndevX();
+    const int16_t cy   = touchIndevY();
+
+    if (down) {
+        if (!s_swipe_tracking) {
+            s_swipe_tracking  = true;
+            s_swipe_start_x   = cx;
+            s_swipe_start_y   = cy;
+            s_swipe_triggered = false;
+        } else if (!s_swipe_triggered &&
+                   s_swipe_start_y >= 0 &&
+                   s_swipe_start_y <= kPresetTopEdgeZonePx) {
+            const int16_t dy = static_cast<int16_t>(cy - s_swipe_start_y);
+            if (dy < kPresetMinVerticalDelta) return;
+            const int16_t dx = (cx > s_swipe_start_x)
+                ? static_cast<int16_t>(cx - s_swipe_start_x)
+                : static_cast<int16_t>(s_swipe_start_x - cx);
+            if (dx >= dy) return;   // more horizontal than vertical → carousel swipe, not Preset
+            if (!preset_open_gesture_allowed()) return;
+            s_swipe_triggered = true;
+            s_page_chain.onActivity();
+            s_page_chain.showTemporary(&s_preset_screen, kPresetTimeoutMs);
+        }
+    } else {
+        s_swipe_tracking  = false;
+        s_swipe_start_y   = -1;
+        s_swipe_start_x   = -1;
+        s_swipe_triggered = false;
+    }
 }
 
 } // namespace
@@ -521,6 +538,9 @@ void lvgl_ui::initDisplayDriver(uint16_t hor_res, uint16_t ver_res) {
 void lvgl_ui::taskHandler() {
     s_page_chain.tick();
     lv_timer_handler();
+    // Poll after lv_timer_handler so we read the just-processed indev state.
+    // После lv_timer_handler — читаем свежеобработанное состояние indev.
+    poll_top_edge_swipe();
 #if LV_USE_PERF_MONITOR
     repositionBuiltinLvglPerfMonitorOnce();
 #endif
@@ -723,13 +743,24 @@ void lvgl_ui::bootScreenNotifyBootSignal() {
 void lvgl_ui::installCarouselGesturesOnPageRoot(lv_obj_t* screen_root) {
     if (!screen_root) return;
     lv_obj_add_flag(screen_root, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(screen_root, carousel_gesture_event_cb, LV_EVENT_PRESSED, nullptr);
+    // 6.4C: only GESTURE for horizontal carousel; top-edge vertical swipe moved to poll_top_edge_swipe().
+    // 6.4C: только GESTURE для карусели; вертикальный свайп перенесён в poll_top_edge_swipe().
     lv_obj_add_event_cb(screen_root, carousel_gesture_event_cb, LV_EVENT_GESTURE, nullptr);
 }
 
 void lvgl_ui::dismissActiveTemporary() {
     ensurePageChainRegistered();
     s_page_chain.dismissTemporary();
+}
+
+void lvgl_ui::refreshActiveTemporaryTimeout() {
+    ensurePageChainRegistered();
+    s_page_chain.refreshTemporaryTimeout();
+}
+
+uint32_t lvgl_ui::temporaryRemainingMs() {
+    ensurePageChainRegistered();
+    return s_page_chain.temporaryRemainingMs();
 }
 
 void lvgl_ui::notifyPageChainActivity() {

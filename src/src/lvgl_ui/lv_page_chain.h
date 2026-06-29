@@ -70,6 +70,14 @@ public:
     ILvglScreen* currentPage() const;
     bool isTemporaryActive() const;
 
+    // Stage 6.4B: reset Preset Temporary idle timer while user interacts (DspTask only).
+    // Этап 6.4B: сброс таймера Preset Temporary при взаимодействии (только DspTask).
+    void refreshTemporaryTimeout();
+
+    // Stage 6.4C: remaining time until Temporary auto-dismiss. 0 when inactive or expired.
+    // Этап 6.4C: оставшееся время до auto-dismiss Temporary. 0 если неактивен или истёк.
+    uint32_t temporaryRemainingMs() const;
+
     void tick();
     void onActivity(); // Screensaver hook (Stage 5) / заглушка под screensaver (этап 5)
 

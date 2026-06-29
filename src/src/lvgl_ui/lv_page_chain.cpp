@@ -433,6 +433,18 @@ bool PageChain::isTemporaryActive() const {
     return _special == SpecialMode::Temporary;
 }
 
+void PageChain::refreshTemporaryTimeout() {
+    if (_special != SpecialMode::Temporary || !_tempScreen) return;
+    _tempStartMillis = millis();
+}
+
+uint32_t PageChain::temporaryRemainingMs() const {
+    if (_special != SpecialMode::Temporary || !_tempScreen) return 0u;
+    const uint32_t elapsed = millis() - _tempStartMillis;
+    if (elapsed >= _tempTimeoutMs) return 0u;
+    return _tempTimeoutMs - elapsed;
+}
+
 void PageChain::tick() {
     if (_special != SpecialMode::Temporary || !_tempScreen) return;
     const uint32_t now = millis();
