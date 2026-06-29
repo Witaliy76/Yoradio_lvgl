@@ -16,6 +16,13 @@ static lv_indev_drv_t s_touch_indev_drv;
 static lv_indev_t* s_touch_indev = nullptr;
 
 #if (TS_MODEL!=TS_MODEL_UNDEFINED)
+// Stage 6.4C: touch state for indev-level polling (top-edge swipe detection).
+// Tracks exactly what is fed to LVGL — after screensaver suppress.
+// Состояние тача, реально переданное LVGL (после suppress при пробуждении saver).
+static bool s_touch_is_down = false;
+static int16_t s_touch_last_x = 0;
+static int16_t s_touch_last_y = 0;
+
 // After wake putRequest, feed LVGL RELEASED until finger up — avoids click/gesture on Main/Info same stroke.
 // После wake в LVGL подаём RELEASED до отпускания — иначе тот же жест даёт toggle/карусель под оверлеем.
 static bool s_suppress_lvgl_pointer_until_release = false;
@@ -122,18 +129,49 @@ static void lv_touch_read_cb(lv_indev_drv_t* drv, lv_indev_data_t* data) {
         } else {
             data->state = LV_INDEV_STATE_PRESSED;
         }
+        // Track LVGL-fed state (after suppress) for indev-level swipe polling.
+        // Фиксируем реально переданное состояние (после suppress) для polling.
+        s_touch_is_down = (data->state == LV_INDEV_STATE_PRESSED);
+        if (s_touch_is_down) {
+            s_touch_last_x = static_cast<int16_t>(data->point.x);
+            s_touch_last_y = static_cast<int16_t>(data->point.y);
+        }
 #if YORADIO_LVGL_TOUCH_DEBUG && (TS_MODEL!=TS_MODEL_UNDEFINED)
         lv_touch_debug_on_feed(true, x, y, data->state);
 #endif
     } else {
         touch_wake_saver_or_blank_if_needed(0, 0, false);
         data->state = LV_INDEV_STATE_RELEASED;
+        s_touch_is_down = false;
 #if YORADIO_LVGL_TOUCH_DEBUG && (TS_MODEL!=TS_MODEL_UNDEFINED)
         lv_touch_debug_on_feed(false, 0, 0, data->state);
 #endif
     }
 #else
     data->state = LV_INDEV_STATE_RELEASED;
+#endif
+}
+
+// Stage 6.4C: getters — safe for all TS_MODEL configurations / безопасны при любом TS_MODEL.
+bool lvgl_ui::touchIndevIsDown() {
+#if (TS_MODEL!=TS_MODEL_UNDEFINED)
+    return s_touch_is_down;
+#else
+    return false;
+#endif
+}
+int16_t lvgl_ui::touchIndevX() {
+#if (TS_MODEL!=TS_MODEL_UNDEFINED)
+    return s_touch_last_x;
+#else
+    return 0;
+#endif
+}
+int16_t lvgl_ui::touchIndevY() {
+#if (TS_MODEL!=TS_MODEL_UNDEFINED)
+    return s_touch_last_y;
+#else
+    return 0;
 #endif
 }
 
