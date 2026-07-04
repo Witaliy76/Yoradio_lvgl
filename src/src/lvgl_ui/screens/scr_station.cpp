@@ -143,6 +143,21 @@ constexpr lv_coord_t kMarkerBoxW             = 32; // Reserved slot width for gl
 constexpr lv_coord_t kMarkerToNameGap        = 5;  // Gap after marker before list text / зазор после слота → текст
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Pure integer math helpers / Целочисленные math-помощники
+// Used only by input pipeline / Используются только input pipeline.
+// ─────────────────────────────────────────────────────────────────────────────
+
+static int32_t abs_i32(int32_t v) { return v < 0 ? -v : v; }
+
+static int32_t max_i32(int32_t a, int32_t b) { return a > b ? a : b; }
+
+static int32_t manhattan_distance(const lv_point_t& from, const lv_point_t& to) {
+    const int32_t dx = static_cast<int32_t>(to.x) - static_cast<int32_t>(from.x);
+    const int32_t dy = static_cast<int32_t>(to.y) - static_cast<int32_t>(from.y);
+    return abs_i32(dx) + abs_i32(dy);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Input constants / Константы ввода
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -815,6 +830,7 @@ void LvglStationPage::_setFocusStation(uint16_t num) {
 }
 
 bool LvglStationPage::_candidateStationFromScreenPoint(lv_coord_t screen_px, lv_coord_t screen_py, uint16_t* out_station) {
+    (void)screen_px;  // X not used for row math — scrollbar strip guard runs before this call.
     if (!_list_area || !_lbl_list || !out_station) {
         return false;
     }
@@ -854,128 +870,129 @@ bool LvglStationPage::_candidateStationFromScreenPoint(lv_coord_t screen_px, lv_
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pointer/input pipeline (STATIONREF-C scope — not refactored in B)
-// Конвейер ввода (scope STATIONREF-C — не рефакторится в B)
+// Pointer/input pipeline / Конвейер ввода
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ── Event wrappers — thin static forwarders only ───────────────────────────
 
 void LvglStationPage::_listAreaPressedEvt(lv_event_t* e) {
     auto* self = static_cast<LvglStationPage*>(lv_event_get_user_data(e));
-    if (!self) {
-        return;
-    }
-    self->_onListAreaPressed(e);
+    if (self) self->_onListAreaPressed(e);
 }
 
-void LvglStationPage::_onListAreaPressed(lv_event_t* e) {
-    if (!_list_area || !e) {
-        return;
-    }
-    if (lv_event_get_code(e) != LV_EVENT_PRESSED) {
-        return;
-    }
-    if (lv_event_get_target(e) != _list_area) {
-        return;
-    }
-    lv_indev_t* indev = lv_indev_get_act();
+void LvglStationPage::_listAreaPressingEvt(lv_event_t* e) {
+    auto* self = static_cast<LvglStationPage*>(lv_event_get_user_data(e));
+    if (self) self->_onListAreaPressing(e);
+}
+
+void LvglStationPage::_listAreaReleasedEvt(lv_event_t* e) {
+    auto* self = static_cast<LvglStationPage*>(lv_event_get_user_data(e));
+    if (self) self->_onListAreaReleased(e);
+}
+
+void LvglStationPage::_listAreaShortClickedEvt(lv_event_t* e) {
+    auto* self = static_cast<LvglStationPage*>(lv_event_get_user_data(e));
+    if (self) self->_onListAreaShortClicked(e);
+}
+
+// ── Stroke tracking helpers ────────────────────────────────────────────────
+
+void LvglStationPage::_resetListStrokeTracking() {
+    _list_press_pt            = {};
+    _list_press_scroll_y      = 0;
+    _list_stroke_max_manhattan    = 0;
+    _list_stroke_max_scroll_y_abs = 0;
+}
+
+void LvglStationPage::_captureListPressBaseline(lv_indev_t* indev) {
+    _resetListStrokeTracking();
     if (indev) {
         lv_indev_get_point(indev, &_list_press_pt);
-    } else {
-        _list_press_pt.x = 0;
-        _list_press_pt.y = 0;
     }
     _list_press_scroll_y = lv_obj_get_scroll_y(_list_area);
-    _list_stroke_max_manhattan = 0;
-    _list_stroke_max_scroll_y_abs = 0;
-    // Touch while list is still coasting: arm suppression so next clean click stops the scroll, not focuses.
-    // Касание при инерции: arm suppress — следующий clean click остановит прокрутку, а не сфокусирует.
+}
+
+void LvglStationPage::_updateListStrokePeaks(const lv_point_t& cur, lv_coord_t scroll_y) {
+    const int32_t manh = manhattan_distance(_list_press_pt, cur);
+    _list_stroke_max_manhattan = max_i32(_list_stroke_max_manhattan, manh);
+
+    const int32_t ds = abs_i32(
+        static_cast<int32_t>(scroll_y) - static_cast<int32_t>(_list_press_scroll_y));
+    _list_stroke_max_scroll_y_abs = max_i32(_list_stroke_max_scroll_y_abs, ds);
+}
+
+bool LvglStationPage::_isTrackedStrokeScrollLike() const {
+    return (_list_stroke_max_manhattan    >= static_cast<int32_t>(kListTapMaxFingerTravelPx))
+        || (_list_stroke_max_scroll_y_abs >= static_cast<int32_t>(kListTapMaxScrollYDeltaPx));
+}
+
+bool LvglStationPage::_consumeListFocusSuppression() {
+    if (!_list_arm_suppress_next_focus) return false;
+    _list_arm_suppress_next_focus = false;
+    return true;
+}
+
+// Full input state reset on screen teardown (destroy / auto-delete only).
+// Полный reset state ввода при разрушении экрана (только destroy/auto-delete).
+void LvglStationPage::_resetListInputState() {
+    _resetListStrokeTracking();
+    _list_arm_suppress_next_focus = false;
+}
+
+// ── Pressed pipeline ───────────────────────────────────────────────────────
+
+void LvglStationPage::_onListAreaPressed(lv_event_t* e) {
+    if (!_list_area || !e) return;
+    if (lv_event_get_code(e) != LV_EVENT_PRESSED) return;
+    if (lv_event_get_target(e) != _list_area) return;
+
+    lv_indev_t* indev = lv_indev_get_act();
+    _captureListPressBaseline(indev);
+
+    // Touch while list is still coasting: arm suppression so next clean click
+    // stops the scroll instead of focusing a station.
+    // Касание при инерции: arm suppress — следующий clean click остановит прокрутку, не сфокусирует.
     if (lv_obj_is_scrolling(_list_area)) {
         _list_arm_suppress_next_focus = true;
     }
 }
 
-void LvglStationPage::_listAreaReleasedEvt(lv_event_t* e) {
-    auto* self = static_cast<LvglStationPage*>(lv_event_get_user_data(e));
-    if (!self) {
-        return;
-    }
-    self->_onListAreaReleased(e);
+// ── Pressing pipeline ──────────────────────────────────────────────────────
+
+void LvglStationPage::_onListAreaPressing(lv_event_t* e) {
+    if (!_list_area || !e) return;
+    if (lv_event_get_code(e) != LV_EVENT_PRESSING) return;
+    if (lv_event_get_target(e) != _list_area) return;
+
+    lv_indev_t* indev = lv_indev_get_act();
+    if (!indev) return;
+
+    lv_point_t cur{};
+    lv_indev_get_point(indev, &cur);
+    _updateListStrokePeaks(cur, lv_obj_get_scroll_y(_list_area));
 }
 
+// ── Released pipeline ──────────────────────────────────────────────────────
+
 void LvglStationPage::_onListAreaReleased(lv_event_t* e) {
-    if (!_list_area || !e) {
-        return;
-    }
-    if (lv_event_get_code(e) != LV_EVENT_RELEASED) {
-        return;
-    }
-    if (lv_event_get_target(e) != _list_area) {
-        return;
-    }
-    const bool scroll_like = (_list_stroke_max_manhattan >= static_cast<int32_t>(kListTapMaxFingerTravelPx)) ||
-                             (_list_stroke_max_scroll_y_abs >= static_cast<int32_t>(kListTapMaxScrollYDeltaPx));
-    if (scroll_like) {
+    if (!_list_area || !e) return;
+    if (lv_event_get_code(e) != LV_EVENT_RELEASED) return;
+    if (lv_event_get_target(e) != _list_area) return;
+
+    // Classify the completed stroke: if it looks scroll-like, arm suppression.
+    // Классификация завершённого жеста: если похож на прокрутку — arm suppress.
+    if (_isTrackedStrokeScrollLike()) {
         _list_arm_suppress_next_focus = true;
     }
 }
 
-void LvglStationPage::_listAreaPressingEvt(lv_event_t* e) {
-    auto* self = static_cast<LvglStationPage*>(lv_event_get_user_data(e));
-    if (!self) {
-        return;
-    }
-    self->_onListAreaPressing(e);
-}
-
-void LvglStationPage::_onListAreaPressing(lv_event_t* e) {
-    if (!_list_area || !e) {
-        return;
-    }
-    if (lv_event_get_code(e) != LV_EVENT_PRESSING) {
-        return;
-    }
-    if (lv_event_get_target(e) != _list_area) {
-        return;
-    }
-    lv_indev_t* indev = lv_indev_get_act();
-    if (!indev) {
-        return;
-    }
-    lv_point_t cur{};
-    lv_indev_get_point(indev, &cur);
-    const int32_t dx = static_cast<int32_t>(cur.x) - static_cast<int32_t>(_list_press_pt.x);
-    const int32_t dy = static_cast<int32_t>(cur.y) - static_cast<int32_t>(_list_press_pt.y);
-    const int32_t manh = (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy);
-    if (manh > _list_stroke_max_manhattan) {
-        _list_stroke_max_manhattan = manh;
-    }
-    const lv_coord_t sy = lv_obj_get_scroll_y(_list_area);
-    int32_t ds = static_cast<int32_t>(sy) - static_cast<int32_t>(_list_press_scroll_y);
-    if (ds < 0) {
-        ds = -ds;
-    }
-    if (ds > _list_stroke_max_scroll_y_abs) {
-        _list_stroke_max_scroll_y_abs = ds;
-    }
-}
-
-void LvglStationPage::_listAreaShortClickedEvt(lv_event_t* e) {
-    auto* self = static_cast<LvglStationPage*>(lv_event_get_user_data(e));
-    if (!self) {
-        return;
-    }
-    self->_onListAreaShortClicked(e);
-}
+// ── Short-click pipeline ───────────────────────────────────────────────────
 
 void LvglStationPage::_onListAreaShortClicked(lv_event_t* e) {
-    if (!_list_area || !_lbl_list || !e) {
-        return;
-    }
-    if (lv_event_get_code(e) != LV_EVENT_SHORT_CLICKED) {
-        return;
-    }
-    if (lv_event_get_target(e) != _list_area) {
-        return;
-    }
+    if (!_list_area || !_lbl_list || !e) return;
+    if (lv_event_get_code(e) != LV_EVENT_SHORT_CLICKED) return;
+    if (lv_event_get_target(e) != _list_area) return;
+
     lv_indev_t* indev = lv_indev_get_act();
     lv_point_t p{};
     lv_dir_t gd = LV_DIR_NONE;
@@ -983,99 +1000,116 @@ void LvglStationPage::_onListAreaShortClicked(lv_event_t* e) {
         gd = lv_indev_get_gesture_dir(indev);
         lv_indev_get_point(indev, &p);
     }
-    // Momentum / coasting: LVGL may synthesize SHORT_CLICKED during deceleration — reject.
-    // Инерция: LVGL может синтезировать SHORT_CLICKED при торможении — отбрасываем.
+
+    // Guard 1: reject while list is still coasting (LVGL may synthesize clicks).
+    // Guard 1: отклонять пока список ещё движется по инерции.
     if (lv_obj_is_scrolling(_list_area)) {
 #if YORADIO_LVGL_TOUCH_DEBUG
-        Serial.printf("[station] SHORT_CLICKED skip scrolling gd=%d p=(%d,%d)\n", static_cast<int>(gd),
-                      static_cast<int>(p.x), static_cast<int>(p.y));
+        Serial.printf("[station] SHORT_CLICKED skip scrolling gd=%d p=(%d,%d)\n",
+                      static_cast<int>(gd), static_cast<int>(p.x), static_cast<int>(p.y));
 #endif
         return;
     }
+    // Guard 2: require active input device.
     if (!indev) {
 #if YORADIO_LVGL_TOUCH_DEBUG
         Serial.println("[station] SHORT_CLICKED skip no_indev");
 #endif
         return;
     }
-    // Bitmask: LVGL uses lv_dir_t as flags (LV_DIR_HOR = L|R, LV_DIR_VER = T|B).
+    // Guard 3/4: reject horizontal and vertical gestures (lv_dir_t is bit flags).
+    // Guard 3/4: отклонять горизонтальные и вертикальные жесты (lv_dir_t — битовые флаги).
     if ((gd & LV_DIR_HOR) != 0) {
 #if YORADIO_LVGL_TOUCH_DEBUG
-        Serial.printf("[station] SHORT_CLICKED skip horiz_gesture gd=%u p=(%d,%d)\n", static_cast<unsigned>(gd),
-                      static_cast<int>(p.x), static_cast<int>(p.y));
+        Serial.printf("[station] SHORT_CLICKED skip horiz_gesture gd=%u p=(%d,%d)\n",
+                      static_cast<unsigned>(gd), static_cast<int>(p.x), static_cast<int>(p.y));
 #endif
         return;
     }
     if ((gd & LV_DIR_VER) != 0) {
 #if YORADIO_LVGL_TOUCH_DEBUG
-        Serial.printf("[station] SHORT_CLICKED skip vert_gesture gd=%u p=(%d,%d)\n", static_cast<unsigned>(gd),
-                      static_cast<int>(p.x), static_cast<int>(p.y));
+        Serial.printf("[station] SHORT_CLICKED skip vert_gesture gd=%u p=(%d,%d)\n",
+                      static_cast<unsigned>(gd), static_cast<int>(p.x), static_cast<int>(p.y));
 #endif
         return;
     }
-    const lv_dir_t scroll_lr = lv_indev_get_scroll_dir(indev);
-    if ((scroll_lr & LV_DIR_VER) != 0) {
+    // Guard 5: reject if indev has a vertical scroll direction latched.
+    // Guard 5: отклонять если у indev зафиксировано вертикальное направление скролла.
+    const lv_dir_t scroll_dir = lv_indev_get_scroll_dir(indev);
+    if ((scroll_dir & LV_DIR_VER) != 0) {
 #if YORADIO_LVGL_TOUCH_DEBUG
-        Serial.printf("[station] SHORT_CLICKED skip indev_scroll_ver sd=%u\n", static_cast<unsigned>(scroll_lr));
+        Serial.printf("[station] SHORT_CLICKED skip indev_scroll_ver sd=%u\n",
+                      static_cast<unsigned>(scroll_dir));
 #endif
         return;
     }
 
+    // Guard 6: reject if effective scroll-y delta (end or peak) exceeds threshold.
+    // Endpoint alone is not enough: a fast flick may return near start position.
+    // Guard 6: отклонять если эффективная scroll-y дельта (конец или пик) выше порога.
     const lv_coord_t scroll_y_now = lv_obj_get_scroll_y(_list_area);
-    const int32_t d_scroll_end =
-        static_cast<int32_t>(scroll_y_now) - static_cast<int32_t>(_list_press_scroll_y);
-    const int32_t ad_scroll_end = d_scroll_end < 0 ? -d_scroll_end : d_scroll_end;
-    const int32_t ad_scroll =
-        ad_scroll_end > _list_stroke_max_scroll_y_abs ? ad_scroll_end : _list_stroke_max_scroll_y_abs;
+    const int32_t d_scroll_end = abs_i32(
+        static_cast<int32_t>(scroll_y_now) - static_cast<int32_t>(_list_press_scroll_y));
+    const int32_t ad_scroll = max_i32(d_scroll_end, _list_stroke_max_scroll_y_abs);
     if (ad_scroll >= static_cast<int32_t>(kListTapMaxScrollYDeltaPx)) {
 #if YORADIO_LVGL_TOUCH_DEBUG
-        Serial.printf("[station] SHORT_CLICKED skip scroll_ydelta end=%d peak=%d\n", static_cast<int>(ad_scroll_end),
+        Serial.printf("[station] SHORT_CLICKED skip scroll_ydelta end=%d peak=%d\n",
+                      static_cast<int>(d_scroll_end),
                       static_cast<int>(_list_stroke_max_scroll_y_abs));
 #endif
         return;
     }
-    const int32_t dx = static_cast<int32_t>(p.x) - static_cast<int32_t>(_list_press_pt.x);
-    const int32_t dy = static_cast<int32_t>(p.y) - static_cast<int32_t>(_list_press_pt.y);
-    const int32_t travel_end = (dx < 0 ? -dx : dx) + (dy < 0 ? -dy : dy);
-    const int32_t travel =
-        travel_end > _list_stroke_max_manhattan ? travel_end : _list_stroke_max_manhattan;
+    // Guard 7: reject if effective finger travel (end or peak) exceeds threshold.
+    // Guard 7: отклонять если эффективное расстояние (конец или пик) выше порога.
+    const int32_t travel_end = manhattan_distance(_list_press_pt, p);
+    const int32_t travel = max_i32(travel_end, _list_stroke_max_manhattan);
     if (travel >= static_cast<int32_t>(kListTapMaxFingerTravelPx)) {
 #if YORADIO_LVGL_TOUCH_DEBUG
         Serial.printf("[station] SHORT_CLICKED skip finger_travel end=%d peak=%d p=(%d,%d)\n",
-                      static_cast<int>(travel_end), static_cast<int>(_list_stroke_max_manhattan),
+                      static_cast<int>(travel_end),
+                      static_cast<int>(_list_stroke_max_manhattan),
+                      static_cast<int>(p.x), static_cast<int>(p.y));
+#endif
+        return;
+    }
+    // Guard 8: reject tap in right scrollbar strip.
+    // Guard 8: отклонять tap в правой полосе scrollbar.
+    {
+        lv_area_t ar{};
+        lv_obj_get_coords(_list_area, &ar);
+        if (static_cast<int32_t>(p.x) > static_cast<int32_t>(ar.x2) - kScrollbarRightIgnorePx) {
+#if YORADIO_LVGL_TOUCH_DEBUG
+            Serial.printf("[station] SHORT_CLICKED skip scrollbar p.x=%d\n", static_cast<int>(p.x));
+#endif
+            return;
+        }
+    }
+    // Guard 9: map tap to a valid station row.
+    // Guard 9: отобразить tap на строку станции.
+    uint16_t station_num = 0;
+    if (!_candidateStationFromScreenPoint(p.x, p.y, &station_num)) {
+#if YORADIO_LVGL_TOUCH_DEBUG
+        Serial.printf("[station] SHORT_CLICKED skip no_row p=(%d,%d)\n",
                       static_cast<int>(p.x), static_cast<int>(p.y));
 #endif
         return;
     }
 
-    lv_area_t ar{};
-    lv_obj_get_coords(_list_area, &ar);
-    if (static_cast<int32_t>(p.x) > static_cast<int32_t>(ar.x2) - kScrollbarRightIgnorePx) {
-#if YORADIO_LVGL_TOUCH_DEBUG
-        Serial.printf("[station] SHORT_CLICKED skip scrollbar p.x=%d\n", static_cast<int>(p.x));
-#endif
-        return;
-    }
-
-    uint16_t station_num = 0;
-    if (!_candidateStationFromScreenPoint(p.x, p.y, &station_num)) {
-#if YORADIO_LVGL_TOUCH_DEBUG
-        Serial.printf("[station] SHORT_CLICKED skip no_row p=(%d,%d)\n", static_cast<int>(p.x),
-                      static_cast<int>(p.y));
-#endif
-        return;
-    }
-    if (_list_arm_suppress_next_focus) {
-        _list_arm_suppress_next_focus = false;
+    // Suppression: consume arm if set (stop UX — first qualifying tap after scroll/coasting).
+    // Suppression: потребить arm если установлен (stop UX — первый qualifying tap после прокрутки).
+    if (_consumeListFocusSuppression()) {
 #if YORADIO_LVGL_TOUCH_DEBUG
         Serial.printf("[station] SHORT_CLICKED arm consumed (no focus) st=%u p=(%d,%d)\n",
                       static_cast<unsigned>(station_num), static_cast<int>(p.x), static_cast<int>(p.y));
 #endif
         return;
     }
+
+    // Accepted tap: set focus then play.
+    // Принятый тап: сначала фокус, потом воспроизведение.
 #if YORADIO_LVGL_TOUCH_DEBUG
-    Serial.printf("[station] SHORT_CLICKED focus st=%u p=(%d,%d)\n", static_cast<unsigned>(station_num),
-                  static_cast<int>(p.x), static_cast<int>(p.y));
+    Serial.printf("[station] SHORT_CLICKED focus st=%u p=(%d,%d)\n",
+                  static_cast<unsigned>(station_num), static_cast<int>(p.x), static_cast<int>(p.y));
 #endif
     _setFocusStation(station_num);
     // All guards passed: this is a clean tap — set focus and start playback.
@@ -1179,7 +1213,7 @@ void LvglStationPage::_nullHandles() {
     _station_total = 0;
     _focus_station_num = 0;
     _list_sig_cache_valid = false;
-    _list_arm_suppress_next_focus = false;
+    _resetListInputState();
     _releaseListTextBuffer();
 }
 

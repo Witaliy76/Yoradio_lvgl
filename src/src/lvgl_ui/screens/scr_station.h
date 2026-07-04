@@ -138,17 +138,39 @@ private:
     // Вызывается только из enter() — нет прыжка скролла при NEWSTATION.
     void _scrollListToCurrentOnEnter();
 
-    // ── Pointer/input (STATIONREF-C scope — not refactored in B) ──────────
-    void _setFocusStation(uint16_t num);
-    bool _candidateStationFromScreenPoint(lv_coord_t screen_px, lv_coord_t screen_py, uint16_t* out_station);
+    // ── Pointer event entry points (thin static wrappers → instance handlers) ─
     static void _listAreaPressedEvt(lv_event_t* e);
-    void _onListAreaPressed(lv_event_t* e);
     static void _listAreaPressingEvt(lv_event_t* e);
-    void _onListAreaPressing(lv_event_t* e);
     static void _listAreaReleasedEvt(lv_event_t* e);
-    void _onListAreaReleased(lv_event_t* e);
     static void _listAreaShortClickedEvt(lv_event_t* e);
+
+    // ── Stroke tracking and suppression ────────────────────────────────────
+    // _resetListStrokeTracking(): zeros stroke peaks and press baseline.
+    // Does NOT reset _list_arm_suppress_next_focus — suppression survives new PRESSED.
+    // _resetListStrokeTracking(): обнуляет пики и базу жеста.
+    // Не сбрасывает _list_arm_suppress_next_focus — arm переживает новый PRESSED.
+    void _resetListStrokeTracking();
+    void _captureListPressBaseline(lv_indev_t* indev);
+    void _updateListStrokePeaks(const lv_point_t& current_point, lv_coord_t current_scroll_y);
+    bool _isTrackedStrokeScrollLike() const;
+    // Consume suppression arm. Returns true if arm was set (caller should skip focus+play).
+    // Потребляет suppression arm. Возвращает true если arm был установлен.
+    bool _consumeListFocusSuppression();
+    // Full input state reset — called only from _nullHandles() on destroy/auto-delete.
+    // Полный reset state ввода — вызывается только из _nullHandles() при destroy/auto-delete.
+    void _resetListInputState();
+
+    // ── Pointer instance handlers ───────────────────────────────────────────
+    void _onListAreaPressed(lv_event_t* e);
+    void _onListAreaPressing(lv_event_t* e);
+    void _onListAreaReleased(lv_event_t* e);
     void _onListAreaShortClicked(lv_event_t* e);
+
+    // ── Candidate-row mapping ───────────────────────────────────────────────
+    bool _candidateStationFromScreenPoint(lv_coord_t screen_px, lv_coord_t screen_py, uint16_t* out_station);
+
+    // ── Focus/play action ───────────────────────────────────────────────────
+    void _setFocusStation(uint16_t num);
 
     // ── External buffer ownership ──────────────────────────────────────────
     bool _ensureListTextBuffer(uint16_t total);

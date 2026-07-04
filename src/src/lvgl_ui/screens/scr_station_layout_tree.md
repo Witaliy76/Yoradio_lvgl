@@ -292,38 +292,80 @@ They can point to different rows simultaneously.
 
 ## Pointer/touch state machine
 
-**PRESSED:**
-- Capture `_list_press_pt` (touch point) and `_list_press_scroll_y`.
-- Reset `_list_stroke_max_manhattan = 0`, `_list_stroke_max_scroll_y_abs = 0`.
-- If coasting (`lv_obj_is_scrolling`): arm `_list_arm_suppress_next_focus = true`.
+```
+PRESSED
+  ├─ _captureListPressBaseline(indev)
+  │    ├─ _resetListStrokeTracking()  (zeros press_pt, scroll_y, peaks)
+  │    ├─ if indev: capture press point
+  │    └─ capture scroll_y baseline
+  └─ coasting? → arm _list_arm_suppress_next_focus
 
-**PRESSING\*:**
-- Accumulate peak finger manhattan distance → `_list_stroke_max_manhattan`.
-- Accumulate peak |scroll_y delta| → `_list_stroke_max_scroll_y_abs`.
+PRESSING*
+  ├─ _updateListStrokePeaks(current_point, scroll_y)
+  │    ├─ peak = max(peak, Manhattan(current, press_pt))
+  │    └─ peak = max(peak, abs(scroll_y - press_scroll_y))
+  └─ (no other side effects)
 
-**RELEASED:**
-- If stroke peaks exceed thresholds → arm `_list_arm_suppress_next_focus = true`.
+RELEASED
+  └─ _isTrackedStrokeScrollLike()? → arm _list_arm_suppress_next_focus
+       (peak_manhattan >= kListTapMaxFingerTravelPx
+        || peak_scroll_y_abs >= kListTapMaxScrollYDeltaPx)
 
-**SHORT_CLICKED (guards in order):**
-1. `_list_area`, `_lbl_list`, `e` present
-2. event code matches
-3. target == `_list_area`
-4. indev present
-5. `lv_obj_is_scrolling` → skip (momentum)
-6. horizontal gesture → skip
-7. vertical gesture → skip
-8. `lv_indev_get_scroll_dir` vertical → skip
-9. peak scroll delta ≥ `kListTapMaxScrollYDeltaPx` (14 px) → skip
-10. peak finger travel ≥ `kListTapMaxFingerTravelPx` (24 px) → skip
-11. tap in right scrollbar strip (`kScrollbarRightIgnorePx=26 px`) → skip
-12. `_candidateStationFromScreenPoint` → no row → skip
-13. `_list_arm_suppress_next_focus` → consume arm, skip focus+play
-14. **Accept:** `_setFocusStation(station_num)` + `play_station(station_num)`
+SHORT_CLICKED — linear guard pipeline
+  ├─ 1. _list_area / _lbl_list / e present
+  ├─ 2. event code + target == _list_area
+  ├─ 3. read indev, gesture direction, tap point
+  ├─ 4. reject: lv_obj_is_scrolling  (momentum guard)
+  ├─ 5. reject: !indev
+  ├─ 6. reject: (gd & LV_DIR_HOR) != 0
+  ├─ 7. reject: (gd & LV_DIR_VER) != 0
+  ├─ 8. reject: (scroll_dir & LV_DIR_VER) != 0
+  ├─ 9. reject: effective_scroll_delta >= kListTapMaxScrollYDeltaPx
+  │         (effective = max(end_delta, peak) — flick guard)
+  ├─ 10. reject: effective_travel >= kListTapMaxFingerTravelPx
+  │          (effective = max(end_travel, peak))
+  ├─ 11. reject: tap in right scrollbar strip (kScrollbarRightIgnorePx=26)
+  ├─ 12. reject: _candidateStationFromScreenPoint → no valid row
+  ├─ 13. _consumeListFocusSuppression() → arm consumed, skip focus+play
+  └─ accept: _setFocusStation(station_num) → play_station(station_num)
+```
 
-Tap in the `line_space` (16 px below glyph) resolves to the same row — this is intentional.
-Input pipeline refactor is deferred to STATIONREF-C.
+**Suppression arm contract:**
+Suppression is armed when:
+- pointer goes down while list is still coasting (`lv_obj_is_scrolling`);
+- completed stroke exceeds finger-travel threshold (`kListTapMaxFingerTravelPx`);
+- completed stroke exceeds scroll-y threshold (`kListTapMaxScrollYDeltaPx`).
+
+Suppression is consumed only by the next otherwise-valid station tap (after guard 12).
+Rejected clicks (guards 4–12) do **not** consume it.
+
+Suppression arm переключается когда:
+- палец касается списка пока он движется по инерции;
+- завершённый жест превышает порог перемещения пальца;
+- завершённый жест превышает порог смещения scroll_y.
+
+Arm потребляется только следующим иначе-валидным тапом. Отклонённые клики (guards 4–12) arm не потребляют.
+
+**Gesture bitmask:** `lv_dir_t` используется как битовые флаги (`LV_DIR_HOR = L|R`, `LV_DIR_VER = T|B`). Проверки используют `(flags & mask) != 0`, не `== mask`.
+
+**Line-space semantics:** Station row pitch = font_height (25) + line_space (16) = 41 px. A tap in the `line_space` portion below a glyph resolves to the same row (same `document_y / 41` quotient). This is intentional — the full pitch belongs to that row.
 
 ---
+
+## Candidate-row mapping
+
+```
+screen_py
+→ local_y = screen_py − list_coords.y1
+→ document_y = scroll_y + local_y − pad_top
+→ reject if document_y < 0
+→ row_idx = document_y / kStationLinePitch (41)
+→ reject if row_idx > kStationRowSafetyLimit (UINT16_MAX − 10)
+→ station_one_based = row_idx + 1
+→ validate: is_valid_station_num() && ≤ total
+```
+
+`screen_px` (X) is not used in row math — the scrollbar strip guard runs before `_candidateStationFromScreenPoint` and filters right-edge taps. Adding X checks here would duplicate that guard.
 
 ## Enter-scroll pipeline
 
@@ -366,7 +408,11 @@ No list rebuild, no scroll change, no adapter calls.
 | `destroy()` | `lv_obj_del(_screen)` + `_nullHandles()` (free list buffer) |
 | `releaseAfterAutoDelete()` | `_nullHandles()` only — tree already freed by PageChain |
 
-`_nullHandles()` clears all LVGL handles, resets `_station_total`, `_focus_station_num`, `_list_sig_cache_valid`, `_list_arm_suppress_next_focus`, and frees `_list_text`.
+`_nullHandles()` clears all LVGL handles, resets `_station_total`, `_focus_station_num`, `_list_sig_cache_valid`, calls `_resetListInputState()` (zeros stroke tracking + `_list_arm_suppress_next_focus`), and frees `_list_text`.
+
+Input state is reset **only on teardown** (destroy / auto-delete). It is NOT reset on `enter()`, `exit()`, `NEWSTATION`, or list rebuild. This ensures suppression semantics work correctly on a live page: an arm set by a scroll survives until the next qualifying tap consumes it.
+
+State ввода сбрасывается **только при разрушении** (destroy / auto-delete). Не сбрасывается при `enter()`, `exit()`, NEWSTATION или rebuild списка. Это гарантирует корректную работу suppression на живой странице.
 
 ---
 
@@ -407,9 +453,11 @@ No new general rollback was added in STATIONFIX-1, STATIONREF-A, or STATIONREF-B
 
 **STATIONREF-A** (`ca15d7e`, `E43S`): structural/layout refactor — UI resource sections, font/glyph/layout constants, private static builders, short `create()`, layout tree documentation.
 
-**STATIONREF-B** (`E44S`): runtime list/buffer/signature/overlay/enter-scroll structure — `_clearStationListVisuals()`, `_showStationListAllocationError()`, `_createStationListLabelFromBuffer()`, `_styleFocusRowOverlays()`, `_positionFocusRowOverlays()`, `_ensureCurrentMarker()`, `_styleCurrentMarker()`, `_positionCurrentMarker()`. Pipeline readable as orchestration; behavior preserved byte-for-byte.
+**STATIONREF-B** (`cf6d018`, `E44S`): runtime list/buffer/signature/overlay pipeline — `_clearStationListVisuals()`, `_showStationListAllocationError()`, `_createStationListLabelFromBuffer()`, focus/marker style/position/ensure helpers. Behavior preserved byte-for-byte.
 
-**STATIONREF-C** (deferred): pointer/touch state machine refactor.
+**STATIONREF-C** (`E45S`): pointer/touch and input-state pipeline — pure math helpers (`abs_i32`, `max_i32`, `manhattan_distance`), stroke tracking helpers (`_resetListStrokeTracking`, `_captureListPressBaseline`, `_updateListStrokePeaks`, `_isTrackedStrokeScrollLike`, `_consumeListFocusSuppression`), `_resetListInputState()` called from `_nullHandles()`. `_onListArea*` handlers reorganized as readable orchestration; all thresholds and guard order preserved.
+
+Station screen structural refactor is complete after STATIONREF-C.
 
 ---
 
