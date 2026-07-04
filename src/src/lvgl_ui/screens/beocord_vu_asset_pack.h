@@ -6,50 +6,71 @@
 #include "../../core/options.h"
 #include "beocord_segment_a8.h"
 #include "lvgl.h"
+#include "../theme/lv_theme_yoradio.h"
 
-// E1+E2: compile-time Beocord museum asset boundary — path, design canvas, segment mask, window rects.
-// E1+E2: граница target-pack Beocord — путь, холст, маска сегмента, координаты окон.
+// E1+E2+E6B: compile-time Beocord museum asset boundary — theme paths, canvas, mask, window rects.
+// E1+E2+E6B: граница Beocord pack — пути тем, холст, маска, координаты окон.
 
 namespace lvgl_ui {
 
 struct BeocordVuAssetPack {
-    const char*         background_path; // LittleFS runtime path / путь в LittleFS
     uint16_t            design_width;
     uint16_t            design_height;
     const lv_img_dsc_t* segment_mask;      // E2: Flash A8 luminosity mask / E2: A8-маска яркости во Flash
-    lv_area_t           overlay_rect[2][8]; // E0B canonical inclusive window rects / канонические inclusive-окна
+    lv_area_t           overlay_rect[2][8]; // E6B: shared central-scale inclusive windows / общие окна
 };
 
 #if DSP_MODEL == DSP_ST7701
-// Sunton 4848S040 — 480×480 museum background + E2 segment geometry (L/R × 8).
-// Sunton 4848S040 — музейный фон 480×480 + геометрия сегментов E2 (L/R × 8).
+
+static constexpr const char kBeocordBgPathDark[] =
+    "/visual/beocord9000/480x480/base_off_scale_mid_dark.bin";
+static constexpr const char kBeocordBgPathLight[] =
+    "/visual/beocord9000/480x480/base_off_scale_mid_light.bin";
+static constexpr const char kBeocordBgPathCustom[] =
+    "/visual/beocord9000/480x480/base_off_scale_mid_custom.bin";
+
+// E6B: canonical theme → LittleFS background path; unknown → Dark.
+// E6B: каноническая тема → путь фона LittleFS; неизвестная → Dark.
+inline const char* beocord_background_path_for_preset(ThemePreset preset) {
+    switch (preset) {
+        case ThemePreset::Light:
+            return kBeocordBgPathLight;
+        case ThemePreset::Custom:
+            return kBeocordBgPathCustom;
+        case ThemePreset::Dark:
+        default:
+            return kBeocordBgPathDark;
+    }
+}
+
+// Sunton 4848S040 — 480×480 museum background + E6B central-scale segment geometry (L/R × 8).
+// Sunton 4848S040 — музейный фон 480×480 + геометрия E6B central-scale (L/R × 8).
 static constexpr BeocordVuAssetPack kBeocordVuAssetPack{
-    "/visual/beocord9000/480x480/base_off_scale_on.bin",
     480u,
     480u,
     &img_beocord_segment_a8,
     {
-        // L row / ряд L
+        // L row / ряд L (y = 162)
         {
-            {44, 191, 83, 235},
-            {89, 191, 128, 235},
-            {134, 191, 173, 235},
-            {179, 191, 218, 235},
-            {224, 191, 263, 235},
-            {269, 191, 308, 235},
-            {314, 191, 353, 235},
-            {359, 191, 398, 235},
+            {44, 162, 83, 206},
+            {89, 162, 128, 206},
+            {134, 162, 173, 206},
+            {179, 162, 218, 206},
+            {224, 162, 263, 206},
+            {269, 162, 308, 206},
+            {314, 162, 353, 206},
+            {359, 162, 398, 206},
         },
-        // R row / ряд R
+        // R row / ряд R (y = 270)
         {
-            {44, 266, 83, 310},
-            {89, 266, 128, 310},
-            {134, 266, 173, 310},
-            {179, 266, 218, 310},
-            {224, 266, 263, 310},
-            {269, 266, 308, 310},
-            {314, 266, 353, 310},
-            {359, 266, 398, 310},
+            {44, 270, 83, 314},
+            {89, 270, 128, 314},
+            {134, 270, 173, 314},
+            {179, 270, 218, 314},
+            {224, 270, 263, 314},
+            {269, 270, 308, 314},
+            {314, 270, 353, 314},
+            {359, 270, 398, 314},
         },
     },
 };
@@ -57,12 +78,16 @@ static constexpr BeocordVuAssetPack kBeocordVuAssetPack{
 // Other boards: no museum asset in E1/E2 — Visual falls back to theme device_background.
 // Другие платы: без музейного ассета в E1/E2 — fallback на device_background темы.
 static constexpr BeocordVuAssetPack kBeocordVuAssetPack{
-    nullptr,
     0u,
     0u,
     nullptr,
     {},
 };
+
+inline const char* beocord_background_path_for_preset(ThemePreset) {
+    return nullptr;
+}
+
 #endif
 
 } // namespace lvgl_ui

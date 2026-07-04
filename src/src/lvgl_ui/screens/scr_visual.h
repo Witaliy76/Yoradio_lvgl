@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include "../lv_screen.h"
+#include "../theme/lv_theme_yoradio.h"
 #include "lvgl.h"
 
 namespace lvgl_ui {
@@ -44,6 +45,7 @@ private:
     void _handleStationChange(int station_id);
 
     bool _loadBackgroundFromLittlefs();
+    void _releaseBackgroundBuffer();
     void _applyBackgroundImage();
     void _syncBackgroundLayout();
     void _syncOverlayLayout();
@@ -72,6 +74,7 @@ private:
     uint8_t*     _bg_psram_buf = nullptr;
     lv_img_dsc_t _bg_psram_dsc = {};
     bool         _bg_loaded = false;
+    ThemePreset  _loaded_bg_theme = ThemePreset::Dark;
 };
 
 } // namespace lvgl_ui

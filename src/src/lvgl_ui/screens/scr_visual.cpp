@@ -396,26 +396,43 @@ void LvglVisualPage::_deletePpmTimer() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 bool LvglVisualPage::_loadBackgroundFromLittlefs() {
-    if (_bg_loaded && _bg_psram_buf != nullptr) return true;
+    if (!kBeocordVuAssetPack.segment_mask) return false;
 
-    const BeocordVuAssetPack& pack = kBeocordVuAssetPack;
-    if (!pack.background_path) return false;
+    const ThemePreset active_theme = yoradio_theme_active_preset();
+    if (_bg_loaded && _bg_psram_buf != nullptr && _loaded_bg_theme == active_theme) {
+        return true;
+    }
 
-    if (!LittleFS.exists(pack.background_path)) {
-        Serial.printf("[VISUAL_BG] missing %s\n", pack.background_path);
+    _releaseBackgroundBuffer();
+
+    const char* fs_path = beocord_background_path_for_preset(active_theme);
+    if (!fs_path || fs_path[0] == '\0') return false;
+
+    if (!LittleFS.exists(fs_path)) {
+        Serial.printf("[VISUAL_BG] missing %s\n", fs_path);
         return false;
     }
 
     uint8_t* buf = nullptr;
     lv_img_dsc_t dsc = {};
-    if (!bg_load_into_psram(pack.background_path, buf, dsc)) {
+    if (!bg_load_into_psram(fs_path, buf, dsc)) {
         return false;
     }
 
-    _bg_psram_buf  = buf;
-    _bg_psram_dsc  = dsc;
-    _bg_loaded     = true;
+    _bg_psram_buf   = buf;
+    _bg_psram_dsc   = dsc;
+    _bg_loaded      = true;
+    _loaded_bg_theme = active_theme;
     return true;
+}
+
+void LvglVisualPage::_releaseBackgroundBuffer() {
+    if (_bg_psram_buf) {
+        free(_bg_psram_buf);
+        _bg_psram_buf = nullptr;
+    }
+    _bg_psram_dsc = {};
+    _bg_loaded = false;
 }
 
 void LvglVisualPage::_applyBackgroundImage() {
@@ -503,6 +520,7 @@ void LvglVisualPage::enter() {
 
     _last_timer_tick = lv_tick_get();
     if (_ppm_timer) lv_timer_resume(_ppm_timer);
+    _applyBackgroundImage();
 }
 
 void LvglVisualPage::update() {}
@@ -512,13 +530,19 @@ void LvglVisualPage::exit() {
 }
 
 void LvglVisualPage::liveReapplyTheme() {
-    // Museum artwork and PPM segment colors stay unchanged; only root fallback bg may track theme.
-    // Музейный арт и цвета PPM-сегментов не меняются; только fallback-фон корня.
+    // E6B: museum background follows active theme; segment colors stay fixed museum green/red.
+    // E6B: музейный фон по активной теме; цвета сегментов — фиксированные museum green/red.
     if (!_screen) return;
 
     const YoRadioPalette& pal = yoradio_palette();
     lv_obj_set_style_bg_color(_screen, pal.device_background, LV_PART_MAIN);
-    lv_obj_invalidate(_screen);
+
+    const ThemePreset active_theme = yoradio_theme_active_preset();
+    if (!_bg_loaded || _loaded_bg_theme != active_theme) {
+        _applyBackgroundImage();
+    } else {
+        lv_obj_invalidate(_screen);
+    }
 }
 
 void LvglVisualPage::destroy() {
@@ -565,12 +589,8 @@ void LvglVisualPage::_nullHandlesAndFreeNonLvgl() {
     _pcm_target_db[0]          = kPpmOffDb;
     _pcm_target_db[1]          = kPpmOffDb;
 
-    if (_bg_psram_buf) {
-        free(_bg_psram_buf);
-        _bg_psram_buf = nullptr;
-    }
-    _bg_psram_dsc = {};
-    _bg_loaded = false;
+    _releaseBackgroundBuffer();
+    _loaded_bg_theme = ThemePreset::Dark;
 }
 
 lv_obj_t* LvglVisualPage::screen() {
