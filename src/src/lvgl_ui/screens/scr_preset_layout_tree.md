@@ -1,244 +1,265 @@
-# Preset screen — LVGL object tree (`scr_preset`)
+# Preset Temporary screen — LVGL object tree (`scr_preset`)
 
-**Purpose / Назначение:**
-**English:** Parent → child hierarchy for the Preset Temporary screen created by `LvglPresetScreen::create()` in `scr_preset.cpp`, plus the event and timer flow that drives interaction. Use when reasoning about card layout, column flex, slot state, feedback lifecycle, timeout/dismiss behavior, and theme retint.
-**Русский:** Иерархия родитель → потомок для Preset Temporary Screen, создаваемого `LvglPresetScreen::create()` в `scr_preset.cpp`, а также поток событий и таймеров. Удобно для разметки карточек, колонок flex, состояния слотов, lifecycle feedback, таймаута/dismiss и retint темы.
+## Purpose / Назначение
 
-**Source of truth:**
-`scr_preset.cpp`: `LvglPresetScreen::create()` is the source of truth for the object tree.
-Interaction flow is driven by `_rowEventCb`, `_onRow*` methods, `_feedback_timer`, and `_countdown_timer`.
+**English:** Parent → child hierarchy for the Preset Temporary screen (`LvglPresetScreen`), built by private static layout builders called from `create()`. Documents object tree, creation order, interaction pipelines, timer ownership, theme reapply, and partial-allocation behavior. PRESETREF-A structural refactor; product semantics unchanged.
 
-**Maintenance / Поддержка:**
-After any of the following, refresh the ASCII tree, the Mermaid block, and the interaction flow section:
-- adding/removing a label or container inside a card row;
-- changing card column widths (`kSlotW`, `kNumW`) or flex alignment;
-- adding/removing a LVGL timer;
-- changing dismiss / timeout semantics.
+**Русский:** Иерархия объектов Preset Temporary, билдеры в `scr_preset.cpp`, порядок создания, события, таймеры, тема. PRESETREF-A — структурный refactor без изменения поведения.
 
-**После** добавления метки или контейнера, изменения ширин колонок, таймеров или семантики dismiss — обновлять ASCII, Mermaid и раздел interaction flow.
+## Source of truth
 
----
+- Object tree and creation order: `LvglPresetScreen::create()` → `create_title()` → `create_preset_rows()` → `create_footer()`.
+- Row content: `_updateRowContent()`, `preset_store`, `station_list_adapter`.
+- Events: `_rowEventCb`, `_helperEventCb`.
+- Timers: `_countdown_timer`, `_feedback_timer`.
+- Theme: `_applyAllColors()` / `liveReapplyTheme()`.
 
-## Screen type and lifecycle
+## Maintenance / Поддержка
 
-`LvglPresetScreen` has `screenType() == ScreenType::Temporary`.
+After any of the following, refresh this document:
 
-It is **not** a carousel page — it is opened on top of the current carousel slot via `PageChain::showTemporary()` (triggered by a top-edge downward swipe detected in `poll_top_edge_swipe()`). On dismiss or timeout, `PageChain::dismissTemporary()` returns to the **origin carousel slot** that was active when the Preset was opened (not always Main).
-
-Экран не является страницей карусели — он открывается поверх текущего слота через `PageChain::showTemporary()` (обнаружение жеста свайпа вниз от верхнего края в `poll_top_edge_swipe()`). При dismiss или таймауте возврат на **origin-слот карусели**, с которого был открыт Preset.
+- new/removed LVGL object in a row or footer;
+- column width constants (`kSlotW`, `kNumW`);
+- footer geometry or style split (`prepare_footer_surface` / `apply_footer_palette`);
+- timer or dismiss semantics;
+- font resource changes.
 
 ---
 
-## Order on `_screen`
-
-`_screen` is a flex **column** (top → bottom).
-`pad_all = LV_ACTIVE_PROFILE.frame_padding`, `pad_row = kRowGap` (4 px).
-Not scrollable. Not clickable (only child cards are).
-
-1. `_title` — label `"ПРЕСЕТЫ"`; M20; `text_primary`; centered; `pad_top=2`, `pad_bottom=8`
-2. `_rows[0]` — card row (clickable; `kRowH=44 px`; rounded `kRowRadius=8`; border `kRowBorder=1`)
-3. `_rows[1]` … `_rows[7]` — identical card rows
-4. `_helper` — label (hint + feedback target); M14; `text_secondary`; centered; `pad_top=4`
-
-**9 flex gaps × 4 px = 36 px** total gap between 10 flex items (title + 8 rows + helper).
-
----
-
-## Tree (ASCII)
+## Static object tree
 
 ```
-_screen
-├── _title                     ("ПРЕСЕТЫ"; M20; text_primary; LV_TEXT_ALIGN_CENTER)
-├── _rows[0]                   (card; ROW flex; clickable; rounded; border; kRowH=44)
-│   ├── _slot_labels[0]        ("1"; kSlotW=24 px; font_small; text_secondary; centered)
-│   ├── _vdiv_lines[0]         (1 px × kDivH=24 px; bg=divider; OPA_60; not clickable)
-│   ├── _num_labels[0]         ("#NNN" or "--"; kNumW=56 px; font_normal; accent/accent_soft/text_meta)
-│   └── _name_labels[0]        (station name; flex_grow=1; width=1px base; M22; LONG_DOT; text_primary/secondary)
-├── _rows[1]                   (same children as [0], slot index 1)
-├── _rows[2]                   (same children as [0], slot index 2)
-├── _rows[3]                   (same children as [0], slot index 3)
-├── _rows[4]                   (same children as [0], slot index 4)
-├── _rows[5]                   (same children as [0], slot index 5)
-├── _rows[6]                   (same children as [0], slot index 6)
-├── _rows[7]                   (same children as [0], slot index 7)
-└── _helper                    (hint + feedback; M14; text_secondary/accent; LV_TEXT_ALIGN_CENTER)
+_screen                          (flex COLUMN; pad=frame_padding; pad_row=kRowGap)
+├── _title                       (label "ПРЕСЕТЫ"; kFontTitle; centered; not clickable)
+├── _rows[0]                     (card; ROW flex; clickable; kRowH=44)
+│   ├── _slot_labels[0]          ("1"; kSlotW; kFontSlotNumber M16; text_secondary)
+│   ├── _vdiv_lines[0]         (kDividerWidth × kDivH; divider; kDividerOpacity)
+│   ├── _num_labels[0]         ("#N" / "--"; kNumW; profile font_normal; accent roles)
+│   └── _name_labels[0]        (name; kFontStationName; flex_grow; LONG_DOT one line)
+├── _rows[1] … _rows[7]         (same children, slot index 1…7)
+└── _helper_box                  (clickable footer pill; kFooterBoxH=32; dismiss tap)
+    └── _helper                  (countdown + feedback text; kFontFooter; not clickable)
 ```
 
-**No local (non-member) containers** — all LVGL objects created in `create()` are either stored as members or are leaf labels with no children.
+**Runtime object count (full allocation):** 44 LVGL objects
+(1 screen + 1 title + 8×(row + slot + vdiv + num + name) + helper_box + helper).
+
+**Screen type:** `ScreenType::Temporary` — opened via `PageChain::showTemporary()`; dismiss returns to **origin carousel slot**.
 
 ---
 
-## Mermaid diagram
+## Creation order
 
-```mermaid
-graph TD
-  SCR["_screen\n(flex COLUMN; pad=frame_padding; pad_row=4)"]
-  TITLE["_title\n(ПРЕСЕТЫ; M20; centered)"]
-  SCR --> TITLE
+`create()` orchestration (root setup inline, then builders):
 
-  subgraph rows["_rows[0..7]  ×8 (card; ROW flex; clickable; kRowH=44)"]
-    SLOT["_slot_labels[i]\n(1..8; kSlotW=24; font_small)"]
-    DIV["_vdiv_lines[i]\n(1px × 24; divider; OPA_60)"]
-    NUM["_num_labels[i]\n(#NNN or --; kNumW=56; accent)"]
-    NAME["_name_labels[i]\n(station name; M22; flex_grow=1; LONG_DOT)"]
-    SLOT --> DIV --> NUM --> NAME
-  end
+| Step | Builder | Creates |
+|------|---------|---------|
+| 1 | `create()` inline | `_screen` |
+| 2 | `create_title()` | `_title` |
+| 3 | `create_preset_rows()` → `create_preset_row(0..7)` | each row subtree |
+| 4 | `create_footer()` | `_helper_box` → `_helper` |
 
-  SCR --> rows
-  HELPER["_helper\n(hint + feedback; M14; text_secondary)"]
-  SCR --> HELPER
+Per-row child order inside `create_preset_row()`:
+
+```text
+row → slot label → vertical divider → station-number label → station-name label
 ```
+
+**9 source creation call-site groups** (unchanged equivalence):
+
+1. `lv_obj_create` screen
+2. `lv_label_create` title
+3–7. per row: `lv_obj_create` row, `lv_label_create` slot, `lv_obj_create` vdiv, `lv_label_create` num, `lv_label_create` name
+8–9. `lv_obj_create` helper_box, `lv_label_create` helper
 
 ---
 
-## Card column layout (per row, left → right)
-
-Available content width on 480 px screen:
-`480 − 2×8 (scr pad) − 2×8 (row pad LR) − kSlotW(24) − 1(div) − kNumW(56) − 3×kRowColGap(4) = **355 px** for station name`.
+## Row structure
 
 | Column | Member | Width | Font | Color role |
-|---|---|---|---|---|
-| Slot № | `_slot_labels[i]` | `kSlotW = 24 px` | `font_small` | `text_secondary` |
-| Divider | `_vdiv_lines[i]` | `1 px` | — | `divider` at OPA_60 |
-| Station № | `_num_labels[i]` | `kNumW = 56 px` | `font_normal` | `accent` / `accent_soft` / `text_meta` |
-| Station name | `_name_labels[i]` | `flex_grow=1` (base=1 px) | M22 | `text_primary` / `text_secondary` |
+|--------|--------|-------|------|------------|
+| Slot № | `_slot_labels[i]` | `kSlotW = 24` | `kFontSlotNumber` (M16) | `text_secondary` |
+| Divider | `_vdiv_lines[i]` | `kDividerWidth = 1` | — | `divider` @ `kDividerOpacity` |
+| Station № | `_num_labels[i]` | `kNumW = 56` | `preset_station_number_font()` → profile `font_normal` | `accent` / `accent_soft` / `text_meta` |
+| Station name | `_name_labels[i]` | `kNameFlexBaseWidth=1` + `flex_grow=1` | `kFontStationName` (M22) | `text_primary` / `text_secondary` |
 
-**Why `width=1` + `flex_grow=1` for `_name_labels`:** LVGL flex uses the base width as the *minimum*. `LV_SIZE_CONTENT` as base would set the minimum to the full text width, preventing `LV_LABEL_LONG_DOT` from truncating. Using `1 px` base lets flex distribute all remaining space and LONG_DOT truncates correctly at the flex boundary.
-
-**Почему `width=1` + `flex_grow=1`:** база `LV_SIZE_CONTENT` задаёт минимум = полная ширина текста, что мешает LONG_DOT обрезать. База `1 px` позволяет flex отдать всё оставшееся место и LONG_DOT работает корректно.
+Name label: fixed line height = `lv_font_get_line_height(kFontStationName)`; `LV_LABEL_LONG_DOT` for ellipsis.
 
 ---
 
-## Slot visible states
+## Footer structure
 
-For each `_rows[i]`:
+| Object | Role |
+|--------|------|
+| `_helper_box` | Full-width clickable pill; `LV_EVENT_CLICKED` → `_helperEventCb` → `dismissActiveTemporary()` |
+| `_helper` | Single text target for countdown and save/error feedback; not clickable |
 
-| Condition | `_num_labels` text | color | `_name_labels` text | color |
-|---|---|---|---|---|
-| Empty (not occupied) | `"--"` | `text_meta` | `kStrEmpty` = `"Пусто"` | `text_secondary` |
-| Occupied, station not in list | `"#NNN"` | `accent_soft` | `kStrUnavailable` = `"Недоступно"` | `text_secondary` |
-| Occupied, station valid | `"#NNN"` | `accent` | `" • <station name>"` | `text_primary` |
+**Style split (PRESETREF-A):**
 
-**Row pressed state:** `list_row_selected_bg` background + `accent_soft` border (LVGL state style).
+- `prepare_footer_surface()` — one-time at create: strip theme, radius, padding, border width, fixed opacities.
+- `apply_footer_palette()` — palette colors only (bg, normal border, pressed border); **no** `remove_style_all`, no fixed opacities/width replay.
+
+**Normal:** `panel_background` @ `kFooterNormalOpacity`, `divider` border @ `kFooterBorderWidth`.
+**Pressed:** `kFooterPressedOpacity` fill, `text_meta` border.
+
+Footer long press: no save action (only `LV_EVENT_CLICKED` registered).
 
 ---
 
-## Interaction flow (event + timer)
+## Fonts and text resources
 
+### `kStr*` (UI strings)
+
+| Constant | Text |
+|----------|------|
+| `kStrPresets` | ПРЕСЕТЫ |
+| `kStrEmpty` | Пусто |
+| `kStrUnavailable` | Недоступно |
+| `kStrNoStation` | НЕТ СТАНЦИИ ДЛЯ СОХРАНЕНИЯ |
+| `kStrSaveFailed` | ОШИБКА СОХРАНЕНИЯ |
+| `kStrHelperDefault` | УДЕРЖИВАТЬ ДЛЯ СОХРАНЕНИЯ • ВОЗВРАТ 15 |
+| `kStrEmptyText` | (empty) |
+| `kStrEmptyStationNumber` | -- |
+
+### `kFmt*` (format strings)
+
+| Constant | Format |
+|----------|--------|
+| `kFmtSaved` | ПРЕСЕТ %u СОХРАНЕН |
+| `kFmtCountdown` | УДЕРЖИВАТЬ ДЛЯ СОХРАНЕНИЯ • ВОЗВРАТ %d |
+| `kFmtSlotNumber` | %d |
+| `kFmtStationNumber` | #%u |
+| `kFmtDecoratedStationName` | %s%s |
+
+### Glyphs
+
+| Constant | Value |
+|----------|-------|
+| `kBulletPrefixUtf8` | ` U+2022 ` (space-bullet-space) |
+
+### Font resources
+
+| Constant | Font |
+|----------|------|
+| `kFontTitle` | M20 |
+| `kFontSlotNumber` | M16 |
+| `kFontStationName` | M22 |
+| `kFontFooter` | M14 |
+| `preset_station_number_font()` | `LV_ACTIVE_PROFILE.font_normal` (nullable-checked) |
+
+---
+
+## Slot content states
+
+| Condition | `_num_labels` | `_name_labels` |
+|-----------|---------------|----------------|
+| Empty | `--` (`text_meta`) | `Пусто` (`text_secondary`) |
+| Occupied, invalid | `#N` (`accent_soft`) | `Недоступно` |
+| Occupied, valid | `#N` (`accent`) | ` • <name>` (`text_primary`, LONG_DOT) |
+
+Positional semantics: slot stores `uint16_t` station number only (PresetStore); playlist reorder may invalidate.
+
+---
+
+## Short-tap pipeline
+
+```text
+[Top-edge swipe] → showTemporary → enter()
+[Tap card SHORT_CLICKED]
+  → occupied && valid
+  → play_station(num)
+  → dismissActiveTemporary()
+  → origin carousel slot
 ```
-[Top-edge swipe gesture]
-        ↓
-poll_top_edge_swipe() in lvgl_ui.cpp
-        ↓
-PageChain::showTemporary(&s_preset_screen, kPresetTimeoutMs=15000)
-        ↓
-LvglPresetScreen::enter()
-  ├── preset_store::begin()
-  ├── _setHelperDefault()  →  _updateCountdownHelper()  →  _helper text = kStrCountdownFmt(15)
-  ├── _startCountdownTimer()  (recurring kCountdownPeriodMs=333 ms)
-  └── _updateRowContent(0..7)
 
-[Each ~333 ms — _countdownTimerCb]
-        ↓
-_updateCountdownHelper()
-  └── if second changed → _helper text = kStrCountdownFmt(remaining)
+Empty or invalid row: no-op.
 
-[Tap on card (SHORT_CLICKED)]
-        ↓
-_onRowShortClicked(slot)
-  ├── if occupied && valid → play_station(num) → dismissActiveTemporary()
-  └── else → no-op
+---
 
-[Long press on card (LONG_PRESSED)]
-        ↓
-_onRowLongPressed(slot)
-  ├── refreshActiveTemporaryTimeout()   (resets 15s timer)
-  ├── if saveCurrentStation(slot) OK:
-  │     _updateRowContent(slot)
-  │     _setHelperMessage(kStrSavedFmt, success=true)
-  │     _scheduleHelperRestore(kHelperRestoreMsSuccess=800ms)
-  └── else:
-        _setHelperMessage(kStrNoStation | kStrSaveFailed, success=false)
-        _scheduleHelperRestore(kHelperRestoreMsError=1200ms)
+## Long-press / save pipeline
 
-[_feedbackTimerCb fires after restore delay]
-        ↓
-_setHelperDefault()  →  _updateCountdownHelper()   (countdown resumes)
-
-[PageChain::tick() — timeout or dismissActiveTemporary()]
-        ↓
-LvglPresetScreen::exit()
-  ├── _cancelFeedbackTimer()
-  └── _cancelCountdownTimer()
-        ↓
-PageChain returns to origin carousel slot (or Main as fallback)
-        ↓
-LvglPresetScreen::destroy()
-  └── lv_obj_del(_screen) + _nullHandles()
+```text
+[LONG_PRESSED on row]
+  → refreshActiveTemporaryTimeout()
+  → saveCurrentStation(slot)
+  → on success: _updateRowContent, kFmtSaved feedback, restore timer 800 ms
+  → on failure: kStrNoStation | kStrSaveFailed, restore timer 1200 ms
+  → screen stays open (no dismiss)
 ```
 
-Invariants:
-- **One `preset_store::begin()`** per `enter()` — data is loaded once, not re-read in `update()`.
-- `update()` is a **no-op** — all content refreshes are timer-driven or event-driven.
-- The **countdown timer** is a recurring LVGL timer (not a FreeRTOS task); it only runs while the screen is active and is cancelled in `exit()`.
-- The **feedback timer** is one-shot; `_feedbackActive=true` pauses countdown display while feedback is visible.
-- `refreshActiveTemporaryTimeout()` resets `PageChain::_tempStartMillis` — called on PRESSED, LONG_PRESSED, RELEASED to prevent auto-dismiss while the user is interacting.
+`LONG_PRESSED_REPEAT`: timeout refresh only; `_long_press_handled` prevents double save.
 
 ---
 
-## Helper label states
+## Countdown and feedback timers
 
-| State | Text | Color |
-|---|---|---|
-| Countdown (default) | `"УДЕРЖИТЕ ДЛЯ СОХРАНЕНИЯ • ВОЗВРАТ NNС"` | `text_secondary` |
-| Save success | `"ПРЕСЕТ N СОХРАНЕН"` | `accent` |
-| No station | `"НЕТ СТАНЦИИ ДЛЯ СОХРАНЕНИЯ"` | `text_secondary` |
-| Save failed | `"ОШИБКА СОХРАНЕНИЯ"` | `text_secondary` |
+| Timer | Period | Role |
+|-------|--------|------|
+| `_countdown_timer` | `kCountdownPeriodMs` (333 ms) | Updates `_helper` via `_updateCountdownHelper()` when second changes |
+| `_feedback_timer` | one-shot 800/1200 ms | Restores countdown via `_setHelperDefault()` |
 
-Countdown shows seconds rounded up: `"15С"` just after open, `"1С"` is the last displayed value before auto-dismiss.
+`_feedbackActive` pauses countdown display while feedback visible.
+Both timers cancelled in `exit()` / `destroy()`.
 
----
-
-## Theme behavior (`liveReapplyTheme`)
-
-`liveReapplyTheme()` calls `_applyAllColors()` which:
-- Retints `_screen` background (`device_background`).
-- Retints `_title` (`text_primary`) and `_helper` (`text_secondary`).
-- Calls `_applyRowColors(slot, pal)` for each slot, which applies:
-  - `panel_background` / `panel_border` to card (+ pressed-state styles).
-  - `divider` to `_vdiv_lines`.
-  - `text_secondary` to `_slot_labels`.
-  - `accent` / `accent_soft` / `text_meta` to `_num_labels` based on slot state.
-  - `text_primary` / `text_secondary` to `_name_labels` based on slot state.
-
-The **render cache is not applicable** — there is no differential render; `enter()` always builds all rows from scratch, and `liveReapplyTheme()` repaints all colors in one pass.
+Countdown text: `kFmtCountdown` — seconds rounded up; no `С` suffix (`15` … `1`).
 
 ---
 
-## Lifecycle summary
+## Temporary-screen lifecycle
 
-- `create()` — builds the full object tree (title + 8 card rows + helper). No initial `update()` and no timer start here.
-- `enter()` — loads preset data, sets helper, starts countdown timer, rebuilds all 8 rows.
-- `update()` — **no-op** (empty body). Content is kept current by LVGL timers and event callbacks.
-- `exit()` — cancels both LVGL timers. LVGL tree is not yet deleted here.
-- `destroy()` — deletes the LVGL tree (`lv_obj_del`) and nulls all member handles via `_nullHandles()`.
-- `liveReapplyTheme()` — repaints all colors in one pass; does not rebuild text or re-read preset data.
-- `PageChain` calls `destroy()` explicitly after `exit()` (Temporary lifecycle); there is **no PageChain auto-delete** for Temporary screens (they are not carousel pages).
+```text
+create()     → build tree (builders)
+enter()      → preset_store::begin(), countdown, refresh 8 rows
+update()     → no-op
+exit()       → cancel timers
+destroy()    → lv_obj_del(_screen), _nullHandles()
+```
+
+Dismiss paths:
+
+- valid row tap → play + dismiss;
+- footer tap → dismiss (no play);
+- PageChain timeout (~15 s) → dismiss;
+- Back/encoder (PageChain) → dismiss.
+
+---
+
+## Theme reapply
+
+`liveReapplyTheme()` → `_applyAllColors()`:
+
+- screen, title colors;
+- `apply_footer_palette(_helper_box)` — no layout wipe;
+- helper text: `text_secondary` when countdown; preserves `accent` on active success feedback;
+- per-row `_applyRowColors()`.
+
+---
+
+## Failure states
+
+| Case | UI |
+|------|-----|
+| Partial allocation in `create_preset_row` | `continue` on null row; partial tree; later enter still safe (null guards) |
+| `preset_station_number_font()` null | num label created without font override |
+| Save with no station | `kStrNoStation` in footer |
+| Save I/O failure | `kStrSaveFailed` |
+| Invalid occupied slot | row shows `Недоступно`; tap no-op |
+
+---
+
+## Shared-helper boundary
+
+Preset footer visual pattern overlaps Weather and Station clickable footers.
+Extraction into a shared footer-action helper is **intentionally not included in PRESETREF-A** and should be a separate cross-screen commit.
+
+Общий footer helper для Weather/Station/Preset — **вне PRESETREF-A**, отдельный cross-screen commit.
 
 ---
 
 ## Notes / Заметки
 
-```
-PRESETREF-A:
-create() is organized top-to-bottom: title → 8 card rows → helper.
-No layout builders were extracted (screen is simple enough for one create()).
-Anonymous namespace has 4 sections: UI strings → visual constants → layout geometry → helpers.
-All user-visible strings are in the UI strings block (l10n readiness).
-```
-
-- **PRESETREF-A:** `scr_preset.cpp` follows the same structural pattern as `scr_weather.cpp` (WEATHERREF-A): all user-visible string literals are gathered into the `kStr*` block at the top of the anonymous namespace for future localization migration to `displayL10n_*.h`. String values are in Russian; constant names stay in English.
-  **PRESETREF-A:** `scr_preset.cpp` следует тому же шаблону, что и `scr_weather.cpp` (WEATHERREF-A): все видимые строки — в блоке `kStr*`; значения на русском, имена констант на английском.
-- **No `installCarouselGesturesOnPageRoot`** — Preset is a Temporary, not a carousel page; it does not register carousel gesture callbacks on its `_screen`.
-- All `lv_*` calls are on **DspTask only** (via `lvgl_ui::taskHandler` → `poll_top_edge_swipe` → event callbacks → LVGL timers).
-- `style_transp()` is defined in the anonymous namespace for potential future use; it is not called in the current implementation.
+- Title `kStrPresets` never changes during feedback; only `_helper` text changes.
+- `_screen` is not clickable; no root-wide dismiss.
+- PRESETREF-A: `style_transp()` removed (was unused).
+- All `lv_*` calls run on DspTask only.
+- Device smoke required before commit.
