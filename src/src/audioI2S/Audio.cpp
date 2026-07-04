@@ -19,6 +19,9 @@
 #include "../core/config.h"
 #include "../core/mem_watchdog.h"
 #include "../core/network.h"
+#if YORADIO_PPM_PCM_TELEMETRY_DIAG
+#include "../core/ppm_pcm_telemetry.h"
+#endif
 #include "AudioEx.h"
 #include "aac_decoder/aac_decoder.h"
 #include "flac_decoder/flac_decoder.h"
@@ -3284,6 +3287,9 @@ void IRAM_ATTR Audio::playChunk() {
     while(m_plCh.validSamples) {
         *m_plCh.sample = m_outBuff.get() + m_plCh.i;
         computeVUlevel(*m_plCh.sample);
+#if YORADIO_PPM_PCM_TELEMETRY_DIAG
+        ppmPcmTelemetryAccumulateFrame((*m_plCh.sample)[LEFTCHANNEL], (*m_plCh.sample)[RIGHTCHANNEL], getSampleRate());
+#endif
 
         //---------- Filterchain, can commented out if not used-------------
         {

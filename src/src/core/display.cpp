@@ -12,6 +12,9 @@
 #include "../lvgl_ui/lv_screensaver.h"
 #include "../lvgl_ui/lv_ui_events.h"
 #include "../ai/ai_subsystem.h"
+#if YORADIO_PPM_PCM_TELEMETRY_DIAG
+#include "ppm_pcm_telemetry.h"
+#endif
 
 // Block 8-E1/E18D: panel flush stats for diag (LVGL direct path via recordLvglDirectPanelFlush).
 // Block 8-E1/E18D: счётчики panel flush для diag (прямой LVGL path).
@@ -473,6 +476,9 @@ void Display::loop() {
     }
   }
   lvgl_ui::taskHandler();
+#if YORADIO_PPM_PCM_TELEMETRY_DIAG
+  ppmPcmTelemetryConsumerService();
+#endif
   dsp.loop();
   #if I2S_DOUT==255
   player.computeVUlevel();
