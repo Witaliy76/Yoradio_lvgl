@@ -20,6 +20,7 @@
 #include "../adapters/station_list_adapter.h"
 #include "../control_glyph_utf8.h"
 #include "../fonts/lv_fonts.h"
+#include "../lv_page_chain.h"
 #include "../lvgl_ui.h"
 #include "../profiles/lv_profile_select.h"
 #include "../theme/lv_theme_yoradio.h"
@@ -36,8 +37,10 @@ namespace {
 
 static constexpr char kStrStationsTitle[]          = "STATIONS";
 static constexpr char kStrCountPlaceholder[]        = "-- / --";
+// Footer hint: scroll instruction + tap-to-Main action, joined by separator.
+// Подсказка footer: инструкция прокрутки + возврат на Main через разделитель.
 static constexpr char kStrHintSwipe[]               = "Swipe up/down to scroll";
-static constexpr char kStrHintTap[]                 = "Tap a station to play";
+static constexpr char kStrHintReturnMain[]          = "Tap to return to Main";
 static constexpr char kStrListBufferAllocFailed[]   = "Station list buffer allocation failed";
 static constexpr char kStrListReadFailed[]          = "Station list read failed\n";
 
@@ -49,7 +52,7 @@ static constexpr char kStrListReadFailed[]          = "Station list read failed\
 static constexpr char kFmtCountCurrentTotal[]  = "%u / %u";
 // Station count: unknown current / Текущая неизвестна
 static constexpr char kFmtCountUnknownTotal[]  = "-- / %u";
-// Hint band: composed from kStrHintSwipe + kMetaFieldSepUtf8 + kStrHintTap / Строка подсказки
+// Hint band: kStrHintSwipe + separator + kStrHintReturnMain / Строка подсказки footer
 static constexpr char kFmtHintBand[]           = "%s%s%s";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -233,6 +236,25 @@ static void add_thin_divider(lv_obj_t* parent, const YoRadioPalette& pal) {
 // Theme helpers / Вспомогательные функции темы
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Footer hint button styling — Weather-style pill with clickable emphasis.
+// Applied to _hint_area on create and on liveReapplyTheme().
+// Does not create objects, register callbacks or change layout values.
+// Стиль кнопки footer — Weather-style pill с кликабельным акцентом.
+// Применяется к _hint_area при create и при liveReapplyTheme(). Не создаёт объекты и не регистрирует callbacks.
+static void style_hint_button(lv_obj_t* obj, const YoRadioPalette& pal) {
+    if (!obj) return;
+    // Normal state / Нормальное состояние
+    lv_obj_set_style_bg_color(obj, pal.panel_background, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(obj, LV_OPA_40, LV_PART_MAIN);
+    lv_obj_set_style_border_color(obj, pal.divider, LV_PART_MAIN);
+    lv_obj_set_style_border_opa(obj, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(obj, kHintBorderWidth + 1, LV_PART_MAIN); // 2 px
+    lv_obj_set_style_radius(obj, kHintRadius, LV_PART_MAIN);
+    // Pressed state / Нажатое состояние
+    lv_obj_set_style_bg_opa(obj, LV_OPA_50, LV_STATE_PRESSED);
+    lv_obj_set_style_border_color(obj, pal.text_meta, LV_STATE_PRESSED);
+}
+
 // Recursive walker: recolors only 1 px dividers (h==1 + OPA_COVER) without touching other objects.
 // Рекурсивный обход: перекрашивает только 1 px разделители без затрагивания других объектов.
 static void station_reapply_dividers(lv_obj_t* obj, const YoRadioPalette& pal) {
@@ -330,9 +352,10 @@ void LvglStationPage::create_list_area(LvglStationPage& self, const YoRadioPalet
     lv_obj_add_event_cb(self._list_area, _listAreaShortClickedEvt, LV_EVENT_SHORT_CLICKED, &self);
 }
 
-// Hint band: quiet info strip at the bottom; not a button.
-// Border uses the divider token (panel_border at low opacity was nearly invisible on dark themes).
-// Band подсказки внизу; не кнопка. Рамка — divider token (panel_border на малой непрозрачности пропадал).
+// Hint band: clickable action strip — tap returns to Main.
+// Uses Weather-style pill button (LV_OPA_40 fill, 2 px border, pressed token).
+// Band: кликабельная полоса — тап возвращает на Main.
+// Weather-style pill: LV_OPA_40 заливка, 2 px рамка, pressed токен.
 void LvglStationPage::create_hint_band(LvglStationPage& self, const YoRadioPalette& pal) {
     if (!self._screen) return;
     self._hint_area = lv_obj_create(self._screen);
@@ -341,20 +364,22 @@ void LvglStationPage::create_hint_band(LvglStationPage& self, const YoRadioPalet
     lv_obj_set_height(self._hint_area, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(self._hint_area, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(self._hint_area, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_bg_color(self._hint_area, pal.panel_background, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(self._hint_area, kHintBgOpa, LV_PART_MAIN);
-    lv_obj_set_style_border_color(self._hint_area, pal.divider, LV_PART_MAIN);
-    lv_obj_set_style_border_opa(self._hint_area, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_width(self._hint_area, kHintBorderWidth, LV_PART_MAIN);
-    lv_obj_set_style_radius(self._hint_area, kHintRadius, LV_PART_MAIN);
     lv_obj_set_style_pad_left(self._hint_area, kHintPadHorizontal, LV_PART_MAIN);
     lv_obj_set_style_pad_right(self._hint_area, kHintPadHorizontal, LV_PART_MAIN);
     lv_obj_set_style_pad_top(self._hint_area, kHintPadVertical, LV_PART_MAIN);
     lv_obj_set_style_pad_bottom(self._hint_area, kHintPadVertical, LV_PART_MAIN);
+    style_hint_button(self._hint_area, pal);
+    // Clickable action surface: _hint_area is the tap target.
+    // GESTURE_BUBBLE propagates horizontal swipes to the PageChain carousel handler on _screen.
+    // Кликабельная поверхность: _hint_area — таргет тапа.
+    // GESTURE_BUBBLE пробрасывает горизонтальные swipes на обработчик карусели на _screen.
+    lv_obj_add_flag(self._hint_area, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(self._hint_area, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_clear_flag(self._hint_area, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(self._hint_area, _hintAreaClickedEvt, LV_EVENT_CLICKED, &self);
 
-    // Inner row: icon + text centered as one unit in the band, not stretched to full width.
-    // Внутренняя строка: иконка + текст как одна единица, выровнены по центру, не растянуты.
+    // Inner row: icon + text centered; row and labels are non-clickable so _hint_area is the tap surface.
+    // Внутренняя строка: иконка + текст по центру; row и labels некликабельны — _hint_area — таргет.
     lv_obj_t* hint_row = lv_obj_create(self._hint_area);
     if (!hint_row) return;
     lv_obj_set_width(hint_row, LV_SIZE_CONTENT);
@@ -363,6 +388,7 @@ void LvglStationPage::create_hint_band(LvglStationPage& self, const YoRadioPalet
     lv_obj_set_flex_align(hint_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(hint_row, kHintRowGap, LV_PART_MAIN);
     style_transparent(hint_row);
+    lv_obj_clear_flag(hint_row, LV_OBJ_FLAG_CLICKABLE);
 
     self._lbl_hint_icon = lv_label_create(hint_row);
     if (self._lbl_hint_icon) {
@@ -370,6 +396,7 @@ void LvglStationPage::create_hint_band(LvglStationPage& self, const YoRadioPalet
         station_set_font(self._lbl_hint_icon, kFontHintIcon);
         lv_obj_set_style_text_color(self._lbl_hint_icon, pal.text_secondary, LV_PART_MAIN);
         lv_obj_set_style_text_align(self._lbl_hint_icon, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+        lv_obj_clear_flag(self._lbl_hint_icon, LV_OBJ_FLAG_CLICKABLE);
     }
 
     self._lbl_hint_text = lv_label_create(hint_row);
@@ -379,7 +406,7 @@ void LvglStationPage::create_hint_band(LvglStationPage& self, const YoRadioPalet
             // kMetaFieldSepUtf8 совпадает с k_meta_field_sep из scr_main побайтово (U+2022).
             char hint_buf[kHintBufferSize];
             snprintf(hint_buf, sizeof(hint_buf), kFmtHintBand,
-                     kStrHintSwipe, kMetaFieldSepUtf8, kStrHintTap);
+                     kStrHintSwipe, kMetaFieldSepUtf8, kStrHintReturnMain);
             lv_label_set_text(self._lbl_hint_text, hint_buf);
         }
         station_set_font(self._lbl_hint_text, kFontHintText);
@@ -392,10 +419,11 @@ void LvglStationPage::create_hint_band(LvglStationPage& self, const YoRadioPalet
         const lv_coord_t max_w = static_cast<lv_coord_t>(
             LV_ACTIVE_PROFILE.width
             - 2u * static_cast<uint32_t>(LV_ACTIVE_PROFILE.frame_padding)
-            - 32u - 20u - 40u);
+            - 32u - 20u - 30u);
         if (max_w > kHintMinTextWidth) {
             lv_obj_set_width(self._lbl_hint_text, max_w);
         }
+        lv_obj_clear_flag(self._lbl_hint_text, LV_OBJ_FLAG_CLICKABLE);
     }
 }
 
@@ -1117,6 +1145,24 @@ void LvglStationPage::_onListAreaShortClicked(lv_event_t* e) {
     station_list_adapter::play_station(station_num);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Footer action / Действие футера
+// ─────────────────────────────────────────────────────────────────────────────
+
+void LvglStationPage::_hintAreaClickedEvt(lv_event_t* e) {
+    auto* self = static_cast<LvglStationPage*>(lv_event_get_user_data(e));
+    if (self) self->_onHintAreaClicked(e);
+}
+
+// Clean tap on footer: request Main via PageChain. Audio continues.
+// Чистый тап на footer: запрос Main через PageChain. Аудио продолжает играть.
+void LvglStationPage::_onHintAreaClicked(lv_event_t* e) {
+    if (!_hint_area || !e) return;
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (lv_event_get_target(e) != _hint_area) return;
+    lvgl_ui::goToCarouselPage(PageChain::MAIN_INDEX);
+}
+
 bool LvglStationPage::_ensureListTextBuffer(uint16_t total) {
     const size_t needed = static_cast<size_t>(total > 0u ? total : 1u) * kStationLineBytes + kStationListExtraBytes;
     if (_list_text && _list_text_cap >= needed) return true;
@@ -1156,9 +1202,10 @@ void LvglStationPage::liveReapplyTheme() {
     if (_lbl_count) lv_obj_set_style_text_color(_lbl_count, pal.text_secondary, LV_PART_MAIN);
     if (_lbl_list) lv_obj_set_style_text_color(_lbl_list, pal.list_row_text, LV_PART_MAIN);
 
+    // Reapply footer button style (normal + pressed states) and text colors.
+    // Обновить стиль кнопки footer (нормальное + нажатое) и цвета текста.
     if (_hint_area) {
-        lv_obj_set_style_bg_color(_hint_area, pal.panel_background, LV_PART_MAIN);
-        lv_obj_set_style_border_color(_hint_area, pal.divider, LV_PART_MAIN);
+        style_hint_button(_hint_area, pal);
     }
     if (_lbl_hint_icon) lv_obj_set_style_text_color(_lbl_hint_icon, pal.text_secondary, LV_PART_MAIN);
     if (_lbl_hint_text) lv_obj_set_style_text_color(_lbl_hint_text, pal.text_secondary, LV_PART_MAIN);

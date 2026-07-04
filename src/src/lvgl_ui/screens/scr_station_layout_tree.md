@@ -195,20 +195,40 @@ Count formats:
 
 ---
 
-## Hint band geometry
+## Hint band geometry and behavior
 
 ```
-kHintBorderWidth = 1 px
+kHintBorderWidth + 1 = 2 px  border (clickable emphasis, was 1 px non-clickable)
 kHintRadius = 14 px
 kHintPadHorizontal = 16 px   left + right
 kHintPadVertical = 10 px     top + bottom
 kHintRowGap = 10 px          gap between icon and text in hint_row
-kHintBgOpa = LV_OPA_30
+normal bg opacity: LV_OPA_40 (Weather-style pill button)
+pressed bg opacity: LV_OPA_50
+pressed border color: pal.text_meta
 ```
 
-Hint text: `kFmtHintBand` = `"%s%s%s"` → `kStrHintSwipe + kMetaFieldSepUtf8 + kStrHintTap`.
-`kMetaFieldSepUtf8` = `" \xE2\x80\xA2 "` — same bullet U+2022 as `scr_main`.
+Hint text: `kStrHintReturnMain` = `"Tap to return to Main"`.
 Width capped at `LV_ACTIVE_PROFILE.width - 2×frame_padding - 32 - 20 - 40`, min `kHintMinTextWidth=80`.
+
+**`_hint_area` is a clickable action surface (STATIONUX-1):**
+- `LV_OBJ_FLAG_CLICKABLE` — taps register as `LV_EVENT_CLICKED` on `_hint_area`
+- `LV_OBJ_FLAG_GESTURE_BUBBLE` — horizontal swipes propagate to the PageChain carousel handler on `_screen`
+- `hint_row`, `_lbl_hint_icon`, `_lbl_hint_text` have `CLICKABLE` cleared — `_hint_area` is the sole tap target
+- Clean tap → `_hintAreaClickedEvt` → `_onHintAreaClicked` → `lvgl_ui::goToCarouselPage(PageChain::MAIN_INDEX)`
+- This is a direct PageChain transition, not "back"; audio continues
+- Horizontal swipe starting on footer → normal PageChain gesture; no accidental Main navigation
+
+Event route:
+```
+LV_EVENT_CLICKED on _hint_area
+→ _hintAreaClickedEvt() (static wrapper)
+→ _onHintAreaClicked()
+→ lvgl_ui::goToCarouselPage(PageChain::MAIN_INDEX)
+→ Station exit + PageChain transition + Main enter
+```
+
+Station list input pipeline is independent from footer.
 
 ---
 
@@ -454,6 +474,8 @@ No new general rollback was added in STATIONFIX-1, STATIONREF-A, or STATIONREF-B
 **STATIONREF-A** (`ca15d7e`, `E43S`): structural/layout refactor — UI resource sections, font/glyph/layout constants, private static builders, short `create()`, layout tree documentation.
 
 **STATIONREF-B** (`cf6d018`, `E44S`): runtime list/buffer/signature/overlay pipeline — `_clearStationListVisuals()`, `_showStationListAllocationError()`, `_createStationListLabelFromBuffer()`, focus/marker style/position/ensure helpers. Behavior preserved byte-for-byte.
+
+**STATIONUX-1** (`E46S`): footer becomes clickable action button — tap returns to Main. Weather-style pill button emphasis. `kStrHintReturnMain = "Tap to return to Main"`. Carousel swipe over footer still works.
 
 **STATIONREF-C** (`E45S`): pointer/touch and input-state pipeline — pure math helpers (`abs_i32`, `max_i32`, `manhattan_distance`), stroke tracking helpers (`_resetListStrokeTracking`, `_captureListPressBaseline`, `_updateListStrokePeaks`, `_isTrackedStrokeScrollLike`, `_consumeListFocusSuppression`), `_resetListInputState()` called from `_nullHandles()`. `_onListArea*` handlers reorganized as readable orchestration; all thresholds and guard order preserved.
 

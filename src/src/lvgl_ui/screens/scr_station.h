@@ -59,6 +59,12 @@ private:
     static void create_list_area(LvglStationPage& self, const YoRadioPalette& pal);
     static void create_hint_band(LvglStationPage& self, const YoRadioPalette& pal);
 
+    // ── Footer action / Действие футера ────────────────────────────────────
+    // Tap on _hint_area requests Main. Audio continues.
+    // Тап на _hint_area запрашивает Main. Аудио продолжает играть.
+    static void _hintAreaClickedEvt(lv_event_t* e);
+    void _onHintAreaClicked(lv_event_t* e);
+
     lv_obj_t* _screen = nullptr;
     wgt_status_line::Instance _status_line{};
 
