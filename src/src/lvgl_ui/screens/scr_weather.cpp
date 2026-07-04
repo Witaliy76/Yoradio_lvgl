@@ -119,6 +119,12 @@ static const char* const kStrForecastWaiting = "Ожидание данных о
 static const char* const kStrForecastNotLoaded = "Прогноз ещё не загружен";
 static const char* const kStrWeatherUnavail  = "Погода недоступна";
 static const char* const kStrPleaseWait      = "Пожалуйста, подождите";
+// E38W-defer UX: resource defer (InternalLow) — user-visible, no raw "heap" wording.
+// E38W-defer UX: отложено из‑за нехватки системной памяти — без термина heap.
+static const char* const kStrDeferMemoryCenter =
+    "Недостаточно системной памяти. Обновление прогноза отложено, подождите.";
+static const char* const kStrFooterDeferStatus =
+    "Недостаточно системной памяти \xE2\x80\xA2 обновление прогноза отложено";
 static const char* const kStrTemporarilyUnavailable = "Погода временно недоступна";
 static const char* const kStrDataMayBeOutdated = "Данные могут быть устаревшими";
 static const char* const kStrCheckSettings   = "Проверьте настройки погоды";
@@ -831,6 +837,7 @@ static void wx_format_footer_action(char* buf, size_t cap, const char* status, c
 
 static void wx_format_footer(char* buf, size_t cap, bool wx_enabled, bool have_data,
                              bool show_refreshing, bool effective_stale,
+                             bool resource_deferred,
                              uint32_t forecast_updated_at_ms, bool unavailable_no_data,
                              const WeatherLocation* loc) {
     if (!buf || cap == 0) return;
@@ -852,6 +859,10 @@ static void wx_format_footer(char* buf, size_t cap, bool wx_enabled, bool have_d
     }
     if (!wx_enabled) {
         wx_format_footer_action(buf, cap, kStrWeatherUnavail, kStrFooterTapRetry, nullptr);
+        return;
+    }
+    if (resource_deferred) {
+        wx_format_footer_action(buf, cap, kStrFooterDeferStatus, kStrFooterTapRefresh, loc_p);
         return;
     }
     if (!have_data) {
@@ -1256,7 +1267,7 @@ void LvglWeatherPage::_onFooterRefreshClick(lv_event_t* e) {
     char fb[kFooterTextCap];
     const bool wxEnabled = config.store.showweather && (strlen(config.store.weatherkey) > 0);
     const bool haveData = snap.forecast_valid && snap.current.valid;
-    wx_format_footer(fb, sizeof(fb), wxEnabled, haveData, true, false,
+    wx_format_footer(fb, sizeof(fb), wxEnabled, haveData, true, false, false,
                      snap.forecast_updated_at, false, &snap.location);
     wx_footer_maybe_add_trailing_sep(fb, sizeof(fb), self->_lbl_footer);
     wx_set_text_if_changed(self->_lbl_footer, fb);
@@ -1323,7 +1334,8 @@ struct LvglWeatherPage::WeatherViewState {
     bool stale_by_age;
     bool effective_stale;
     bool show_refreshing_footer;
-    uint32_t view_sig;        // matches _rendered_view_sig type (bits 0..5)
+    bool resource_deferred;   // InternalLow — forecast deferred (memory admission) / прогноз отложен
+    uint32_t view_sig;        // matches _rendered_view_sig type (bits 0..6)
     uint32_t minute_bucket;   // matches _rendered_minute_bucket
     uint32_t day_key;         // matches _rendered_day_key
 };
@@ -1359,6 +1371,8 @@ LvglWeatherPage::_deriveViewState(const WeatherState& snap, uint32_t now_ms) con
     v.stale_by_age =
         v.have_data && snap.forecast_updated_at != 0u && ageMs > WEATHER_STALE_AFTER_MS;
     v.effective_stale = v.have_data && (snap.stale || v.stale_by_age);
+    v.resource_deferred =
+        v.wx_enabled && (snap.last_error == WeatherLastError::InternalLow);
     v.show_refreshing_footer =
         v.have_data && (_manual_refresh_pending || snap.fetch_in_progress);
 
@@ -1371,6 +1385,7 @@ LvglWeatherPage::_deriveViewState(const WeatherState& snap, uint32_t now_ms) con
     view_sig |= v.unavailable_without_data ? (1u << 3) : 0u;
     view_sig |= v.effective_stale          ? (1u << 4) : 0u;
     view_sig |= v.show_refreshing_footer   ? (1u << 5) : 0u;
+    view_sig |= v.resource_deferred        ? (1u << 6) : 0u;
     v.view_sig = view_sig;
 
     // Footer age bucket: changes once per displayed minute; UINT32_MAX when age is not shown.
@@ -1429,6 +1444,7 @@ void LvglWeatherPage::_updateFooterText(const WeatherState& snap, const WeatherV
     char footer_buf[kFooterTextCap];
     wx_format_footer(footer_buf, sizeof(footer_buf), view.wx_enabled, view.have_data,
                      view.show_refreshing_footer, view.effective_stale,
+                     view.resource_deferred,
                      snap.forecast_updated_at, view.unavailable_without_data,
                      &snap.location);
     wx_footer_maybe_add_trailing_sep(footer_buf, sizeof(footer_buf), _lbl_footer);
@@ -1449,7 +1465,8 @@ void LvglWeatherPage::_renderEmptyState(const WeatherViewState& view) {
     } else if (view.unavailable_without_data) {
         wx_set_text_if_changed(_lbl_message, kStrTemporarilyUnavailable);
     } else if (view.loading_without_data) {
-        wx_set_text_if_changed(_lbl_message, kStrPleaseWait);
+        wx_set_text_if_changed(_lbl_message,
+                               view.resource_deferred ? kStrDeferMemoryCenter : kStrPleaseWait);
     } else {
         wx_set_text_if_changed(_lbl_message, kStrForecastWaiting);
     }

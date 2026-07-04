@@ -147,9 +147,29 @@ static inline int32_t owm_local_day_key(int64_t utcSeconds, int32_t timezoneOffs
 WeatherState s_builder;
 
 // ── Diagnostics / Диагностика ──────────────────────────────────────────────────
+// Product reject line — always on (not gated by YORADIO_WEATHER_*_DIAG).
+// Строка отклонения forecast — всегда в UART; не под compile-time diag flags.
+void fc_log_reject(const char* reason, size_t int_free, size_t int_block,
+                   size_t required, uint8_t pending) {
+    Serial.printf("[WEATHER_FC] reject reason=%s int_free=%u int_block=%u required=%u pending=%u\n",
+                  reason,
+                  (unsigned)int_free,
+                  (unsigned)int_block,
+                  (unsigned)required,
+                  (unsigned)pending);
+}
+
+void fc_log_reject_psram(const char* reason, size_t int_free,
+                         size_t ps_free, size_t ps_block) {
+    Serial.printf("[WEATHER_FC] reject reason=%s int_free=%u psram_free=%u psram_block=%u pending=0\n",
+                  reason,
+                  (unsigned)int_free,
+                  (unsigned)ps_free,
+                  (unsigned)ps_block);
+}
+
 void fc_log_skip(const char* reason, size_t int_free, size_t ps_free, size_t ps_block) {
-    Serial.printf("[WEATHER_FC] skip reason=%s int_free=%u psram_free=%u psram_block=%u\n",
-                  reason, (unsigned)int_free, (unsigned)ps_free, (unsigned)ps_block);
+    fc_log_reject_psram(reason, int_free, ps_free, ps_block);
 }
 
 void fc_log_fail(const char* stage, uint32_t t0, int httpCode) {
@@ -471,19 +491,21 @@ bool weatherForecastPollPending() {
     s_fc_pending_check_ms = now;
 
     if (ps_free == 0 || ps_block < kMinPsramBlockBytes) {
+        fc_log_reject_psram("psram_low", int_free, ps_free, ps_block);
         return false;
     }
 
     if (int_free < kPendingTaskAdmissionMinFreeBytes ||
         int_block < static_cast<size_t>(kDoSyncTaskStackBytes)) {
-#if YORADIO_WEATHER_REQ_DIAG
         const bool heap_low  = int_free < kPendingTaskAdmissionMinFreeBytes;
         const bool stack_low = int_block < static_cast<size_t>(kDoSyncTaskStackBytes);
         // Distinct reasons — heap floor vs contiguous block for doSync stack allocation.
         // Разные причины — порог heap vs непрерывный блок под стек doSync.
-        const char* reason = (heap_low && stack_low) ? "heap_and_stack_low"
-                             : heap_low ? "heap_low"
-                             : "stack_block_low";
+        const char* reason = (heap_low && stack_low) ? "pending_heap_and_stack_low"
+                             : heap_low ? "pending_heap_low"
+                             : "pending_stack_block_low";
+        fc_log_reject(reason, int_free, int_block, kPendingTaskAdmissionMinFreeBytes, 1);
+#if YORADIO_WEATHER_REQ_DIAG
         Serial.printf("[WEATHER_FC] pending wait reason=%s int_free=%u heap_required=%u int_block=%u stack_required=%u\n",
                       reason,
                       (unsigned)int_free, (unsigned)kPendingTaskAdmissionMinFreeBytes,
@@ -536,11 +558,12 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
         return WeatherForecastFetchResult::Failed; // keep last-known-good
     }
     if (int_free < kMinInternalFreeBytes) {
+        const size_t int_block = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+        fc_log_reject("internal_low", int_free, int_block, kMinInternalFreeBytes, 1);
         weatherForecastMarkPending();
 #if YORADIO_WEATHER_REQ_DIAG
         Serial.printf("[WEATHER_FC] defer reason=internal_low pending=1 int_free=%u int_block=%u\n",
-                      (unsigned)int_free,
-                      (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
+                      (unsigned)int_free, (unsigned)int_block);
 #endif
         return WeatherForecastFetchResult::DeferredInternalLow;
     }
