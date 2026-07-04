@@ -565,9 +565,11 @@ bool LvglStationPage::_candidateStationFromScreenPoint(lv_coord_t screen_px, lv_
 void LvglStationPage::_populateStationList() {
     if (!_list_area) return;
 
+    // Delete explicitly tracked overlays before cleaning the remaining list children.
+    // Явно удаляем overlays до очистки остальных children списка.
+    _destroyStationOverlays();
     lv_obj_clean(_list_area);
     _lbl_list = nullptr;
-    _destroyStationOverlays();
 
     const uint16_t current = station_list_adapter::current_station_num();
     const uint16_t tot = station_list_adapter::station_count();
