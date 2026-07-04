@@ -11,15 +11,17 @@
 
 namespace lvgl_ui {
 
-// E4/E5B: per-channel PPM ballistics state (visual attack/hold/release).
-// E4/E5B: состояние PPM-баллистики на канал (visual attack/hold/release).
+// Per-channel PPM ballistics state — attack/hold/release for one VU channel (L or R).
+// Состояние PPM-баллистики на канал — attack/hold/release для одного VU канала (L или R).
 struct PpmChannelState {
     float    displayed_db;
     uint32_t hold_remaining_ms;
 };
 
-// Visual Page E6C1 — Beocord museum + status chrome + static metadata (fade in E6C2).
-// Visual Page E6C1 — Beocord + status row + статические метаданные (fade в E6C2).
+// Visual Page — Beocord museum VU + status chrome + metadata (station/artist/song).
+// Metadata is static at full opacity; fade animation is not implemented.
+// Visual Page — Beocord музейный VU + status row + метаданные (станция/артист/трек).
+// Метаданные статические с полной непрозрачностью; fade анимация не реализована.
 class LvglVisualPage final : public ILvglScreen {
 public:
     ScreenType screenType() const override;
@@ -64,8 +66,8 @@ private:
     lv_obj_t* _overlay_layer = nullptr;
     lv_obj_t* _segment_img[2][8] = {};
 
-    // E6C1: canonical status chrome + shared metadata layer (E6C2 fade target).
-    // E6C1: канонический status row + общий metadata layer (цель fade E6C2).
+    // Status chrome (status line + divider) and floating metadata layer.
+    // Status chrome (status line + разделитель) и floating слой метаданных.
     wgt_status_line::Instance _status_line{};
     lv_obj_t*               _status_divider = nullptr;
     lv_obj_t*               _metadata_layer = nullptr;
@@ -85,11 +87,11 @@ private:
     lv_timer_t*     _ppm_timer = nullptr;
     uint32_t        _last_timer_tick = 0;
 
-    // E5B: real PCM hybrid source state (DspTask consumer only).
-    // E5B: состояние гибридного PCM source (только consumer в DspTask).
+    // PCM hybrid source state — consumed exclusively in DspTask via PPM timer callback.
+    // Состояние PCM hybrid source — потребляется только в DspTask через PPM timer callback.
     uint32_t _last_pcm_block_id = 0u;
     uint32_t _last_pcm_seen_tick = 0u;
-    uint32_t _last_pcm_sample_rate = 0u;
+    uint32_t _last_pcm_sample_rate = 0u;  // Diagnostic/future-use; currently write-only.
     int      _last_station_id = -1;
     bool     _pcm_source_enabled = false;
     float    _pcm_target_db[2] = {};

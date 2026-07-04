@@ -1,9 +1,17 @@
 /*
- * LvglVisualPage — Visual carousel page E6C1: Beocord + status chrome + static metadata.
- * LvglVisualPage — страница Visual E6C1: Beocord + status row + статические метаданные.
+ * LvglVisualPage — Visual carousel page: Beocord museum VU + status chrome + static metadata.
+ * LvglVisualPage — страница Visual: Beocord VU + status row + статические метаданные.
  *
- * - ILvglScreen lifecycle via PageChain (W2F auto-delete on carousel switch).
- * - DspTask-only lv_*; E5B PPM; E6C1 metadata via Display::loop ~1 Hz (not PPM timer).
+ * Layout: background (PSRAM LittleFS) + overlay (segment grid 2×8) + metadata layer +
+ *         status chrome. Two independent update cadences:
+ *   PPM timer: 30 ms (LVGL timer, DspTask) — segment visibility.
+ *   page update: Display loop cadence — status line + metadata.
+ *
+ * DspTask-only lv_*; PCM PPM via hybrid RMS/peak; ILvglScreen lifecycle via PageChain.
+ * PageChain auto-delete on carousel switch; PSRAM freed in releaseAfterAutoDelete().
+ *
+ * Макет: фон (PSRAM + LittleFS) + overlay (2×8 сегментов) + слой метаданных + status chrome.
+ * Два независимых cadence: PPM таймер 30 мс (сегменты), Display loop (status + metadata).
  */
 
 #include "scr_visual.h"
@@ -29,8 +37,8 @@ namespace lvgl_ui {
 
 namespace {
 
-// E3/E4: fixed museum segment colors (not yoradio_palette()).
-// E3/E4: фиксированные музейные цвета сегментов (не из темы).
+// Fixed museum segment colors — not from yoradio_palette(); remain constant across all themes.
+// Фиксированные музейные цвета сегментов — не из темы; постоянны при любой теме.
 static const lv_color_t kBeocordMuseumGreen = lv_color_hex(0x59F08A);
 static const lv_color_t kBeocordMuseumRed   = lv_color_hex(0xF06868);
 
@@ -38,8 +46,8 @@ static constexpr uint8_t kBeocordChannelCount         = 2u;
 static constexpr uint8_t kBeocordSegmentsPerChannel = 8u;
 static constexpr uint8_t kBeocordGreenSegmentCount  = 5u; // indices 0..4 green, 5..7 red
 
-// E4/E5B: PPM scale, ballistics and fixed hybrid calibration (shared all stations).
-// E4/E5B: шкала PPM, баллистика и фиксированная гибридная калибровка (все станции).
+// PPM scale, ballistics and hybrid calibration — shared by all stations, not configurable at runtime.
+// Шкала PPM, баллистика и гибридная калибровка — общие для всех станций, не меняются в рантайме.
 static constexpr float kPpmThresholdDb[8] = {
     -20.0f, -8.0f, -3.0f, -1.0f, 0.0f, 1.0f, 2.0f, 5.0f,
 };
@@ -58,8 +66,8 @@ static constexpr float kPpmActivityGain                = 1.5f;
 static constexpr float kPpmActivityDownLimitDb           = 2.0f;
 static constexpr float kPpmActivityUpLimitDb           = 1.0f;
 
-// E6C1-R3: metadata geometry — screen-centered artist/song; optical station x offset.
-// E6C1-R3: геометрия метаданных — artist/song по центру экрана; оптическая поправка station x.
+// Metadata geometry — screen-centered artist/song labels; small optical x offset for station name.
+// Геометрия метаданных — artist/song по центру экрана; небольшая оптическая поправка x для station.
 static constexpr lv_coord_t kMetaStationX = 19;
 static constexpr lv_coord_t kMetaStationY = 74;
 static constexpr lv_coord_t kMetaStationW = 432;
@@ -148,8 +156,8 @@ static lv_color_t segment_recolor_for_index(uint8_t seg_index) {
     return (seg_index < kBeocordGreenSegmentCount) ? kBeocordMuseumGreen : kBeocordMuseumRed;
 }
 
-// E4: map displayed dB to contiguous lit segment count 0..8.
-// E4: отображаемый dB → число подсвеченных сегментов 0..8 слева направо.
+// Map displayed dB to contiguous lit segment count 0..8 (left-to-right).
+// Перевод отображаемого dB в количество подсвеченных сегментов 0..8 (слева направо).
 static uint8_t db_to_segment_count(float db) {
     if (db < kPpmThresholdDb[0]) return 0u;
 
@@ -160,8 +168,8 @@ static uint8_t db_to_segment_count(float db) {
     return count;
 }
 
-// E4: attack / hold / release for one channel (L and R are independent).
-// E4: attack / hold / release для одного канала (L и R независимы).
+// Attack / hold / release for one channel; L and R are fully independent.
+// Attack / hold / release для одного канала; L и R полностью независимы.
 static void update_channel_ballistics(PpmChannelState& state, float target_db, uint32_t dt_ms) {
     if (target_db >= state.displayed_db) {
         state.displayed_db      = target_db;
@@ -207,8 +215,8 @@ static float rms_to_dbfs(uint64_t sum_squares, uint32_t frames) {
     return clamp_measure_dbfs(20.0f * log10f(static_cast<float>(rms / 32768.0)));
 }
 
-// E5B-R1: slow RMS anchor + bounded fast RMS activity + transient crest lift.
-// E5B-R1: slow RMS anchor + ограниченная fast RMS activity + transient crest lift.
+// Hybrid target: slow RMS anchor + bounded fast-RMS activity offset + transient crest lift.
+// Гибридный target: slow RMS база + ограниченный fast-RMS offset + transient crest lift.
 static float hybrid_target_db(uint16_t short_peak,
                               uint64_t slow_rms_sum_squares,
                               uint32_t slow_rms_frames,
@@ -288,14 +296,14 @@ static bool bg_load_into_psram(const char* fs_path, uint8_t*& out_buf, lv_img_ds
     return true;
 }
 
-} // namespace
-
 // ─────────────────────────────────────────────────────────────────────────────
-// Layout builders / Билдеры разметки
+// Layout factory helpers / Вспомогательные фабрики layout
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Main-exact status divider — scr_main.cpp create_status_line (L644–664).
-// Разделитель status row — дословно как create_status_line на Main.
+// 1 px status divider — matches Main status-divider geometry.
+// Theme default adds "card" padding to bare lv_obj; zeroed so the line aligns with content width.
+// 1 px разделитель — соответствует геометрии status divider на Main.
+// Тема LVGL добавляет "card" padding к lv_obj; обнуляем, чтобы линия совпадала с шириной контента.
 static lv_obj_t* visual_create_status_divider(lv_obj_t* parent, const YoRadioPalette& pal) {
     lv_obj_t* status_divider = lv_obj_create(parent);
     if (!status_divider) return nullptr;
@@ -304,12 +312,16 @@ static lv_obj_t* visual_create_status_divider(lv_obj_t* parent, const YoRadioPal
     lv_obj_set_style_bg_color(status_divider, pal.divider, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(status_divider, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(status_divider, 0, LV_PART_MAIN);
-    // lv_theme_default adds "card" pad to base lv_obj — zero so line matches content width below.
-    // Тема LVGL даёт lv_obj лишний pad — обнуляем, линия совпадает с шириной контента.
     lv_obj_set_style_pad_all(status_divider, 0, LV_PART_MAIN);
     lv_obj_clear_flag(status_divider, LV_OBJ_FLAG_SCROLLABLE);
     return status_divider;
 }
+
+} // namespace
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Layout builders / Билдеры разметки
+// ─────────────────────────────────────────────────────────────────────────────
 
 void LvglVisualPage::create_status_chrome(LvglVisualPage& self, const YoRadioPalette& pal) {
     if (!self._screen) return;
@@ -341,7 +353,8 @@ void LvglVisualPage::create_metadata_layer(LvglVisualPage& self, const YoRadioPa
     lv_obj_set_style_border_width(self._metadata_layer, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(self._metadata_layer, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(self._metadata_layer, 0, LV_PART_MAIN);
-    // E6C1: full opacity — E6C2 will animate this layer. / E6C1: полная непрозрачность — E6C2 анимирует слой.
+    // Metadata is currently static at full opacity; animation is not implemented.
+    // Метаданные сейчас со статической полной непрозрачностью; анимация не реализована.
     lv_obj_set_style_opa(self._metadata_layer, LV_OPA_COVER, LV_PART_MAIN);
 
     self._lbl_station = lv_label_create(self._metadata_layer);
@@ -443,6 +456,10 @@ void LvglVisualPage::create_segment_grid(LvglVisualPage& self) {
     }
 }
 
+// Creates and pauses the LVGL PPM timer; runtime resource, not a visual layer.
+// Guard: no-op if asset pack absent or timer already exists.
+// Создаёт и ставит на паузу LVGL PPM таймер — runtime ресурс, а не визуальный слой.
+// Защита: no-op при отсутствии asset pack или уже созданном таймере.
 void LvglVisualPage::create_ppm_timer(LvglVisualPage& self) {
     if (!kBeocordVuAssetPack.segment_mask) return;
     if (self._ppm_timer) return;
@@ -741,16 +758,16 @@ void LvglVisualPage::create() {
 
     const YoRadioPalette& pal = yoradio_palette();
     lv_obj_set_style_bg_color(_screen, pal.device_background, LV_PART_MAIN);
-    // Main-exact root chrome contract — scr_main.cpp create() L1678–1687.
-    // Контракт корневого chrome как на Main.
+    // Shared root chrome contract: pad_all, pad_row, flex COLUMN — matches Main root.
+    // Общий контракт корневого chrome: pad_all, pad_row, flex COLUMN — как на Main.
     lv_obj_set_style_pad_all(_screen, pad, LV_PART_MAIN);
     lv_obj_set_style_pad_row(_screen, 4, LV_PART_MAIN);
     lv_obj_set_flex_flow(_screen, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(_screen, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_clear_flag(_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Main order: floating bg first, then flex status chrome (scr_main.cpp L1689–1713).
-    // Порядок Main: сначала floating bg, затем flex status chrome.
+    // Floating layers first (bg, overlay, metadata), then flex-managed chrome — matches Main root contract.
+    // Сначала floating-слои (bg, overlay, metadata), затем flex-управляемый chrome — контракт как на Main.
     create_background(*this);
     create_overlay_layer(*this);
     create_segment_grid(*this);
@@ -759,8 +776,10 @@ void LvglVisualPage::create() {
 
     lv_obj_update_layout(_screen);
 
-    // Z-order only — chrome stays layout-managed (not FLOATING).
-    // Только z-order — chrome остаётся в flex (без FLOATING).
+    // Status chrome is flex-managed (not FLOATING); explicit move_foreground makes it render above
+    // the floating layers (bg, overlay, metadata) which were created first.
+    // Status chrome управляется flex (не FLOATING); явный move_foreground делает его поверх
+    // floating слоёв (bg, overlay, metadata), созданных раньше.
     if (_status_line.root) lv_obj_move_foreground(_status_line.root);
     if (_status_divider) lv_obj_move_foreground(_status_divider);
 
@@ -790,8 +809,8 @@ void LvglVisualPage::enter() {
     if (_ppm_timer) lv_timer_resume(_ppm_timer);
     _applyBackgroundImage();
 
-    // E6C1: immediate chrome/metadata snapshot (do not wait for 1 Hz tick).
-    // E6C1: немедленный снимок chrome/metadata (не ждать 1 Гц).
+    // Immediate chrome/metadata snapshot on enter — do not wait for page update tick.
+    // Немедленный снимок chrome/metadata при входе — не ждать следующего page update тика.
     if (_status_line.root) wgt_status_line::update(_status_line);
     _refreshMetadata(true);
 }
@@ -808,8 +827,8 @@ void LvglVisualPage::exit() {
 }
 
 void LvglVisualPage::liveReapplyTheme() {
-    // E6B: museum background follows active theme; segment colors stay fixed museum green/red.
-    // E6B: музейный фон по активной теме; цвета сегментов — фиксированные museum green/red.
+    // Background asset follows active theme; segment colors stay fixed museum green/red.
+    // Фон следует активной теме; цвета сегментов остаются фиксированными museum green/red.
     if (!_screen) return;
 
     const YoRadioPalette& pal = yoradio_palette();
