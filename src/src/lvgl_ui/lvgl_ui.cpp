@@ -370,6 +370,14 @@ void lvgl_ui::refreshStationScreen() {
     s_station_page.update();
 }
 
+// E6C1: refresh Visual status row + static metadata while Visual slot is active.
+// E6C1: обновление status row и статических метаданных на слоте Visual.
+void lvgl_ui::refreshVisualScreen() {
+    if (!lvgl_page_refresh_allowed()) return;
+    if (s_page_chain.currentIndex() != PageChain::VISUAL_INDEX) return;
+    s_visual_page.update();
+}
+
 void lvgl_ui::onMainBackgroundSlotCommitted(uint8_t slot) {
     if (slot > 2u) {
         return;
@@ -805,6 +813,12 @@ bool lvgl_ui::isLvglCarouselOnStationSlot() {
 // Weather W2: карусель на слоте Weather (индекс 4) — основание для refresh ~1 Гц в Display::loop.
 bool lvgl_ui::isLvglCarouselOnWeatherSlot() {
     return s_page_chain.currentIndex() == PageChain::WEATHER_INDEX;
+}
+
+// E6C1: carousel currently on the Visual slot (index 2).
+// E6C1: карусель на слоте Visual (индекс 2).
+bool lvgl_ui::isLvglCarouselOnVisualSlot() {
+    return s_page_chain.currentIndex() == PageChain::VISUAL_INDEX;
 }
 
 bool lvgl_ui::isWifiSetupFlowActive() {

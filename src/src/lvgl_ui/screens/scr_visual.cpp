@@ -1,9 +1,9 @@
 /*
- * LvglVisualPage — Visual carousel page E5B: Beocord museum background + real PCM hybrid PPM.
- * LvglVisualPage — страница Visual E5B: музейный фон Beocord + гибридная PPM от реального PCM.
+ * LvglVisualPage — Visual carousel page E6C1: Beocord + status chrome + static metadata.
+ * LvglVisualPage — страница Visual E6C1: Beocord + status row + статические метаданные.
  *
  * - ILvglScreen lifecycle via PageChain (W2F auto-delete on carousel switch).
- * - DspTask-only lv_*; E5B: pre-Gain PCM via ppm_pcm_level + accepted E4 ballistics.
+ * - DspTask-only lv_*; E5B PPM; E6C1 metadata via Display::loop ~1 Hz (not PPM timer).
  */
 
 #include "scr_visual.h"
@@ -17,9 +17,12 @@
 #include <LittleFS.h>
 
 #include "../../core/config.h"
+#include "../../core/player.h"
 #include "../../core/ppm_pcm_level.h"
+#include "../fonts/lv_fonts.h"
 #include "../profiles/lv_profile_select.h"
 #include "../theme/lv_theme_yoradio.h"
+#include "../widgets/wgt_status_line.h"
 #include "lvgl_ui.h"
 
 namespace lvgl_ui {
@@ -54,6 +57,79 @@ static constexpr float kPpmTransientBoostMaxDb         = 4.0f;
 static constexpr float kPpmActivityGain                = 1.5f;
 static constexpr float kPpmActivityDownLimitDb           = 2.0f;
 static constexpr float kPpmActivityUpLimitDb           = 1.0f;
+
+// E6C1-R3: metadata geometry — screen-centered artist/song; optical station x offset.
+// E6C1-R3: геометрия метаданных — artist/song по центру экрана; оптическая поправка station x.
+static constexpr lv_coord_t kMetaStationX = 19;
+static constexpr lv_coord_t kMetaStationY = 74;
+static constexpr lv_coord_t kMetaStationW = 432;
+static constexpr lv_coord_t kMetaStationH = 28;
+static constexpr lv_coord_t kMetaArtistX  = 40;
+static constexpr lv_coord_t kMetaArtistY  = 352;
+static constexpr lv_coord_t kMetaArtistW  = 400;
+static constexpr lv_coord_t kMetaArtistH  = 28;
+static constexpr lv_coord_t kMetaSongX    = 40;
+static constexpr lv_coord_t kMetaSongY    = 384;
+static constexpr lv_coord_t kMetaSongW    = 400;
+static constexpr lv_coord_t kMetaSongH    = 22;
+
+static void visual_set_font(lv_obj_t* obj, const void* font_slot) {
+    if (!obj || !font_slot) return;
+    lv_obj_set_style_text_font(obj, static_cast<const lv_font_t*>(font_slot), LV_PART_MAIN);
+}
+
+static void visual_set_text_if_changed(lv_obj_t* lbl, const char* s) {
+    if (!lbl) return;
+    if (!s) s = "";
+    const char* cur = lv_label_get_text(lbl);
+    if (cur != nullptr && strcmp(cur, s) == 0) return;
+    lv_label_set_text(lbl, s);
+}
+
+// In-place split for mutable copy of title (Main UI pattern). / Разбор копии title как на Main.
+static char* visual_split_inplace_at(char* str, const char* sep) {
+    if (!str || !sep) return nullptr;
+    char* p = strstr(str, sep);
+    if (!p) return nullptr;
+    *p = '\0';
+    return p + strlen(sep);
+}
+
+// Transport / service titles must not appear as artist/song. / Служебные строки не в artist/song.
+static bool visual_is_transport_title(const char* title) {
+    if (!title || title[0] == '\0') return true;
+    if (strstr(title, "[соединение]") != nullptr) return true;
+    if (strstr(title, "[connecting]") != nullptr) return true;
+    if (strstr(title, "(connection)") != nullptr) return true;
+    if (strstr(title, "[готов]") != nullptr) return true;
+    if (strstr(title, "[ready]") != nullptr) return true;
+    if (strstr(title, "[остановлено]") != nullptr) return true;
+    if (strstr(title, "[stopped]") != nullptr) return true;
+    if (strstr(title, "timeout") != nullptr) return true;
+    return false;
+}
+
+static void visual_style_metadata_label(lv_obj_t* lbl,
+                                        lv_coord_t x,
+                                        lv_coord_t y,
+                                        lv_coord_t w,
+                                        lv_coord_t h,
+                                        const void* font_slot,
+                                        lv_color_t color,
+                                        lv_text_align_t align) {
+    if (!lbl) return;
+    lv_obj_set_pos(lbl, x, y);
+    lv_obj_set_size(lbl, w, h);
+    visual_set_font(lbl, font_slot);
+    lv_obj_set_style_text_color(lbl, color, LV_PART_MAIN);
+    lv_obj_set_style_text_align(lbl, align, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(lbl, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(lbl, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(lbl, 0, LV_PART_MAIN);
+    lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
+    lv_obj_clear_flag(lbl, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(lbl, LV_OBJ_FLAG_CLICKABLE);
+}
 
 static void init_segment_img(lv_obj_t* img, const lv_area_t& rect, const lv_img_dsc_t* mask, lv_color_t recolor) {
     if (!img || !mask) return;
@@ -217,6 +293,99 @@ static bool bg_load_into_psram(const char* fs_path, uint8_t*& out_buf, lv_img_ds
 // ─────────────────────────────────────────────────────────────────────────────
 // Layout builders / Билдеры разметки
 // ─────────────────────────────────────────────────────────────────────────────
+
+// Main-exact status divider — scr_main.cpp create_status_line (L644–664).
+// Разделитель status row — дословно как create_status_line на Main.
+static lv_obj_t* visual_create_status_divider(lv_obj_t* parent, const YoRadioPalette& pal) {
+    lv_obj_t* status_divider = lv_obj_create(parent);
+    if (!status_divider) return nullptr;
+    lv_obj_set_width(status_divider, LV_PCT(100));
+    lv_obj_set_height(status_divider, 1);
+    lv_obj_set_style_bg_color(status_divider, pal.divider, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(status_divider, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(status_divider, 0, LV_PART_MAIN);
+    // lv_theme_default adds "card" pad to base lv_obj — zero so line matches content width below.
+    // Тема LVGL даёт lv_obj лишний pad — обнуляем, линия совпадает с шириной контента.
+    lv_obj_set_style_pad_all(status_divider, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(status_divider, LV_OBJ_FLAG_SCROLLABLE);
+    return status_divider;
+}
+
+void LvglVisualPage::create_status_chrome(LvglVisualPage& self, const YoRadioPalette& pal) {
+    if (!self._screen) return;
+
+    if (!wgt_status_line::create(self._screen, self._status_line)) {
+        return;
+    }
+
+    self._status_divider = visual_create_status_divider(self._screen, pal);
+}
+
+void LvglVisualPage::create_metadata_layer(LvglVisualPage& self, const YoRadioPalette& pal) {
+    if (!self._screen) return;
+
+    const uint16_t W = LV_ACTIVE_PROFILE.width;
+    const uint16_t H = LV_ACTIVE_PROFILE.height;
+
+    self._metadata_layer = lv_obj_create(self._screen);
+    if (!self._metadata_layer) return;
+
+    // Coordinate-neutral absolute layer — panel coords 0…480; not inside status flex column.
+    // Нейтральный слой координат — абсолютные координаты панели; вне flex status row.
+    lv_obj_add_flag(self._metadata_layer, LV_OBJ_FLAG_FLOATING);
+    lv_obj_clear_flag(self._metadata_layer, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(self._metadata_layer, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_pos(self._metadata_layer, 0, 0);
+    lv_obj_set_size(self._metadata_layer, static_cast<lv_coord_t>(W), static_cast<lv_coord_t>(H));
+    lv_obj_set_style_bg_opa(self._metadata_layer, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(self._metadata_layer, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(self._metadata_layer, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(self._metadata_layer, 0, LV_PART_MAIN);
+    // E6C1: full opacity — E6C2 will animate this layer. / E6C1: полная непрозрачность — E6C2 анимирует слой.
+    lv_obj_set_style_opa(self._metadata_layer, LV_OPA_COVER, LV_PART_MAIN);
+
+    self._lbl_station = lv_label_create(self._metadata_layer);
+    if (self._lbl_station) {
+        visual_style_metadata_label(
+            self._lbl_station,
+            kMetaStationX,
+            kMetaStationY,
+            kMetaStationW,
+            kMetaStationH,
+            reinterpret_cast<const void*>(&lv_font_yora_montserrat_22_cyr),
+            pal.text_secondary,
+            LV_TEXT_ALIGN_CENTER);
+        lv_label_set_text(self._lbl_station, "");
+    }
+
+    self._lbl_artist = lv_label_create(self._metadata_layer);
+    if (self._lbl_artist) {
+        visual_style_metadata_label(
+            self._lbl_artist,
+            kMetaArtistX,
+            kMetaArtistY,
+            kMetaArtistW,
+            kMetaArtistH,
+            reinterpret_cast<const void*>(&lv_font_yora_montserrat_22_cyr),
+            pal.text_secondary,
+            LV_TEXT_ALIGN_CENTER);
+        lv_label_set_text(self._lbl_artist, "");
+    }
+
+    self._lbl_song = lv_label_create(self._metadata_layer);
+    if (self._lbl_song) {
+        visual_style_metadata_label(
+            self._lbl_song,
+            kMetaSongX,
+            kMetaSongY,
+            kMetaSongW,
+            kMetaSongH,
+            reinterpret_cast<const void*>(&lv_font_yora_montserrat_18_cyr),
+            pal.text_meta,
+            LV_TEXT_ALIGN_CENTER);
+        lv_label_set_text(self._lbl_song, "");
+    }
+}
 
 void LvglVisualPage::create_background(LvglVisualPage& self) {
     if (!self._screen) return;
@@ -470,6 +639,88 @@ void LvglVisualPage::_syncOverlayLayout() {
     lv_obj_set_pos(_overlay_layer, -frame_pad, -frame_pad);
 }
 
+void LvglVisualPage::_onStationIdentityChanged(int station_id) {
+    // Genuine station transition only — snapshot title as stale barrier until NEWTITLE.
+    // Только реальная смена станции — снимок title как барьер до NEWTITLE.
+    _cached_station_id = station_id;
+    strlcpy(_title_at_station_switch, config.station.title, sizeof(_title_at_station_switch));
+    _cached_raw_title[0] = '\0';
+}
+
+void LvglVisualPage::_refreshMetadata(bool force) {
+    if (!_metadata_layer || !_lbl_station) return;
+
+    const int         station_id = static_cast<int>(config.lastStation());
+    const char* const st_name   = config.station.name;
+    const char* const st_title  = config.station.title;
+
+    const bool is_initial =
+        (_cached_station_id < 0);
+    const bool genuine_station_change =
+        !is_initial && (station_id != _cached_station_id);
+
+    const bool name_dirty =
+        force || is_initial || genuine_station_change ||
+        (strcmp(_cached_station_name, st_name) != 0);
+    const bool title_dirty =
+        force || is_initial || genuine_station_change ||
+        (_cached_raw_title[0] == '\0') ||
+        (strcmp(_cached_raw_title, st_title) != 0);
+
+    if (!name_dirty && !title_dirty) return;
+
+    if (genuine_station_change) {
+        _onStationIdentityChanged(station_id);
+    } else if (is_initial) {
+        // Cache bootstrap — not a station transition; do not arm stale guard.
+        // Инициализация кэша — не смена станции; stale guard не включаем.
+        _title_at_station_switch[0] = '\0';
+        _cached_station_id = station_id;
+    }
+
+    if (name_dirty) {
+        visual_set_text_if_changed(_lbl_station, st_name);
+        strlcpy(_cached_station_name, st_name, sizeof(_cached_station_name));
+    }
+
+    if (!title_dirty) return;
+
+    strlcpy(_cached_raw_title, st_title, sizeof(_cached_raw_title));
+
+    char artist_buf[BUFLEN];
+    char song_buf[BUFLEN];
+    artist_buf[0] = '\0';
+    song_buf[0]   = '\0';
+
+    const bool stale_guard_active =
+        (_title_at_station_switch[0] != '\0') &&
+        (strcmp(st_title, _title_at_station_switch) == 0);
+
+    if (player.hasError()) {
+        strlcpy(song_buf, player.lastError(), sizeof(song_buf));
+    } else if (stale_guard_active) {
+        // Title not yet updated for the new station — keep artist/song blank.
+        // Title ещё не обновился для новой станции — artist/song пустые.
+    } else if (visual_is_transport_title(st_title)) {
+        // Service strings hidden / Служебные строки скрыты.
+    } else if (strlen(st_title) == 0u || strcmp(st_title, st_name) == 0) {
+        // Empty or ICY duplicate of station name / Пусто или дубликат имени станции.
+    } else {
+        char title_work[BUFLEN];
+        strlcpy(title_work, st_title, sizeof(title_work));
+        char* second = visual_split_inplace_at(title_work, " - ");
+        if (second) {
+            strlcpy(artist_buf, title_work, sizeof(artist_buf));
+            strlcpy(song_buf, second, sizeof(song_buf));
+        } else {
+            strlcpy(song_buf, st_title, sizeof(song_buf));
+        }
+    }
+
+    if (_lbl_artist) visual_set_text_if_changed(_lbl_artist, artist_buf);
+    if (_lbl_song) visual_set_text_if_changed(_lbl_song, song_buf);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Lifecycle / Жизненный цикл
 // ─────────────────────────────────────────────────────────────────────────────
@@ -490,12 +741,29 @@ void LvglVisualPage::create() {
 
     const YoRadioPalette& pal = yoradio_palette();
     lv_obj_set_style_bg_color(_screen, pal.device_background, LV_PART_MAIN);
+    // Main-exact root chrome contract — scr_main.cpp create() L1678–1687.
+    // Контракт корневого chrome как на Main.
     lv_obj_set_style_pad_all(_screen, pad, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(_screen, 4, LV_PART_MAIN);
+    lv_obj_set_flex_flow(_screen, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(_screen, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_clear_flag(_screen, LV_OBJ_FLAG_SCROLLABLE);
 
+    // Main order: floating bg first, then flex status chrome (scr_main.cpp L1689–1713).
+    // Порядок Main: сначала floating bg, затем flex status chrome.
     create_background(*this);
     create_overlay_layer(*this);
     create_segment_grid(*this);
+    create_metadata_layer(*this, pal);
+    create_status_chrome(*this, pal);
+
+    lv_obj_update_layout(_screen);
+
+    // Z-order only — chrome stays layout-managed (not FLOATING).
+    // Только z-order — chrome остаётся в flex (без FLOATING).
+    if (_status_line.root) lv_obj_move_foreground(_status_line.root);
+    if (_status_divider) lv_obj_move_foreground(_status_divider);
+
     create_ppm_timer(*this);
     _resetPpmState();
     installCarouselGesturesOnPageRoot(_screen);
@@ -521,9 +789,19 @@ void LvglVisualPage::enter() {
     _last_timer_tick = lv_tick_get();
     if (_ppm_timer) lv_timer_resume(_ppm_timer);
     _applyBackgroundImage();
+
+    // E6C1: immediate chrome/metadata snapshot (do not wait for 1 Hz tick).
+    // E6C1: немедленный снимок chrome/metadata (не ждать 1 Гц).
+    if (_status_line.root) wgt_status_line::update(_status_line);
+    _refreshMetadata(true);
 }
 
-void LvglVisualPage::update() {}
+void LvglVisualPage::update() {
+    if (!_screen || !_status_line.root) return;
+
+    wgt_status_line::update(_status_line);
+    _refreshMetadata(false);
+}
 
 void LvglVisualPage::exit() {
     if (_ppm_timer) lv_timer_pause(_ppm_timer);
@@ -536,6 +814,20 @@ void LvglVisualPage::liveReapplyTheme() {
 
     const YoRadioPalette& pal = yoradio_palette();
     lv_obj_set_style_bg_color(_screen, pal.device_background, LV_PART_MAIN);
+
+    wgt_status_line::reapplyTheme(_status_line);
+    if (_status_divider) {
+        lv_obj_set_style_bg_color(_status_divider, pal.divider, LV_PART_MAIN);
+    }
+    if (_lbl_station) {
+        lv_obj_set_style_text_color(_lbl_station, pal.text_secondary, LV_PART_MAIN);
+    }
+    if (_lbl_artist) {
+        lv_obj_set_style_text_color(_lbl_artist, pal.text_secondary, LV_PART_MAIN);
+    }
+    if (_lbl_song) {
+        lv_obj_set_style_text_color(_lbl_song, pal.text_meta, LV_PART_MAIN);
+    }
 
     const ThemePreset active_theme = yoradio_theme_active_preset();
     if (!_bg_loaded || _loaded_bg_theme != active_theme) {
@@ -571,6 +863,17 @@ void LvglVisualPage::_nullHandlesAndFreeNonLvgl() {
     _bg_img = nullptr;
     _overlay_layer = nullptr;
     _ppm_timer = nullptr;
+    _status_line = {};
+    _status_divider = nullptr;
+    _metadata_layer = nullptr;
+    _lbl_station = nullptr;
+    _lbl_artist = nullptr;
+    _lbl_song = nullptr;
+
+    _cached_station_id = -1;
+    _cached_station_name[0] = '\0';
+    _cached_raw_title[0] = '\0';
+    _title_at_station_switch[0] = '\0';
 
     for (uint8_t ch = 0u; ch < kBeocordChannelCount; ++ch) {
         for (uint8_t seg = 0u; seg < kBeocordSegmentsPerChannel; ++seg) {

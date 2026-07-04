@@ -3,8 +3,10 @@
 
 #include <cstdint>
 
+#include "../../core/config.h"
 #include "../lv_screen.h"
 #include "../theme/lv_theme_yoradio.h"
+#include "../widgets/wgt_status_line.h"
 #include "lvgl.h"
 
 namespace lvgl_ui {
@@ -16,8 +18,8 @@ struct PpmChannelState {
     uint32_t hold_remaining_ms;
 };
 
-// Visual Page E5B — Beocord museum background + real PCM hybrid PPM ballistics.
-// Visual Page E5B — музейный фон Beocord + гибридная PPM от реального PCM.
+// Visual Page E6C1 — Beocord museum + status chrome + static metadata (fade in E6C2).
+// Visual Page E6C1 — Beocord + status row + статические метаданные (fade в E6C2).
 class LvglVisualPage final : public ILvglScreen {
 public:
     ScreenType screenType() const override;
@@ -32,6 +34,8 @@ public:
     void releaseAfterAutoDelete() override;
 
 private:
+    static void create_status_chrome(LvglVisualPage& self, const YoRadioPalette& pal);
+    static void create_metadata_layer(LvglVisualPage& self, const YoRadioPalette& pal);
     static void create_background(LvglVisualPage& self);
     static void create_overlay_layer(LvglVisualPage& self);
     static void create_segment_grid(LvglVisualPage& self);
@@ -43,6 +47,9 @@ private:
     void _deletePpmTimer();
     void _renderChannel(uint8_t channel, uint8_t count);
     void _handleStationChange(int station_id);
+
+    void _refreshMetadata(bool force);
+    void _onStationIdentityChanged(int station_id);
 
     bool _loadBackgroundFromLittlefs();
     void _releaseBackgroundBuffer();
@@ -56,6 +63,22 @@ private:
     lv_obj_t* _bg_img = nullptr;
     lv_obj_t* _overlay_layer = nullptr;
     lv_obj_t* _segment_img[2][8] = {};
+
+    // E6C1: canonical status chrome + shared metadata layer (E6C2 fade target).
+    // E6C1: канонический status row + общий metadata layer (цель fade E6C2).
+    wgt_status_line::Instance _status_line{};
+    lv_obj_t*               _status_divider = nullptr;
+    lv_obj_t*               _metadata_layer = nullptr;
+    lv_obj_t*               _lbl_station    = nullptr;
+    lv_obj_t*               _lbl_artist     = nullptr;
+    lv_obj_t*               _lbl_song       = nullptr;
+
+    int  _cached_station_id = -1;
+    char _cached_station_name[BUFLEN] = {};
+    char _cached_raw_title[BUFLEN]    = {};
+    // Title snapshot at station switch — suppress stale artist/song until title changes.
+    // Снимок title при смене станции — не показывать старый artist/song до нового title.
+    char _title_at_station_switch[BUFLEN] = {};
 
     PpmChannelState _ppm_state[2] = {};
     uint8_t         _rendered_count[2] = {};

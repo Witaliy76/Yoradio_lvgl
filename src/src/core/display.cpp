@@ -474,6 +474,15 @@ void Display::loop() {
         lastStationRefresh = millis();
       }
     }
+    // E6C1: refresh Visual status row + metadata while Visual slot is active (~1 Hz).
+    // E6C1: обновление status row и metadata на слоте Visual (~1 Гц).
+    if (lvgl_ui::isLvglCarouselOnVisualSlot()) {
+      static uint32_t lastVisualRefresh = 0;
+      if (millis() - lastVisualRefresh >= 1000) {
+        lvgl_ui::refreshVisualScreen();
+        lastVisualRefresh = millis();
+      }
+    }
   }
   lvgl_ui::taskHandler();
 #if YORADIO_PPM_PCM_TELEMETRY_DIAG
