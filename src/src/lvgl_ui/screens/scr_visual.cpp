@@ -1,13 +1,13 @@
 /*
- * LvglVisualPage — Visual carousel page E3: Beocord museum background + static 16-segment grid.
- * LvglVisualPage — страница Visual E3: музейный фон Beocord + статичная сетка 16 сегментов.
+ * LvglVisualPage — Visual carousel page E4: Beocord museum background + synthetic stereo PPM.
+ * LvglVisualPage — страница Visual E4: музейный фон Beocord + синтетическая стерео PPM.
  *
  * - ILvglScreen lifecycle via PageChain (W2F auto-delete on carousel switch).
  * - DspTask-only lv_*; background loaded once in create() into Visual-owned PSRAM.
- * - E3: shared Flash A8 mask + recolor; overlay uses canonical overlay_rect positions.
+ * - E4: one LVGL timer drives deterministic L/R ballistics; no Audio hook in this stage.
  *
- * E3 scope: all 16 segments always on (5 green + 3 red per row) — diagnostic only.
- * E3: все 16 сегментов постоянно включены — только визуальная диагностика сетки.
+ * E4 scope: synthetic stereo PPM proof — attack/hold/release + contiguous segment visibility.
+ * E4: доказательство синтетической стерео PPM — attack/hold/release + видимость сегментов.
  */
 
 #include "scr_visual.h"
@@ -27,8 +27,8 @@ namespace lvgl_ui {
 
 namespace {
 
-// E3 diagnostic grid — fixed museum colors (not yoradio_palette()).
-// E3: фиксированные музейные цвета диагностики (не из темы).
+// E3/E4: fixed museum segment colors (not yoradio_palette()).
+// E3/E4: фиксированные музейные цвета сегментов (не из темы).
 static const lv_color_t kBeocordMuseumGreen = lv_color_hex(0x59F08A);
 static const lv_color_t kBeocordMuseumRed   = lv_color_hex(0xF06868);
 
@@ -36,8 +36,35 @@ static constexpr uint8_t kBeocordChannelCount         = 2u;
 static constexpr uint8_t kBeocordSegmentsPerChannel = 8u;
 static constexpr uint8_t kBeocordGreenSegmentCount  = 5u; // indices 0..4 green, 5..7 red
 
-// E3: configure one segment image at canonical overlay_rect (no position offsets).
-// E3: настройка одного сегмента по overlay_rect (без смещений позиции).
+// E4: PPM scale and ballistics (synthetic diagnostic baseline).
+// E4: шкала PPM и баллистика (диагностический baseline).
+static constexpr float kPpmThresholdDb[8] = {
+    -20.0f, -8.0f, -3.0f, -1.0f, 0.0f, 1.0f, 2.0f, 5.0f,
+};
+static constexpr float    kPpmOffDb                 = -60.0f;
+static constexpr uint32_t kPpmTimerPeriodMs         = 30u;
+static constexpr uint32_t kPpmPeakHoldMs            = 120u;
+static constexpr float    kPpmReleaseDbPerSecond    = 12.0f;
+static constexpr uint32_t kPpmMaxTickDtMs           = 100u;
+
+struct SyntheticPpmStep {
+    float    left_db;
+    float    right_db;
+    uint16_t duration_ms;
+};
+
+static constexpr SyntheticPpmStep kSyntheticPattern[] = {
+    {kPpmOffDb, kPpmOffDb, 450},
+    {-8.0f,     -20.0f,    300},
+    {2.0f,      -3.0f,     220},
+    {kPpmOffDb, kPpmOffDb, 2300},
+    {-1.0f,     1.0f,      250},
+    {-20.0f,    5.0f,      220},
+    {kPpmOffDb, kPpmOffDb, 2600},
+};
+static constexpr uint8_t kSyntheticPatternLen =
+    static_cast<uint8_t>(sizeof(kSyntheticPattern) / sizeof(kSyntheticPattern[0]));
+
 static void init_segment_img(lv_obj_t* img, const lv_area_t& rect, const lv_img_dsc_t* mask, lv_color_t recolor) {
     if (!img || !mask) return;
 
@@ -51,17 +78,50 @@ static void init_segment_img(lv_obj_t* img, const lv_area_t& rect, const lv_img_
     lv_obj_set_style_opa(img, LV_OPA_COVER, LV_PART_MAIN);
 }
 
-static lv_color_t diagnostic_recolor_for_segment(uint8_t seg_index) {
+static lv_color_t segment_recolor_for_index(uint8_t seg_index) {
     return (seg_index < kBeocordGreenSegmentCount) ? kBeocordMuseumGreen : kBeocordMuseumRed;
+}
+
+// E4: map displayed dB to contiguous lit segment count 0..8.
+// E4: отображаемый dB → число подсвеченных сегментов 0..8 слева направо.
+static uint8_t db_to_segment_count(float db) {
+    if (db < kPpmThresholdDb[0]) return 0u;
+
+    uint8_t count = 0u;
+    for (uint8_t i = 0u; i < kBeocordSegmentsPerChannel; ++i) {
+        if (db >= kPpmThresholdDb[i]) count = static_cast<uint8_t>(i + 1u);
+    }
+    return count;
+}
+
+// E4: attack / hold / release for one channel (L and R are independent).
+// E4: attack / hold / release для одного канала (L и R независимы).
+static void update_channel_ballistics(PpmChannelState& state, float target_db, uint32_t dt_ms) {
+    if (target_db >= state.displayed_db) {
+        state.displayed_db      = target_db;
+        state.hold_remaining_ms = kPpmPeakHoldMs;
+        return;
+    }
+
+    if (state.hold_remaining_ms > 0u) {
+        if (state.hold_remaining_ms > dt_ms) {
+            state.hold_remaining_ms -= dt_ms;
+        } else {
+            state.hold_remaining_ms = 0u;
+        }
+        return;
+    }
+
+    const float dt_s = static_cast<float>(dt_ms) / 1000.0f;
+    state.displayed_db -= kPpmReleaseDbPerSecond * dt_s;
+    if (state.displayed_db < target_db) state.displayed_db = target_db;
+    if (state.displayed_db < kPpmOffDb) state.displayed_db = kPpmOffDb;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Background helpers / Вспомогательные функции фона
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Load a .bin (4-byte lv_img_header_t + RGB565 pixels) from LittleFS into PSRAM.
-// Visual-local copy of Main bg_load_into_psram — Visual owns the buffer (no shared cache in E1).
-// Загрузить .bin из LittleFS в PSRAM; Visual владеет буфером (без общего кэша Main в E1).
 static bool bg_load_into_psram(const char* fs_path, uint8_t*& out_buf, lv_img_dsc_t& out_dsc) {
     out_buf = nullptr;
     if (!fs_path || fs_path[0] == '\0') return false;
@@ -162,9 +222,96 @@ void LvglVisualPage::create_segment_grid(LvglVisualPage& self) {
             lv_obj_t* img = lv_img_create(self._overlay_layer);
             if (!img) continue;
 
-            init_segment_img(img, rect, pack.segment_mask, diagnostic_recolor_for_segment(seg));
+            init_segment_img(img, rect, pack.segment_mask, segment_recolor_for_index(seg));
+            lv_obj_add_flag(img, LV_OBJ_FLAG_HIDDEN);
             self._segment_img[ch][seg] = img;
         }
+    }
+}
+
+void LvglVisualPage::create_ppm_timer(LvglVisualPage& self) {
+    if (!kBeocordVuAssetPack.segment_mask) return;
+    if (self._ppm_timer) return;
+
+    self._ppm_timer = lv_timer_create(_ppmTimerCallback, kPpmTimerPeriodMs, &self);
+    if (!self._ppm_timer) return;
+
+    lv_timer_pause(self._ppm_timer);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// E4 PPM timer + rendering / E4 таймер PPM и отрисовка видимости
+// ─────────────────────────────────────────────────────────────────────────────
+
+void LvglVisualPage::_ppmTimerCallback(lv_timer_t* timer) {
+    if (!timer) return;
+    auto* self = static_cast<LvglVisualPage*>(timer->user_data);
+    if (self) self->_onPpmTimerTick();
+}
+
+void LvglVisualPage::_renderChannel(uint8_t channel, uint8_t count) {
+    if (channel >= kBeocordChannelCount) return;
+    if (count > kBeocordSegmentsPerChannel) count = kBeocordSegmentsPerChannel;
+    if (count == _rendered_count[channel]) return;
+
+    _rendered_count[channel] = count;
+    for (uint8_t seg = 0u; seg < kBeocordSegmentsPerChannel; ++seg) {
+        lv_obj_t* img = _segment_img[channel][seg];
+        if (!img) continue;
+
+        if (seg < count) {
+            lv_obj_clear_flag(img, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(img, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+}
+
+void LvglVisualPage::_onPpmTimerTick() {
+    const uint32_t now = lv_tick_get();
+    uint32_t dt_ms = lv_tick_elaps(_last_timer_tick);
+    _last_timer_tick = now;
+    if (dt_ms > kPpmMaxTickDtMs) dt_ms = kPpmMaxTickDtMs;
+
+    _synthetic_step_elapsed_ms = static_cast<uint32_t>(_synthetic_step_elapsed_ms + dt_ms);
+    const SyntheticPpmStep& step = kSyntheticPattern[_synthetic_step_index];
+    if (_synthetic_step_elapsed_ms >= step.duration_ms) {
+        _synthetic_step_elapsed_ms = 0u;
+        _synthetic_step_index      = static_cast<uint8_t>((_synthetic_step_index + 1u) % kSyntheticPatternLen);
+    }
+
+    const SyntheticPpmStep& active = kSyntheticPattern[_synthetic_step_index];
+    update_channel_ballistics(_ppm_state[0], active.left_db, dt_ms);
+    update_channel_ballistics(_ppm_state[1], active.right_db, dt_ms);
+
+    _renderChannel(0u, db_to_segment_count(_ppm_state[0].displayed_db));
+    _renderChannel(1u, db_to_segment_count(_ppm_state[1].displayed_db));
+}
+
+void LvglVisualPage::_resetPpmState() {
+    for (uint8_t ch = 0u; ch < kBeocordChannelCount; ++ch) {
+        _ppm_state[ch].displayed_db      = kPpmOffDb;
+        _ppm_state[ch].hold_remaining_ms = 0u;
+        _rendered_count[ch]              = 0u;
+    }
+
+    _synthetic_step_index       = 0u;
+    _synthetic_step_elapsed_ms  = 0u;
+    _last_timer_tick            = lv_tick_get();
+
+    for (uint8_t ch = 0u; ch < kBeocordChannelCount; ++ch) {
+        for (uint8_t seg = 0u; seg < kBeocordSegmentsPerChannel; ++seg) {
+            if (_segment_img[ch][seg]) {
+                lv_obj_add_flag(_segment_img[ch][seg], LV_OBJ_FLAG_HIDDEN);
+            }
+        }
+    }
+}
+
+void LvglVisualPage::_deletePpmTimer() {
+    if (_ppm_timer) {
+        lv_timer_del(_ppm_timer);
+        _ppm_timer = nullptr;
     }
 }
 
@@ -209,8 +356,6 @@ void LvglVisualPage::_applyBackgroundImage() {
 }
 
 void LvglVisualPage::_syncBackgroundLayout() {
-    // Full-bleed under frame_padding — same compensation as Main _syncBgImgLayout().
-    // Полноэкранный фон под frame_padding — та же компенсация, что у Main _syncBgImgLayout().
     if (!_screen || !_bg_img) return;
 
     const lv_coord_t W = static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.width);
@@ -222,8 +367,6 @@ void LvglVisualPage::_syncBackgroundLayout() {
 }
 
 void LvglVisualPage::_syncOverlayLayout() {
-    // Same full-bleed canvas origin as background (frame_padding compensation).
-    // Тот же origin холста 480×480, что и у фона (компенсация frame_padding).
     if (!_screen || !_overlay_layer) return;
 
     const lv_coord_t W = static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.width);
@@ -260,18 +403,25 @@ void LvglVisualPage::create() {
     create_background(*this);
     create_overlay_layer(*this);
     create_segment_grid(*this);
+    create_ppm_timer(*this);
+    _resetPpmState();
     installCarouselGesturesOnPageRoot(_screen);
 }
 
-void LvglVisualPage::enter() {}
+void LvglVisualPage::enter() {
+    _last_timer_tick = lv_tick_get();
+    if (_ppm_timer) lv_timer_resume(_ppm_timer);
+}
 
 void LvglVisualPage::update() {}
 
-void LvglVisualPage::exit() {}
+void LvglVisualPage::exit() {
+    if (_ppm_timer) lv_timer_pause(_ppm_timer);
+}
 
 void LvglVisualPage::liveReapplyTheme() {
-    // Museum artwork and diagnostic segments stay unchanged; only root fallback bg may track theme.
-    // Музейный арт и диагностические сегменты не меняются; только fallback-фон корня.
+    // Museum artwork and PPM segment colors stay unchanged; only root fallback bg may track theme.
+    // Музейный арт и цвета PPM-сегментов не меняются; только fallback-фон корня.
     if (!_screen) return;
 
     const YoRadioPalette& pal = yoradio_palette();
@@ -280,6 +430,7 @@ void LvglVisualPage::liveReapplyTheme() {
 }
 
 void LvglVisualPage::destroy() {
+    _deletePpmTimer();
     if (_screen) {
         lv_obj_del(_screen);
         _screen = nullptr;
@@ -288,13 +439,12 @@ void LvglVisualPage::destroy() {
 }
 
 void LvglVisualPage::prepareForAutoDelete() {
-    // E3: no lv_timer or other non-LVGL resources to stop.
-    // E3: нет таймеров или других ресурсов вне дерева LVGL.
+    // E4: stop PPM timer before W2F auto-delete (timer is not in the LVGL object tree).
+    // E4: остановить PPM-таймер до W2F auto-delete (таймер вне дерева LVGL).
+    _deletePpmTimer();
 }
 
 void LvglVisualPage::releaseAfterAutoDelete() {
-    // W2F: LVGL already deleted the screen tree — never lv_obj_del here.
-    // W2F: дерево уже удалено LVGL — lv_obj_del здесь не вызываем.
     _nullHandlesAndFreeNonLvgl();
 }
 
@@ -302,11 +452,19 @@ void LvglVisualPage::_nullHandlesAndFreeNonLvgl() {
     _screen = nullptr;
     _bg_img = nullptr;
     _overlay_layer = nullptr;
+    _ppm_timer = nullptr;
+
     for (uint8_t ch = 0u; ch < kBeocordChannelCount; ++ch) {
         for (uint8_t seg = 0u; seg < kBeocordSegmentsPerChannel; ++seg) {
             _segment_img[ch][seg] = nullptr;
         }
+        _ppm_state[ch] = {};
+        _rendered_count[ch] = 0u;
     }
+
+    _synthetic_step_index      = 0u;
+    _synthetic_step_elapsed_ms = 0u;
+    _last_timer_tick           = 0u;
 
     if (_bg_psram_buf) {
         free(_bg_psram_buf);
