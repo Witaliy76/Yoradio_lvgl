@@ -20,6 +20,7 @@
 #include "screens/scr_main.h"
 #include "screens/scr_station.h"
 #include "screens/scr_stub.h"
+#include "screens/scr_visual.h"
 #include "screens/scr_weather.h"
 #include "screens/scr_preset.h"
 #include "screens/scr_boot.h"
@@ -39,7 +40,7 @@ using namespace lvgl_ui;
 static PageChain s_page_chain;
 static LvglInfoPage s_info_page;
 static LvglMainScreen s_main_screen;
-static LvglStubPage s_stub_visual("Visual");
+static LvglVisualPage s_visual_page;
 static LvglStationPage s_station_page;
 static LvglWeatherPage s_weather_page;  // Weather W2: real page replaces the stub / реальная страница вместо заглушки
 static LvglStubPage s_stub_settings("Settings");
@@ -181,7 +182,7 @@ static void ensurePageChainRegistered() {
     if (s_registered) return;
     s_page_chain.registerPage(PageChain::INFO_INDEX, &s_info_page);
     s_page_chain.registerPage(PageChain::MAIN_INDEX, &s_main_screen);
-    s_page_chain.registerPage(PageChain::VISUAL_INDEX, &s_stub_visual);
+    s_page_chain.registerPage(PageChain::VISUAL_INDEX, &s_visual_page);
     s_page_chain.registerPage(PageChain::STATION_INDEX, &s_station_page);
     s_page_chain.registerPage(PageChain::WEATHER_INDEX, &s_weather_page);
     s_page_chain.registerPage(PageChain::SETTINGS_INDEX, &s_stub_settings);
