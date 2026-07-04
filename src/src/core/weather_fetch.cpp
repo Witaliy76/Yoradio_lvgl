@@ -147,25 +147,40 @@ static inline int32_t owm_local_day_key(int64_t utcSeconds, int32_t timezoneOffs
 WeatherState s_builder;
 
 // ── Diagnostics / Диагностика ──────────────────────────────────────────────────
-// Product reject line — always on (not gated by YORADIO_WEATHER_*_DIAG).
-// Строка отклонения forecast — всегда в UART; не под compile-time diag flags.
+// Reject lines are FC_DIAG-only — pending poll can fire every few seconds under load.
+// Строки reject только под FC_DIAG — poll pending при нехватке heap шумит в UART.
 void fc_log_reject(const char* reason, size_t int_free, size_t int_block,
                    size_t required, uint8_t pending) {
+#if YORADIO_WEATHER_FC_DIAG
     Serial.printf("[WEATHER_FC] reject reason=%s int_free=%u int_block=%u required=%u pending=%u\n",
                   reason,
                   (unsigned)int_free,
                   (unsigned)int_block,
                   (unsigned)required,
                   (unsigned)pending);
+#else
+    (void)reason;
+    (void)int_free;
+    (void)int_block;
+    (void)required;
+    (void)pending;
+#endif
 }
 
 void fc_log_reject_psram(const char* reason, size_t int_free,
                          size_t ps_free, size_t ps_block) {
+#if YORADIO_WEATHER_FC_DIAG
     Serial.printf("[WEATHER_FC] reject reason=%s int_free=%u psram_free=%u psram_block=%u pending=0\n",
                   reason,
                   (unsigned)int_free,
                   (unsigned)ps_free,
                   (unsigned)ps_block);
+#else
+    (void)reason;
+    (void)int_free;
+    (void)ps_free;
+    (void)ps_block;
+#endif
 }
 
 void fc_log_skip(const char* reason, size_t int_free, size_t ps_free, size_t ps_block) {
