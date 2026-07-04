@@ -19,6 +19,7 @@
 #include "../core/config.h"
 #include "../core/mem_watchdog.h"
 #include "../core/network.h"
+#include "../core/ppm_pcm_level.h"
 #if YORADIO_PPM_PCM_TELEMETRY_DIAG
 #include "../core/ppm_pcm_telemetry.h"
 #endif
@@ -3290,6 +3291,7 @@ void IRAM_ATTR Audio::playChunk() {
 #if YORADIO_PPM_PCM_TELEMETRY_DIAG
         ppmPcmTelemetryAccumulateFrame((*m_plCh.sample)[LEFTCHANNEL], (*m_plCh.sample)[RIGHTCHANNEL], getSampleRate());
 #endif
+        ppmPcmLevelAccumulateFrame((*m_plCh.sample)[LEFTCHANNEL], (*m_plCh.sample)[RIGHTCHANNEL], getSampleRate());
 
         //---------- Filterchain, can commented out if not used-------------
         {

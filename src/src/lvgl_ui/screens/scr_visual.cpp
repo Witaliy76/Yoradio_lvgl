@@ -1,13 +1,9 @@
 /*
- * LvglVisualPage — Visual carousel page E4: Beocord museum background + synthetic stereo PPM.
- * LvglVisualPage — страница Visual E4: музейный фон Beocord + синтетическая стерео PPM.
+ * LvglVisualPage — Visual carousel page E5B: Beocord museum background + real PCM hybrid PPM.
+ * LvglVisualPage — страница Visual E5B: музейный фон Beocord + гибридная PPM от реального PCM.
  *
  * - ILvglScreen lifecycle via PageChain (W2F auto-delete on carousel switch).
- * - DspTask-only lv_*; background loaded once in create() into Visual-owned PSRAM.
- * - E4: one LVGL timer drives deterministic L/R ballistics; no Audio hook in this stage.
- *
- * E4 scope: synthetic stereo PPM proof — attack/hold/release + contiguous segment visibility.
- * E4: доказательство синтетической стерео PPM — attack/hold/release + видимость сегментов.
+ * - DspTask-only lv_*; E5B: pre-Gain PCM via ppm_pcm_level + accepted E4 ballistics.
  */
 
 #include "scr_visual.h"
@@ -16,9 +12,12 @@
 
 #include "lvgl.h"
 #include "Arduino.h"
+#include <cmath>
 #include <cstring>
 #include <LittleFS.h>
 
+#include "../../core/config.h"
+#include "../../core/ppm_pcm_level.h"
 #include "../profiles/lv_profile_select.h"
 #include "../theme/lv_theme_yoradio.h"
 #include "lvgl_ui.h"
@@ -36,34 +35,25 @@ static constexpr uint8_t kBeocordChannelCount         = 2u;
 static constexpr uint8_t kBeocordSegmentsPerChannel = 8u;
 static constexpr uint8_t kBeocordGreenSegmentCount  = 5u; // indices 0..4 green, 5..7 red
 
-// E4: PPM scale and ballistics (synthetic diagnostic baseline).
-// E4: шкала PPM и баллистика (диагностический baseline).
+// E4/E5B: PPM scale, ballistics and fixed hybrid calibration (shared all stations).
+// E4/E5B: шкала PPM, баллистика и фиксированная гибридная калибровка (все станции).
 static constexpr float kPpmThresholdDb[8] = {
     -20.0f, -8.0f, -3.0f, -1.0f, 0.0f, 1.0f, 2.0f, 5.0f,
 };
-static constexpr float    kPpmOffDb                 = -60.0f;
-static constexpr uint32_t kPpmTimerPeriodMs         = 30u;
-static constexpr uint32_t kPpmPeakHoldMs            = 120u;
-static constexpr float    kPpmReleaseDbPerSecond    = 12.0f;
-static constexpr uint32_t kPpmMaxTickDtMs           = 100u;
+static constexpr float    kPpmOffDb                    = -60.0f;
+static constexpr float    kPpmTargetMaxDb              = 5.0f;
+static constexpr uint32_t kPpmTimerPeriodMs            = 30u;
+static constexpr uint32_t kPpmPeakHoldMs                = 120u;
+static constexpr float    kPpmReleaseDbPerSecond       = 12.0f;
+static constexpr uint32_t kPpmMaxTickDtMs              = 100u;
+static constexpr uint32_t kPpmPcmStaleMs               = 300u;
 
-struct SyntheticPpmStep {
-    float    left_db;
-    float    right_db;
-    uint16_t duration_ms;
-};
-
-static constexpr SyntheticPpmStep kSyntheticPattern[] = {
-    {kPpmOffDb, kPpmOffDb, 450},
-    {-8.0f,     -20.0f,    300},
-    {2.0f,      -3.0f,     220},
-    {kPpmOffDb, kPpmOffDb, 2300},
-    {-1.0f,     1.0f,      250},
-    {-20.0f,    5.0f,      220},
-    {kPpmOffDb, kPpmOffDb, 2600},
-};
-static constexpr uint8_t kSyntheticPatternLen =
-    static_cast<uint8_t>(sizeof(kSyntheticPattern) / sizeof(kSyntheticPattern[0]));
+static constexpr float kPpmRmsCalibrationDb            = 14.0f;
+static constexpr float kPpmTransientCrestFloorDb       = 10.0f;
+static constexpr float kPpmTransientBoostMaxDb         = 4.0f;
+static constexpr float kPpmActivityGain                = 1.5f;
+static constexpr float kPpmActivityDownLimitDb           = 2.0f;
+static constexpr float kPpmActivityUpLimitDb           = 1.0f;
 
 static void init_segment_img(lv_obj_t* img, const lv_area_t& rect, const lv_img_dsc_t* mask, lv_color_t recolor) {
     if (!img || !mask) return;
@@ -116,6 +106,61 @@ static void update_channel_ballistics(PpmChannelState& state, float target_db, u
     state.displayed_db -= kPpmReleaseDbPerSecond * dt_s;
     if (state.displayed_db < target_db) state.displayed_db = target_db;
     if (state.displayed_db < kPpmOffDb) state.displayed_db = kPpmOffDb;
+}
+
+static float clamp_measure_dbfs(float db) {
+    if (db < -120.0f) return -120.0f;
+    if (db > 0.0f) return 0.0f;
+    return db;
+}
+
+static float clamp_target_db(float db) {
+    if (db < kPpmOffDb) return kPpmOffDb;
+    if (db > kPpmTargetMaxDb) return kPpmTargetMaxDb;
+    return db;
+}
+
+static float peak_abs_to_dbfs(uint16_t peak_abs) {
+    if (peak_abs == 0u) return -120.0f;
+    return clamp_measure_dbfs(20.0f * log10f(static_cast<float>(peak_abs) / 32768.0f));
+}
+
+static float rms_to_dbfs(uint64_t sum_squares, uint32_t frames) {
+    if (frames == 0u || sum_squares == 0u) return -120.0f;
+    const double rms = sqrt(static_cast<double>(sum_squares) / static_cast<double>(frames));
+    return clamp_measure_dbfs(20.0f * log10f(static_cast<float>(rms / 32768.0)));
+}
+
+// E5B-R1: slow RMS anchor + bounded fast RMS activity + transient crest lift.
+// E5B-R1: slow RMS anchor + ограниченная fast RMS activity + transient crest lift.
+static float hybrid_target_db(uint16_t short_peak,
+                              uint64_t slow_rms_sum_squares,
+                              uint32_t slow_rms_frames,
+                              uint64_t fast_rms_sum_squares,
+                              uint32_t fast_rms_frames) {
+    if (slow_rms_frames == 0u) return kPpmOffDb;
+
+    const float slow_rms_dbfs = rms_to_dbfs(slow_rms_sum_squares, slow_rms_frames);
+    const float fast_rms_dbfs = rms_to_dbfs(fast_rms_sum_squares, fast_rms_frames);
+    const float peak_dbfs = peak_abs_to_dbfs(short_peak);
+    const float body_db = slow_rms_dbfs + kPpmRmsCalibrationDb;
+
+    float activity_db = 0.0f;
+    const bool slow_silent = (slow_rms_sum_squares == 0u);
+    const bool fast_silent = (fast_rms_frames == 0u || fast_rms_sum_squares == 0u);
+    if (!slow_silent && !fast_silent) {
+        const float activity_delta_db = fast_rms_dbfs - slow_rms_dbfs;
+        activity_db = activity_delta_db * kPpmActivityGain;
+        if (activity_db < -kPpmActivityDownLimitDb) activity_db = -kPpmActivityDownLimitDb;
+        if (activity_db > kPpmActivityUpLimitDb) activity_db = kPpmActivityUpLimitDb;
+    }
+
+    const float crest_db = peak_dbfs - slow_rms_dbfs;
+    float transient_boost_db = crest_db - kPpmTransientCrestFloorDb;
+    if (transient_boost_db < 0.0f) transient_boost_db = 0.0f;
+    if (transient_boost_db > kPpmTransientBoostMaxDb) transient_boost_db = kPpmTransientBoostMaxDb;
+
+    return clamp_target_db(body_db + activity_db + transient_boost_db);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -273,19 +318,52 @@ void LvglVisualPage::_onPpmTimerTick() {
     _last_timer_tick = now;
     if (dt_ms > kPpmMaxTickDtMs) dt_ms = kPpmMaxTickDtMs;
 
-    _synthetic_step_elapsed_ms = static_cast<uint32_t>(_synthetic_step_elapsed_ms + dt_ms);
-    const SyntheticPpmStep& step = kSyntheticPattern[_synthetic_step_index];
-    if (_synthetic_step_elapsed_ms >= step.duration_ms) {
-        _synthetic_step_elapsed_ms = 0u;
-        _synthetic_step_index      = static_cast<uint8_t>((_synthetic_step_index + 1u) % kSyntheticPatternLen);
+    _handleStationChange(static_cast<int>(config.lastStation()));
+
+    PpmPcmLevelSnapshot snap;
+    if (ppmPcmLevelReadSnapshot(snap) && snap.valid && snap.block_id != _last_pcm_block_id) {
+        _last_pcm_block_id = snap.block_id;
+        _last_pcm_seen_tick = now;
+        _last_pcm_sample_rate = snap.sample_rate_hz;
+        _pcm_target_db[0] = hybrid_target_db(
+            snap.short_peak_left,
+            snap.rms_sum_squares_left,
+            snap.rms_frame_count,
+            snap.fast_rms_sum_squares_left,
+            snap.fast_rms_frame_count);
+        _pcm_target_db[1] = hybrid_target_db(
+            snap.short_peak_right,
+            snap.rms_sum_squares_right,
+            snap.rms_frame_count,
+            snap.fast_rms_sum_squares_right,
+            snap.fast_rms_frame_count);
     }
 
-    const SyntheticPpmStep& active = kSyntheticPattern[_synthetic_step_index];
-    update_channel_ballistics(_ppm_state[0], active.left_db, dt_ms);
-    update_channel_ballistics(_ppm_state[1], active.right_db, dt_ms);
+    float target_l = _pcm_target_db[0];
+    float target_r = _pcm_target_db[1];
+    if (_last_pcm_seen_tick == 0u || lv_tick_elaps(_last_pcm_seen_tick) > kPpmPcmStaleMs) {
+        target_l = kPpmOffDb;
+        target_r = kPpmOffDb;
+    }
+
+    update_channel_ballistics(_ppm_state[0], target_l, dt_ms);
+    update_channel_ballistics(_ppm_state[1], target_r, dt_ms);
 
     _renderChannel(0u, db_to_segment_count(_ppm_state[0].displayed_db));
     _renderChannel(1u, db_to_segment_count(_ppm_state[1].displayed_db));
+}
+
+void LvglVisualPage::_handleStationChange(int station_id) {
+    if (station_id == _last_station_id) return;
+
+    ppmPcmLevelRequestReset();
+    _last_station_id = station_id;
+    _last_pcm_block_id = 0u;
+    _last_pcm_seen_tick = 0u;
+    _last_pcm_sample_rate = 0u;
+    _pcm_target_db[0] = kPpmOffDb;
+    _pcm_target_db[1] = kPpmOffDb;
+    _resetPpmState();
 }
 
 void LvglVisualPage::_resetPpmState() {
@@ -295,9 +373,7 @@ void LvglVisualPage::_resetPpmState() {
         _rendered_count[ch]              = 0u;
     }
 
-    _synthetic_step_index       = 0u;
-    _synthetic_step_elapsed_ms  = 0u;
-    _last_timer_tick            = lv_tick_get();
+    _last_timer_tick = lv_tick_get();
 
     for (uint8_t ch = 0u; ch < kBeocordChannelCount; ++ch) {
         for (uint8_t seg = 0u; seg < kBeocordSegmentsPerChannel; ++seg) {
@@ -409,6 +485,22 @@ void LvglVisualPage::create() {
 }
 
 void LvglVisualPage::enter() {
+    const int station_id = static_cast<int>(config.lastStation());
+    if (!_pcm_source_enabled) {
+        ppmPcmLevelSetEnabled(true);
+        ppmPcmLevelRequestReset();
+        _pcm_source_enabled = true;
+        _last_station_id = station_id;
+        _last_pcm_block_id = 0u;
+        _last_pcm_seen_tick = 0u;
+        _last_pcm_sample_rate = 0u;
+        _pcm_target_db[0] = kPpmOffDb;
+        _pcm_target_db[1] = kPpmOffDb;
+        _resetPpmState();
+    } else if (station_id != _last_station_id) {
+        _handleStationChange(station_id);
+    }
+
     _last_timer_tick = lv_tick_get();
     if (_ppm_timer) lv_timer_resume(_ppm_timer);
 }
@@ -431,6 +523,8 @@ void LvglVisualPage::liveReapplyTheme() {
 
 void LvglVisualPage::destroy() {
     _deletePpmTimer();
+    ppmPcmLevelSetEnabled(false);
+    _pcm_source_enabled = false;
     if (_screen) {
         lv_obj_del(_screen);
         _screen = nullptr;
@@ -439,9 +533,9 @@ void LvglVisualPage::destroy() {
 }
 
 void LvglVisualPage::prepareForAutoDelete() {
-    // E4: stop PPM timer before W2F auto-delete (timer is not in the LVGL object tree).
-    // E4: остановить PPM-таймер до W2F auto-delete (таймер вне дерева LVGL).
     _deletePpmTimer();
+    ppmPcmLevelSetEnabled(false);
+    _pcm_source_enabled = false;
 }
 
 void LvglVisualPage::releaseAfterAutoDelete() {
@@ -462,9 +556,14 @@ void LvglVisualPage::_nullHandlesAndFreeNonLvgl() {
         _rendered_count[ch] = 0u;
     }
 
-    _synthetic_step_index      = 0u;
-    _synthetic_step_elapsed_ms = 0u;
     _last_timer_tick           = 0u;
+    _last_pcm_block_id         = 0u;
+    _last_pcm_seen_tick        = 0u;
+    _last_pcm_sample_rate      = 0u;
+    _last_station_id           = -1;
+    _pcm_source_enabled        = false;
+    _pcm_target_db[0]          = kPpmOffDb;
+    _pcm_target_db[1]          = kPpmOffDb;
 
     if (_bg_psram_buf) {
         free(_bg_psram_buf);
