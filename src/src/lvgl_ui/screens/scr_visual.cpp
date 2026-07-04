@@ -1,13 +1,13 @@
 /*
- * LvglVisualPage — Visual carousel page E1: static Beocord 9000 museum background.
- * LvglVisualPage — страница Visual E1: статичный музейный фон Beocord 9000.
+ * LvglVisualPage — Visual carousel page E1+E2: Beocord museum background + one proof segment.
+ * LvglVisualPage — страница Visual E1+E2: музейный фон Beocord + один proof-сегмент.
  *
  * - ILvglScreen lifecycle via PageChain (W2F auto-delete on carousel switch).
  * - DspTask-only lv_*; background loaded once in create() into Visual-owned PSRAM.
- * - Museum artwork is theme-independent; fallback uses yoradio_palette().device_background.
+ * - E2 segment mask is Flash A8 + LVGL recolor; overlay shares background canvas origin.
  *
- * E1 scope: background only — no segments, timers, ballistics, or metadata.
- * E1: только фон — без сегментов, таймеров, баллистики и метаданных.
+ * E2 scope: static background + single L3 green segment only — no ballistics/audio/timer.
+ * E2: только фон + один зелёный L3 — без баллистики/аудио/таймера.
  */
 
 #include "scr_visual.h"
@@ -26,6 +26,19 @@
 namespace lvgl_ui {
 
 namespace {
+
+// E2: museum-green recolor for proof segment — fixed across themes (not yoradio_palette()).
+// E2: музейный зелёный recolor для proof-сегмента — фиксированный, не из темы.
+static const lv_color_t kBeocordMuseumGreen = lv_color_hex(0x59F08A);
+
+// E2 proof window: L channel, index 3 (L3) — only dynamic segment in this stage.
+// E2: proof-окно L3 — единственный динамический сегмент на этом этапе.
+static constexpr uint8_t kProofChannel = 0u;
+static constexpr uint8_t kProofIndex   = 3u;
+// E2A: device-tuned placement nudge for L3 (canonical rect unchanged in asset pack).
+// E2A: подстройка позиции L3 на устройстве (канонический rect в pack не меняем).
+static constexpr int16_t kProofSegmentOffsetX = 0;
+static constexpr int16_t kProofSegmentOffsetY = 0;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Background helpers / Вспомогательные функции фона
@@ -101,6 +114,51 @@ void LvglVisualPage::create_background(LvglVisualPage& self) {
     self._applyBackgroundImage();
 }
 
+void LvglVisualPage::create_overlay_layer(LvglVisualPage& self) {
+    if (!self._screen) return;
+    if (!kBeocordVuAssetPack.segment_mask) return;
+
+    const lv_coord_t W = static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.width);
+    const lv_coord_t H = static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.height);
+
+    self._overlay_layer = lv_obj_create(self._screen);
+    if (!self._overlay_layer) return;
+
+    lv_obj_add_flag(self._overlay_layer, LV_OBJ_FLAG_FLOATING);
+    lv_obj_clear_flag(self._overlay_layer, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(self._overlay_layer, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(self._overlay_layer, W, H);
+    lv_obj_set_style_bg_opa(self._overlay_layer, LV_OPA_0, LV_PART_MAIN);
+    lv_obj_set_style_border_width(self._overlay_layer, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(self._overlay_layer, 0, LV_PART_MAIN);
+
+    self._syncOverlayLayout();
+}
+
+void LvglVisualPage::create_proof_segment(LvglVisualPage& self) {
+    if (!self._overlay_layer) return;
+
+    const BeocordVuAssetPack& pack = kBeocordVuAssetPack;
+    if (!pack.segment_mask) return;
+
+    const lv_area_t& proof_rect = pack.overlay_rect[kProofChannel][kProofIndex];
+
+    self._proof_segment = lv_img_create(self._overlay_layer);
+    if (!self._proof_segment) return;
+
+    lv_img_set_src(self._proof_segment, pack.segment_mask);
+    lv_obj_add_flag(self._proof_segment, LV_OBJ_FLAG_FLOATING);
+    lv_obj_clear_flag(self._proof_segment, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(self._proof_segment, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_pos(
+        self._proof_segment,
+        proof_rect.x1 + kProofSegmentOffsetX,
+        proof_rect.y1 + kProofSegmentOffsetY);
+    lv_obj_set_style_img_recolor(self._proof_segment, kBeocordMuseumGreen, LV_PART_MAIN);
+    lv_obj_set_style_img_recolor_opa(self._proof_segment, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_opa(self._proof_segment, LV_OPA_COVER, LV_PART_MAIN);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Background methods / Методы фона
 // ─────────────────────────────────────────────────────────────────────────────
@@ -154,6 +212,19 @@ void LvglVisualPage::_syncBackgroundLayout() {
     lv_obj_set_pos(_bg_img, -frame_pad, -frame_pad);
 }
 
+void LvglVisualPage::_syncOverlayLayout() {
+    // Same full-bleed canvas origin as background (frame_padding compensation).
+    // Тот же origin холста 480×480, что и у фона (компенсация frame_padding).
+    if (!_screen || !_overlay_layer) return;
+
+    const lv_coord_t W = static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.width);
+    const lv_coord_t H = static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.height);
+    const lv_coord_t frame_pad = static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.frame_padding);
+
+    lv_obj_set_size(_overlay_layer, W, H);
+    lv_obj_set_pos(_overlay_layer, -frame_pad, -frame_pad);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Lifecycle / Жизненный цикл
 // ─────────────────────────────────────────────────────────────────────────────
@@ -178,6 +249,8 @@ void LvglVisualPage::create() {
     lv_obj_clear_flag(_screen, LV_OBJ_FLAG_SCROLLABLE);
 
     create_background(*this);
+    create_overlay_layer(*this);
+    create_proof_segment(*this);
     installCarouselGesturesOnPageRoot(_screen);
 }
 
@@ -219,6 +292,8 @@ void LvglVisualPage::releaseAfterAutoDelete() {
 void LvglVisualPage::_nullHandlesAndFreeNonLvgl() {
     _screen = nullptr;
     _bg_img = nullptr;
+    _overlay_layer = nullptr;
+    _proof_segment = nullptr;
 
     if (_bg_psram_buf) {
         free(_bg_psram_buf);
