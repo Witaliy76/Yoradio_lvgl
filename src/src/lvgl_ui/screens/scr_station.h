@@ -2,10 +2,11 @@
 #define SCR_STATION_H
 
 /*
- * scr_station.h — Station Page (6.3F): tap-to-focus overlays vs current-marker split.
- * scr_station.h — страница Station: разделение фокус UI и маркера «текущая станция».
+ * scr_station.h — Station list page: tap-to-focus overlays with separate current-station marker.
+ * scr_station.h — страница Station: tap-to-focus оверлеи и независимый маркер «текущая станция».
  *
- * Scope: 6.3F9 input + 6.3 marker layout — speaker glyph left gutter; F8/arm unchanged in cpp.
+ * Focus station is UI-local state; current station comes from the adapter (what is playing).
+ * Фокус — UI-local state; текущая станция берётся из адаптера (что играет).
  */
 
 #include <stdint.h>
@@ -18,7 +19,13 @@
 
 namespace lvgl_ui {
 
-// Station Page: tap-to-focus on list scroll root; playback marker from adapter — tap-to-play later.
+// STATIONREF-A: forward declaration — builders take const YoRadioPalette& without pulling
+// the theme header into this .h (full definition in scr_station.cpp via lv_theme_yoradio.h).
+// STATIONREF-A: forward-декларация — билдеры принимают const YoRadioPalette& без include темы в .h.
+struct YoRadioPalette;
+
+// Station list page: scrollable single-label list, tap-to-focus, tap-to-play.
+// Страница Station: прокручиваемый однострочный список, tap для фокуса и воспроизведения.
 class LvglStationPage final : public ILvglScreen {
 public:
     ScreenType screenType() const override;
@@ -29,18 +36,28 @@ public:
     void destroy() override;
     lv_obj_t* screen() override;
     void liveReapplyTheme() override;
-    // W2F: LVGL tree already auto-deleted by PageChain → null handles + free list heap buffer.
-    // W2F: дерево уже удалено LVGL → обнулить указатели + освободить heap-буфер списка.
+    // PageChain auto-delete: LVGL tree already freed — only null handles and free list buffer.
+    // PageChain auto-delete: дерево уже освобождено LVGL — только обнуляем указатели и буфер.
     void releaseAfterAutoDelete() override;
 
-    // 6.3D-b1: DspTask-only hook from displayQueue (NEWSTATION); list rebuild on page entry.
+    // DspTask-only hook from displayQueue on NEWSTATION event.
+    // Updates current-station marker and count; does not rebuild the list.
+    // Вызывается из displayQueue (NEWSTATION, только DspTask). Обновляет маркер и count, список не пересоздаёт.
     void refreshCurrentStationVisuals();
 
 private:
-    // W2F: shared teardown (no lv_obj_del) used by destroy() and releaseAfterAutoDelete().
-    // Releases the heap list-text buffer (non-LVGL) and nulls all handles.
-    // W2F: общий сброс (без lv_obj_del) для destroy()/releaseAfterAutoDelete(); освобождает heap-буфер.
+    // Shared teardown (no lv_obj_del): releases the heap list-text buffer and nulls all handles.
+    // Used by both destroy() (after lv_obj_del) and releaseAfterAutoDelete() (after PageChain deletion).
+    // Общий сброс (без lv_obj_del): освобождает heap-буфер списка и обнуляет все указатели.
     void _nullHandles();
+
+    // STATIONREF-A: private static layout builders — keep create() a short orchestration skeleton.
+    // Called only from create(), in order. Access to private members via `self` reference.
+    // STATIONREF-A: private static билдеры — create() остаётся коротким оркестратором.
+    static void create_status_chrome(LvglStationPage& self, const YoRadioPalette& pal);
+    static void create_header(LvglStationPage& self, const YoRadioPalette& pal);
+    static void create_list_area(LvglStationPage& self, const YoRadioPalette& pal);
+    static void create_hint_band(LvglStationPage& self, const YoRadioPalette& pal);
 
     lv_obj_t* _screen = nullptr;
     wgt_status_line::Instance _status_line{};
@@ -64,14 +81,15 @@ private:
     station_list_adapter::StationListSignature _list_sig_cache{};
     bool _list_sig_cache_valid = false;
 
-    // 6.3F8: stroke baselines + peak movement during PRESSING (end point can lie near press after a flick).
-    // 6.3F8: база жеста + пик смещения по PRESSING (палец после флика часто «возвращается» к месту нажатия).
+    // Stroke baselines captured on PRESSED; peak movement accumulated during PRESSING.
+    // End point can lie near press after a flick — peaks guard against scroll misdetection.
+    // База жеста фиксируется на PRESSED; пики накапливаются по PRESSING для защиты от ложных тапов.
     lv_point_t _list_press_pt{};
     lv_coord_t _list_press_scroll_y = 0;
     int32_t _list_stroke_max_manhattan = 0;
     int32_t _list_stroke_max_scroll_y_abs = 0;
-    // F9: after scroll or touch-while-coasting, next qualifying SHORT_CLICKED is eaten (stop UX); following tap focuses.
-    // F9: после прокрутки/касания во время инерции следующий «чистый» клик поглощается; следующий тап — фокус.
+    // After scroll or touch-while-coasting, next qualifying SHORT_CLICKED is consumed (stop UX); next clean tap focuses.
+    // После прокрутки/касания при инерции следующий «чистый» SHORT_CLICKED поглощается; следующий тап — фокус.
     bool _list_arm_suppress_next_focus = false;
 
     void _populateStationList();
@@ -107,8 +125,9 @@ private:
     void _layoutMarkerForCurrentStation(uint16_t current_station_num);
     void _buildStationOverlaysAfterList(uint16_t current_station_num);
 
-    // Stage 6.3H: enter-only — scroll list so current station row is in view (no jump on live NEWSTATION).
-    // Этап 6.3H: только при входе на страницу — не вызывать из refreshCurrentStationVisuals().
+    // Enter-only: scroll list so current station row is in view.
+    // Must not be called from refreshCurrentStationVisuals() — no scroll jump on live NEWSTATION.
+    // Только при входе: центрировать текущую станцию в видимой области. Не вызывать из refreshCurrentStationVisuals().
     void _scrollListToCurrentOnEnter();
 };
 
