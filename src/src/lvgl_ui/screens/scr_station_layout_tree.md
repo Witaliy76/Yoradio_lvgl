@@ -216,12 +216,13 @@ Width capped at `LV_ACTIVE_PROFILE.width - 2×frame_padding - 32 - 20 - 40`, min
 
 - `_list_text` is owned by `LvglStationPage`, allocated by `_ensureListTextBuffer()`.
 - Allocation strategy: `ps_malloc` (PSRAM) first, `malloc` (heap) fallback.
-- `_lbl_list` uses `lv_label_set_text_static(_lbl_list, _list_text)` — LVGL stores only the pointer, never copies.
-- Buffer **must stay alive** while `_lbl_list` exists.
-- On rebuild: `_destroyStationOverlays()` → `lv_obj_clean(_list_area)` (deletes `_lbl_list`) → then buffer may be reallocated.
+- Normal label uses `lv_label_set_text_static` (`_createStationListLabelFromBuffer()`) — LVGL stores only the pointer, never copies.
+- Allocation-error label uses `lv_label_set_text` (`_showStationListAllocationError()`) — LVGL makes its own copy; `_list_text` is not involved.
+- Buffer **must stay alive** while `_lbl_list` (normal path) exists.
+- On rebuild: `_clearStationListVisuals()` → overlays + `lv_obj_clean` (deletes `_lbl_list`) → buffer may be reallocated by `_ensureListTextBuffer()`.
 - On `destroy()`: `lv_obj_del(_screen)` (deletes `_lbl_list`) → `_nullHandles()` → `_releaseListTextBuffer()` → `free(_list_text)`.
 - On `releaseAfterAutoDelete()`: PageChain already freed tree (including `_lbl_list`) → `_nullHandles()` → `_releaseListTextBuffer()`.
-- Signature cache is updated after successful populate; invalidated on allocation failure.
+- Signature cache updated after successful normal populate; invalidated on buffer allocation failure.
 
 ---
 
@@ -230,25 +231,45 @@ Width capped at `LV_ACTIVE_PROFILE.width - 2×frame_padding - 32 - 20 - 40`, min
 ```
 _populateStationList()
     │
-    ├── _destroyStationOverlays()       — delete overlays while handles are valid
-    ├── lv_obj_clean(_list_area)        — remove remaining children (_lbl_list)
-    ├── _lbl_list = nullptr
-    ├── _updateCountLabel(current, tot)
+    ├── _clearStationListVisuals()
+    │   ├── _destroyStationOverlays()   — tracked overlays deleted while handles are valid
+    │   ├── lv_obj_clean(_list_area)    — remove remaining children (_lbl_list)
+    │   └── _lbl_list = nullptr
     │
-    ├── _ensureListTextBuffer(tot)      — PSRAM / heap allocation
-    │   ├── success →
-    │   │   ├── station_list_text()     — fill _list_text (read failure: strlcpy error string)
-    │   │   ├── lv_label_create + lv_label_set_text_static
-    │   │   ├── _buildStationOverlaysAfterList()
-    │   │   │   ├── _clampFocusForTotal()
-    │   │   │   ├── _layoutFocusChrome()
-    │   │   │   └── _layoutMarkerForCurrentStation()
-    │   │   ├── _registerListPointerHandlersOnLabel()
-    │   │   └── _cacheListSignature()
-    │   └── failure →
-    │       ├── _list_sig_cache_valid = false
-    │       ├── lv_label_create + lv_label_set_text (error string)
-    │       └── _registerListPointerHandlersOnLabel()
+    ├── current + total from adapter
+    ├── _updateCountLabel(current, total)
+    │
+    ├── _ensureListTextBuffer(total)    — PSRAM / heap allocation
+    │   ├── failure →
+    │   │   ├── _list_sig_cache_valid = false
+    │   │   └── _showStationListAllocationError()
+    │   │       ├── lv_label_create
+    │   │       ├── lv_label_set_text (LVGL copy — not static)
+    │   │       └── _registerListPointerHandlersOnLabel()
+    │   └── success →
+    │       ├── station_list_text()     — fill _list_text
+    │       │   (read failure: strlcpy kStrListReadFailed into _list_text)
+    │       └── _createStationListLabelFromBuffer()
+    │           ├── lv_label_create
+    │           ├── lv_label_set_text_static (pointer only — no copy)
+    │           └── returns false → early return (no overlays, no cache)
+    │
+    ├── _buildStationOverlaysAfterList(current)
+    │   ├── _clampFocusForTotal()
+    │   ├── _layoutFocusChrome()
+    │   │   ├── ensure _focus_row_bg (lv_obj_create if absent)
+    │   │   ├── ensure _focus_row_accent (lv_obj_create if absent)
+    │   │   ├── _styleFocusRowOverlays(pal)
+    │   │   ├── _positionFocusRowOverlays(focus_station)
+    │   │   └── z-order: move_background(bg) + move_foreground(list) + move_foreground(marker)
+    │   └── _layoutMarkerForCurrentStation()
+    │       ├── _ensureCurrentMarker() (lv_label_create if absent)
+    │       ├── _styleCurrentMarker(pal)
+    │       ├── _positionCurrentMarker(current)
+    │       └── z-order: move_foreground(list) + move_foreground(marker)
+    │
+    ├── _registerListPointerHandlersOnLabel()
+    └── _cacheListSignature()
 ```
 
 ---
@@ -376,15 +397,24 @@ STATIONREF-A не вводит runtime-локализацию, языковые 
 | hint area failure | no `_hint_area` | no hint band |
 | overlay alloc failure | partial overlays | missing highlight or marker |
 
-No new general rollback was added in STATIONREF-A or STATIONFIX-1.
+No new general rollback was added in STATIONFIX-1, STATIONREF-A, or STATIONREF-B.
+
+---
+
+## STATIONREF history
+
+**STATIONFIX-1** (`9e5f2fc`): safe overlay cleanup order — `_destroyStationOverlays()` before `lv_obj_clean`.
+
+**STATIONREF-A** (`ca15d7e`, `E43S`): structural/layout refactor — UI resource sections, font/glyph/layout constants, private static builders, short `create()`, layout tree documentation.
+
+**STATIONREF-B** (`E44S`): runtime list/buffer/signature/overlay/enter-scroll structure — `_clearStationListVisuals()`, `_showStationListAllocationError()`, `_createStationListLabelFromBuffer()`, `_styleFocusRowOverlays()`, `_positionFocusRowOverlays()`, `_ensureCurrentMarker()`, `_styleCurrentMarker()`, `_positionCurrentMarker()`. Pipeline readable as orchestration; behavior preserved byte-for-byte.
+
+**STATIONREF-C** (deferred): pointer/touch state machine refactor.
 
 ---
 
 ## Notes / Заметки
 
-- **STATIONFIX-1** (`9e5f2fc`): Fixed overlay cleanup order — `_destroyStationOverlays()` is called before `lv_obj_clean(_list_area)` so handles are never dangling before explicit deletion. `lv_obj_clean` then removes `_lbl_list`.
-- **STATIONREF-A** (`E43S`): Structural/layout refactor — UI resource sections, font/glyph constants, named layout constants, private static builders, short `create()` skeleton, layout tree documentation. No behavioral changes.
-- **STATIONREF-B** scope (not yet done): list lifecycle, buffer, overlays, and refresh pipeline refactor.
-- **STATIONREF-C** scope (not yet done): pointer/input state machine refactor.
 - `header` and `hint_row` are local variables in their builders — only the stored handles (`_lbl_title`, `_lbl_count`, `_hint_area`, `_lbl_hint_icon`, `_lbl_hint_text`) are class members.
 - `_list_text` buffer lifetime is critical — see List text-buffer ownership above.
+- The allocation-error label uses `lv_label_set_text` (LVGL copy); the normal list label uses `lv_label_set_text_static` (pointer only). Both code paths are in separate methods for clarity.

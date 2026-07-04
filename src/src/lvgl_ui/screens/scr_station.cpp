@@ -436,14 +436,22 @@ void LvglStationPage::update() {
     wgt_status_line::update(_status_line);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Runtime refresh and signature pipeline / Конвейер обновления и сигнатуры
+// ─────────────────────────────────────────────────────────────────────────────
+
 void LvglStationPage::_refreshOnPageActivate() {
     if (!_list_area) return;
     station_list_adapter::StationListSignature now{};
     if (!station_list_adapter::list_signature(&now)) {
+        // Signature read failure: skip rebuild, only refresh marker/count.
+        // Ошибка чтения сигнатуры: пропустить rebuild, только обновить маркер/count.
         refreshCurrentStationVisuals();
         return;
     }
     if (_list_sig_cache_valid && station_list_adapter::list_signature_equal(now, _list_sig_cache)) {
+        // Playlist unchanged: refresh marker/count only.
+        // Плейлист не изменился: только маркер/count.
         refreshCurrentStationVisuals();
         return;
     }
@@ -465,15 +473,18 @@ void LvglStationPage::refreshCurrentStationVisuals() {
         _destroyCurrentMarkerOverlay();
         return;
     }
-
-    const lv_coord_t y_marker = row_y_for_station_row(current);
-    const lv_coord_t mx = marker_left_x_in_list();
+    // Reposition existing marker, or create if absent.
+    // Переместить существующий маркер или создать если отсутствует.
     if (_current_marker) {
-        lv_obj_set_pos(_current_marker, mx, y_marker + kMarkerY);
+        _positionCurrentMarker(current);
         return;
     }
     _layoutMarkerForCurrentStation(current);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Count pipeline / Конвейер счётчика
+// ─────────────────────────────────────────────────────────────────────────────
 
 void LvglStationPage::_updateCountLabel(uint16_t current, uint16_t total) {
     if (!_lbl_count) return;
@@ -493,10 +504,95 @@ void LvglStationPage::_updateCountLabel(uint16_t current, uint16_t total) {
     lv_label_set_text(_lbl_count, count_buf);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// List population pipeline / Конвейер заполнения списка
+// ─────────────────────────────────────────────────────────────────────────────
+
+void LvglStationPage::_clearStationListVisuals() {
+    // Overlays first: delete while handles are still valid (STATIONFIX-1 order).
+    // Сначала overlays: удаляем пока handles ещё валидны (порядок STATIONFIX-1).
+    _destroyStationOverlays();
+    if (_list_area) {
+        lv_obj_clean(_list_area);
+    }
+    _lbl_list = nullptr;
+}
+
+bool LvglStationPage::_showStationListAllocationError() {
+    // Allocation error: show message label. LVGL makes its own copy (lv_label_set_text).
+    // _list_text is not used here (not allocated). No overlays, no signature update.
+    // Ошибка выделения: LVGL хранит собственную копию. _list_text не используется.
+    _lbl_list = lv_label_create(_list_area);
+    if (!_lbl_list) return false;
+    lv_label_set_text(_lbl_list, kStrListBufferAllocFailed);
+    station_set_font(_lbl_list, kFontStationList);
+    lv_obj_set_style_text_color(_lbl_list, yoradio_palette().list_row_text, LV_PART_MAIN);
+    lv_obj_set_style_pad_left(_lbl_list, list_label_pad_left_for_marker_gutter(), LV_PART_MAIN);
+    _registerListPointerHandlersOnLabel();
+    return true;
+}
+
+bool LvglStationPage::_createStationListLabelFromBuffer() {
+    // Normal list: lv_label_set_text_static — LVGL stores only the pointer, no copy.
+    // _list_text must stay allocated while _lbl_list exists.
+    // Обычный список: LVGL хранит только указатель — _list_text должен жить пока _lbl_list существует.
+    _lbl_list = lv_label_create(_list_area);
+    if (!_lbl_list) return false;
+    lv_label_set_long_mode(_lbl_list, LV_LABEL_LONG_CLIP);
+    lv_label_set_text_static(_lbl_list, _list_text);
+    station_set_font(_lbl_list, kFontStationList);
+    lv_obj_set_style_text_color(_lbl_list, yoradio_palette().list_row_text, LV_PART_MAIN);
+    lv_obj_set_style_text_line_space(_lbl_list, kStationListLineSpace, LV_PART_MAIN);
+    lv_obj_set_style_pad_left(_lbl_list, list_label_pad_left_for_marker_gutter(), LV_PART_MAIN);
+    return true;
+}
+
+void LvglStationPage::_populateStationList() {
+    if (!_list_area) return;
+
+    _clearStationListVisuals();
+
+    const uint16_t current = station_list_adapter::current_station_num();
+    const uint16_t tot     = station_list_adapter::station_count();
+
+    _updateCountLabel(current, tot);
+
+    if (!_ensureListTextBuffer(tot)) {
+        _list_sig_cache_valid = false;
+        _showStationListAllocationError();
+        return;
+    }
+
+    const size_t name_limit = (LV_ACTIVE_PROFILE.width >= kWideProfileMinWidth)
+                              ? kStationNameLimitWide : kStationNameLimitCompact;
+    if (!station_list_adapter::station_list_text(_list_text, _list_text_cap, name_limit)) {
+        strlcpy(_list_text, kStrListReadFailed, _list_text_cap);
+    }
+
+    if (!_createStationListLabelFromBuffer()) {
+        return;
+    }
+
+    _buildStationOverlaysAfterList(current);
+    _registerListPointerHandlersOnLabel();
+    _cacheListSignature();
+}
+
+void LvglStationPage::_registerListPointerHandlersOnLabel() {
+    if (!_lbl_list) return;
+    lv_obj_clear_flag(_lbl_list, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(_lbl_list, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(_lbl_list, LV_OBJ_FLAG_GESTURE_BUBBLE);
+}
+
 void LvglStationPage::_cacheListSignature() {
     (void)station_list_adapter::list_signature(&_list_sig_cache);
     _list_sig_cache_valid = true;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Overlay destruction / Удаление overlay объектов
+// ─────────────────────────────────────────────────────────────────────────────
 
 void LvglStationPage::_destroyFocusRowOverlays() {
     if (_focus_row_bg) {
@@ -521,12 +617,17 @@ void LvglStationPage::_destroyStationOverlays() {
     _destroyCurrentMarkerOverlay();
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Focus overlay pipeline / Конвейер оверлея фокуса
+// ─────────────────────────────────────────────────────────────────────────────
+
 void LvglStationPage::_clampFocusForTotal(uint16_t tot) {
     if (tot == 0u) {
         _focus_station_num = 0;
         return;
     }
-    if (_focus_station_num >= 1u && _focus_station_num <= tot && station_list_adapter::is_valid_station_num(_focus_station_num)) {
+    if (_focus_station_num >= 1u && _focus_station_num <= tot
+        && station_list_adapter::is_valid_station_num(_focus_station_num)) {
         return;
     }
     const uint16_t cur = station_list_adapter::current_station_num();
@@ -537,13 +638,48 @@ void LvglStationPage::_clampFocusForTotal(uint16_t tot) {
     }
 }
 
+void LvglStationPage::_styleFocusRowOverlays(const YoRadioPalette& pal) {
+    if (_focus_row_bg) {
+        lv_obj_set_width(_focus_row_bg,
+            static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.width - (LV_ACTIVE_PROFILE.frame_padding * 2u)));
+        lv_obj_set_height(_focus_row_bg, kRowOverlayHeight);
+        lv_obj_set_style_bg_color(_focus_row_bg, pal.list_row_selected_bg, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(_focus_row_bg, kFocusBgOpa, LV_PART_MAIN);
+        lv_obj_set_style_border_width(_focus_row_bg, 0, LV_PART_MAIN);
+        lv_obj_set_style_radius(_focus_row_bg, kFocusBgRadius, LV_PART_MAIN);
+        lv_obj_set_style_pad_all(_focus_row_bg, 0, LV_PART_MAIN);
+        lv_obj_clear_flag(_focus_row_bg, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_clear_flag(_focus_row_bg, LV_OBJ_FLAG_CLICKABLE);
+    }
+    if (_focus_row_accent) {
+        lv_obj_set_width(_focus_row_accent, kFocusAccentStripW);
+        lv_obj_set_height(_focus_row_accent, kRowAccentH);
+        lv_obj_set_style_bg_color(_focus_row_accent, pal.accent, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(_focus_row_accent, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_border_width(_focus_row_accent, 0, LV_PART_MAIN);
+        lv_obj_set_style_radius(_focus_row_accent, kFocusAccentRadius, LV_PART_MAIN);
+        lv_obj_set_style_pad_all(_focus_row_accent, 0, LV_PART_MAIN);
+        lv_obj_clear_flag(_focus_row_accent, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_clear_flag(_focus_row_accent, LV_OBJ_FLAG_CLICKABLE);
+    }
+}
+
+void LvglStationPage::_positionFocusRowOverlays(uint16_t focus_station_num) {
+    const lv_coord_t y = row_y_for_station_row(focus_station_num);
+    if (_focus_row_bg) {
+        lv_obj_set_pos(_focus_row_bg, -kListPadLeft, y - kRowOverlayTopPad);
+    }
+    if (_focus_row_accent) {
+        lv_obj_set_pos(_focus_row_accent, -kListPadLeft + 1, y + kRowAccentY);
+    }
+}
+
 void LvglStationPage::_layoutFocusChrome(uint16_t focus_station) {
     if (!_list_area || !_lbl_list) return;
     if (!station_list_adapter::is_valid_station_num(focus_station)) {
         _destroyFocusRowOverlays();
         return;
     }
-
     const uint16_t tot = station_list_adapter::station_count();
     if (tot == 0u || focus_station > tot) {
         _destroyFocusRowOverlays();
@@ -551,54 +687,60 @@ void LvglStationPage::_layoutFocusChrome(uint16_t focus_station) {
     }
 
     const YoRadioPalette& pal = yoradio_palette();
-    const lv_coord_t y = row_y_for_station_row(focus_station);
 
-    auto style_focus_bg = [&](lv_obj_t* o) {
-        if (!o) return;
-        lv_obj_set_width(o, static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.width - (LV_ACTIVE_PROFILE.frame_padding * 2u)));
-        lv_obj_set_height(o, kRowOverlayHeight);
-        lv_obj_set_style_bg_color(o, pal.list_row_selected_bg, LV_PART_MAIN);
-        lv_obj_set_style_bg_opa(o, kFocusBgOpa, LV_PART_MAIN);
-        lv_obj_set_style_border_width(o, 0, LV_PART_MAIN);
-        lv_obj_set_style_radius(o, kFocusBgRadius, LV_PART_MAIN);
-        lv_obj_set_style_pad_all(o, 0, LV_PART_MAIN);
-        lv_obj_clear_flag(o, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_clear_flag(o, LV_OBJ_FLAG_CLICKABLE);
-    };
-    auto style_focus_accent = [&](lv_obj_t* o) {
-        if (!o) return;
-        lv_obj_set_width(o, kFocusAccentStripW);
-        lv_obj_set_height(o, kRowAccentH);
-        lv_obj_set_style_bg_color(o, pal.accent, LV_PART_MAIN);
-        lv_obj_set_style_bg_opa(o, LV_OPA_COVER, LV_PART_MAIN);
-        lv_obj_set_style_border_width(o, 0, LV_PART_MAIN);
-        lv_obj_set_style_radius(o, kFocusAccentRadius, LV_PART_MAIN);
-        lv_obj_set_style_pad_all(o, 0, LV_PART_MAIN);
-        lv_obj_clear_flag(o, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_clear_flag(o, LV_OBJ_FLAG_CLICKABLE);
-    };
-
+    // Ensure objects exist.
     if (!_focus_row_bg) {
         _focus_row_bg = lv_obj_create(_list_area);
-        style_focus_bg(_focus_row_bg);
     }
     if (!_focus_row_bg) return;
-    lv_obj_set_pos(_focus_row_bg, -kListPadLeft, y - kRowOverlayTopPad);
-    style_focus_bg(_focus_row_bg); // palette may change preset / пресет мог смениться
-    lv_obj_move_background(_focus_row_bg);
 
     if (!_focus_row_accent) {
         _focus_row_accent = lv_obj_create(_list_area);
-        style_focus_accent(_focus_row_accent);
     }
     if (!_focus_row_accent) return;
-    lv_obj_set_pos(_focus_row_accent, -kListPadLeft + 1, y + kRowAccentY);
-    style_focus_accent(_focus_row_accent);
 
+    // Style, position, then z-order.
+    // Стиль, позиция, затем z-order.
+    _styleFocusRowOverlays(pal);
+    _positionFocusRowOverlays(focus_station);
+
+    // Z-order: bg behind list label; marker stays foreground.
+    // Z-order: bg под label списка; маркер остаётся сверху.
+    lv_obj_move_background(_focus_row_bg);
     lv_obj_move_foreground(_lbl_list);
     if (_current_marker) {
         lv_obj_move_foreground(_current_marker);
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Current marker pipeline / Конвейер маркера текущей станции
+// ─────────────────────────────────────────────────────────────────────────────
+
+bool LvglStationPage::_ensureCurrentMarker() {
+    if (_current_marker) return true;
+    _current_marker = lv_label_create(_list_area);
+    if (!_current_marker) return false;
+    lv_obj_set_width(_current_marker, kMarkerBoxW);
+    lv_label_set_long_mode(_current_marker, LV_LABEL_LONG_CLIP);
+    lv_label_set_text(_current_marker, kIconCurrentStation);
+    station_set_font(_current_marker, kFontCurrentMarker);
+    lv_obj_set_style_text_align(_current_marker, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_clear_flag(_current_marker, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(_current_marker, LV_OBJ_FLAG_CLICKABLE);
+    return true;
+}
+
+void LvglStationPage::_styleCurrentMarker(const YoRadioPalette& pal) {
+    if (!_current_marker) return;
+    lv_obj_set_style_text_color(_current_marker, pal.accent, LV_PART_MAIN);
+}
+
+void LvglStationPage::_positionCurrentMarker(uint16_t current_station_num) {
+    if (!_current_marker) return;
+    const lv_coord_t y = row_y_for_station_row(current_station_num);
+    const lv_coord_t mx = marker_left_x_in_list();
+    lv_obj_set_pos(_current_marker, mx, y + kMarkerY);
 }
 
 void LvglStationPage::_layoutMarkerForCurrentStation(uint16_t current_station) {
@@ -607,24 +749,14 @@ void LvglStationPage::_layoutMarkerForCurrentStation(uint16_t current_station) {
         return;
     }
 
+    if (!_ensureCurrentMarker()) return;
+
     const YoRadioPalette& pal = yoradio_palette();
-    const lv_coord_t y = row_y_for_station_row(current_station);
-    const lv_coord_t mx = marker_left_x_in_list();
+    _styleCurrentMarker(pal);
+    _positionCurrentMarker(current_station);
 
-    if (!_current_marker) {
-        _current_marker = lv_label_create(_list_area);
-        if (!_current_marker) return;
-        lv_obj_set_width(_current_marker, kMarkerBoxW);
-        lv_label_set_long_mode(_current_marker, LV_LABEL_LONG_CLIP);
-        lv_label_set_text(_current_marker, kIconCurrentStation);
-        station_set_font(_current_marker, kFontCurrentMarker);
-        lv_obj_set_style_text_align(_current_marker, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-        lv_obj_clear_flag(_current_marker, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_clear_flag(_current_marker, LV_OBJ_FLAG_CLICKABLE);
-    }
-    lv_obj_set_style_text_color(_current_marker, pal.accent, LV_PART_MAIN);
-    lv_obj_set_pos(_current_marker, mx, y + kMarkerY);
-
+    // Marker always in foreground, above list label.
+    // Маркер всегда поверх label списка.
     lv_obj_move_foreground(_lbl_list);
     lv_obj_move_foreground(_current_marker);
 }
@@ -721,66 +853,10 @@ bool LvglStationPage::_candidateStationFromScreenPoint(lv_coord_t screen_px, lv_
     return true;
 }
 
-void LvglStationPage::_populateStationList() {
-    if (!_list_area) return;
-
-    // Explicitly tracked overlays are deleted before lv_obj_clean so their handles cannot become
-    // dangling before the explicit lv_obj_del call inside _destroyStationOverlays().
-    // lv_obj_clean then removes the remaining list children (primarily _lbl_list).
-    // Оверлеи удаляем до lv_obj_clean: их handles не станут dangling до явного lv_obj_del.
-    // lv_obj_clean после этого убирает оставшихся children (прежде всего _lbl_list).
-    _destroyStationOverlays();
-    lv_obj_clean(_list_area);
-    _lbl_list = nullptr;
-
-    const uint16_t current = station_list_adapter::current_station_num();
-    const uint16_t tot = station_list_adapter::station_count();
-    _updateCountLabel(current, tot);
-
-    if (!_ensureListTextBuffer(tot)) {
-        _list_sig_cache_valid = false;
-        _lbl_list = lv_label_create(_list_area);
-        if (!_lbl_list) return;
-        lv_label_set_text(_lbl_list, kStrListBufferAllocFailed);
-        station_set_font(_lbl_list, kFontStationList);
-        lv_obj_set_style_text_color(_lbl_list, yoradio_palette().list_row_text, LV_PART_MAIN);
-        lv_obj_set_style_pad_left(_lbl_list, list_label_pad_left_for_marker_gutter(), LV_PART_MAIN);
-        _registerListPointerHandlersOnLabel();
-        return;
-    }
-
-    const size_t name_limit = (LV_ACTIVE_PROFILE.width >= kWideProfileMinWidth)
-                              ? kStationNameLimitWide : kStationNameLimitCompact;
-    if (!station_list_adapter::station_list_text(_list_text, _list_text_cap, name_limit)) {
-        strlcpy(_list_text, kStrListReadFailed, _list_text_cap);
-    }
-
-    _lbl_list = lv_label_create(_list_area);
-    if (!_lbl_list) return;
-    lv_label_set_long_mode(_lbl_list, LV_LABEL_LONG_CLIP);
-    // _list_text is owned by LvglStationPage; LVGL stores only the pointer (no copy).
-    // Buffer must stay alive while _lbl_list exists; label must be deleted before buffer release.
-    // _list_text принадлежит LvglStationPage; LVGL хранит только указатель без копирования.
-    // Буфер должен жить пока _lbl_list существует; label удаляется до освобождения буфера.
-    lv_label_set_text_static(_lbl_list, _list_text);
-    station_set_font(_lbl_list, kFontStationList);
-    lv_obj_set_style_text_color(_lbl_list, yoradio_palette().list_row_text, LV_PART_MAIN);
-    lv_obj_set_style_text_line_space(_lbl_list, kStationListLineSpace, LV_PART_MAIN);
-    lv_obj_set_style_pad_left(_lbl_list, list_label_pad_left_for_marker_gutter(), LV_PART_MAIN);
-
-    _buildStationOverlaysAfterList(current);
-    _registerListPointerHandlersOnLabel();
-    _cacheListSignature();
-}
-
-void LvglStationPage::_registerListPointerHandlersOnLabel() {
-    if (!_lbl_list) {
-        return;
-    }
-    lv_obj_clear_flag(_lbl_list, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_clear_flag(_lbl_list, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_flag(_lbl_list, LV_OBJ_FLAG_GESTURE_BUBBLE);
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// Pointer/input pipeline (STATIONREF-C scope — not refactored in B)
+// Конвейер ввода (scope STATIONREF-C — не рефакторится в B)
+// ─────────────────────────────────────────────────────────────────────────────
 
 void LvglStationPage::_listAreaPressedEvt(lv_event_t* e) {
     auto* self = static_cast<LvglStationPage*>(lv_event_get_user_data(e));

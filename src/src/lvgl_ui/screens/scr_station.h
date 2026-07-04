@@ -92,43 +92,67 @@ private:
     // После прокрутки/касания при инерции следующий «чистый» SHORT_CLICKED поглощается; следующий тап — фокус.
     bool _list_arm_suppress_next_focus = false;
 
-    void _populateStationList();
-    void _cacheListSignature();
+    // ── Runtime refresh and signature ──────────────────────────────────────
     void _refreshOnPageActivate();
     void _updateCountLabel(uint16_t current, uint16_t total);
-    bool _ensureListTextBuffer(uint16_t total);
-    void _releaseListTextBuffer();
+    void _cacheListSignature();
 
-    static void _listAreaPressedEvt(lv_event_t* e);
-    void _onListAreaPressed(lv_event_t* e);
-
-    static void _listAreaPressingEvt(lv_event_t* e);
-    void _onListAreaPressing(lv_event_t* e);
-
-    static void _listAreaReleasedEvt(lv_event_t* e);
-    void _onListAreaReleased(lv_event_t* e);
-
-    static void _listAreaShortClickedEvt(lv_event_t* e);
-    void _onListAreaShortClicked(lv_event_t* e);
-    bool _candidateStationFromScreenPoint(lv_coord_t screen_px, lv_coord_t screen_py, uint16_t* out_station);
-
+    // ── List population and label creation ─────────────────────────────────
+    // _clearStationListVisuals(): overlays first, then lv_obj_clean, then null label handle.
+    // Order is load-bearing (STATIONFIX-1): overlays deleted while handles are valid.
+    // _clearStationListVisuals(): сначала overlays, потом lv_obj_clean, потом обнуление label.
+    void _clearStationListVisuals();
+    void _populateStationList();
     void _registerListPointerHandlersOnLabel();
 
-    void _clampFocusForTotal(uint16_t total_stations);
-    void _setFocusStation(uint16_t num);
+    // Allocation-failure path: create error label via lv_label_set_text (LVGL owns copy).
+    // Returns false if LVGL could not allocate the label.
+    // Ветка ошибки выделения: lv_label_set_text (LVGL хранит копию). Возвращает false при ошибке.
+    bool _showStationListAllocationError();
 
+    // Normal list label: lv_label_set_text_static — LVGL only stores the pointer.
+    // _list_text must remain allocated while _lbl_list exists.
+    // Обычный label: lv_label_set_text_static — LVGL хранит только указатель.
+    // _list_text должен оставаться живым пока _lbl_list существует.
+    bool _createStationListLabelFromBuffer();
+
+    // ── Overlay lifecycle and layout ────────────────────────────────────────
     void _destroyFocusRowOverlays();
     void _destroyCurrentMarkerOverlay();
     void _destroyStationOverlays();
 
-    void _layoutFocusChrome(uint16_t focus_station_num);
-    void _layoutMarkerForCurrentStation(uint16_t current_station_num);
+    void _clampFocusForTotal(uint16_t total_stations);
     void _buildStationOverlaysAfterList(uint16_t current_station_num);
 
-    // Enter-only: scroll list so current station row is in view.
-    // Must not be called from refreshCurrentStationVisuals() — no scroll jump on live NEWSTATION.
-    // Только при входе: центрировать текущую станцию в видимой области. Не вызывать из refreshCurrentStationVisuals().
+    void _layoutFocusChrome(uint16_t focus_station_num);
+    void _styleFocusRowOverlays(const YoRadioPalette& pal);
+    void _positionFocusRowOverlays(uint16_t focus_station_num);
+
+    void _layoutMarkerForCurrentStation(uint16_t current_station_num);
+    bool _ensureCurrentMarker();
+    void _styleCurrentMarker(const YoRadioPalette& pal);
+    void _positionCurrentMarker(uint16_t current_station_num);
+
+    // ── Enter-scroll ───────────────────────────────────────────────────────
+    // Called only from enter() — no scroll jump on live NEWSTATION.
+    // Вызывается только из enter() — нет прыжка скролла при NEWSTATION.
     void _scrollListToCurrentOnEnter();
+
+    // ── Pointer/input (STATIONREF-C scope — not refactored in B) ──────────
+    void _setFocusStation(uint16_t num);
+    bool _candidateStationFromScreenPoint(lv_coord_t screen_px, lv_coord_t screen_py, uint16_t* out_station);
+    static void _listAreaPressedEvt(lv_event_t* e);
+    void _onListAreaPressed(lv_event_t* e);
+    static void _listAreaPressingEvt(lv_event_t* e);
+    void _onListAreaPressing(lv_event_t* e);
+    static void _listAreaReleasedEvt(lv_event_t* e);
+    void _onListAreaReleased(lv_event_t* e);
+    static void _listAreaShortClickedEvt(lv_event_t* e);
+    void _onListAreaShortClicked(lv_event_t* e);
+
+    // ── External buffer ownership ──────────────────────────────────────────
+    bool _ensureListTextBuffer(uint16_t total);
+    void _releaseListTextBuffer();
 };
 
 } // namespace lvgl_ui
