@@ -8,8 +8,8 @@
 
 namespace lvgl_ui {
 
-// Visual Page E1+E2 — Beocord 9000 museum background + one proof segment (L3).
-// Visual Page E1+E2 — музейный фон Beocord 9000 + один proof-сегмент (L3).
+// Visual Page E3 — Beocord museum background + static 16-segment diagnostic grid.
+// Visual Page E3 — музейный фон Beocord + статичная диагностическая сетка 16 сегментов.
 class LvglVisualPage final : public ILvglScreen {
 public:
     ScreenType screenType() const override;
@@ -26,7 +26,7 @@ public:
 private:
     static void create_background(LvglVisualPage& self);
     static void create_overlay_layer(LvglVisualPage& self);
-    static void create_proof_segment(LvglVisualPage& self);
+    static void create_segment_grid(LvglVisualPage& self);
 
     bool _loadBackgroundFromLittlefs();
     void _applyBackgroundImage();
@@ -39,8 +39,8 @@ private:
 
     lv_obj_t* _screen = nullptr;
     lv_obj_t* _bg_img = nullptr;
-    lv_obj_t* _overlay_layer = nullptr; // E2: transparent 480×480 segment canvas / E2: прозрачный холст сегментов
-    lv_obj_t* _proof_segment = nullptr; // E2: single lit L3 mask / E2: один подсвеченный L3
+    lv_obj_t* _overlay_layer = nullptr; // E2/E3: transparent 480×480 segment canvas
+    lv_obj_t* _segment_img[2][8] = {};  // E3: L/R × 8 static diagnostic segments
 
     // Visual-owned PSRAM background — not shared with Main cache (E1).
     // PSRAM-фон принадлежит Visual — не общий кэш Main (E1).

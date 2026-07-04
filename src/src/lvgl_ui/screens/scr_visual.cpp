@@ -1,13 +1,13 @@
 /*
- * LvglVisualPage — Visual carousel page E1+E2: Beocord museum background + one proof segment.
- * LvglVisualPage — страница Visual E1+E2: музейный фон Beocord + один proof-сегмент.
+ * LvglVisualPage — Visual carousel page E3: Beocord museum background + static 16-segment grid.
+ * LvglVisualPage — страница Visual E3: музейный фон Beocord + статичная сетка 16 сегментов.
  *
  * - ILvglScreen lifecycle via PageChain (W2F auto-delete on carousel switch).
  * - DspTask-only lv_*; background loaded once in create() into Visual-owned PSRAM.
- * - E2 segment mask is Flash A8 + LVGL recolor; overlay shares background canvas origin.
+ * - E3: shared Flash A8 mask + recolor; overlay uses canonical overlay_rect positions.
  *
- * E2 scope: static background + single L3 green segment only — no ballistics/audio/timer.
- * E2: только фон + один зелёный L3 — без баллистики/аудио/таймера.
+ * E3 scope: all 16 segments always on (5 green + 3 red per row) — diagnostic only.
+ * E3: все 16 сегментов постоянно включены — только визуальная диагностика сетки.
  */
 
 #include "scr_visual.h"
@@ -27,18 +27,33 @@ namespace lvgl_ui {
 
 namespace {
 
-// E2: museum-green recolor for proof segment — fixed across themes (not yoradio_palette()).
-// E2: музейный зелёный recolor для proof-сегмента — фиксированный, не из темы.
+// E3 diagnostic grid — fixed museum colors (not yoradio_palette()).
+// E3: фиксированные музейные цвета диагностики (не из темы).
 static const lv_color_t kBeocordMuseumGreen = lv_color_hex(0x59F08A);
+static const lv_color_t kBeocordMuseumRed   = lv_color_hex(0xF06868);
 
-// E2 proof window: L channel, index 3 (L3) — only dynamic segment in this stage.
-// E2: proof-окно L3 — единственный динамический сегмент на этом этапе.
-static constexpr uint8_t kProofChannel = 0u;
-static constexpr uint8_t kProofIndex   = 3u;
-// E2A: device-tuned placement nudge for L3 (canonical rect unchanged in asset pack).
-// E2A: подстройка позиции L3 на устройстве (канонический rect в pack не меняем).
-static constexpr int16_t kProofSegmentOffsetX = 0;
-static constexpr int16_t kProofSegmentOffsetY = 0;
+static constexpr uint8_t kBeocordChannelCount         = 2u;
+static constexpr uint8_t kBeocordSegmentsPerChannel = 8u;
+static constexpr uint8_t kBeocordGreenSegmentCount  = 5u; // indices 0..4 green, 5..7 red
+
+// E3: configure one segment image at canonical overlay_rect (no position offsets).
+// E3: настройка одного сегмента по overlay_rect (без смещений позиции).
+static void init_segment_img(lv_obj_t* img, const lv_area_t& rect, const lv_img_dsc_t* mask, lv_color_t recolor) {
+    if (!img || !mask) return;
+
+    lv_img_set_src(img, mask);
+    lv_obj_add_flag(img, LV_OBJ_FLAG_FLOATING);
+    lv_obj_clear_flag(img, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(img, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_pos(img, rect.x1, rect.y1);
+    lv_obj_set_style_img_recolor(img, recolor, LV_PART_MAIN);
+    lv_obj_set_style_img_recolor_opa(img, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_opa(img, LV_OPA_COVER, LV_PART_MAIN);
+}
+
+static lv_color_t diagnostic_recolor_for_segment(uint8_t seg_index) {
+    return (seg_index < kBeocordGreenSegmentCount) ? kBeocordMuseumGreen : kBeocordMuseumRed;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Background helpers / Вспомогательные функции фона
@@ -135,28 +150,22 @@ void LvglVisualPage::create_overlay_layer(LvglVisualPage& self) {
     self._syncOverlayLayout();
 }
 
-void LvglVisualPage::create_proof_segment(LvglVisualPage& self) {
+void LvglVisualPage::create_segment_grid(LvglVisualPage& self) {
     if (!self._overlay_layer) return;
 
     const BeocordVuAssetPack& pack = kBeocordVuAssetPack;
     if (!pack.segment_mask) return;
 
-    const lv_area_t& proof_rect = pack.overlay_rect[kProofChannel][kProofIndex];
+    for (uint8_t ch = 0u; ch < kBeocordChannelCount; ++ch) {
+        for (uint8_t seg = 0u; seg < kBeocordSegmentsPerChannel; ++seg) {
+            const lv_area_t& rect = pack.overlay_rect[ch][seg];
+            lv_obj_t* img = lv_img_create(self._overlay_layer);
+            if (!img) continue;
 
-    self._proof_segment = lv_img_create(self._overlay_layer);
-    if (!self._proof_segment) return;
-
-    lv_img_set_src(self._proof_segment, pack.segment_mask);
-    lv_obj_add_flag(self._proof_segment, LV_OBJ_FLAG_FLOATING);
-    lv_obj_clear_flag(self._proof_segment, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_clear_flag(self._proof_segment, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_pos(
-        self._proof_segment,
-        proof_rect.x1 + kProofSegmentOffsetX,
-        proof_rect.y1 + kProofSegmentOffsetY);
-    lv_obj_set_style_img_recolor(self._proof_segment, kBeocordMuseumGreen, LV_PART_MAIN);
-    lv_obj_set_style_img_recolor_opa(self._proof_segment, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_opa(self._proof_segment, LV_OPA_COVER, LV_PART_MAIN);
+            init_segment_img(img, rect, pack.segment_mask, diagnostic_recolor_for_segment(seg));
+            self._segment_img[ch][seg] = img;
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -250,7 +259,7 @@ void LvglVisualPage::create() {
 
     create_background(*this);
     create_overlay_layer(*this);
-    create_proof_segment(*this);
+    create_segment_grid(*this);
     installCarouselGesturesOnPageRoot(_screen);
 }
 
@@ -261,8 +270,8 @@ void LvglVisualPage::update() {}
 void LvglVisualPage::exit() {}
 
 void LvglVisualPage::liveReapplyTheme() {
-    // Museum artwork stays unchanged; only root fallback background may track theme.
-    // Музейный арт не меняется; только fallback-фон корня может следовать теме.
+    // Museum artwork and diagnostic segments stay unchanged; only root fallback bg may track theme.
+    // Музейный арт и диагностические сегменты не меняются; только fallback-фон корня.
     if (!_screen) return;
 
     const YoRadioPalette& pal = yoradio_palette();
@@ -279,8 +288,8 @@ void LvglVisualPage::destroy() {
 }
 
 void LvglVisualPage::prepareForAutoDelete() {
-    // E1: no lv_timer or other non-LVGL resources to stop.
-    // E1: нет таймеров или других ресурсов вне дерева LVGL.
+    // E3: no lv_timer or other non-LVGL resources to stop.
+    // E3: нет таймеров или других ресурсов вне дерева LVGL.
 }
 
 void LvglVisualPage::releaseAfterAutoDelete() {
@@ -293,7 +302,11 @@ void LvglVisualPage::_nullHandlesAndFreeNonLvgl() {
     _screen = nullptr;
     _bg_img = nullptr;
     _overlay_layer = nullptr;
-    _proof_segment = nullptr;
+    for (uint8_t ch = 0u; ch < kBeocordChannelCount; ++ch) {
+        for (uint8_t seg = 0u; seg < kBeocordSegmentsPerChannel; ++seg) {
+            _segment_img[ch][seg] = nullptr;
+        }
+    }
 
     if (_bg_psram_buf) {
         free(_bg_psram_buf);
