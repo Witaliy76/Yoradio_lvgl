@@ -347,6 +347,9 @@ void lvgl_ui::refreshInfoScreen() {
 
 void lvgl_ui::refreshMainScreen() {
     if (!lvgl_page_refresh_allowed()) return;
+    // E1R2: Main update only while Main is the active carousel slot (same policy as Weather/Station).
+    // E1R2: обновление Main только на активном слоте карусели (как Weather/Station).
+    if (s_page_chain.currentIndex() != PageChain::MAIN_INDEX) return;
     s_main_screen.update();
 }
 
