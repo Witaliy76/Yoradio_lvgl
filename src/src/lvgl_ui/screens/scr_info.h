@@ -39,6 +39,15 @@ private:
     static void create_title(LvglInfoPage& self, const YoRadioPalette& pal);
     static void create_content(LvglInfoPage& self, const YoRadioPalette& pal);
 
+    // INFOREF-B: runtime refresh methods — update() delegates to these in pipeline order.
+    // Called only from update(), sequentially. now_ms is a single millis() snapshot per pass.
+    // INFOREF-B: методы обновления runtime — update() делегирует им в порядке pipeline.
+    // Вызываются только из update(), последовательно. now_ms — один snapshot millis() за pass.
+    void _refreshNetwork(uint32_t now_ms);
+    void _refreshSystem(uint32_t now_ms);
+    void _refreshDisplay();
+    void _refreshMemory();
+
     lv_obj_t* _screen          = nullptr;
     wgt_status_line::Instance  _status_line{};
     lv_obj_t* _lbl_info_title  = nullptr;
@@ -60,6 +69,17 @@ private:
     lv_obj_t* _val_heap        = nullptr;
     lv_obj_t* _val_psram       = nullptr;
     lv_obj_t* _val_sd          = nullptr;
+
+    // INFOREF-B: Wi-Fi sample cache — instance-owned.
+    // Reset by _nullHandles() (destroy + auto-delete paths). NOT reset by enter() or exit().
+    // After recreate, _wifi_sample_ms == 0 forces a fresh RSSI/channel sample on first update().
+    // INFOREF-B: кэш Wi-Fi sample — принадлежит экземпляру.
+    // Сбрасывается _nullHandles() (destroy + auto-delete). Не сбрасывается enter() и exit().
+    // После пересоздания _wifi_sample_ms == 0 форсирует свежий sample при первом update().
+    uint32_t _wifi_sample_ms    = 0;
+    int      _wifi_rssi_cached  = -100;
+    int      _wifi_ch_cached    = -1;
+    bool     _wifi_was_connected = false;
 };
 
 } // namespace lvgl_ui

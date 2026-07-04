@@ -478,6 +478,11 @@ static void info_format_display_product_line(char* buf, size_t cap) {
 #endif
 }
 
+// Shared formatting scratch buffer — used by all _refresh*() methods sequentially.
+// Info refresh runs sequentially in DspTask; methods never execute concurrently.
+// Общий scratch buffer — используется всеми _refresh*() методами последовательно.
+static char s_info_format_buf[80];
+
 } // namespace
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -632,65 +637,87 @@ void LvglInfoPage::update() {
 
     wgt_status_line::update(_status_line);
 
-    static char buf[80];
-
-    // Wi-Fi summary: RSSI + channel + state.
-    // RSSI/channel sampled at most once per kWifiSamplePeriodMs when connected.
-    // Static cache survives PageChain auto-delete (INFOREF-B will move cache to members).
-    static uint32_t s_wifi_sample_ms    = 0;
-    static int      s_rssi_cached       = -100;
-    static int      s_ch_cached         = -1;
-    static bool     s_wifi_was_connected = false;
-    const bool      wifi_connected      = (WiFi.status() == WL_CONNECTED);
-    if (wifi_connected != s_wifi_was_connected) {
-        s_wifi_was_connected = wifi_connected;
-        s_wifi_sample_ms = 0;
-    }
     const uint32_t now_ms = millis();
+
+    _refreshNetwork(now_ms);
+    _refreshSystem(now_ms);
+    _refreshDisplay();
+    _refreshMemory();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Runtime refresh methods / Методы runtime-обновления данных
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Network: RSSI/channel/SSID/IP/MAC.
+// Wi-Fi cache is instance-owned (_wifi_*); reset only in _nullHandles() so throttle
+// survives enter()/exit() but not destroy()/auto-delete + recreate.
+// Сетевые данные: RSSI/канал/SSID/IP/MAC.
+// Кэш Wi-Fi принадлежит экземпляру; сбрасывается только в _nullHandles(),
+// поэтому throttle переживает enter()/exit(), но не destroy()/auto-delete + recreate.
+void LvglInfoPage::_refreshNetwork(uint32_t now_ms) {
+    const bool wifi_connected = (WiFi.status() == WL_CONNECTED);
+    if (wifi_connected != _wifi_was_connected) {
+        _wifi_was_connected = wifi_connected;
+        _wifi_sample_ms = 0;
+    }
     if (wifi_connected) {
-        if (s_wifi_sample_ms == 0u || (now_ms - s_wifi_sample_ms >= kWifiSamplePeriodMs)) {
-            s_wifi_sample_ms = now_ms;
-            s_rssi_cached    = WiFi.RSSI();
-            s_ch_cached      = info_sta_primary_channel();
+        if (_wifi_sample_ms == 0u || (now_ms - _wifi_sample_ms >= kWifiSamplePeriodMs)) {
+            _wifi_sample_ms   = now_ms;
+            _wifi_rssi_cached = WiFi.RSSI();
+            _wifi_ch_cached   = info_sta_primary_channel();
         }
         info_set_text_if_changed(_val_ssid, WiFi.SSID().c_str());
         info_set_text_if_changed(_val_ip,   WiFi.localIP().toString().c_str());
-        if (s_ch_cached > 0) {
-            snprintf(buf, sizeof(buf), kFmtWifiConnectedCh,  s_rssi_cached, s_ch_cached);
+        if (_wifi_ch_cached > 0) {
+            snprintf(s_info_format_buf, sizeof(s_info_format_buf), kFmtWifiConnectedCh,
+                     _wifi_rssi_cached, _wifi_ch_cached);
         } else {
-            snprintf(buf, sizeof(buf), kFmtWifiConnectedNoCh, s_rssi_cached);
+            snprintf(s_info_format_buf, sizeof(s_info_format_buf), kFmtWifiConnectedNoCh,
+                     _wifi_rssi_cached);
         }
-        info_set_text_if_changed(_val_wifi, buf);
+        info_set_text_if_changed(_val_wifi, s_info_format_buf);
     } else {
         info_set_text_if_changed(_val_ssid, kStrPlaceholder);
         info_set_text_if_changed(_val_ip,   kStrPlaceholder);
         info_set_text_if_changed(_val_wifi, kStrWifiOffline);
     }
-
     info_set_text_if_changed(_val_mac, WiFi.macAddress().c_str());
+}
 
+// System: firmware version, build stamp, chip, CPU, uptime.
+// Uptime derived from now_ms to avoid a second millis() call.
+// Система: версия прошивки, build stamp, чип, CPU, uptime.
+// Uptime вычисляется из now_ms без второго вызова millis().
+void LvglInfoPage::_refreshSystem(uint32_t now_ms) {
     info_set_text_if_changed(_val_firmware, YOVERSION);
     info_set_text_if_changed(_val_build, k_info_build_stamp);
 
-    snprintf(buf, sizeof(buf), kFmtChip,
+    snprintf(s_info_format_buf, sizeof(s_info_format_buf), kFmtChip,
              ESP.getChipModel(), ESP.getChipRevision());
-    info_set_text_if_changed(_val_chip, buf);
+    info_set_text_if_changed(_val_chip, s_info_format_buf);
 
-    snprintf(buf, sizeof(buf), kFmtCpu,
+    snprintf(s_info_format_buf, sizeof(s_info_format_buf), kFmtCpu,
              static_cast<unsigned>(ESP.getCpuFreqMHz()),
              static_cast<unsigned>(ESP.getChipCores()));
-    info_set_text_if_changed(_val_cpu, buf);
+    info_set_text_if_changed(_val_cpu, s_info_format_buf);
 
-    uint32_t sec = static_cast<uint32_t>(millis() / 1000u);
-    uint32_t h   = sec / 3600u;
-    uint32_t m   = (sec % 3600u) / 60u;
-    uint32_t s   = sec % 60u;
-    snprintf(buf, sizeof(buf), kFmtUptime,
+    const uint32_t sec = now_ms / 1000u;
+    const uint32_t h   = sec / 3600u;
+    const uint32_t m   = (sec % 3600u) / 60u;
+    const uint32_t s   = sec % 60u;
+    snprintf(s_info_format_buf, sizeof(s_info_format_buf), kFmtUptime,
              static_cast<unsigned long>(h),
              static_cast<unsigned long>(m),
              static_cast<unsigned long>(s));
-    info_set_text_if_changed(_val_uptime, buf);
+    info_set_text_if_changed(_val_uptime, s_info_format_buf);
+}
 
+// Display/UI: compile-time panel product line (cached once) + LVGL version.
+// s_display_line is function-static: compile-time/profile-derived, not Wi-Fi lifecycle.
+// Дисплей: строка панели (инициализируется один раз) + версия LVGL.
+// s_display_line — function-static: compile-time/profile, не зависит от lifecycle Wi-Fi.
+void LvglInfoPage::_refreshDisplay() {
     static char s_display_line[48];
     static bool s_display_line_inited = false;
     if (!s_display_line_inited) {
@@ -699,19 +726,23 @@ void LvglInfoPage::update() {
     }
     info_set_text_if_changed(_val_display, s_display_line);
 
-    snprintf(buf, sizeof(buf), kFmtLvglVersion,
+    snprintf(s_info_format_buf, sizeof(s_info_format_buf), kFmtLvglVersion,
              LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LVGL_VERSION_PATCH);
-    info_set_text_if_changed(_val_lvgl, buf);
+    info_set_text_if_changed(_val_lvgl, s_info_format_buf);
+}
 
-    uint32_t heap = ESP.getFreeHeap();
+// Memory/SD: free heap (MB or KB), PSRAM free/total, SD card state.
+// Память / SD: свободная heap (МБ или КБ), PSRAM free/total, состояние SD.
+void LvglInfoPage::_refreshMemory() {
+    const uint32_t heap = ESP.getFreeHeap();
     if (heap >= 1024u * 1024u) {
-        snprintf(buf, sizeof(buf), kFmtHeapMb,
+        snprintf(s_info_format_buf, sizeof(s_info_format_buf), kFmtHeapMb,
                  static_cast<unsigned long>(heap / (1024u * 1024u)));
     } else {
-        snprintf(buf, sizeof(buf), kFmtHeapKb,
+        snprintf(s_info_format_buf, sizeof(s_info_format_buf), kFmtHeapKb,
                  static_cast<unsigned long>(heap / 1024u));
     }
-    info_set_text_if_changed(_val_heap, buf);
+    info_set_text_if_changed(_val_heap, s_info_format_buf);
 
     const uint32_t psram_total = ESP.getPsramSize();
     const uint32_t psram_free  = ESP.getFreePsram();
@@ -721,8 +752,8 @@ void LvglInfoPage::update() {
         unsigned fw = 0, ft = 0, tw = 0, tt = 0;
         info_mb_one_decimal(psram_free,  fw, ft);
         info_mb_one_decimal(psram_total, tw, tt);
-        snprintf(buf, sizeof(buf), kFmtPsram, fw, ft, tw, tt);
-        info_set_text_if_changed(_val_psram, buf);
+        snprintf(s_info_format_buf, sizeof(s_info_format_buf), kFmtPsram, fw, ft, tw, tt);
+        info_set_text_if_changed(_val_psram, s_info_format_buf);
     }
 
 #if SDC_CS == 255
@@ -776,6 +807,12 @@ void LvglInfoPage::_nullHandles() {
     _val_firmware = _val_build = _val_chip = _val_cpu = _val_uptime = nullptr;
     _val_display = _val_lvgl = nullptr;
     _val_heap = _val_psram = _val_sd = nullptr;
+    // Wi-Fi cache reset: next create + update will perform a fresh RSSI/channel sample.
+    // Сброс кэша Wi-Fi: при следующем create + update будет свежий sample RSSI/канала.
+    _wifi_sample_ms     = 0;
+    _wifi_rssi_cached   = -100;
+    _wifi_ch_cached     = -1;
+    _wifi_was_connected = false;
 }
 
 lv_obj_t* LvglInfoPage::screen() {

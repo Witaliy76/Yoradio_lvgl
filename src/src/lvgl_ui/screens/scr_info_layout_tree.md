@@ -235,26 +235,34 @@ Hardware identifiers in the Display row (`ST7701`, `AXS15231B`, etc.) are compil
 ## Network sampling and cache
 
 - RSSI and primary channel are sampled at most once every `kWifiSamplePeriodMs` (3000 ms) while Wi-Fi is connected.
-- Cache lives in **static locals inside `update()`**: `s_wifi_sample_ms`, `s_rssi_cached`, `s_ch_cached`, `s_wifi_was_connected`.
-- On connect/disconnect transition, `s_wifi_sample_ms` is reset to force an immediate resample.
-- Cache **survives PageChain auto-delete** (page object tree freed, static locals remain).
-- **INFOREF-A does not change** this behavior; moving cache to page members is deferred to **INFOREF-B**.
+- Cache is **instance-owned** (`_wifi_sample_ms`, `_wifi_rssi_cached`, `_wifi_ch_cached`, `_wifi_was_connected`), declared in `scr_info.h`.
+- On connect/disconnect transition, `_wifi_sample_ms` is reset to force an immediate resample.
+- Cache is **reset by `_nullHandles()`** (called by `destroy()` and `releaseAfterAutoDelete()`).
+- Cache is **NOT reset** by `enter()` or `exit()` — throttle survives normal page navigation.
+- After PageChain auto-delete + recreate, `_wifi_sample_ms == 0` forces a fresh sample on first `update()`.
 - Page `update()` is invoked nominally once per second (throttled in `display.cpp`), but this is not a strict 1 Hz guarantee.
 
 ---
 
 ## Update pipeline
 
-`LvglInfoPage::update()` (single method — not split in INFOREF-A):
+`LvglInfoPage::update()` — short orchestration delegating to four refresh methods:
 
-1. Guard: require `_screen`, `_status_line.root`, `_val_ssid`.
-2. `wgt_status_line::update(_status_line)`.
-3. Network block: Wi-Fi cache sampling + SSID / IP / Wi-Fi / MAC labels via `info_set_text_if_changed`.
-4. System block: firmware, build stamp, chip, CPU, uptime.
-5. Display block: static `s_display_line` (initialized once), LVGL version.
-6. Memory block: heap, PSRAM, SD status.
+```
+LvglInfoPage::update()
+    │
+    ├── guard: _screen, _status_line.root, _val_ssid
+    ├── wgt_status_line::update(_status_line)
+    ├── single now_ms = millis()
+    ├── _refreshNetwork(now_ms)   — Wi-Fi cache, SSID/IP/Wi-Fi/MAC
+    ├── _refreshSystem(now_ms)    — Firmware/Build/Chip/CPU/Uptime
+    ├── _refreshDisplay()         — Display product line + LVGL version
+    └── _refreshMemory()          — Heap/PSRAM/SD
+```
 
-All runtime label updates use `info_set_text_if_changed()` — no direct repeated `lv_label_set_text()` in update.
+- One `millis()` call per pass; uptime derives from `now_ms / 1000u` (no second `millis()` call).
+- All runtime label updates use `info_set_text_if_changed()` — no direct repeated `lv_label_set_text()`.
+- Each refresh method uses a local `char buf[80]` for formatting; buffers exist only within their call frame.
 
 ---
 
@@ -293,9 +301,15 @@ No additional handles are stored solely for theme recoloring.
 | `destroy()` | `lv_obj_del(_screen)` + `_nullHandles()` |
 | `releaseAfterAutoDelete()` | LVGL tree already freed by PageChain; `_nullHandles()` only — **never** `lv_obj_del` |
 
-`_nullHandles()` clears `_screen`, `_status_line`, `_lbl_info_title`, and all `_val_*` pointers. Wi-Fi static cache in `update()` is **not** cleared on auto-delete (INFOREF-B scope).
+`_nullHandles()` clears `_screen`, `_status_line`, `_lbl_info_title`, all `_val_*` pointers, and Wi-Fi cache members (`_wifi_sample_ms`, `_wifi_rssi_cached`, `_wifi_ch_cached`, `_wifi_was_connected`).
 
-**Allocation failure:** if `wgt_status_line::create` fails (`_status_line.root == nullptr`), `create()` deletes `_screen` and returns. Other partial failures leave whatever objects were created (existing contract — no new rollback added in INFOREF-A).
+**Wi-Fi cache lifecycle:**
+- `enter()` and `exit()` do **not** reset the cache — throttle survives normal page navigation.
+- `destroy()` → `_nullHandles()` resets cache — next create + update will fresh-sample.
+- `releaseAfterAutoDelete()` → `_nullHandles()` resets cache — same guarantee after PageChain deletion.
+- After recreate, `_wifi_sample_ms == 0`; first connected `update()` forces immediate RSSI/channel sample.
+
+**Allocation failure:** if `wgt_status_line::create` fails (`_status_line.root == nullptr`), `create()` deletes `_screen` and returns. Other partial failures leave whatever objects were created (existing contract — no new rollback).
 
 ---
 
@@ -313,9 +327,17 @@ Icon glyphs (`kIcon*`) are UTF-8 codepoints, not translatable strings.
 
 ---
 
+## INFOREF history
+
+**INFOREF-A** (`c5c82fc`): layout builders, UI resources, l10n string constants, object-tree documentation.
+
+**INFOREF-B** (`E41I`): runtime refresh methods (`_refreshNetwork/System/Display/Memory`), single `millis()` snapshot per update pass, instance Wi-Fi cache lifecycle (`_wifi_*` members + `_nullHandles()` reset).
+
+---
+
 ## Notes / Заметки
 
-- INFOREF-A split: structural/layout refactor only; `update()` pipeline refactor deferred to INFOREF-B.
+- INFOREF-A + INFOREF-B together complete the Info screen refactor to the project standard (Main / Weather / Visual).
 - Section containers, rails, dividers, and tail spacer are **local** to `create_content()` — only value-label handles and title/status chrome are class members.
 - `info_format_display_product_line()` uses hardware product identifiers — intentionally outside `kStr*`.
 - Two separate `millis()` calls in `update()` (Wi-Fi sampling and uptime) are preserved by design in INFOREF-A.
