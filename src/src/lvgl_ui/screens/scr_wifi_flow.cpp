@@ -137,6 +137,28 @@ static constexpr char kStrOpenCancelled[]      = "Cancelled.";
 static constexpr char kStrSavedAuthFailed[]    = "Could not connect. Check password or signal.";
 static constexpr char kStrSavedConnected[]     = "Connected. Restarting...";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Credential persistence UI strings / Строки UI persistence
+// Used by handle_successful_connect_persist(), handle_open_network_success_persist(), on_btn_saved_yes().
+// Используются методами persistence. Значения byte-for-byte идентичны baseline.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Shared / Общие
+static constexpr char kStrPersistSavedRestarting[]       = "Saved. Restarting... / сохранено, перезагрузка...";
+static constexpr char kStrPersistSaved[]                 = "Saved. Restarting..."; // Open flow variant
+
+// Failure / Ошибки
+static constexpr char kStrPersistCannotSaveNetwork[]     = "Cannot save this network / нельзя сохранить эту сеть";
+static constexpr char kStrPersistNetworkFull[]           = "Saved networks full. Remove one first. / хранилище заполнено - удалите сеть";
+static constexpr char kStrPersistCouldNotSave[]          = "Could not save network / ошибка сохранения сети";
+static constexpr char kStrPersistCouldNotWrite[]         = "Could not save network / ошибка записи на диск";
+static constexpr char kStrPersistCouldNotUpdate[]        = "Could not update password / ошибка обновления пароля";
+
+// Open-specific failure / Ошибки Open flow
+static constexpr char kStrOpenCannotSaveNetwork[]        = "Cannot save this network.";
+static constexpr char kStrOpenNetworkFull[]              = "Saved networks full. Remove one first.";
+static constexpr char kStrOpenCouldNotSave[]             = "Could not save network.";
+
 // Password validation / Валидация пароля
 static constexpr char kStrPasswordMin[]        = "Min 8 characters / минимум 8 символов";
 static constexpr char kStrPasswordPrompt[]     = "Enter password / введите пароль";
@@ -1107,18 +1129,28 @@ void LvglWifiFlowScreen::on_reboot_timer(lv_timer_t* t) {
     ESP.restart();
 }
 
-// Wi-Fi 6A: persist credentials after successful connect, then schedule reboot.
-// Wi-Fi 6A: сохраняем учётные данные после успешного connect, затем перезагружаем.
+// ─────────────────────────────────────────────────────────────────────────────
+// Credential persistence pipelines / Конвейеры сохранения credentials
+// Cases A–E correspond to password-protected and open connect outcomes.
+// Cases A–E — исходы подключения с паролем и к открытой сети.
+//
+// These handlers are called by result handlers after a successful Wi-Fi connect.
+// They must not be called from operation start or poll paths.
+// Вызываются из result handlers после успешного connect; не вызываются из start или poll.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Password-protected success persistence.
+// Cases A–E: password ownership = _connectCandidatePass (never _passwordScratch or textarea).
+// Password must be copied to _connectCandidatePass before textarea may clear.
+// Cases A–E: источник пароля — _connectCandidatePass (не _passwordScratch и не textarea).
 void LvglWifiFlowScreen::handle_successful_connect_persist() {
     if (!_lbl_pass_status) return;
     const YoRadioPalette& pal = yoradio_palette_service();
 
-    // Case E: SSID or candidate password does not fit legacy csv constraints.
-    // Case E: SSID или пароль не проходят проверку формата legacy csv.
+    // Case E: SSID or password rejects legacy csv format constraints.
+    // Case E: SSID или пароль не проходят проверку legacy csv формата.
     if (!wifiCredStoreEntryFitsLegacyFile(_selectedSsid, _connectCandidatePass)) {
-        wifi_flow_set_text_if_changed(_lbl_pass_status,
-                                     "Cannot save this network / нельзя сохранить эту сеть",
-                                     WifiFlowDiagTextSlot::PassStatus);
+        wifi_flow_set_text_if_changed(_lbl_pass_status, kStrPersistCannotSaveNetwork, WifiFlowDiagTextSlot::PassStatus);
         lv_obj_set_style_text_color(_lbl_pass_status, pal.text_secondary, LV_PART_MAIN);
         _pass_status_terminal = true;
         return;
@@ -1127,33 +1159,29 @@ void LvglWifiFlowScreen::handle_successful_connect_persist() {
     const int existingIdx = wifiCredStoreFindIndexBySsid(_selectedSsid);
 
     if (existingIdx < 0) {
-        // Case D: store full and SSID is new.
-        // Case D: нет свободных слотов, новый SSID.
+        // Case D: store is full and SSID is new — cannot add.
+        // Case D: хранилище заполнено, SSID новый — добавить нельзя.
         if (wifiCredStoreSavedCount() >= WIFI_CRED_STORE_CAPACITY) {
-            wifi_flow_set_text_if_changed(_lbl_pass_status,
-                                          "Saved networks full. Remove one first. / хранилище заполнено - удалите сеть",
-                                          WifiFlowDiagTextSlot::PassStatus);
+            wifi_flow_set_text_if_changed(_lbl_pass_status, kStrPersistNetworkFull, WifiFlowDiagTextSlot::PassStatus);
             lv_obj_set_style_text_color(_lbl_pass_status, pal.text_secondary, LV_PART_MAIN);
             _pass_status_terminal = true;
             return;
         }
 
-        // Case A: new SSID, free slot / новый SSID, есть слот.
+        // Case A: new SSID, free slot available — insert and persist.
+        // Case A: новый SSID, есть свободный слот — вставляем и сохраняем.
         if (!wifiCredStoreAddOrUpdate(_selectedSsid, _connectCandidatePass)) {
-            wifi_flow_set_text_if_changed(_lbl_pass_status,
-                                          "Could not save network / ошибка сохранения сети",
-                                          WifiFlowDiagTextSlot::PassStatus);
+            wifi_flow_set_text_if_changed(_lbl_pass_status, kStrPersistCouldNotSave, WifiFlowDiagTextSlot::PassStatus);
             lv_obj_set_style_text_color(_lbl_pass_status, pal.text_secondary, LV_PART_MAIN);
             _pass_status_terminal = true;
             return;
         }
         const int newIdx = wifiCredStoreFindIndexBySsid(_selectedSsid);
         if (!wifiCredStorePersistToFs()) {
-            // RAM mutated but file failed: reload to restore consistency / RAM изменён, но файл не записан.
+            // RAM mutated but file write failed: reload to restore consistency.
+            // RAM изменён, запись файла не удалась: перезагружаем из файла для consistency.
             wifiCredStoreReloadFromFs();
-            wifi_flow_set_text_if_changed(_lbl_pass_status,
-                                          "Could not save network / ошибка записи на диск",
-                                          WifiFlowDiagTextSlot::PassStatus);
+            wifi_flow_set_text_if_changed(_lbl_pass_status, kStrPersistCouldNotWrite, WifiFlowDiagTextSlot::PassStatus);
             lv_obj_set_style_text_color(_lbl_pass_status, pal.text_secondary, LV_PART_MAIN);
             _pass_status_terminal = true;
             return;
@@ -1163,6 +1191,8 @@ void LvglWifiFlowScreen::handle_successful_connect_persist() {
         }
 
     } else {
+        // SSID found in store: read current stored password for comparison.
+        // SSID найден: читаем текущий сохранённый пароль для сравнения.
         const char* storedPass = "";
         WifiCredStoreEntryView ev{};
         if (wifiCredStoreGetEntry(static_cast<uint8_t>(existingIdx), &ev)) {
@@ -1170,28 +1200,26 @@ void LvglWifiFlowScreen::handle_successful_connect_persist() {
         }
 
         if (strcmp(storedPass, _connectCandidatePass) == 0) {
-            // Case B: SSID exists, same password — no file write needed, only update lastSSID.
-            // Case B: тот же пароль — файл не меняем, только lastSSID.
+            // Case B: SSID exists, same password — no file write needed, only update last-success.
+            // Case B: тот же пароль — файл не меняем, только обновляем last-success.
             wifiCredStoreSetLastSuccessFromSlot(static_cast<uint8_t>(existingIdx));
         } else {
-            // Case C: SSID exists, password changed — use staging to update.
-            // Case C: пароль изменился — обновляем через staging.
+            // Case C: SSID exists, password changed — use staging API to safely overwrite.
+            // Case C: пароль изменился — staging API для безопасной перезаписи.
             if (!wifiCredStagingBegin(static_cast<uint8_t>(existingIdx)) ||
                 !wifiCredStagingSetCandidatePassword(_connectCandidatePass) ||
                 !wifiCredStagingCommitToStoredPassword()) {
                 wifiCredStagingDiscard();
-                wifi_flow_set_text_if_changed(_lbl_pass_status,
-                                              "Could not update password / ошибка обновления пароля",
-                                              WifiFlowDiagTextSlot::PassStatus);
+                wifi_flow_set_text_if_changed(_lbl_pass_status, kStrPersistCouldNotUpdate, WifiFlowDiagTextSlot::PassStatus);
                 lv_obj_set_style_text_color(_lbl_pass_status, pal.text_secondary, LV_PART_MAIN);
                 _pass_status_terminal = true;
                 return;
             }
             if (!wifiCredStorePersistToFs()) {
+                // RAM mutated via staging; reload restores to last known good file state.
+                // RAM изменён через staging; reload восстанавливает из последнего файла.
                 wifiCredStoreReloadFromFs();
-                wifi_flow_set_text_if_changed(_lbl_pass_status,
-                                          "Could not save network / ошибка записи на диск",
-                                          WifiFlowDiagTextSlot::PassStatus);
+                wifi_flow_set_text_if_changed(_lbl_pass_status, kStrPersistCouldNotWrite, WifiFlowDiagTextSlot::PassStatus);
                 lv_obj_set_style_text_color(_lbl_pass_status, pal.text_secondary, LV_PART_MAIN);
                 _pass_status_terminal = true;
                 return;
@@ -1200,14 +1228,12 @@ void LvglWifiFlowScreen::handle_successful_connect_persist() {
         }
     }
 
-    // Persist and lastSSID both succeeded — clear candidate, lock UI, schedule reboot.
-    // Сохранено и lastSSID обновлён — очищаем кандидата, блокируем UI, планируем reboot.
+    // All cases succeeded: zero candidate, lock UI, schedule reboot.
+    // Все cases успешны: обнуляем кандидата, блокируем UI, планируем reboot.
     memset(_connectCandidatePass, 0, sizeof(_connectCandidatePass));
     _saving_in_progress   = true;
     _pass_status_terminal = true;
-    wifi_flow_set_text_if_changed(_lbl_pass_status,
-                                  "Saved. Restarting... / сохранено, перезагрузка...",
-                                  WifiFlowDiagTextSlot::PassStatus);
+    wifi_flow_set_text_if_changed(_lbl_pass_status, kStrPersistSavedRestarting, WifiFlowDiagTextSlot::PassStatus);
     lv_obj_set_style_text_color(_lbl_pass_status, pal.text_secondary, LV_PART_MAIN);
     set_password_panel_saving_ui();
 
@@ -1217,6 +1243,121 @@ void LvglWifiFlowScreen::handle_successful_connect_persist() {
         lv_timer_set_repeat_count(_reboot_timer, 1);
     }
 }
+
+// Open-network success persistence.
+// Cases A–E mirror password flow but use empty password and _selectedOpenSsid ownership.
+// Never routes through _connectCandidatePass or handle_successful_connect_persist().
+// Cases A–E зеркалят password flow, но с пустым паролем и ownership _selectedOpenSsid.
+void LvglWifiFlowScreen::handle_open_network_success_persist() {
+    if (!_lbl_net_status) return;
+    const YoRadioPalette& pal = yoradio_palette_service();
+    static const char    kEmptyPass[] = "";
+
+    // Case E: SSID rejects legacy csv format constraints.
+    // Case E: SSID не проходит проверку legacy csv формата.
+    if (!wifiCredStoreEntryFitsLegacyFile(_selectedOpenSsid, kEmptyPass)) {
+        wifi_flow_set_text_if_changed(_lbl_net_status, kStrOpenCannotSaveNetwork, WifiFlowDiagTextSlot::NetStatus);
+        lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
+        _open_status_terminal = true;
+        set_networks_panel_connecting_ui(false);
+        return;
+    }
+
+    const int existingIdx = wifiCredStoreFindIndexBySsid(_selectedOpenSsid);
+
+    if (existingIdx < 0) {
+        // Case D: store is full and SSID is new — cannot add.
+        // Case D: хранилище заполнено, SSID новый — добавить нельзя.
+        if (wifiCredStoreSavedCount() >= WIFI_CRED_STORE_CAPACITY) {
+            wifi_flow_set_text_if_changed(_lbl_net_status, kStrOpenNetworkFull, WifiFlowDiagTextSlot::NetStatus);
+            lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
+            _open_status_terminal = true;
+            set_networks_panel_connecting_ui(false);
+            return;
+        }
+
+        // Case A: new SSID, free slot available — insert and persist.
+        // Case A: новый SSID, есть свободный слот — вставляем и сохраняем.
+        if (!wifiCredStoreAddOrUpdate(_selectedOpenSsid, kEmptyPass)) {
+            wifi_flow_set_text_if_changed(_lbl_net_status, kStrOpenCouldNotSave, WifiFlowDiagTextSlot::NetStatus);
+            lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
+            _open_status_terminal = true;
+            set_networks_panel_connecting_ui(false);
+            return;
+        }
+        const int newIdx = wifiCredStoreFindIndexBySsid(_selectedOpenSsid);
+        if (!wifiCredStorePersistToFs()) {
+            // RAM mutated but file write failed: reload to restore consistency.
+            // RAM изменён, запись файла не удалась: перезагружаем из файла.
+            wifiCredStoreReloadFromFs();
+            wifi_flow_set_text_if_changed(_lbl_net_status, kStrOpenCouldNotSave, WifiFlowDiagTextSlot::NetStatus);
+            lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
+            _open_status_terminal = true;
+            set_networks_panel_connecting_ui(false);
+            return;
+        }
+        if (newIdx >= 0) {
+            wifiCredStoreSetLastSuccessFromSlot(static_cast<uint8_t>(newIdx));
+        }
+
+    } else {
+        // SSID found in store: read current stored password for comparison.
+        // SSID найден: читаем текущий сохранённый пароль для сравнения.
+        const char*              storedPass = "";
+        WifiCredStoreEntryView ev{};
+        if (wifiCredStoreGetEntry(static_cast<uint8_t>(existingIdx), &ev)) {
+            storedPass = ev.password ? ev.password : "";
+        }
+
+        if (strcmp(storedPass, kEmptyPass) == 0) {
+            // Case B: SSID exists, same empty password — no file write, only last-success.
+            // Case B: тот же пустой пароль — файл не меняем, только last-success.
+            wifiCredStoreSetLastSuccessFromSlot(static_cast<uint8_t>(existingIdx));
+        } else {
+            // Case C: SSID exists, was password-protected — staging overwrite to empty.
+            // Case C: был пароль — staging перезапись на пустой.
+            if (!wifiCredStagingBegin(static_cast<uint8_t>(existingIdx)) ||
+                !wifiCredStagingSetCandidatePassword(kEmptyPass) || !wifiCredStagingCommitToStoredPassword()) {
+                wifiCredStagingDiscard();
+                wifi_flow_set_text_if_changed(_lbl_net_status, kStrOpenCouldNotSave, WifiFlowDiagTextSlot::NetStatus);
+                lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
+                _open_status_terminal = true;
+                set_networks_panel_connecting_ui(false);
+                return;
+            }
+            if (!wifiCredStorePersistToFs()) {
+                // RAM mutated via staging; reload restores to last known good file state.
+                // RAM изменён через staging; reload восстанавливает из последнего файла.
+                wifiCredStoreReloadFromFs();
+                wifi_flow_set_text_if_changed(_lbl_net_status, kStrOpenCouldNotSave, WifiFlowDiagTextSlot::NetStatus);
+                lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
+                _open_status_terminal = true;
+                set_networks_panel_connecting_ui(false);
+                return;
+            }
+            wifiCredStoreSetLastSuccessFromSlot(static_cast<uint8_t>(existingIdx));
+        }
+    }
+
+    // All cases succeeded: lock UI, schedule reboot.
+    // Все cases успешны: блокируем UI, планируем reboot.
+    _open_status_terminal = true;
+    _saving_in_progress   = true;
+    wifi_flow_set_text_if_changed(_lbl_net_status, kStrPersistSaved, WifiFlowDiagTextSlot::NetStatus);
+    lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
+    set_networks_panel_saving_ui();
+
+    if (!_reboot_timer) {
+        _reboot_timer = lv_timer_create(on_reboot_timer, kRebootDelayMs, this);
+        lv_timer_set_repeat_count(_reboot_timer, 1);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Saved-network removal persistence / Удаление сохранённой сети
+// on_btn_saved_yes() performs store mutation; no reboot on success or failure.
+// on_btn_saved_yes() мутирует store; reboot не планируется ни при успехе, ни при ошибке.
+// ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Open-network connect pipeline / Конвейер подключения к открытой сети
@@ -1258,95 +1399,6 @@ void LvglWifiFlowScreen::start_open_connect_from_user(const char* ssid) {
     wifi_flow_set_text_if_changed(_lbl_net_status, kStrConnectingOpen, WifiFlowDiagTextSlot::NetStatus);
     lv_obj_set_style_text_color(_lbl_net_status, pal.text_meta, LV_PART_MAIN);
     set_networks_panel_connecting_ui(true);
-}
-
-
-// Credential persistence decision tables are intentionally left unchanged in WIFIREF-C1
-// and will be handled separately in WIFIREF-C2.
-// Таблицы решений persistence намеренно оставлены без изменений в WIFIREF-C1.
-// Wi-Fi S6V7B: persist open network after Success (Cases A–E) / сохранение open сети после Success.
-void LvglWifiFlowScreen::handle_open_network_success_persist() {
-    if (!_lbl_net_status) return;
-    const YoRadioPalette& pal = yoradio_palette_service();
-    static const char    kEmptyPass[] = "";
-
-    if (!wifiCredStoreEntryFitsLegacyFile(_selectedOpenSsid, kEmptyPass)) {
-        wifi_flow_set_text_if_changed(_lbl_net_status, "Cannot save this network.", WifiFlowDiagTextSlot::NetStatus);
-        lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
-        _open_status_terminal = true;
-        set_networks_panel_connecting_ui(false);
-        return;
-    }
-
-    const int existingIdx = wifiCredStoreFindIndexBySsid(_selectedOpenSsid);
-
-    if (existingIdx < 0) {
-        if (wifiCredStoreSavedCount() >= WIFI_CRED_STORE_CAPACITY) {
-            wifi_flow_set_text_if_changed(_lbl_net_status, "Saved networks full. Remove one first.", WifiFlowDiagTextSlot::NetStatus);
-            lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
-            _open_status_terminal = true;
-            set_networks_panel_connecting_ui(false);
-            return;
-        }
-        if (!wifiCredStoreAddOrUpdate(_selectedOpenSsid, kEmptyPass)) {
-            wifi_flow_set_text_if_changed(_lbl_net_status, "Could not save network.", WifiFlowDiagTextSlot::NetStatus);
-            lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
-            _open_status_terminal = true;
-            set_networks_panel_connecting_ui(false);
-            return;
-        }
-        const int newIdx = wifiCredStoreFindIndexBySsid(_selectedOpenSsid);
-        if (!wifiCredStorePersistToFs()) {
-            wifiCredStoreReloadFromFs();
-            wifi_flow_set_text_if_changed(_lbl_net_status, "Could not save network.", WifiFlowDiagTextSlot::NetStatus);
-            lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
-            _open_status_terminal = true;
-            set_networks_panel_connecting_ui(false);
-            return;
-        }
-        if (newIdx >= 0) {
-            wifiCredStoreSetLastSuccessFromSlot(static_cast<uint8_t>(newIdx));
-        }
-    } else {
-        const char*              storedPass = "";
-        WifiCredStoreEntryView ev{};
-        if (wifiCredStoreGetEntry(static_cast<uint8_t>(existingIdx), &ev)) {
-            storedPass = ev.password ? ev.password : "";
-        }
-        if (strcmp(storedPass, kEmptyPass) == 0) {
-            wifiCredStoreSetLastSuccessFromSlot(static_cast<uint8_t>(existingIdx));
-        } else {
-            if (!wifiCredStagingBegin(static_cast<uint8_t>(existingIdx)) ||
-                !wifiCredStagingSetCandidatePassword(kEmptyPass) || !wifiCredStagingCommitToStoredPassword()) {
-                wifiCredStagingDiscard();
-                wifi_flow_set_text_if_changed(_lbl_net_status, "Could not save network.", WifiFlowDiagTextSlot::NetStatus);
-                lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
-                _open_status_terminal = true;
-                set_networks_panel_connecting_ui(false);
-                return;
-            }
-            if (!wifiCredStorePersistToFs()) {
-                wifiCredStoreReloadFromFs();
-                wifi_flow_set_text_if_changed(_lbl_net_status, "Could not save network.", WifiFlowDiagTextSlot::NetStatus);
-                lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
-                _open_status_terminal = true;
-                set_networks_panel_connecting_ui(false);
-                return;
-            }
-            wifiCredStoreSetLastSuccessFromSlot(static_cast<uint8_t>(existingIdx));
-        }
-    }
-
-    _open_status_terminal = true;
-    _saving_in_progress   = true;
-    wifi_flow_set_text_if_changed(_lbl_net_status, "Saved. Restarting...", WifiFlowDiagTextSlot::NetStatus);
-    lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
-    set_networks_panel_saving_ui();
-
-    if (!_reboot_timer) {
-        _reboot_timer = lv_timer_create(on_reboot_timer, kRebootDelayMs, this);
-        lv_timer_set_repeat_count(_reboot_timer, 1);
-    }
 }
 
 // Open connect result routing — stays on Networks panel (no panel transition on failure).
@@ -2647,19 +2699,20 @@ void LvglWifiFlowScreen::on_btn_saved_no(lv_event_t* e) {
     self->_setSavedRemoveConfirmationVisible(false);
 }
 
-// Wi-Fi 6C: Yes — confirm Remove; mutate store, persist, return Home. No reboot.
-// Wi-Fi 6C: Yes — выполнить удаление; store+persist, затем Home. Без reboot.
+// Yes — confirm Remove; mutate store, persist, return Home. No reboot.
+// Yes — выполнить удаление; store+persist, затем Home. Без reboot.
 void LvglWifiFlowScreen::on_btn_saved_yes(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
     if (!self) return;
     const YoRadioPalette& pal = yoradio_palette_service();
 
-    // Guard: validate slot before any mutation / проверка слота перед мутацией.
+    // Phase 1: validate selected slot before any mutation.
+    // Фаза 1: проверка выбранного слота перед мутацией.
     if (self->_selectedSavedSlot == 255 ||
         self->_selectedSavedSlot >= wifiCredStoreSavedCount()) {
         if (self->_lbl_saved_status) {
-            wifi_flow_set_text_if_changed(self->_lbl_saved_status, "Wi-Fi error. Try again.", WifiFlowDiagTextSlot::SavedStatus);
+            wifi_flow_set_text_if_changed(self->_lbl_saved_status, kStrConnectWifiError, WifiFlowDiagTextSlot::SavedStatus);
             lv_obj_set_style_text_color(self->_lbl_saved_status, pal.text_secondary, LV_PART_MAIN);
             self->_saved_status_terminal = true;
         }
@@ -2667,12 +2720,12 @@ void LvglWifiFlowScreen::on_btn_saved_yes(lv_event_t* e) {
         return;
     }
 
-    // RemoveAt adjusts lastSSID internally; no extra ClearLastSuccess needed.
-    // RemoveAt корректирует lastSSID внутри; дополнительный ClearLastSuccess не нужен.
+    // Phase 2: remove entry from RAM store (RemoveAt adjusts lastSSID internally).
+    // Фаза 2: удаление из RAM store (RemoveAt корректирует lastSSID внутри).
     const bool removed = wifiCredStoreRemoveAt(self->_selectedSavedSlot);
     if (!removed) {
         if (self->_lbl_saved_status) {
-            wifi_flow_set_text_if_changed(self->_lbl_saved_status, "Wi-Fi error. Try again.", WifiFlowDiagTextSlot::SavedStatus);
+            wifi_flow_set_text_if_changed(self->_lbl_saved_status, kStrConnectWifiError, WifiFlowDiagTextSlot::SavedStatus);
             lv_obj_set_style_text_color(self->_lbl_saved_status, pal.text_secondary, LV_PART_MAIN);
             self->_saved_status_terminal = true;
         }
@@ -2680,14 +2733,16 @@ void LvglWifiFlowScreen::on_btn_saved_yes(lv_event_t* e) {
         return;
     }
 
+    // Phase 3: persist updated list; reload on failure to restore consistency.
+    // Фаза 3: запись на диск; при ошибке reload для consistency.
     const bool persisted = wifiCredStorePersistToFs();
     if (!persisted) {
-        // Persist failed: reload RAM from file to restore consistency / RAM восстанавливается из файла.
         wifiCredStoreReloadFromFs();
     }
 
-    // Regardless of persist outcome: rebuild list and return Home. No reboot.
-    // В любом случае: обновляем список и возвращаемся на Home. Без reboot.
+    // Phase 4: rebuild Saved list, return Home, clear saved state via show_home_panel().
+    // Фаза 4: обновить список, вернуться на Home; show_home_panel() сбрасывает saved state.
+    // No reboot regardless of persist outcome / reboot не планируется в любом случае.
     self->rebuild_saved_list();
     self->show_home_panel();
     // persist-fail UX is minimal (per spec): show_home_panel clears saved state;
