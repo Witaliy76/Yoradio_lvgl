@@ -22,6 +22,7 @@
 #include "../fonts/lv_fonts.h"
 #include "../lv_page_chain.h"
 #include "../lvgl_ui.h"
+#include "../widgets/wgt_footer_pill.h"
 #include "../profiles/lv_profile_select.h"
 #include "../theme/lv_theme_yoradio.h"
 
@@ -127,13 +128,13 @@ static constexpr lv_coord_t kFocusBgRadius      = 8;
 static constexpr lv_coord_t kFocusAccentRadius   = 2;
 static constexpr lv_opa_t   kFocusBgOpa          = LV_OPA_70;
 // Hint band styling / Стили band-подсказки
-static constexpr lv_coord_t kHintBorderWidth     = 1;
+
 static constexpr lv_coord_t kHintRadius          = 14;
 static constexpr lv_coord_t kHintPadHorizontal   = 16;
 static constexpr lv_coord_t kHintPadVertical     = 10;
 static constexpr lv_coord_t kHintRowGap          = 10;
 static constexpr lv_coord_t kHintMinTextWidth    = 80;
-static constexpr lv_opa_t   kHintBgOpa           = LV_OPA_30;
+
 
 // Left gutter layout: accent | gap | marker slot | gap | list text (pad on _lbl_list).
 // Левый gutter: accent | зазор | слот маркера | зазор | текст списка.
@@ -236,24 +237,8 @@ static void add_thin_divider(lv_obj_t* parent, const YoRadioPalette& pal) {
 // Theme helpers / Вспомогательные функции темы
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Footer hint button styling — Weather-style pill with clickable emphasis.
-// Applied to _hint_area on create and on liveReapplyTheme().
-// Does not create objects, register callbacks or change layout values.
-// Стиль кнопки footer — Weather-style pill с кликабельным акцентом.
-// Применяется к _hint_area при create и при liveReapplyTheme(). Не создаёт объекты и не регистрирует callbacks.
-static void style_hint_button(lv_obj_t* obj, const YoRadioPalette& pal) {
-    if (!obj) return;
-    // Normal state / Нормальное состояние
-    lv_obj_set_style_bg_color(obj, pal.panel_background, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(obj, LV_OPA_40, LV_PART_MAIN);
-    lv_obj_set_style_border_color(obj, pal.divider, LV_PART_MAIN);
-    lv_obj_set_style_border_opa(obj, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_width(obj, kHintBorderWidth + 1, LV_PART_MAIN); // 2 px
-    lv_obj_set_style_radius(obj, kHintRadius, LV_PART_MAIN);
-    // Pressed state / Нажатое состояние
-    lv_obj_set_style_bg_opa(obj, LV_OPA_50, LV_STATE_PRESSED);
-    lv_obj_set_style_border_color(obj, pal.text_meta, LV_STATE_PRESSED);
-}
+// Footer hint button visual contract now provided by wgt_footer_pill.
+// Визуальный contract footer button теперь предоставляется wgt_footer_pill.
 
 // Recursive walker: recolors only 1 px dividers (h==1 + OPA_COVER) without touching other objects.
 // Рекурсивный обход: перекрашивает только 1 px разделители без затрагивания других объектов.
@@ -368,7 +353,8 @@ void LvglStationPage::create_hint_band(LvglStationPage& self, const YoRadioPalet
     lv_obj_set_style_pad_right(self._hint_area, kHintPadHorizontal, LV_PART_MAIN);
     lv_obj_set_style_pad_top(self._hint_area, kHintPadVertical, LV_PART_MAIN);
     lv_obj_set_style_pad_bottom(self._hint_area, kHintPadVertical, LV_PART_MAIN);
-    style_hint_button(self._hint_area, pal);
+    wgt_footer_pill::prepare_surface(self._hint_area);
+    wgt_footer_pill::apply_palette(self._hint_area, pal);
     // Clickable action surface: _hint_area is the tap target.
     // GESTURE_BUBBLE propagates horizontal swipes to the PageChain carousel handler on _screen.
     // Кликабельная поверхность: _hint_area — таргет тапа.
@@ -388,7 +374,7 @@ void LvglStationPage::create_hint_band(LvglStationPage& self, const YoRadioPalet
     lv_obj_set_flex_align(hint_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(hint_row, kHintRowGap, LV_PART_MAIN);
     style_transparent(hint_row);
-    lv_obj_clear_flag(hint_row, LV_OBJ_FLAG_CLICKABLE);
+    wgt_footer_pill::make_child_passive(hint_row);
 
     self._lbl_hint_icon = lv_label_create(hint_row);
     if (self._lbl_hint_icon) {
@@ -396,7 +382,7 @@ void LvglStationPage::create_hint_band(LvglStationPage& self, const YoRadioPalet
         station_set_font(self._lbl_hint_icon, kFontHintIcon);
         lv_obj_set_style_text_color(self._lbl_hint_icon, pal.text_secondary, LV_PART_MAIN);
         lv_obj_set_style_text_align(self._lbl_hint_icon, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-        lv_obj_clear_flag(self._lbl_hint_icon, LV_OBJ_FLAG_CLICKABLE);
+        wgt_footer_pill::make_child_passive(self._lbl_hint_icon);
     }
 
     self._lbl_hint_text = lv_label_create(hint_row);
@@ -423,7 +409,7 @@ void LvglStationPage::create_hint_band(LvglStationPage& self, const YoRadioPalet
         if (max_w > kHintMinTextWidth) {
             lv_obj_set_width(self._lbl_hint_text, max_w);
         }
-        lv_obj_clear_flag(self._lbl_hint_text, LV_OBJ_FLAG_CLICKABLE);
+        wgt_footer_pill::make_child_passive(self._lbl_hint_text);
     }
 }
 
@@ -1202,10 +1188,10 @@ void LvglStationPage::liveReapplyTheme() {
     if (_lbl_count) lv_obj_set_style_text_color(_lbl_count, pal.text_secondary, LV_PART_MAIN);
     if (_lbl_list) lv_obj_set_style_text_color(_lbl_list, pal.list_row_text, LV_PART_MAIN);
 
-    // Reapply footer button style (normal + pressed states) and text colors.
-    // Обновить стиль кнопки footer (нормальное + нажатое) и цвета текста.
+    // Reapply footer button palette (normal + pressed colors). Fixed states set at create.
+    // Обновить palette footer button (normal + pressed цвета). Fixed states установлены при create.
     if (_hint_area) {
-        style_hint_button(_hint_area, pal);
+        wgt_footer_pill::apply_palette(_hint_area, pal);
     }
     if (_lbl_hint_icon) lv_obj_set_style_text_color(_lbl_hint_icon, pal.text_secondary, LV_PART_MAIN);
     if (_lbl_hint_text) lv_obj_set_style_text_color(_lbl_hint_text, pal.text_secondary, LV_PART_MAIN);

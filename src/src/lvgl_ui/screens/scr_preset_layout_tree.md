@@ -20,7 +20,7 @@ After any of the following, refresh this document:
 
 - new/removed LVGL object in a row or footer;
 - column width constants (`kSlotW`, `kNumW`);
-- footer geometry or style split (`prepare_footer_surface` / `apply_footer_palette`);
+- footer geometry or style contract (`wgt_footer_pill` API changes);
 - timer or dismiss semantics;
 - font resource changes.
 
@@ -94,13 +94,18 @@ Name label: fixed line height = `lv_font_get_line_height(kFontStationName)`; `LV
 | `_helper_box` | Full-width clickable pill; `LV_EVENT_CLICKED` → `_helperEventCb` → `dismissActiveTemporary()` |
 | `_helper` | Single text target for countdown and save/error feedback; not clickable |
 
-**Style split (PRESETREF-A):**
+**Footer visual contract uses `wgt_footer_pill` (FOOTERPILL-1):**
 
-- `prepare_footer_surface()` — one-time at create: strip theme, radius, padding, border width, fixed opacities.
-- `apply_footer_palette()` — palette colors only (bg, normal border, pressed border); **no** `remove_style_all`, no fixed opacities/width replay.
+- `lv_obj_remove_style_all` — Preset-specific theme reset at create (before shared calls).
+- `wgt_footer_pill::prepare_surface()` — shared fixed contract: gradient off, shadow off, radius=14, border-width=2, bg OPA_40/OPA_50, CLICKABLE, not SCROLLABLE.
+- `wgt_footer_pill::apply_palette()` — shared palette colors (bg, normal border, pressed border).
+- `wgt_footer_pill::make_child_passive(_helper)` — clears CLICKABLE/SCROLLABLE on label.
 
-**Normal:** `panel_background` @ `kFooterNormalOpacity`, `divider` border @ `kFooterBorderWidth`.
-**Pressed:** `kFooterPressedOpacity` fill, `text_meta` border.
+**wgt_footer_pill owns:** fixed normal/pressed visual states and palette-dependent colors.
+**Screen owns:** geometry (height=32, padding=12/6), text, callback, Temporary dismiss, timer.
+
+**Normal:** `panel_background` @ `LV_OPA_40`, `divider` border @ 2 px.
+**Pressed:** `LV_OPA_50` fill, `text_meta` border.
 
 Footer long press: no save action (only `LV_EVENT_CLICKED` registered).
 

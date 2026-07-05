@@ -23,6 +23,7 @@
 #include "../lvgl_ui.h"
 #include "../profiles/lv_profile_select.h"
 #include "../theme/lv_theme_yoradio.h"
+#include "../widgets/wgt_footer_pill.h"
 
 namespace lvgl_ui {
 
@@ -128,12 +129,10 @@ constexpr lv_coord_t kDividerWidth   = 1;
 constexpr lv_opa_t   kDividerOpacity = LV_OPA_60;
 
 constexpr lv_coord_t kFooterBoxH      = 32;
-constexpr lv_coord_t kFooterBoxRadius = 14;
+
 constexpr lv_coord_t kFooterBoxPadH   = 12;
 constexpr lv_coord_t kFooterBoxPadV   = 6;
-constexpr lv_coord_t kFooterBorderWidth    = 2;
-constexpr lv_opa_t   kFooterNormalOpacity  = LV_OPA_40;
-constexpr lv_opa_t   kFooterPressedOpacity = LV_OPA_50;
+// kFooterBorderWidth, kFooterNormalOpacity, kFooterPressedOpacity — now in wgt_footer_pill.cpp
 
 constexpr lv_coord_t kNameFlexBaseWidth = 1;
 
@@ -162,34 +161,8 @@ static uint8_t slot_from_event(lv_event_t* e) {
     return (s >= 0 && s < LvglPresetScreen::kSlotCount) ? static_cast<uint8_t>(s) : 0xFFu;
 }
 
-// ── Footer style helpers / Стили footer ─────────────────────────────────────
-// Shared Weather/Station/Preset footer extraction is deferred to a separate cross-screen commit.
-// Общий footer helper для Weather/Station/Preset — отдельный cross-screen commit.
-
-static void prepare_footer_surface(lv_obj_t* obj) {
-    if (!obj) return;
-    lv_obj_remove_style_all(obj);
-    lv_obj_set_style_bg_grad_dir(obj, LV_GRAD_DIR_NONE, LV_PART_MAIN);
-    lv_obj_set_style_shadow_width(obj, 0, LV_PART_MAIN);
-    lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_radius(obj, kFooterBoxRadius, LV_PART_MAIN);
-    lv_obj_set_style_pad_left(obj, kFooterBoxPadH, LV_PART_MAIN);
-    lv_obj_set_style_pad_right(obj, kFooterBoxPadH, LV_PART_MAIN);
-    lv_obj_set_style_pad_top(obj, kFooterBoxPadV, LV_PART_MAIN);
-    lv_obj_set_style_pad_bottom(obj, kFooterBoxPadV, LV_PART_MAIN);
-    lv_obj_set_style_border_width(obj, kFooterBorderWidth, LV_PART_MAIN);
-    lv_obj_set_style_border_opa(obj, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(obj, kFooterNormalOpacity, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(obj, kFooterPressedOpacity, LV_STATE_PRESSED);
-}
-
-static void apply_footer_palette(lv_obj_t* obj, const YoRadioPalette& pal) {
-    if (!obj) return;
-
-    lv_obj_set_style_bg_color(obj, pal.panel_background, LV_PART_MAIN);
-    lv_obj_set_style_border_color(obj, pal.divider, LV_PART_MAIN);
-    lv_obj_set_style_border_color(obj, pal.text_meta, LV_STATE_PRESSED);
-}
+// Footer visual contract is now provided by wgt_footer_pill.
+// Визуальный contract footer предоставляется wgt_footer_pill.
 
 } // namespace
 
@@ -295,8 +268,9 @@ void LvglPresetScreen::create_footer(LvglPresetScreen& self, const YoRadioPalett
     self._helper_box = lv_obj_create(self._screen);
     if (!self._helper_box) return;
 
-    prepare_footer_surface(self._helper_box);
-    apply_footer_palette(self._helper_box, pal);
+    lv_obj_remove_style_all(self._helper_box); // Preset-specific: reset inherited LVGL theme styles
+    wgt_footer_pill::prepare_surface(self._helper_box);
+    wgt_footer_pill::apply_palette(self._helper_box, pal);
     lv_obj_set_width(self._helper_box, LV_PCT(100));
     lv_obj_set_height(self._helper_box, kFooterBoxH);
     lv_obj_set_flex_flow(self._helper_box, LV_FLEX_FLOW_ROW);
@@ -315,7 +289,7 @@ void LvglPresetScreen::create_footer(LvglPresetScreen& self, const YoRadioPalett
     lv_obj_set_style_text_color(self._helper, pal.text_secondary, LV_PART_MAIN);
     lv_obj_set_style_text_align(self._helper, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_style_text_font(self._helper, kFontFooter, LV_PART_MAIN);
-    lv_obj_clear_flag(self._helper, LV_OBJ_FLAG_CLICKABLE);
+    wgt_footer_pill::make_child_passive(self._helper);
     lv_obj_clear_flag(self._helper, LV_OBJ_FLAG_SCROLLABLE);
 }
 
@@ -438,7 +412,7 @@ void LvglPresetScreen::_applyAllColors() {
     if (_title)  lv_obj_set_style_text_color(_title,  pal.text_primary,   LV_PART_MAIN);
 
     if (_helper_box) {
-        apply_footer_palette(_helper_box, pal);
+        wgt_footer_pill::apply_palette(_helper_box, pal);
     }
 
     if (_helper) {

@@ -212,12 +212,15 @@ Hint text: `kStrHintReturnMain` = `"Tap to return to Main"`.
 Width capped at `LV_ACTIVE_PROFILE.width - 2×frame_padding - 32 - 20 - 40`, min `kHintMinTextWidth=80`.
 
 **`_hint_area` is a clickable action surface (STATIONUX-1):**
+- Visual contract provided by `wgt_footer_pill` (`prepare_surface` + `apply_palette`).
 - `LV_OBJ_FLAG_CLICKABLE` — taps register as `LV_EVENT_CLICKED` on `_hint_area`
 - `LV_OBJ_FLAG_GESTURE_BUBBLE` — horizontal swipes propagate to the PageChain carousel handler on `_screen`
-- `hint_row`, `_lbl_hint_icon`, `_lbl_hint_text` have `CLICKABLE` cleared — `_hint_area` is the sole tap target
+- `hint_row`, `_lbl_hint_icon`, `_lbl_hint_text` are passivated via `wgt_footer_pill::make_child_passive()` — `_hint_area` is the sole tap target
 - Clean tap → `_hintAreaClickedEvt` → `_onHintAreaClicked` → `lvgl_ui::goToCarouselPage(PageChain::MAIN_INDEX)`
 - This is a direct PageChain transition, not "back"; audio continues
 - Horizontal swipe starting on footer → normal PageChain gesture; no accidental Main navigation
+- **`wgt_footer_pill` owns:** fixed normal/pressed visual states and palette-dependent colors.
+- **Screen owns:** geometry, padding, text, fonts, callbacks, navigation, gesture flags, object hierarchy.
 
 Event route:
 ```
@@ -475,7 +478,9 @@ No new general rollback was added in STATIONFIX-1, STATIONREF-A, or STATIONREF-B
 
 **STATIONREF-B** (`cf6d018`, `E44S`): runtime list/buffer/signature/overlay pipeline — `_clearStationListVisuals()`, `_showStationListAllocationError()`, `_createStationListLabelFromBuffer()`, focus/marker style/position/ensure helpers. Behavior preserved byte-for-byte.
 
-**STATIONUX-1** (`E46S`): footer becomes clickable action button — tap returns to Main. Weather-style pill button emphasis. `kStrHintReturnMain = "Tap to return to Main"`. Carousel swipe over footer still works.
+**STATIONUX-1** (`E46S`): footer becomes clickable action button — tap returns to Main. `kStrHintReturnMain = "Tap to return to Main"`. Carousel swipe over footer still works.
+
+**FOOTERPILL-1** (`E49X`): footer visual contract extracted to `wgt_footer_pill`. `style_hint_button` removed; `prepare_surface + apply_palette` from shared widget. `make_child_passive` on row/icon/text.
 
 **STATIONREF-C** (`E45S`): pointer/touch and input-state pipeline — pure math helpers (`abs_i32`, `max_i32`, `manhattan_distance`), stroke tracking helpers (`_resetListStrokeTracking`, `_captureListPressBaseline`, `_updateListStrokePeaks`, `_isTrackedStrokeScrollLike`, `_consumeListFocusSuppression`), `_resetListInputState()` called from `_nullHandles()`. `_onListArea*` handlers reorganized as readable orchestration; all thresholds and guard order preserved.
 

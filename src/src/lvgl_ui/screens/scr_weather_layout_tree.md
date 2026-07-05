@@ -101,8 +101,8 @@ _screen
     │   └── _cont_empty_center   (flex_grow=1; centered message; sibling AFTER _cont_data)
     │       └── _lbl_message     (LV_LABEL_LONG_WRAP)
     └── _cont_footer             (flex_grow=0; pinned bottom)
-        └── _footer_box          (clickable pill; _onFooterRefreshClick)
-            └── _lbl_footer      (LV_LABEL_LONG_SCROLL_CIRCULAR)
+        └── _footer_box          (clickable pill via wgt_footer_pill; _onFooterRefreshClick)
+            └── _lbl_footer      (LV_LABEL_LONG_SCROLL_CIRCULAR; passivated via wgt_footer_pill::make_child_passive)
 ```
 
 Notes:
@@ -291,6 +291,7 @@ These are documentation of existing behavior; neither WEATHERREF-A nor WEATHERRE
 - **Composition:** optional `location` prefix + body (`age` / status + action), segments joined by `kStrFooterSep` (U+2022 •).
 - **Trailing separator:** appended **only when the text overflows** the footer label width — circular scroll needs the gap between repeated copies; static text that fits does not (`wx_footer_maybe_add_trailing_sep`).
 - `_lbl_footer` uses `LV_LABEL_LONG_SCROLL_CIRCULAR`.
+- **Footer visual contract uses `wgt_footer_pill` (FOOTERPILL-1):** `wx_style_footer_pill_clickable` now delegates to `wgt_footer_pill::prepare_surface` + `apply_palette`. `liveReapplyTheme()` calls `wgt_footer_pill::apply_palette(_footer_box, pal)`. Weather-specific reset (`wx_flat_base`, padding) remains local. Screen owns geometry, text, callback, action; widget owns fixed normal/pressed states and palette colors.
 
 ---
 

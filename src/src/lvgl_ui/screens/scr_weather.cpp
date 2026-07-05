@@ -28,6 +28,7 @@
  */
 
 #include "scr_weather.h"
+#include "../widgets/wgt_footer_pill.h"
 
 #include "lvgl.h"
 #include "Arduino.h"
@@ -524,14 +525,12 @@ static void wx_style_footer_pill(lv_obj_t* o, const YoRadioPalette& pal) {
     lv_obj_set_style_pad_bottom(o, k_footer_pill_pad_v, LV_PART_MAIN);
 }
 
-// A2b: clickable footer pill — slightly stronger fill/border; pressed state via theme tokens.
-// A2b: кликабельный footer-pill — чуть сильнее заливка/рамка; pressed через токены темы.
+// A2b: clickable footer pill — uses shared wgt_footer_pill contract on top of the base pill.
+// A2b: кликабельный footer-pill — shared wgt_footer_pill contract поверх базового стиля.
 static void wx_style_footer_pill_clickable(lv_obj_t* o, const YoRadioPalette& pal) {
-    wx_style_footer_pill(o, pal);
-    lv_obj_set_style_bg_opa(o, LV_OPA_40, LV_PART_MAIN);
-    lv_obj_set_style_border_width(o, 2, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(o, LV_OPA_50, LV_STATE_PRESSED);
-    lv_obj_set_style_border_color(o, pal.text_meta, LV_STATE_PRESSED);
+    wx_style_footer_pill(o, pal); // Weather-specific reset + base (wx_flat_base + padding)
+    wgt_footer_pill::prepare_surface(o); // shared fixed contract (overrides border, opacity, flags)
+    wgt_footer_pill::apply_palette(o, pal); // shared palette colors
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1232,7 +1231,7 @@ void LvglWeatherPage::create_footer(LvglWeatherPage& self, const YoRadioPalette&
                 lv_obj_set_width(self._lbl_footer, LV_PCT(100));
                 lv_obj_set_flex_grow(self._lbl_footer, 1);
                 lv_obj_set_style_min_width(self._lbl_footer, 0, LV_PART_MAIN);
-                lv_obj_clear_flag(self._lbl_footer, LV_OBJ_FLAG_CLICKABLE);
+                wgt_footer_pill::make_child_passive(self._lbl_footer);
             }
         }
     }
@@ -1666,13 +1665,7 @@ void LvglWeatherPage::liveReapplyTheme() {
     paint(_lbl_message, pal.text_secondary);
 
     if (_footer_box) {
-        lv_obj_set_style_bg_color(_footer_box, pal.panel_background, LV_PART_MAIN);
-        lv_obj_set_style_bg_grad_dir(_footer_box, LV_GRAD_DIR_NONE, LV_PART_MAIN);
-        lv_obj_set_style_border_color(_footer_box, pal.divider, LV_PART_MAIN);
-        lv_obj_set_style_bg_opa(_footer_box, LV_OPA_40, LV_PART_MAIN);
-        lv_obj_set_style_border_width(_footer_box, 2, LV_PART_MAIN);
-        lv_obj_set_style_bg_opa(_footer_box, LV_OPA_50, LV_STATE_PRESSED);
-        lv_obj_set_style_border_color(_footer_box, pal.text_meta, LV_STATE_PRESSED);
+        wgt_footer_pill::apply_palette(_footer_box, pal);
     }
     // A2: repaint hero card and daily panel backgrounds on theme switch.
     // A2: перекрашиваем hero-карточку и панель дней при смене темы.
