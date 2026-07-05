@@ -923,6 +923,128 @@ SoftAP stop happens in `on_btn_back_hotspot` via `network.recoveryStopSoftAP()`.
 
 ---
 
+## Callback adapter ownership
+
+Callbacks adapt LVGL events to screen-owned methods. They do not own operation, persistence or polling semantics.
+
+Thin adapter chain:
+
+```
+LVGL event ? event code guard ? wifi_flow_self_from_event() ? screen method
+```
+
+Static button callbacks register via `add_footer_button()` or direct `lv_obj_add_event_cb` in panel builders. Dynamic rows register in `rebuild_scan_list()` / `rebuild_saved_list()`.
+
+## Static button callbacks
+
+All use `LV_EVENT_CLICKED` and `user_data = &self` (screen instance address from create builders).
+
+| Callback | Guard highlights | Screen action |
+|----------|------------------|---------------|
+| `on_btn_scan` | ? | `start_scan_from_user()` |
+| `on_btn_hotspot` | ? | `show_hotspot_panel()` |
+| `on_btn_back_hotspot` | ? | `recoveryStopSoftAP`, `wifiOpsCancel`, `show_home_panel()` |
+| `on_btn_back_home` | not boot-failure | `dismissWifiFlowReturnToPlayer()` |
+| `on_btn_back_net` | no open-await/saving | `wifiOpsCancel`, `show_home_panel()` |
+| `on_btn_rescan` | no open-await/saving | `start_scan_from_user()` |
+| `on_btn_cancel_scan` | no open-await/saving | `wifiOpsCancel()` |
+| `on_btn_back_pass` | no saving; Chg pwd ? Saved | `show_saved_panel()` or `show_networks_panel()` |
+| `on_btn_connect` | ? | `start_connect_from_user()` |
+| Saved panel buttons | see Saved panel section | connect/chpwd/remove/back/yes/no |
+
+## Dynamic row callbacks
+
+| Callback | Event | user_data | Decode |
+|----------|-------|-----------|--------|
+| `on_scan_row_click` | CLICKED | `this` | climb to row; `stored - 1` ? scan index |
+| `on_saved_row_click` | CLICKED | `this` | climb to row; `stored - 1` ? slot |
+
+Zero encoded value rejected. Open scan row ? `start_open_connect_from_user`; locked ? `open_password_entry`.
+
+## Password textarea callback
+
+`on_ta_password_changed`: `LV_EVENT_VALUE_CHANGED`, `user_data = &self`.
+
+Preserves `_skip_next_ta_pass_status_sync`, `_pass_status_terminal`, min-length validation, `sync_connect_button_enabled()` at end.
+
+## Keyboard callback
+
+`on_keyboard_event`: `LV_EVENT_CANCEL` only (registered with `LV_EVENT_ALL` but handler filters Cancel).
+
+Cancel during saving blocked. Chg pwd context ? Saved panel; else ? Networks panel.
+
+## Poll timer callback
+
+`on_poll_timer`: `user_data = this`, calls `pollOpsSnapshot()` once if non-null. Interval `kPollIntervalMs = 200`.
+
+Created in `lifecycle_start_poll_timer()` from `enter()`. Deleted in `lifecycle_stop_poll_timer()` from `exit()`.
+
+## Reboot timer callback
+
+`on_reboot_timer`: one-shot, `ESP.restart()`, `(void)t` ? self not used (baseline).
+
+Created from persistence handlers on success (`kRebootDelayMs = 1800`). Deleted in `lifecycle_cancel_reboot_timer()` from `exit()`.
+
+## Lifecycle phase table
+
+```
+create()  ? static object tree, styles, default Home
+enter()   ? state reset, entry context, poll timer start
+active    ? callbacks + pollOpsSnapshot
+exit()    ? timers deleted, secrets/password cleanup, wifiOpsCancel
+destroy() ? exit(), lv_obj_del, style drop, handle nulling
+```
+
+## create() ownership
+
+- Allocates `_screen`, panel roots, static widgets via builders
+- Registers static callbacks inside panel builders
+- Does not start poll timer (enter does)
+- Does not fix stale `_screen` or partial-allocation (deferred)
+
+## enter() ownership
+
+Phase order: wifiOpsInit ? state reset ? consume entry flags ? rebuild_saved_list ? sync_home UI ? arm idle ? `lifecycle_start_poll_timer()`.
+
+Does not clear `_entered_from_runtime_disconnect` (deferred hardening).
+
+## exit() ownership
+
+Phase order: disarm idle ? clear password ? boot-failure flag clear ? stop poll timer ? cancel reboot timer ? open-connect reset ? `wifiOpsCancel()`.
+
+Does not call `recoveryStopSoftAP()` (Hotspot Back owns that).
+
+## destroy() ownership
+
+Order: `exit()` ? `clear_password_secrets()` ? `lv_obj_del(_screen)` ? `wifi_flow_style_drop()` ? member nulling.
+
+Style drop after object deletion (baseline order preserved).
+
+## Timer ownership
+
+| Timer | Created | Interval | Repeat | user_data | Deleted |
+|-------|---------|----------|--------|-----------|---------|
+| `_poll_timer` | `enter()` via `lifecycle_start_poll_timer()` | 200 ms | infinite | `this` | `exit()` |
+| `_reboot_timer` | persistence success | 1800 ms | 1 | `this` | `exit()` or after fire |
+
+No pause/resume in baseline.
+
+## Style teardown boundary
+
+`wifi_flow_style_drop()` called only in `destroy()` after `lv_obj_del(_screen)`.
+
+## Deferred hardening boundary
+
+WIFIREF-D2 does not fix:
+
+- stale `_screen` validity check
+- `_entered_from_runtime_disconnect` cleanup in `exit()`
+- partial-allocation handling in `create()`
+
+Also excluded from D2: keyboard font size UX, RTC WDT diagnostics.
+
+---
+
 ## State reset boundaries
 
 | Event | Resets |
@@ -946,7 +1068,7 @@ SoftAP stop happens in `on_btn_back_hotspot` via `network.recoveryStopSoftAP()`.
 - **WIFIREF-C1** (`E52W`): operation pipelines and dynamic list pipelines. Section headers for Scan, Password-protected, Open-network and Saved-network pipelines. Operation UI strings centralized. No behavioral changes; persistence Cases A-E deferred to WIFIREF-C2.
 - **WIFIREF-C2** (`E53W`): credential persistence decision tables and Saved-network removal organization. Persistence UI strings centralized. Cases A-E semantics unchanged. No behavioral changes.
 - **WIFIREF-D1** (`E54W`): polling dispatcher decomposition. `pollOpsSnapshot()` split into phase helpers; guard order unchanged. No behavioral changes.
-- **WIFIREF-D2** (deferred): callback refactor.
+- **WIFIREF-D2** (`E55W`): callback adapters, timer ownership and lifecycle organization. Instance helpers, lifecycle timer helpers, section headers. No behavioral changes.
 - Deferred hardening: stale `_screen` validity check, `_entered_from_runtime_disconnect` cleanup in `exit()`.
 - `_panel_pass` hidden flag is set inside `create_password_panel()` to keep the builder self-contained.
 - `_panel_saved` hidden flag is set inside `create_saved_panel()` for the same reason.

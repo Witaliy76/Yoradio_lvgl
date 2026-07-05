@@ -693,6 +693,18 @@ lv_obj_t* add_footer_button(lv_obj_t* row, const char* txt, const YoRadioPalette
     return b;
 }
 
+// WIFIREF-D2: Event adapter — screen instance from lv_event user_data (baseline cast only).
+// WIFIREF-D2: адаптер события — instance экрана из user_data (только cast baseline).
+static LvglWifiFlowScreen* wifi_flow_self_from_event(lv_event_t* e) {
+    return static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
+}
+
+// WIFIREF-D2: Timer adapter — screen instance from lv_timer user_data (baseline cast only).
+// WIFIREF-D2: адаптер таймера — instance экрана из user_data таймера.
+static LvglWifiFlowScreen* wifi_flow_self_from_timer(lv_timer_t* t) {
+    return static_cast<LvglWifiFlowScreen*>(t->user_data);
+}
+
 // Local action-row baseline: transparent flex ROW, given column gap.
 // Does not set scrollable, callbacks, child roles or visibility.
 // Базовая строка действий: прозрачный flex ROW с заданным gap.
@@ -1124,7 +1136,8 @@ void LvglWifiFlowScreen::set_networks_panel_saving_ui() {
 }
 
 void LvglWifiFlowScreen::on_reboot_timer(lv_timer_t* t) {
-    // Called once after save-success delay; self pointer not needed — just restart / однократный вызов после задержки.
+    // Reboot timer adapter — one-shot ESP.restart(); self not used (baseline).
+    // Адаптер reboot-таймера — однократный ESP.restart(); self не используется.
     (void)t;
     ESP.restart();
 }
@@ -2179,12 +2192,38 @@ void LvglWifiFlowScreen::create_hotspot_panel(LvglWifiFlowScreen& self, const Yo
     lv_obj_add_flag(self._panel_hotspot, LV_OBJ_FLAG_HIDDEN);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Lifecycle — create → enter → active → exit → destroy
+// WIFIREF-D2: timer helpers encapsulate exact baseline lv_timer_create/del/null.
+// ─────────────────────────────────────────────────────────────────────────────
+
+void LvglWifiFlowScreen::lifecycle_start_poll_timer() {
+    if (!_poll_timer) {
+        _poll_timer = lv_timer_create(on_poll_timer, kPollIntervalMs, this);
+    }
+}
+
+void LvglWifiFlowScreen::lifecycle_stop_poll_timer() {
+    if (_poll_timer) {
+        lv_timer_del(_poll_timer);
+        _poll_timer = nullptr;
+    }
+}
+
+void LvglWifiFlowScreen::lifecycle_cancel_reboot_timer() {
+    if (_reboot_timer) {
+        lv_timer_del(_reboot_timer);
+        _reboot_timer = nullptr;
+    }
+}
+
 void LvglWifiFlowScreen::create() {
     if (_screen) return;
 
     const YoRadioPalette& pal = yoradio_palette_service();
     const int32_t         pad = static_cast<int32_t>(LV_ACTIVE_PROFILE.frame_padding);
 
+    // Phase 1: root screen allocation / корень экрана.
     _screen = lv_obj_create(nullptr);
     if (!_screen) return;
 
@@ -2197,6 +2236,7 @@ void LvglWifiFlowScreen::create() {
     lv_obj_set_size(_screen, LV_PCT(100), LV_PCT(100));
     lv_obj_clear_flag(_screen, LV_OBJ_FLAG_SCROLLABLE);
 
+    // Phase 2: panel roots + shared styles / корни панелей и общие стили.
     if (!create_panel_roots(*this, pal)) {
         return;
     }
@@ -2205,12 +2245,14 @@ void LvglWifiFlowScreen::create() {
     // Общие стили после корней панелей; сброс только после lv_obj_del в destroy().
     wifi_flow_style_ensure(pal);
 
+    // Phase 3: static panel builders (callback registration inside builders) / статические панели.
     create_home_panel(*this, pal);
     create_networks_panel(*this, pal);
     create_password_panel(*this, pal);
     create_saved_panel(*this, pal);
     create_hotspot_panel(*this, pal);
 
+    // Phase 4: initial sync and default panel / начальная синхронизация.
     sync_hotspot_panel_labels();
 
     show_home_panel();
@@ -2218,6 +2260,7 @@ void LvglWifiFlowScreen::create() {
 }
 
 void LvglWifiFlowScreen::enter() {
+    // Phase 1: backend init and operation state reset / init backend и сброс ops state.
     (void)wifiOpsInit();
     cancel_open_connect_state();
     _last_results_seq              = 0;
@@ -2234,6 +2277,8 @@ void LvglWifiFlowScreen::enter() {
     _remove_confirm_pending = false;
     _selectedSavedSlot      = 255;
     memset(_selectedSavedSsid, 0, sizeof(_selectedSavedSsid));
+
+    // Phase 2: consume entry context (boot-failure vs runtime-disconnect vs manual).
     _entered_from_boot_failure         = lvgl_ui::consumeWifiRecoveryEnteredFromBootFailure();
     // S6V8A: consume runtime disconnect entry context — mutually exclusive with boot-fail. / Контекст runtime эскалации.
     // If neither flag is set (e.g. manual entry via InvertDisplay), both remain false. / Если ни один флаг — оба false.
@@ -2249,32 +2294,31 @@ void LvglWifiFlowScreen::enter() {
 #if WIFI_FLOW_DIAG_GLITCH
     wifi_flow_diag_on_enter_flow();
 #endif
+
+    // Phase 3: UI sync, idle arm, poll timer start / синхронизация UI, idle, старт poll timer.
     rebuild_saved_list();
     sync_home_boot_failure_ui();
     arm_recovery_idle_if_home_only();
-    if (!_poll_timer) {
-        _poll_timer = lv_timer_create(on_poll_timer, kPollIntervalMs, this);
-    }
+    lifecycle_start_poll_timer();
 }
 
 void LvglWifiFlowScreen::update() {}
 
 void LvglWifiFlowScreen::exit() {
+    // Phase 1: idle disarm and password cleanup / disarm idle и очистка password.
     disarm_boot_idle_timer();
     clear_password_panel_state();
     _entered_from_boot_failure = false;
     sync_home_boot_failure_ui();
-    if (_poll_timer) {
-        lv_timer_del(_poll_timer);
-        _poll_timer = nullptr;
-    }
-    if (_reboot_timer) {
-        lv_timer_del(_reboot_timer);
-        _reboot_timer = nullptr;
-    }
+
+    // Phase 2: timer release / освобождение таймеров.
+    lifecycle_stop_poll_timer();
+    lifecycle_cancel_reboot_timer();
 #if WIFI_FLOW_DIAG_GLITCH
     wifi_flow_diag_on_exit_flow();
 #endif
+
+    // Phase 3: open-connect cancel and backend cancel / отмена open-connect и backend.
     _await_open_connect_ui = false;
     _open_status_terminal   = false;
     memset(_selectedOpenSsid, 0, sizeof(_selectedOpenSsid));
@@ -2285,13 +2329,15 @@ void LvglWifiFlowScreen::exit() {
 void LvglWifiFlowScreen::destroy() {
     exit();
     clear_password_secrets();
+    // Phase 1: LVGL object tree deletion / удаление дерева LVGL.
     if (_screen) {
         lv_obj_del(_screen);
         _screen = nullptr;
     }
-    // Reset shared styles after objects freed — safe before next create().
-    // Сброс общих стилей после удаления объектов — безопасно перед следующим create().
+    // Phase 2: shared style teardown after objects freed (baseline order: del then drop).
+    // Phase 2: сброс стилей после lv_obj_del (порядок baseline: del, затем drop).
     wifi_flow_style_drop();
+    // Phase 3: member handle nulling / обнуление handles.
     _panel_home = _panel_net = _panel_pass = _panel_saved = _panel_hotspot = nullptr;
     _hdr_home = _sub_home = _lbl_recovery_idle_countdown = _list_saved = nullptr;
     _hdr_net = _lbl_net_status = _list_scan = nullptr;
@@ -2313,7 +2359,9 @@ lv_obj_t* LvglWifiFlowScreen::screen() {
 }
 
 void LvglWifiFlowScreen::on_poll_timer(lv_timer_t* t) {
-    auto* self = static_cast<LvglWifiFlowScreen*>(t->user_data);
+    // Poll timer adapter — routes to pollOpsSnapshot() once per tick (baseline).
+    // Адаптер poll timer — один вызов pollOpsSnapshot() за tick.
+    LvglWifiFlowScreen* self = wifi_flow_self_from_timer(t);
     if (self) self->pollOpsSnapshot();
 }
 
@@ -2507,22 +2555,28 @@ void LvglWifiFlowScreen::pollOpsSnapshot() {
     poll_emit_diagnostics();
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Static button event adapters / Адаптеры static button callbacks
+// Thin LVGL adapters: event code → instance → screen-owned method.
+// Тонкие адаптеры: event code → instance → screen-owned method.
+// ─────────────────────────────────────────────────────────────────────────────
+
 void LvglWifiFlowScreen::on_btn_scan(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
+    LvglWifiFlowScreen* self = wifi_flow_self_from_event(e);
     if (self) self->start_scan_from_user();
 }
 
 void LvglWifiFlowScreen::on_btn_hotspot(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
+    LvglWifiFlowScreen* self = wifi_flow_self_from_event(e);
     if (!self) return;
     self->show_hotspot_panel();
 }
 
 void LvglWifiFlowScreen::on_btn_back_hotspot(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
+    LvglWifiFlowScreen* self = wifi_flow_self_from_event(e);
     if (!self) return;
     // S6V9C: stop SoftAP before returning Home (stops yoRadioAP, cancels softapdelay) / гасим AP до возврата Home.
     network.recoveryStopSoftAP();
@@ -2535,14 +2589,14 @@ void LvglWifiFlowScreen::on_btn_back_hotspot(lv_event_t* e) {
 
 void LvglWifiFlowScreen::on_btn_back_home(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
+    LvglWifiFlowScreen* self = wifi_flow_self_from_event(e);
     if (!self || self->_entered_from_boot_failure) return;
     lvgl_ui::dismissWifiFlowReturnToPlayer();
 }
 
 void LvglWifiFlowScreen::on_btn_back_net(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
+    LvglWifiFlowScreen* self = wifi_flow_self_from_event(e);
     if (!self) return;
     if (self->_await_open_connect_ui || self->_saving_in_progress) return;
     wifiOpsCancel();
@@ -2551,7 +2605,7 @@ void LvglWifiFlowScreen::on_btn_back_net(lv_event_t* e) {
 
 void LvglWifiFlowScreen::on_btn_rescan(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
+    LvglWifiFlowScreen* self = wifi_flow_self_from_event(e);
     if (!self) return;
     if (self->_await_open_connect_ui || self->_saving_in_progress) return;
     self->start_scan_from_user();
@@ -2559,7 +2613,7 @@ void LvglWifiFlowScreen::on_btn_rescan(lv_event_t* e) {
 
 void LvglWifiFlowScreen::on_btn_cancel_scan(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
+    LvglWifiFlowScreen* self = wifi_flow_self_from_event(e);
     if (!self) return;
     if (self->_await_open_connect_ui || self->_saving_in_progress) return;
     wifiOpsCancel();
@@ -2567,7 +2621,7 @@ void LvglWifiFlowScreen::on_btn_cancel_scan(lv_event_t* e) {
 
 void LvglWifiFlowScreen::on_btn_back_pass(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
+    LvglWifiFlowScreen* self = wifi_flow_self_from_event(e);
     if (!self) return;
     // Wi-Fi 6A: disallow Back while save/reboot is scheduled / Back заблокирован при ожидании reboot.
     if (self->_saving_in_progress) return;
@@ -2586,13 +2640,17 @@ void LvglWifiFlowScreen::on_btn_back_pass(lv_event_t* e) {
 
 void LvglWifiFlowScreen::on_btn_connect(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
+    LvglWifiFlowScreen* self = wifi_flow_self_from_event(e);
     if (self) self->start_connect_from_user();
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Password and keyboard event adapters / Адаптеры password и keyboard
+// ─────────────────────────────────────────────────────────────────────────────
+
 void LvglWifiFlowScreen::on_ta_password_changed(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_VALUE_CHANGED) return;
-    auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
+    LvglWifiFlowScreen* self = wifi_flow_self_from_event(e);
     if (!self || !self->_ta_password || !self->_lbl_pass_status) return;
     if (self->_await_connect_ui) return;
     // Wi-Fi 6A: saving in progress — ignore all TA events / идёт сохранение — игнорируем TA события.
@@ -2637,7 +2695,7 @@ void LvglWifiFlowScreen::on_ta_password_changed(lv_event_t* e) {
 
 void LvglWifiFlowScreen::on_keyboard_event(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CANCEL) return;
-    auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
+    LvglWifiFlowScreen* self = wifi_flow_self_from_event(e);
     if (!self) return;
     // Wi-Fi 6A: ignore keyboard cancel while saving/rebooting / Cancel клавиатуры заблокирован.
     if (self->_saving_in_progress) return;
@@ -2654,6 +2712,11 @@ void LvglWifiFlowScreen::on_keyboard_event(lv_event_t* e) {
     self->show_networks_panel();
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Dynamic row event adapters / Адаптеры dynamic row callbacks
+// user_data encoding: index + 1 (one-based); zero rejected.
+// ─────────────────────────────────────────────────────────────────────────────
+
 void LvglWifiFlowScreen::on_scan_row_click(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     lv_obj_t* tgt = lv_event_get_target(e);
@@ -2661,7 +2724,7 @@ void LvglWifiFlowScreen::on_scan_row_click(lv_event_t* e) {
     while (o && lv_obj_get_user_data(o) == nullptr) {
         o = lv_obj_get_parent(o);
     }
-    auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
+    LvglWifiFlowScreen* self = wifi_flow_self_from_event(e);
     if (!o || !self || !self->_lbl_net_status) return;
     if (self->_await_open_connect_ui || self->_saving_in_progress) return;
     const uintptr_t stored = reinterpret_cast<uintptr_t>(lv_obj_get_user_data(o));
@@ -2687,7 +2750,7 @@ void LvglWifiFlowScreen::on_saved_row_click(lv_event_t* e) {
     while (o && lv_obj_get_user_data(o) == nullptr) {
         o = lv_obj_get_parent(o);
     }
-    auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
+    LvglWifiFlowScreen* self = wifi_flow_self_from_event(e);
     if (!o || !self) return;
     const uintptr_t stored = reinterpret_cast<uintptr_t>(lv_obj_get_user_data(o));
     if (stored == 0U) return; // sentinel: not a valid slot / не слот
@@ -2696,9 +2759,13 @@ void LvglWifiFlowScreen::on_saved_row_click(lv_event_t* e) {
     self->open_saved_network(slot);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Saved panel button adapters / Адаптеры кнопок Saved panel
+// ─────────────────────────────────────────────────────────────────────────────
+
 void LvglWifiFlowScreen::on_btn_saved_connect(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
+    LvglWifiFlowScreen* self = wifi_flow_self_from_event(e);
     if (self) self->start_connect_from_saved();
 }
 
@@ -2706,7 +2773,7 @@ void LvglWifiFlowScreen::on_btn_saved_connect(lv_event_t* e) {
 // Wi-Fi 6B: смена пароля — Password panel с пустым TA; Back возвращает сюда.
 void LvglWifiFlowScreen::on_btn_saved_chpwd(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
+    LvglWifiFlowScreen* self = wifi_flow_self_from_event(e);
     if (!self || !self->_selectedSavedSsid[0]) return;
     self->_password_from_saved = true;
     self->open_password_entry(self->_selectedSavedSsid);
@@ -2720,7 +2787,7 @@ void LvglWifiFlowScreen::on_btn_saved_chpwd(lv_event_t* e) {
 // Wi-Fi 6B: Back на Saved panel: Cancel если идёт connect, затем возврат Home.
 void LvglWifiFlowScreen::on_btn_saved_back(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
+    LvglWifiFlowScreen* self = wifi_flow_self_from_event(e);
     if (!self) return;
     if (self->_saving_in_progress) return; // locked until reboot / заблокировано до reboot
     if (self->_await_saved_connect_ui) {
@@ -2733,7 +2800,7 @@ void LvglWifiFlowScreen::on_btn_saved_back(lv_event_t* e) {
 // Wi-Fi 6C: Remove tapped — show inline confirmation / тап Remove — показываем подтверждение.
 void LvglWifiFlowScreen::on_btn_saved_remove(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
+    LvglWifiFlowScreen* self = wifi_flow_self_from_event(e);
     if (!self) return;
     // Block if connect or reboot is in progress / блокировать при connect/reboot.
     if (self->_await_saved_connect_ui || self->_saving_in_progress) return;
@@ -2753,7 +2820,7 @@ void LvglWifiFlowScreen::on_btn_saved_remove(lv_event_t* e) {
 // Wi-Fi 6C: No — cancel confirmation, restore normal row / No — отмена, возврат к нормальному ряду.
 void LvglWifiFlowScreen::on_btn_saved_no(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
+    LvglWifiFlowScreen* self = wifi_flow_self_from_event(e);
     if (!self) return;
     self->_saved_status_terminal  = false;
     if (self->_lbl_saved_status) {
@@ -2768,7 +2835,7 @@ void LvglWifiFlowScreen::on_btn_saved_no(lv_event_t* e) {
 // Yes — выполнить удаление; store+persist, затем Home. Без reboot.
 void LvglWifiFlowScreen::on_btn_saved_yes(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    auto* self = static_cast<LvglWifiFlowScreen*>(lv_event_get_user_data(e));
+    LvglWifiFlowScreen* self = wifi_flow_self_from_event(e);
     if (!self) return;
     const YoRadioPalette& pal = yoradio_palette_service();
 

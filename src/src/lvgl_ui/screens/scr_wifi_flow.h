@@ -64,6 +64,13 @@ private:
     void poll_handle_scan_completion(const WifiOpsSnapshot& snap, bool pass_visible, bool saved_visible,
                                      const YoRadioPalette& pal);
     void poll_emit_diagnostics();
+
+    // WIFIREF-D2: Lifecycle timer helpers — exact baseline create/delete/null sequences.
+    // WIFIREF-D2: helpers таймеров lifecycle — те же create/delete/null, что в baseline.
+    void lifecycle_start_poll_timer();
+    void lifecycle_stop_poll_timer();
+    void lifecycle_cancel_reboot_timer();
+
     static void on_btn_scan(lv_event_t* e);
     static void on_btn_hotspot(lv_event_t* e);
     static void on_btn_back_hotspot(lv_event_t* e);
