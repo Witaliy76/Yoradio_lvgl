@@ -1,8 +1,8 @@
 # Wi-Fi Flow — LVGL object tree (`scr_wifi_flow`)
 
 **Purpose / Назначение:**
-**English:** Static layout ownership for `LvglWifiFlowScreen` created in `scr_wifi_flow.cpp`. Documents the five panel surfaces, object hierarchy, dynamic list children, shared style lifecycle, font resources, UI string inventory, partial-allocation behavior, and backend-operation boundary. This document describes static layout ownership; state transitions, persistence and poll guard ordering will be documented more deeply in later WIFIREF slices.
-**Русский:** Статическая раскладка `LvglWifiFlowScreen` из `scr_wifi_flow.cpp`: пять панелей, иерархия объектов, dynamic list children, lifecycle общих стилей, шрифты, UI строки, partial-allocation и граница с backend. Этот документ описывает static layout; переходы состояний, persistence и порядок guards polling — в следующих WIFIREF slice.
+**English:** Layout, state and transition ownership for `LvglWifiFlowScreen` in `scr_wifi_flow.cpp`. Documents five panel surfaces, object hierarchy, dynamic list children, shared style lifecycle, font resources, UI string inventory, partial-allocation, panel transition matrix, password/saved state contracts, recovery idle, and backend-operation boundary. Polling guard ordering will be documented in WIFIREF-D.
+**Русский:** Раскладка, state и переходы `LvglWifiFlowScreen` из `scr_wifi_flow.cpp`: пять панелей, иерархия, dynamic lists, lifecycle стилей, шрифты, UI строки, partial-allocation, transition matrix, state Password/Saved, recovery idle, граница с backend. Порядок guards polling — в WIFIREF-D.
 
 **Source of truth:**
 `scr_wifi_flow.cpp`:
@@ -366,10 +366,187 @@ No Wi-Fi Flow helpers are exported to `widgets/` in WIFIREF-A. Wi-Fi-specific he
 
 ---
 
+## Panel visibility owner
+
+`_showOnlyPanel(lv_obj_t* panel)` hides all five panel roots and shows only the specified target. Sets `_home_visible = (panel == _panel_home)`. Does not touch state, cancel ops, or control AP.
+
+Each `show_*` method calls `_showOnlyPanel` after its specific cleanup phase.
+
+Panel visibility ownership contract:
+
+```
+Panel show methods own:
+  - UI visibility of all five panels
+  - _home_visible flag
+  - local UI state cleanup before transition
+  - recovery idle arm/disarm calls
+
+Panel show methods do NOT own:
+  - backend result interpretation
+  - persistence
+  - timers (created in enter/persistence handlers)
+  - SoftAP lifecycle (owned by show_hotspot_panel entry/exit callers)
+```
+
+---
+
+## Panel transition matrix
+
+| From | Action | Side effects | To |
+|------|--------|-------------|-----|
+| Home | Scan button | clear_password_panel_state, start scan | Networks |
+| Home | saved-row tap | clear_saved_state, populate slot | Saved |
+| Home | Hotspot button | disarm idle, start AP | Hotspot |
+| Home | Back (non-boot-failure) | — | Player (dismiss) |
+| Home | idle timeout (60s) | disarm idle, start AP | Hotspot |
+| Networks | locked row tap | cancel_open_connect, clear_password | Password |
+| Networks | open row tap | start open-connect (stays Networks) | Networks |
+| Networks | Home button | cancel open-connect if active | Home |
+| Password | Connect (success) | persist → reboot | (reboot) |
+| Password | Back (from scanned) | clear_password_panel_state | Networks |
+| Password | Back (from Saved) | clear_password_panel_state | Saved |
+| Saved | Connect (success) | lastSSID update → reboot | (reboot) |
+| Saved | Chg pwd | _password_from_saved=true | Password |
+| Saved | Remove → Yes | store.remove, persist | Home |
+| Saved | Remove → No | restore normal row | Saved |
+| Saved | Back | clear_saved_state | Home |
+| Hotspot | Back | stop AP, cancel ops | Home |
+
+---
+
+## Home entry contexts
+
+Three entry contexts set different Home UI:
+
+| Context | Subtitle | Back visibility |
+|---------|----------|-----------------|
+| Boot-failure | `"Could not connect. Tap a saved network or Scan."` | Hidden |
+| Runtime-disconnect | `"Wi-Fi disconnected. Tap a saved network or Scan."` | Visible |
+| Manual | `"Tap a saved network, or Scan to choose another."` | Visible |
+
+Entry flags are consumed in `enter()` and read by `sync_home_boot_failure_ui()`. WIFIREF-B does not fix the deferred `_entered_from_runtime_disconnect` cleanup issue.
+
+---
+
+## Password state ownership
+
+`clear_password_panel_state()` resets in this order:
+1. Await/operation flags (`_await_connect_ui`, `_saving_in_progress`)
+2. Terminal/status lock flags
+3. Selected SSID buffer
+4. `clear_password_secrets()` — keyboard detach → textarea clear → buffer zeroes
+
+`clear_password_secrets()` contract:
+- Keyboard must be detached **before** textarea is cleared (avoids spurious `VALUE_CHANGED`).
+- `_passwordScratch` and `_connectCandidatePass` are explicitly zeroed.
+- Keyboard is attached in `open_password_entry()` only.
+
+---
+
+## Saved Network state ownership
+
+`clear_saved_state()` resets in this order:
+1. Selected slot/SSID (`_selectedSavedSlot=255`, `_selectedSavedSsid={}`)
+2. Await and terminal flags
+3. Password-origin and remove-confirmation state
+
+`_setSavedRemoveConfirmationVisible(bool)`:
+- Hides/shows `_row_saved_normal` and `_row_saved_confirm`.
+- Synchronizes `_remove_confirm_pending`.
+- Called by: `open_saved_network`, `on_btn_saved_remove`, `on_btn_saved_no`, `on_btn_saved_yes` (error paths).
+
+---
+
+## Saved remove confirmation
+
+When Remove is tapped:
+- Status label shows confirmation prompt.
+- `_row_saved_normal` hidden, `_row_saved_confirm` visible.
+- `_remove_confirm_pending = true`.
+
+When No is tapped:
+- Status label cleared.
+- `_row_saved_confirm` hidden, `_row_saved_normal` visible.
+- `_remove_confirm_pending = false`.
+
+When Yes is tapped (success):
+- `wifiCredStoreRemoveAt` + `wifiCredStorePersistToFs`.
+- `rebuild_saved_list()` + `show_home_panel()`.
+
+---
+
+## UI-lock states
+
+| Helper | Condition | Effect |
+|--------|-----------|--------|
+| `set_password_panel_connecting_ui(true)` | connect started | TA, kbd, Connect disabled |
+| `set_password_panel_saving_ui()` | persist success | TA, kbd, Connect, Back all disabled (permanent) |
+| `set_saved_panel_connecting_ui(true)` | connect started | Connect, Chg pwd, Remove disabled |
+| `set_saved_panel_saving_ui()` | connect success → persist | All four Saved buttons disabled |
+| `set_networks_panel_connecting_ui(true)` | open connect started | Rescan, Cancel, Home disabled |
+| `set_networks_panel_saving_ui()` | open persist success | Rescan, Cancel, Home disabled (permanent) |
+
+---
+
+## Recovery idle state
+
+Idle auto-Hotspot is implemented via the 200 ms poll timer, not a separate lv_timer:
+
+```
+arm_recovery_idle_if_home_only()
+  → _boot_idle_armed = true
+  → _boot_idle_deadline_ms = millis() + kRecoveryIdleToHotspotTimeoutMs (60000)
+  → countdown label set once
+
+process_boot_idle_timer_tick() (called every 200 ms from pollOpsSnapshot)
+  → checks Home-only visible
+  → checks no ops-block flags
+  → on timeout: show_hotspot_panel()
+
+disarm_boot_idle_timer()
+  → _boot_idle_armed = false
+  → countdown label cleared
+```
+
+Ops-block flags: `_await_scan_ui`, `_await_connect_ui`, `_await_saved_connect_ui`, `_await_open_connect_ui`, `_saving_in_progress`.
+
+---
+
+## Hotspot entry and exit ownership
+
+`show_hotspot_panel()` order (load-bearing, must not be reordered):
+1. `disarm_boot_idle_timer()`
+2. `cancel_open_connect_state()` — stops in-flight open connect
+3. `network.recoveryEnsureSoftAP()` — starts yoRadioAP
+4. `sync_hotspot_panel_labels()` — populates SSID/pwd/IP/help
+5. `_showOnlyPanel(_panel_hotspot)` — reveals panel
+
+SoftAP stop happens in `on_btn_back_hotspot` via `network.recoveryStopSoftAP()`. The builder `create_hotspot_panel()` owns only the static object tree — no AP logic.
+
+---
+
+## State reset boundaries
+
+| Event | Resets |
+|-------|--------|
+| `show_home_panel()` | Password + Saved state, open-connect state |
+| `show_networks_panel()` | Password state |
+| `show_password_panel()` | Open-connect state |
+| `show_saved_panel()` | Open-connect state |
+| `show_hotspot_panel()` | Open-connect state |
+| `open_saved_network()` | Previous Saved state (slot/flags/rows) |
+| `open_password_entry()` | Password flags, SSID, textarea, keyboard |
+| `enter()` | All await flags, candidate pass, entry context consumed |
+| `exit()` | Timers, secrets, open-connect, wifiOpsCancel |
+
+---
+
 ## Notes / Заметки
 
-- **WIFIREF-A** (`E50W`): resources/styles/layout-builders refactor. UI strings centralized (`kStr*`), named constants, font helpers grouped, `create()` split into private builders, layout tree documentation added. No behavioral changes.
-- **WIFIREF-B/C/D** (deferred): panel navigation state helpers, operation/persistence pipelines, polling and callback pipeline refactor.
+- **WIFIREF-A** (`052bc4d`, `E50W`): resources/styles/layout-builders refactor. No behavioral changes.
+- **WIFIREF-B** (`E51W`): panel navigation, local UI state, and transition contracts. `_showOnlyPanel` helper, `_setSavedRemoveConfirmationVisible` helper, section headers, cleaner method structure. No behavioral changes.
+- **WIFIREF-C/D** (deferred): operation/persistence pipelines, polling decomposition, callback refactor.
+- Deferred hardening: stale `_screen` validity check, `_entered_from_runtime_disconnect` cleanup in `exit()`.
 - `_panel_pass` hidden flag is set inside `create_password_panel()` to keep the builder self-contained.
 - `_panel_saved` hidden flag is set inside `create_saved_panel()` for the same reason.
 - `_panel_hotspot` hidden flag is set inside `create_hotspot_panel()` for the same reason.

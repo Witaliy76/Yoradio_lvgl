@@ -29,6 +29,16 @@ public:
     lv_obj_t*   screen() override;
 
 private:
+    // WIFIREF-B: panel visibility helper — hides all five panels then shows only the target.
+    // _home_visible is set to (panel == _panel_home). Does not touch state, ops or AP.
+    // WIFIREF-B: показывает только target panel; не трогает state, ops или AP.
+    void _showOnlyPanel(lv_obj_t* panel);
+
+    // WIFIREF-B: toggle the Saved remove confirmation row and sync _remove_confirm_pending.
+    // Syncs _remove_confirm_pending only because flag and row always change together.
+    // WIFIREF-B: переключает ряд подтверждения удаления и синхронизирует _remove_confirm_pending.
+    void _setSavedRemoveConfirmationVisible(bool visible);
+
     // WIFIREF-A: private static layout builders — keep create() a short orchestration skeleton.
     // create_panel_roots() returns false if any panel allocation fails (triggers early return in create()).
     // WIFIREF-A: private static билдеры — create() остаётся коротким оркестратором.
