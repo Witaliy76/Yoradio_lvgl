@@ -1,15 +1,20 @@
 /*
- * LvglBootScreen — Stage 5.4 structural boot UI (special PageChain mode, not a carousel page).
+ * LvglBootScreen — fixed-dark transitional Boot UI.
+ * Переходный Boot UI с фиксированной тёмной темой.
+ *
  * Boot image: RGB565 in lvgl_ui/assets (see bootlogo.md §3 — asset, dimensions, descriptor).
  * Битмап boot: RGB565 в lvgl_ui/assets; замена — bootlogo.md §3 / bootlogo_rus.md §3.
+ *
  * Column block: LV_ALIGN_CENTER on screen + kRootLiftY; profile = LV_ACTIVE_PROFILE.
  * Колонка: центр экрана + вертикальный сдвиг kRootLiftY; профиль — LV_ACTIVE_PROFILE.
+ *
  * Layout policy: bootlogo.md (EN) / bootlogo_rus.md (RU).
  * Политика раскладки: bootlogo.md (EN) / bootlogo_rus.md (RU).
+ *
+ * ILvglScreen lifecycle: create → enter → update → exit → destroy (DspTask only).
  */
 
 #include "scr_boot.h"
-
 
 #include "lvgl.h"
 #include "Arduino.h"
@@ -21,50 +26,36 @@ namespace lvgl_ui {
 
 namespace {
 
-// ---------------------------------------------------------------------------
-// Boot layout — single source of constants / Раскладка Boot — все константы только здесь
-// All values use LV_ACTIVE_PROFILE (width, height, frame_padding).
-// Shuttle bar: indeterminate boot indicator only — see bootlogo.md / bootlogo_rus.md.
-// Полоска-shuttle: только индикатор «идёт загрузка», не процент выполнения.
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
+// UI strings (l10n readiness) / Строки UI
+// ─────────────────────────────────────────────────────────────────────────────
 
-// Center column layout: one root flex container in the middle.
-// Центральная колонка: один корневой flex-контейнер по центру.
-// Status label: horizontal margin from frame = pad * kStatusPadMul.
-// Подпись: отступ по X от pad.
-constexpr int32_t kStatusPadMul = 4;
-// Vertical gaps between blocks in the column (px). Canonical spacing: bootlogo.md §4.
-// Вертикальные зазоры в колонке (px). Эталон — bootlogo.md §4.
-constexpr int32_t kGapLogoToStatus = 24;
-constexpr int32_t kGapStatusToBar = 38;
-// Whole column nudge vs screen center (negative = upward). / Сдвиг всей колонки от центра (минус = вверх).
-constexpr int32_t kRootLiftY = -16;
+static constexpr char kStrStarting[] = "Starting...";
 
-// Indeterminate track + shuttle (decorative only; not bound to boot queue progress).
-// Дорожка + бегунок — только визуальный индикатор, не привязка к очереди boot.
-constexpr unsigned kBarWidthPercent = 38;
-constexpr int32_t kBarHeight = 5;
-// Shuttle width + one-way LTR anim duration (ease in-out; playback disabled — see startIndeterminateAnim).
-// Ширина бегунка + длительность одного прохода LTR (ease in-out, без обратного хода — startIndeterminateAnim).
-constexpr unsigned kShuttleWidthPercent = 55;
-constexpr uint32_t kShuttleAnimMs = 1800;
+// ─────────────────────────────────────────────────────────────────────────────
+// Font resources / Ресурсы шрифтов
+// Boot uses the profile header font — preserves profile-based semantics.
+// Boot использует шрифт заголовка профиля — сохраняет profile-based семантику.
+// ─────────────────────────────────────────────────────────────────────────────
 
-// Stage 6.6R-F2: Boot is branded lifecycle UI — fixed dark bg/text, not runtime theme / Boot не из yoradio_palette().
+static const lv_font_t* boot_status_font() {
+    return static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_header);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fixed Boot colors / Фиксированные цвета Boot
+// Boot is branded lifecycle UI — fixed dark bg/text, not runtime theme.
+// Boot — lifecycle UI с фиксированной тёмной темой; yoradio_palette() не используется.
+// ─────────────────────────────────────────────────────────────────────────────
+
 static const lv_color_t kBootFixedBackground  = lv_color_hex(0x000000);
-static const lv_color_t kBootFixedStatusText = lv_color_hex(0xCCCCCC);
+static const lv_color_t kBootFixedStatusText  = lv_color_hex(0xCCCCCC);
 
-// Use compact boot asset when panel width is at or below this (e.g. JC3248 320×480).
-// Компактный ассет при ширине экрана ≤ порога (JC3248 320×480).
-constexpr uint16_t kBootLogoSmallAssetMaxScreenW = 320;
+// ─────────────────────────────────────────────────────────────────────────────
+// Image resources / Ресурсы изображений
+// ─────────────────────────────────────────────────────────────────────────────
 
-// TEMP: always use small boot bitmap (preview). Set false to restore auto by screen width.
-// ВРЕМЕННО: всегда малый бутлого для просмотра; false — снова выбор по ширине экрана.
-constexpr bool kBootLogoForceSmallAsset = false;
-
-// LVGL 8: lv_img_set_zoom(img, z) uses z=256 for 100% (optional alternative to second asset).
-// LVGL 8: zoom 256 = 100%; ~77 ≈ 30% — тяжелее для CPU, возможно мыло; второй битмап обычно чётче.
-
-// Medium asset (170×149) for wide panels; replaces former 211×177 “300” bitmap.
+// Medium asset (170×149) for wide panels; replaces former 211×177 "300" bitmap.
 // Средний ассет для широких экранов; вместо прежнего крупного 211×177.
 static const lv_img_dsc_t s_boot_logo_dsc_medium = {
     .header = {
@@ -79,6 +70,8 @@ static const lv_img_dsc_t s_boot_logo_dsc_medium = {
     .data = reinterpret_cast<const uint8_t*>(image_data_yoradio_boot_medium),
 };
 
+// Small asset for compact panels (≤ kBootLogoSmallAssetMaxScreenW).
+// Компактный ассет для узких экранов (≤ kBootLogoSmallAssetMaxScreenW).
 static const lv_img_dsc_t s_boot_logo_dsc_small = {
     .header = {
         .cf = LV_IMG_CF_TRUE_COLOR,
@@ -87,14 +80,91 @@ static const lv_img_dsc_t s_boot_logo_dsc_small = {
         .w = YORADIO_BOOTLOGO_SMALL_W,
         .h = YORADIO_BOOTLOGO_SMALL_H,
     },
-    .data_size = static_cast<uint32_t>(YORADIO_BOOTLOGO_SMALL_W * YORADIO_BOOTLOGO_SMALL_H * sizeof(uint16_t)),
+    .data_size =
+        static_cast<uint32_t>(YORADIO_BOOTLOGO_SMALL_W * YORADIO_BOOTLOGO_SMALL_H * sizeof(uint16_t)),
     .data = reinterpret_cast<const uint8_t*>(image_data_yoradio_boot_small),
 };
 
-static void boot_set_font(lv_obj_t* obj, const void* font_slot) {
-    if (!obj || !font_slot) return;
-    lv_obj_set_style_text_font(obj, static_cast<const lv_font_t*>(font_slot), LV_PART_MAIN);
+// ─────────────────────────────────────────────────────────────────────────────
+// Layout constants / Константы раскладки
+// All values use LV_ACTIVE_PROFILE (width, height, frame_padding).
+// Все значения используют LV_ACTIVE_PROFILE.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Center column layout: one root flex container in the middle.
+// Центральная колонка: один корневой flex-контейнер по центру.
+constexpr int32_t kRootLiftY     = -16;   // Whole-column nudge vs screen center (negative = upward) / Сдвиг вверх
+constexpr lv_coord_t kSpacerWidth = 1;    // Spacer pixel width (flex-managed height carries the gap) / Ширина спейсера
+
+// Status label horizontal margin: frame_padding × kStatusPadMul.
+// Отступ по X для строки статуса: frame_padding × kStatusPadMul.
+constexpr int32_t kStatusPadMul = 4;
+
+// Vertical gaps between content blocks in the column.
+// Вертикальные зазоры между блоками в колонке.
+constexpr lv_coord_t kGapLogoToStatus = 24;
+constexpr lv_coord_t kGapStatusToBar  = 38;
+
+// Logo asset selection threshold: panels at or below this width use the small asset.
+// Порог выбора ассета: экраны ≤ порога используют компактный ассет.
+constexpr uint16_t kBootLogoSmallAssetMaxScreenW = 320;
+
+// Set true to force small asset (preview mode). False = auto-select by screen width.
+// true — всегда компактный ассет; false — выбор по ширине экрана.
+constexpr bool kBootLogoForceSmallAsset = false;
+
+// LVGL 8 note: lv_img_set_zoom(img, z) uses z=256 for 100%.
+// A second bitmap is typically sharper than software scaling.
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Animation constants / Константы анимации
+// Shuttle bar: indeterminate boot indicator only — not bound to boot queue progress.
+// Бегунок: только indeterminate-индикатор; не отражает реальный прогресс очереди.
+// ─────────────────────────────────────────────────────────────────────────────
+
+constexpr unsigned  kBarWidthPercent    = 38;
+constexpr int32_t   kBarHeight          = 5;
+// Shuttle width + one-way LTR animation duration (ease in-out; no playback = LTR only).
+// Ширина бегунка + длительность одного прохода LTR (ease in-out, без обратного хода).
+constexpr unsigned  kShuttleWidthPercent = 55;
+constexpr uint32_t  kShuttleAnimMs       = 1800;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Visual constants (track / glow / shuttle geometry)
+// Визуальные константы (геометрия дорожки, ореола, бегунка)
+// ─────────────────────────────────────────────────────────────────────────────
+
+static constexpr int32_t   kGlowExtraHeight         = 2;   // Glow height = kBarHeight + kGlowExtraHeight
+static constexpr int32_t   kShuttleMinWidth          = 20;  // Minimum shuttle pixel width
+static constexpr int32_t   kShuttleCoreMinWidth      = 12;  // Minimum shuttle core width
+static constexpr int32_t   kShuttleCoreMinHeight     = 2;   // Minimum shuttle core height
+static constexpr int32_t   kShuttleCoreWidthPercent  = 68;  // Core = 68% of shuttle width
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Generic local helpers / Локальные вспомогательные функции
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Transparent spacer for column gap control.
+// Column pad_row is set to 0; explicit spacers produce predictable pixel gaps.
+// Прозрачный спейсер для управления зазорами в колонке.
+// pad_row = 0; явные спейсеры дают точные зазоры в пикселях.
+static lv_obj_t* create_transparent_spacer(lv_obj_t* parent, lv_coord_t height) {
+    lv_obj_t* sp = lv_obj_create(parent);
+    if (!sp) return nullptr;
+    lv_obj_set_size(sp, kSpacerWidth, height);
+    lv_obj_clear_flag(sp, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(sp, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_set_style_bg_opa(sp, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(sp, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(sp, 0, LV_PART_MAIN);
+    return sp;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Boot visual-style helpers / Стилизация визуальных компонентов Boot
+// Fixed colors: not derived from yoradio_palette() — Boot stays dark regardless of theme preset.
+// Фиксированные цвета: не из palette — Boot остаётся тёмным при любом пресете темы.
+// ─────────────────────────────────────────────────────────────────────────────
 
 static void apply_track_style(lv_obj_t* o) {
     if (!o) return;
@@ -114,21 +184,21 @@ static void apply_track_style(lv_obj_t* o) {
 static void apply_shuttle_style(lv_obj_t* o) {
     if (!o) return;
     lv_obj_set_style_pad_all(o, 0, LV_PART_MAIN);
-    // Core = “light streak”: one hue, HOR gradient with transition squeezed to mid band (LVGL 8.3 two-stop limit).
+    // Core = "light streak": one hue, HOR gradient with transition squeezed to mid band (LVGL 8.3 two-stop limit).
     // Ядро — «полоса света»: один оттенок, HOR, переход сжат к середине (только 2 стопа в v8.3).
-    // Dark muted edges (same family) → soft bright center; avoids neon “brick” and obvious L/R split.
+    // Dark muted edges (same family) → soft bright center; avoids neon "brick" and obvious L/R split.
     // Приглушённые края → мягкий яркий центр; без неоновой «таблетки» и резкого лево/право.
     lv_obj_set_style_bg_color(o, lv_color_make(0x22, 0x42, 0x4c), LV_PART_MAIN);
     lv_obj_set_style_bg_grad_color(o, lv_color_make(0xa8, 0xe4, 0xef), LV_PART_MAIN);
     lv_obj_set_style_bg_grad_dir(o, LV_GRAD_DIR_HOR, LV_PART_MAIN);
-    // Full-span L→R: dark at left edge, bright toward +X (motion direction); avoids “blob in the middle”.
+    // Full-span L→R: dark at left edge, bright toward +X (motion direction); avoids "blob in the middle".
     // Градиент на всю ширину: тёмный слева у края, светлее к +X; без пятна только в центре пилюли.
     lv_obj_set_style_bg_main_stop(o, 0, LV_PART_MAIN);
     lv_obj_set_style_bg_grad_stop(o, 255, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(o, LV_OPA_90, LV_PART_MAIN);
     lv_obj_set_style_radius(o, LV_RADIUS_CIRCLE, LV_PART_MAIN);
     lv_obj_set_style_border_width(o, 0, LV_PART_MAIN);
-    // Light edge bleed only — no heavy “object” shadow.
+    // Light edge bleed only — no heavy "object" shadow.
     // Лёгкое свечение по краю — без тяжёлой тени «объекта».
     lv_obj_set_style_shadow_width(o, 3, LV_PART_MAIN);
     lv_obj_set_style_shadow_ofs_y(o, 0, LV_PART_MAIN);
@@ -151,22 +221,151 @@ static void apply_glow_style(lv_obj_t* o) {
     lv_obj_set_style_shadow_opa(o, 22, LV_PART_MAIN);
 }
 
-// Same math as create() for sizes; anim must not use lv_obj_get_width() before layout (often 0 → no motion).
-// Та же геометрия, что при create; до lv_obj_update_layout get_width часто 0 — анимация «стоит».
+// ─────────────────────────────────────────────────────────────────────────────
+// Geometry helpers / Вспомогательные функции геометрии
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Compute bar/shuttle widths from screen width.
+// Must match create_indeterminate_bar() — anim must not call lv_obj_get_width()
+// before layout update (returns 0 before first lv_obj_update_layout).
+// Вычисляет ширины bar/shuttle из ширины экрана.
+// Должна соответствовать create_indeterminate_bar() — до update_layout get_width() = 0.
 static inline void boot_bar_geometry(uint16_t screen_w, int32_t* bar_w, int32_t* shuttle_w, int32_t* x_max) {
-    *bar_w = static_cast<int32_t>(screen_w * static_cast<int>(kBarWidthPercent) / 100);
-    *shuttle_w = LV_MAX(20, *bar_w * static_cast<int>(kShuttleWidthPercent) / 100);
+    *bar_w    = static_cast<int32_t>(screen_w * static_cast<int>(kBarWidthPercent) / 100);
+    *shuttle_w = LV_MAX(kShuttleMinWidth, *bar_w * static_cast<int>(kShuttleWidthPercent) / 100);
     // End at x == bar_w: glow/shuttle fully leave the track (clipped by parent) before repeat jumps to 0.
     // Конец при x == bar_w: бегунок полностью уезжает вправо (клип родителя), затем цикл с 0.
-    *x_max = *bar_w;
+    *x_max    = *bar_w;
 }
 
 } // namespace
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Layout builders / Билдеры разметки
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Root flex column: centers logo+status+bar as one block on _screen.
+// Корневой flex-столбец: центрирует лого+статус+бар как единый блок на экране.
+lv_obj_t* LvglBootScreen::create_root_column(LvglBootScreen& self, uint16_t screen_width) {
+    if (!self._screen) return nullptr;
+    lv_obj_t* root = lv_obj_create(self._screen);
+    if (!root) return nullptr;
+    lv_obj_set_size(root, screen_width, LV_SIZE_CONTENT);
+    lv_obj_align(root, LV_ALIGN_CENTER, 0, kRootLiftY);
+    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(root, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_set_style_bg_opa(root, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(root, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(root, 0, LV_PART_MAIN);
+    // Explicit spacers carry gaps; row gap = 0 avoids double-spacing.
+    // Явные спейсеры несут зазоры; pad_row = 0 исключает двойной отступ.
+    lv_obj_set_style_pad_row(root, 0, LV_PART_MAIN);
+    lv_obj_set_layout(root, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(root, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    return root;
+}
+
+// Logo: small or medium asset based on screen width and forced-small flag.
+// Лого: компактный или средний ассет по ширине экрана и флагу forced-small.
+void LvglBootScreen::create_logo(LvglBootScreen& self, lv_obj_t* parent, uint16_t screen_width) {
+    self._img_logo = lv_img_create(parent);
+    if (!self._img_logo) return;
+    const lv_img_dsc_t* dsc =
+        (kBootLogoForceSmallAsset || screen_width <= kBootLogoSmallAssetMaxScreenW)
+            ? &s_boot_logo_dsc_small
+            : &s_boot_logo_dsc_medium;
+    lv_img_set_src(self._img_logo, dsc);
+}
+
+// Status: spacer(logo→status) + label + spacer(status→bar).
+// Статус: спейсер (лого→статус) + label + спейсер (статус→бар).
+void LvglBootScreen::create_status(LvglBootScreen& self, lv_obj_t* parent,
+                                   uint16_t screen_width, int32_t frame_padding) {
+    // Gap: logo → status
+    create_transparent_spacer(parent, kGapLogoToStatus);
+
+    self._lbl_status = lv_label_create(parent);
+    if (self._lbl_status) {
+        strncpy(self._status_text, kStrStarting, sizeof(self._status_text) - 1);
+        self._status_text[sizeof(self._status_text) - 1] = '\0';
+        // _status_text is owned by LvglBootScreen; LVGL stores only the pointer (no copy).
+        // _status_text принадлежит LvglBootScreen; LVGL хранит только указатель без копирования.
+        lv_label_set_text_static(self._lbl_status, self._status_text);
+        lv_obj_set_width(self._lbl_status,
+            static_cast<lv_coord_t>(screen_width - frame_padding * kStatusPadMul));
+        // LV_LABEL_LONG_DOT: stable boot status without circular scrolling (avoids relayout churn).
+        // LV_LABEL_LONG_DOT: стабильный статус без карусели (меньше relayout нагрузки).
+        lv_label_set_long_mode(self._lbl_status, LV_LABEL_LONG_DOT);
+        lv_obj_set_scrollbar_mode(self._lbl_status, LV_SCROLLBAR_MODE_OFF);
+        lv_obj_set_style_text_align(self._lbl_status, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+        lv_obj_set_style_text_color(self._lbl_status, kBootFixedStatusText, LV_PART_MAIN);
+        const lv_font_t* font = boot_status_font();
+        if (font) {
+            lv_obj_set_style_text_font(self._lbl_status, font, LV_PART_MAIN);
+        }
+    }
+
+    // Gap: status → bar
+    create_transparent_spacer(parent, kGapStatusToBar);
+}
+
+// Indeterminate bar: track + glow + shuttle (decorative; does not reflect boot queue progress).
+// Indeterminate бар: дорожка + ореол + бегунок (декоративный; не отражает прогресс очереди).
+void LvglBootScreen::create_indeterminate_bar(LvglBootScreen& self, lv_obj_t* parent, uint16_t screen_width) {
+    self._prog_glow    = nullptr;
+    self._prog_shuttle = nullptr;
+
+    self._prog_track = lv_obj_create(parent);
+    if (!self._prog_track) return;
+
+    int32_t bar_w = 0, shuttle_w = 0, x_max_unused = 0;
+    boot_bar_geometry(screen_width, &bar_w, &shuttle_w, &x_max_unused);
+
+    lv_obj_set_size(self._prog_track, bar_w, kBarHeight);
+    lv_obj_clear_flag(self._prog_track, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(self._prog_track, LV_SCROLLBAR_MODE_OFF);
+    // Layout id 0 = none — default theme flex would center the shuttle and fight lv_obj_set_x.
+    // id 0 — без flex; иначе тема центрирует бегунок и перезаписывает x.
+    lv_obj_set_layout(self._prog_track, 0);
+    apply_track_style(self._prog_track);
+    // LVGL 8.3 draws children masked to parent coords; x runs to bar_w so the pill exits fully.
+    // v8.3: маска родителя; x до bar_w — бегунок полностью уезжает вправо.
+
+    self._prog_glow = lv_obj_create(self._prog_track);
+    if (self._prog_glow) {
+        const int32_t glow_h = kBarHeight + kGlowExtraHeight;
+        lv_obj_set_size(self._prog_glow, shuttle_w, glow_h);
+        lv_obj_add_flag(self._prog_glow, LV_OBJ_FLAG_IGNORE_LAYOUT);
+        lv_obj_set_align(self._prog_glow, LV_ALIGN_DEFAULT);
+        lv_obj_set_pos(self._prog_glow, 0, (kBarHeight - glow_h) / 2);
+        apply_glow_style(self._prog_glow);
+        lv_obj_clear_flag(self._prog_glow, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_scrollbar_mode(self._prog_glow, LV_SCROLLBAR_MODE_OFF);
+    }
+
+    self._prog_shuttle = lv_obj_create(self._prog_track);
+    if (self._prog_shuttle) {
+        const int32_t core_w = LV_MAX(kShuttleCoreMinWidth, shuttle_w * kShuttleCoreWidthPercent / 100);
+        const int32_t core_h = LV_MAX(kShuttleCoreMinHeight, kBarHeight - 1);
+        lv_obj_set_size(self._prog_shuttle, core_w, core_h);
+        lv_obj_add_flag(self._prog_shuttle, LV_OBJ_FLAG_IGNORE_LAYOUT);
+        lv_obj_set_align(self._prog_shuttle, LV_ALIGN_DEFAULT);
+        lv_obj_set_pos(self._prog_shuttle, 0, (kBarHeight - core_h) / 2);
+        apply_shuttle_style(self._prog_shuttle);
+        lv_obj_clear_flag(self._prog_shuttle, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_scrollbar_mode(self._prog_shuttle, LV_SCROLLBAR_MODE_OFF);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Animation pipeline / Конвейер анимации
+// ─────────────────────────────────────────────────────────────────────────────
+
 void LvglBootScreen::shuttleAnimExec(void* var, int32_t x) {
     auto* self = static_cast<LvglBootScreen*>(var);
     if (!self) return;
-    // Same x for glow and core: left edges stay aligned; start flush with track’s left (no centered core).
+    // Same x for glow and core: left edges stay aligned; start flush with track's left (no centered core).
     // Одинаковый x: левые края совпадают; старт у левой границы дорожки (ядро не центрируется в ореоле).
     if (self->_prog_glow && lv_obj_is_valid(self->_prog_glow)) {
         lv_obj_set_x(self->_prog_glow, x);
@@ -192,7 +391,8 @@ void LvglBootScreen::startIndeterminateAnim() {
     lv_anim_set_exec_cb(&a, shuttleAnimExec);
     lv_anim_set_values(&a, 0, x_max);
     lv_anim_set_time(&a, kShuttleAnimMs);
-    // No playback: shuttle always moves LTR; matches HOR gradient (dull→bright along +X). / Без обратного хода: только слева направо, как градиент.
+    // No playback: shuttle always moves LTR; matches HOR gradient (dull→bright along +X).
+    // Без обратного хода: только слева направо, как градиент.
     lv_anim_set_playback_time(&a, 0);
     lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
     lv_anim_set_path_cb(&a, lv_anim_path_ease_in_out);
@@ -200,143 +400,47 @@ void LvglBootScreen::startIndeterminateAnim() {
     lv_anim_start(&a);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Lifecycle / Жизненный цикл
+// ─────────────────────────────────────────────────────────────────────────────
+
 ScreenType LvglBootScreen::screenType() const {
     return ScreenType::Boot;
 }
 
 void LvglBootScreen::create() {
     if (_screen) {
-        // If screen was auto-deleted by LVGL after handoff, reset stale pointers and recreate.
-        // Если LVGL удалил экран через auto_del после handoff — сбрасываем stale-указатели и пересоздаём.
+        // If screen was auto-deleted by LVGL after handoff, reset stale handles and recreate.
+        // Если LVGL удалил экран через auto_del после handoff — сбрасываем stale handles и пересоздаём.
         if (!lv_obj_is_valid(_screen)) {
-            _screen = nullptr;
-            _root = nullptr;
-            _img_logo = _lbl_status = _prog_track = _prog_glow = _prog_shuttle = nullptr;
+            _nullHandles();
         } else {
             return;
         }
     }
 
-    const uint16_t W = LV_ACTIVE_PROFILE.width;
-    const int32_t pad = static_cast<int32_t>(LV_ACTIVE_PROFILE.frame_padding);
+    const uint16_t width         = LV_ACTIVE_PROFILE.width;
+    const int32_t  frame_padding = static_cast<int32_t>(LV_ACTIVE_PROFILE.frame_padding);
 
     _screen = lv_obj_create(nullptr);
     if (!_screen) return;
 
-    // Stage 6.6R-F2: fixed dark boot — ignores Light/Custom runtime preset (logo on dark context).
-    // Этап 6.6R-F2: фиксированный тёмный Boot; track/shuttle/glow остаются локальными (принятый chrome).
+    // Fixed dark boot — ignores Light/Custom runtime preset (logo on dark context).
+    // Фиксированный тёмный Boot; игнорирует Light/Custom пресет (лого на тёмном фоне).
     lv_obj_set_style_bg_color(_screen, kBootFixedBackground, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(_screen, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_clear_flag(_screen, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scrollbar_mode(_screen, LV_SCROLLBAR_MODE_OFF);
 
-    // Root column container: keeps logo+status+bar as one centered block.
-    // Корневой контейнер-колонка: лого+статус+бар как единый центрированный блок.
-    _root = lv_obj_create(_screen);
-    if (_root) {
-        lv_obj_set_size(_root, W, LV_SIZE_CONTENT);
-        lv_obj_align(_root, LV_ALIGN_CENTER, 0, kRootLiftY);
-        lv_obj_clear_flag(_root, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_set_scrollbar_mode(_root, LV_SCROLLBAR_MODE_OFF);
-        lv_obj_set_style_bg_opa(_root, LV_OPA_TRANSP, LV_PART_MAIN);
-        lv_obj_set_style_border_width(_root, 0, LV_PART_MAIN);
-        lv_obj_set_style_pad_all(_root, 0, LV_PART_MAIN);
-        lv_obj_set_style_pad_row(_root, 0, LV_PART_MAIN); // we insert explicit spacers for predictable gaps
-        lv_obj_set_layout(_root, LV_LAYOUT_FLEX);
-        lv_obj_set_flex_flow(_root, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_flex_align(_root, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    }
+    _root = create_root_column(*this, width);
 
+    // If root allocation failed, children are attached directly to _screen.
+    // При ошибке выделения root children прикрепляются к _screen.
     lv_obj_t* parent = _root ? _root : _screen;
 
-    _img_logo = lv_img_create(parent);
-    if (_img_logo) {
-        const lv_img_dsc_t* dsc = (kBootLogoForceSmallAsset || W <= kBootLogoSmallAssetMaxScreenW)
-                                      ? &s_boot_logo_dsc_small
-                                      : &s_boot_logo_dsc_medium;
-        lv_img_set_src(_img_logo, dsc);
-    }
-
-    // Spacer: logo → status gap.
-    // Спейсер: зазор лого → статус.
-    lv_obj_t* sp1 = lv_obj_create(parent);
-    if (sp1) {
-        lv_obj_set_size(sp1, 1, kGapLogoToStatus);
-        lv_obj_clear_flag(sp1, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_set_scrollbar_mode(sp1, LV_SCROLLBAR_MODE_OFF);
-        lv_obj_set_style_bg_opa(sp1, LV_OPA_TRANSP, LV_PART_MAIN);
-        lv_obj_set_style_border_width(sp1, 0, LV_PART_MAIN);
-        lv_obj_set_style_pad_all(sp1, 0, LV_PART_MAIN);
-    }
-
-    _lbl_status = lv_label_create(parent);
-    if (_lbl_status) {
-        strncpy(_status_text, "Starting...", sizeof(_status_text) - 1);
-        _status_text[sizeof(_status_text) - 1] = '\0';
-        lv_label_set_text_static(_lbl_status, _status_text);
-        lv_obj_set_width(_lbl_status, W - pad * kStatusPadMul);
-        // Keep boot status stable (no endless circular scrolling) to avoid heavy relayout churn.
-        // Стабильный статус без бесконечной карусели (меньше relayout-нагрузки и артефактов).
-        lv_label_set_long_mode(_lbl_status, LV_LABEL_LONG_DOT);
-        lv_obj_set_scrollbar_mode(_lbl_status, LV_SCROLLBAR_MODE_OFF);
-        lv_obj_set_style_text_align(_lbl_status, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-        lv_obj_set_style_text_color(_lbl_status, kBootFixedStatusText, LV_PART_MAIN);
-        boot_set_font(_lbl_status, LV_ACTIVE_PROFILE.font_header);
-    }
-
-    // Spacer: status → bar gap.
-    // Спейсер: зазор статус → бар.
-    lv_obj_t* sp2 = lv_obj_create(parent);
-    if (sp2) {
-        lv_obj_set_size(sp2, 1, kGapStatusToBar);
-        lv_obj_clear_flag(sp2, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_set_scrollbar_mode(sp2, LV_SCROLLBAR_MODE_OFF);
-        lv_obj_set_style_bg_opa(sp2, LV_OPA_TRANSP, LV_PART_MAIN);
-        lv_obj_set_style_border_width(sp2, 0, LV_PART_MAIN);
-        lv_obj_set_style_pad_all(sp2, 0, LV_PART_MAIN);
-    }
-
-    _prog_track = lv_obj_create(parent);
-    _prog_glow = nullptr;
-    _prog_shuttle = nullptr;
-    if (_prog_track) {
-        int32_t bar_w = 0, shuttle_w = 0, x_max_unused = 0;
-        boot_bar_geometry(W, &bar_w, &shuttle_w, &x_max_unused);
-        lv_obj_set_size(_prog_track, bar_w, kBarHeight);
-        lv_obj_clear_flag(_prog_track, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_set_scrollbar_mode(_prog_track, LV_SCROLLBAR_MODE_OFF);
-        // Layout id 0 = none — default theme flex would center the shuttle and fight lv_obj_set_x.
-        // id 0 — без flex, иначе тема центрирует бегунок и перезаписывает x.
-        lv_obj_set_layout(_prog_track, 0);
-        apply_track_style(_prog_track);
-        // LVGL 8.3 draws children masked to parent coords; x runs to bar_w so the pill exits fully.
-        // В v8.3 нет style overflow — маска родителя; x до bar_w, бегунок полностью уезжает вправо.
-
-        _prog_glow = lv_obj_create(_prog_track);
-        if (_prog_glow) {
-            const int32_t glow_h = kBarHeight + 2;
-            lv_obj_set_size(_prog_glow, shuttle_w, glow_h);
-            lv_obj_add_flag(_prog_glow, LV_OBJ_FLAG_IGNORE_LAYOUT);
-            lv_obj_set_align(_prog_glow, LV_ALIGN_DEFAULT);
-            lv_obj_set_pos(_prog_glow, 0, (kBarHeight - glow_h) / 2);
-            apply_glow_style(_prog_glow);
-            lv_obj_clear_flag(_prog_glow, LV_OBJ_FLAG_SCROLLABLE);
-            lv_obj_set_scrollbar_mode(_prog_glow, LV_SCROLLBAR_MODE_OFF);
-        }
-
-        _prog_shuttle = lv_obj_create(_prog_track);
-        if (_prog_shuttle) {
-            const int32_t core_w = LV_MAX(12, shuttle_w * 68 / 100);
-            const int32_t core_h = LV_MAX(2, kBarHeight - 1);
-            lv_obj_set_size(_prog_shuttle, core_w, core_h);
-            lv_obj_add_flag(_prog_shuttle, LV_OBJ_FLAG_IGNORE_LAYOUT);
-            lv_obj_set_align(_prog_shuttle, LV_ALIGN_DEFAULT);
-            lv_obj_set_pos(_prog_shuttle, 0, (kBarHeight - core_h) / 2);
-            apply_shuttle_style(_prog_shuttle);
-            lv_obj_clear_flag(_prog_shuttle, LV_OBJ_FLAG_SCROLLABLE);
-            lv_obj_set_scrollbar_mode(_prog_shuttle, LV_SCROLLBAR_MODE_OFF);
-        }
-    }
+    create_logo(*this, parent, width);
+    create_status(*this, parent, width, frame_padding);
+    create_indeterminate_bar(*this, parent, width);
 }
 
 void LvglBootScreen::enter() {
@@ -352,6 +456,10 @@ void LvglBootScreen::exit() {
 void LvglBootScreen::update() {
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Status pipeline / Конвейер статуса
+// ─────────────────────────────────────────────────────────────────────────────
+
 void LvglBootScreen::setStatusUtf8(const char* text) {
     if (!_lbl_status || !text) return;
     if (strcmp(_status_text, text) == 0) return; // avoid redundant invalidation / не дёргать лишний redraw
@@ -361,20 +469,41 @@ void LvglBootScreen::setStatusUtf8(const char* text) {
 }
 
 void LvglBootScreen::onBootSignal() {
-    // TEMPORARY: queue still calls this; shuttle ignores signals (indeterminate-only policy).
-    // TODO: remove or repurpose once boot queue contract is cleaned up.
-    // ВРЕМЕННО: очередь всё ещё вызывает; бегунок не реагирует. TODO: убрать или заменить по контракту очереди.
+    // Boot queue still invokes this callback.
+    // The current Boot indicator is intentionally indeterminate,
+    // so queue signals do not alter the shuttle.
+    // Очередь Boot вызывает этот callback.
+    // Бегунок намеренно indeterminate — сигналы его не меняют.
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Teardown / Завершение
+// ─────────────────────────────────────────────────────────────────────────────
+
+void LvglBootScreen::_nullHandles() {
+    // Null all LVGL handles without deleting objects.
+    // Boot screen may be auto-deleted by LVGL (auto_del=true after lv_scr_load_anim handoff).
+    // destroy() and recreate path must never call lv_obj_del on these handles.
+    // Обнулить все LVGL handles без удаления объектов.
+    // Boot-экран может быть auto-deleted LVGL (auto_del=true при lv_scr_load_anim handoff).
+    _screen       = nullptr;
+    _root         = nullptr;
+    _img_logo     = nullptr;
+    _lbl_status   = nullptr;
+    _prog_track   = nullptr;
+    _prog_glow    = nullptr;
+    _prog_shuttle = nullptr;
 }
 
 void LvglBootScreen::destroy() {
+    // Stop animation before nulling handles; shuttleAnimExec dereferences glow/shuttle.
+    // Остановить анимацию до обнуления handles; shuttleAnimExec разыменовывает glow/shuttle.
     lv_anim_del(this, shuttleAnimExec);
     // Lifecycle note: Boot screen object can be auto-deleted by lv_scr_load_anim(..., auto_del=true).
-    // Заметка lifecycle: объект Boot-экрана может удаляться самим LVGL через auto_del=true.
     // Therefore destroy() only detaches animation/pointers and never deletes LVGL objects manually.
-    // Поэтому destroy() только останавливает анимацию/обнуляет указатели, без ручного lv_obj_del().
-    _screen = nullptr;
-    _root = nullptr;
-    _img_logo = _lbl_status = _prog_track = _prog_glow = _prog_shuttle = nullptr;
+    // Заметка lifecycle: объект Boot-экрана может удаляться самим LVGL через auto_del=true.
+    // Поэтому destroy() только останавливает анимацию и обнуляет указатели, без ручного lv_obj_del().
+    _nullHandles();
 }
 
 lv_obj_t* LvglBootScreen::screen() {
@@ -382,4 +511,3 @@ lv_obj_t* LvglBootScreen::screen() {
 }
 
 } // namespace lvgl_ui
-
