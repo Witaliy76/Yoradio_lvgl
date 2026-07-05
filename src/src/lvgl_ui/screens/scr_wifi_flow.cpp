@@ -2317,87 +2317,102 @@ void LvglWifiFlowScreen::on_poll_timer(lv_timer_t* t) {
     if (self) self->pollOpsSnapshot();
 }
 
-void LvglWifiFlowScreen::pollOpsSnapshot() {
-    WifiOpsSnapshot snap{};
-    if (!wifiOpsGetSnapshot(&snap)) return;
+// ─────────────────────────────────────────────────────────────────────────────
+// WIFIREF-D1: Polling dispatcher helpers / Helpers polling dispatcher
+// Each bool helper returns true only when baseline pollOpsSnapshot() returned early.
+// bool helper возвращает true только когда baseline pollOpsSnapshot() делал early return.
+// ─────────────────────────────────────────────────────────────────────────────
 
-    process_boot_idle_timer_tick();
-
-    const YoRadioPalette& pal = yoradio_palette_service();
-
-    const bool pass_visible  = _panel_pass  && !lv_obj_has_flag(_panel_pass,  LV_OBJ_FLAG_HIDDEN);
-    // Wi-Fi 6B: track saved panel visibility for connect polling / видимость Saved panel для polling.
-    const bool saved_visible = _panel_saved && !lv_obj_has_flag(_panel_saved, LV_OBJ_FLAG_HIDDEN);
-    const bool net_visible   = _panel_net && !lv_obj_has_flag(_panel_net, LV_OBJ_FLAG_HIDDEN);
-
+bool LvglWifiFlowScreen::poll_handle_password_result(const WifiOpsSnapshot& snap, bool pass_visible,
+                                                      const YoRadioPalette& pal) {
     // 4B: Connect polling for Password panel / опрос завершения connect для Password panel.
-    if (pass_visible && _await_connect_ui) {
-        if (snap.busy && snap.currentOp == WifiOpsOp::Connect) {
-            if (_lbl_pass_status) {
-                wifi_flow_set_text_if_changed(
-                    _lbl_pass_status,
-                    "Connecting... current Wi-Fi may disconnect / подключение... возможен разрыв Wi-Fi",
-                    WifiFlowDiagTextSlot::PassStatus);
-                lv_obj_set_style_text_color(_lbl_pass_status, pal.text_meta, LV_PART_MAIN);
-            }
-            set_password_panel_connecting_ui(true);
-            return;
-        }
-        if (!snap.busy && snap.phase == WifiOpsPhase::Idle) {
-            handle_connect_finished();
-            // Fall through: refresh scan buttons etc. / дальше — кнопки скана.
-        }
+    if (!pass_visible || !_await_connect_ui) {
+        return false;
     }
+    if (snap.busy && snap.currentOp == WifiOpsOp::Connect) {
+        if (_lbl_pass_status) {
+            wifi_flow_set_text_if_changed(
+                _lbl_pass_status,
+                "Connecting... current Wi-Fi may disconnect / подключение... возможен разрыв Wi-Fi",
+                WifiFlowDiagTextSlot::PassStatus);
+            lv_obj_set_style_text_color(_lbl_pass_status, pal.text_meta, LV_PART_MAIN);
+        }
+        set_password_panel_connecting_ui(true);
+        return true;
+    }
+    if (!snap.busy && snap.phase == WifiOpsPhase::Idle) {
+        handle_connect_finished();
+        // Fall through: refresh scan buttons etc. / дальше — кнопки скана.
+    }
+    return false;
+}
 
+bool LvglWifiFlowScreen::poll_handle_saved_result(const WifiOpsSnapshot& snap, bool saved_visible,
+                                                   const YoRadioPalette& pal) {
     // Wi-Fi 6B: Connect polling for Saved Network panel / опрос завершения connect для Saved panel.
-    if (saved_visible && _await_saved_connect_ui) {
-        if (snap.busy && snap.currentOp == WifiOpsOp::Connect) {
-            if (_lbl_saved_status && !_saved_status_terminal) {
-                wifi_flow_set_text_if_changed(_lbl_saved_status, kStrConnectingSaved, WifiFlowDiagTextSlot::SavedStatus);
-                lv_obj_set_style_text_color(_lbl_saved_status, pal.text_meta, LV_PART_MAIN);
-            }
-            return;
-        }
-        if (!snap.busy && snap.phase == WifiOpsPhase::Idle) {
-            handle_saved_connect_finished();
-            // Fall through: refresh scan buttons etc. / дальше — кнопки скана.
-        }
+    if (!saved_visible || !_await_saved_connect_ui) {
+        return false;
     }
+    if (snap.busy && snap.currentOp == WifiOpsOp::Connect) {
+        if (_lbl_saved_status && !_saved_status_terminal) {
+            wifi_flow_set_text_if_changed(_lbl_saved_status, kStrConnectingSaved, WifiFlowDiagTextSlot::SavedStatus);
+            lv_obj_set_style_text_color(_lbl_saved_status, pal.text_meta, LV_PART_MAIN);
+        }
+        return true;
+    }
+    if (!snap.busy && snap.phase == WifiOpsPhase::Idle) {
+        handle_saved_connect_finished();
+        // Fall through: refresh scan buttons etc. / дальше — кнопки скана.
+    }
+    return false;
+}
 
+bool LvglWifiFlowScreen::poll_handle_open_result(const WifiOpsSnapshot& snap, bool net_visible,
+                                                  const YoRadioPalette& pal) {
     // Wi-Fi S6V7B: open-network connect polling on Networks panel / опрос open connect на панели Networks.
-    if (net_visible && _await_open_connect_ui) {
-        if (snap.busy && snap.currentOp == WifiOpsOp::Connect) {
-            if (_lbl_net_status && !_open_status_terminal) {
-                wifi_flow_set_text_if_changed(_lbl_net_status, kStrConnectingOpen, WifiFlowDiagTextSlot::NetStatus);
-                lv_obj_set_style_text_color(_lbl_net_status, pal.text_meta, LV_PART_MAIN);
-            }
-            set_networks_panel_connecting_ui(true);
-            return;
-        }
-        if (!snap.busy && snap.phase == WifiOpsPhase::Idle) {
-            handle_open_connect_finished();
-            // Fall through / дальше — общая логика скана.
-        }
+    if (!net_visible || !_await_open_connect_ui) {
+        return false;
     }
-
-    // S6V9F: only treat scan-in-progress as blocking UI when Networks is relevant or user is awaiting scan results.
-    // S6V9F: иначе stale Scanning на Home после stop AP — вечный early-return и «мёртвый» Scan.
-    const bool scan_progress_blocks_ui =
-        net_visible || _await_scan_ui;
-    if (scan_progress_blocks_ui &&
-        (snap.phase == WifiOpsPhase::Scanning || (snap.busy && snap.currentOp == WifiOpsOp::Scan))) {
-        if (_lbl_net_status) {
-            wifi_flow_set_text_if_changed(_lbl_net_status, kStrScanning, WifiFlowDiagTextSlot::NetStatus);
+    if (snap.busy && snap.currentOp == WifiOpsOp::Connect) {
+        if (_lbl_net_status && !_open_status_terminal) {
+            wifi_flow_set_text_if_changed(_lbl_net_status, kStrConnectingOpen, WifiFlowDiagTextSlot::NetStatus);
             lv_obj_set_style_text_color(_lbl_net_status, pal.text_meta, LV_PART_MAIN);
         }
-        if (_btn_scan) {
-            wifi_flow_set_state_if_changed(_btn_scan, LV_STATE_DISABLED, true, WifiFlowDiagBtnSlot::Scan);
-        }
-        if (_btn_rescan) {
-            wifi_flow_set_state_if_changed(_btn_rescan, LV_STATE_DISABLED, true, WifiFlowDiagBtnSlot::Rescan);
-        }
-        return;
+        set_networks_panel_connecting_ui(true);
+        return true;
     }
+    if (!snap.busy && snap.phase == WifiOpsPhase::Idle) {
+        handle_open_connect_finished();
+        // Fall through / дальше — общая логика скана.
+    }
+    return false;
+}
+
+bool LvglWifiFlowScreen::poll_scan_progress_blocks_ui(const WifiOpsSnapshot& snap, bool net_visible,
+                                                         const YoRadioPalette& pal) {
+    // S6V9F: only treat scan-in-progress as blocking UI when Networks is relevant or user is awaiting scan results.
+    // S6V9F: иначе stale Scanning на Home после stop AP — вечный early-return и «мёртвый» Scan.
+    const bool scan_progress_blocks_ui = net_visible || _await_scan_ui;
+    if (!scan_progress_blocks_ui) {
+        return false;
+    }
+    if (snap.phase != WifiOpsPhase::Scanning && !(snap.busy && snap.currentOp == WifiOpsOp::Scan)) {
+        return false;
+    }
+    if (_lbl_net_status) {
+        wifi_flow_set_text_if_changed(_lbl_net_status, kStrScanning, WifiFlowDiagTextSlot::NetStatus);
+        lv_obj_set_style_text_color(_lbl_net_status, pal.text_meta, LV_PART_MAIN);
+    }
+    if (_btn_scan) {
+        wifi_flow_set_state_if_changed(_btn_scan, LV_STATE_DISABLED, true, WifiFlowDiagBtnSlot::Scan);
+    }
+    if (_btn_rescan) {
+        wifi_flow_set_state_if_changed(_btn_rescan, LV_STATE_DISABLED, true, WifiFlowDiagBtnSlot::Rescan);
+    }
+    return true;
+}
+
+void LvglWifiFlowScreen::poll_restore_operation_buttons(bool net_visible) {
     if (_btn_scan) {
         wifi_flow_set_state_if_changed(_btn_scan, LV_STATE_DISABLED, false, WifiFlowDiagBtnSlot::Scan);
     }
@@ -2406,40 +2421,90 @@ void LvglWifiFlowScreen::pollOpsSnapshot() {
         const bool net_rescan_locked = net_visible && (_saving_in_progress || _await_open_connect_ui);
         wifi_flow_set_state_if_changed(_btn_rescan, LV_STATE_DISABLED, net_rescan_locked, WifiFlowDiagBtnSlot::Rescan);
     }
+}
 
+void LvglWifiFlowScreen::poll_handle_scan_completion(const WifiOpsSnapshot& snap, bool pass_visible,
+                                                      bool saved_visible, const YoRadioPalette& pal) {
     // Completing scan await only when Networks (not Password or Saved) visible.
     // Завершение скана не обрабатывается на Password или Saved panel.
-    if (_await_scan_ui && !pass_visible && !saved_visible && !_await_open_connect_ui && snap.phase == WifiOpsPhase::Idle &&
-        !snap.busy) {
-        _await_scan_ui = false;
-        if (snap.lastResult == WifiOpsResult::Success) {
-            rebuild_scan_list();
-            wifi_flow_set_text_if_changed(_lbl_net_status, kStrScanComplete,   WifiFlowDiagTextSlot::NetStatus);
-        } else if (snap.lastResult == WifiOpsResult::Cancelled) {
-            rebuild_scan_list();
-            wifi_flow_set_text_if_changed(_lbl_net_status, kStrScanCancelled,  WifiFlowDiagTextSlot::NetStatus);
-        } else if (snap.lastResult == WifiOpsResult::Timeout) {
-            rebuild_scan_list();
-            wifi_flow_set_text_if_changed(_lbl_net_status, kStrScanTimeout,    WifiFlowDiagTextSlot::NetStatus);
-        } else if (snap.lastResult == WifiOpsResult::Busy) {
-            rebuild_scan_list();
-            wifi_flow_set_text_if_changed(_lbl_net_status, kStrScanBusy,       WifiFlowDiagTextSlot::NetStatus);
-        } else {
-            rebuild_scan_list();
-            wifi_flow_set_text_if_changed(_lbl_net_status, kStrScanFinished,   WifiFlowDiagTextSlot::NetStatus);
-        }
-        lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
-        (void)snap.resultsSeq;
-        _last_results_seq = snap.resultsSeq;
+    if (!_await_scan_ui || pass_visible || saved_visible || _await_open_connect_ui ||
+        snap.phase != WifiOpsPhase::Idle || snap.busy) {
+        return;
+    }
+    _await_scan_ui = false;
+    if (snap.lastResult == WifiOpsResult::Success) {
+        rebuild_scan_list();
+        wifi_flow_set_text_if_changed(_lbl_net_status, kStrScanComplete, WifiFlowDiagTextSlot::NetStatus);
+    } else if (snap.lastResult == WifiOpsResult::Cancelled) {
+        rebuild_scan_list();
+        wifi_flow_set_text_if_changed(_lbl_net_status, kStrScanCancelled, WifiFlowDiagTextSlot::NetStatus);
+    } else if (snap.lastResult == WifiOpsResult::Timeout) {
+        rebuild_scan_list();
+        wifi_flow_set_text_if_changed(_lbl_net_status, kStrScanTimeout, WifiFlowDiagTextSlot::NetStatus);
+    } else if (snap.lastResult == WifiOpsResult::Busy) {
+        rebuild_scan_list();
+        wifi_flow_set_text_if_changed(_lbl_net_status, kStrScanBusy, WifiFlowDiagTextSlot::NetStatus);
+    } else {
+        rebuild_scan_list();
+        wifi_flow_set_text_if_changed(_lbl_net_status, kStrScanFinished, WifiFlowDiagTextSlot::NetStatus);
+    }
+    lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
+    (void)snap.resultsSeq;
+    _last_results_seq = snap.resultsSeq;
+}
+
+void LvglWifiFlowScreen::poll_emit_diagnostics() {
+#if WIFI_FLOW_DIAG_GLITCH
+    wifi_flow_diag_maybe_periodic_summary();
+#endif
+}
+
+// WIFIREF-D1: top-level polling dispatcher — phase order is load-bearing.
+// WIFIREF-D1: верхнеуровневый polling dispatcher — порядок фаз критичен.
+void LvglWifiFlowScreen::pollOpsSnapshot() {
+    // Phase 1: single snapshot acquisition / один snapshot за tick.
+    WifiOpsSnapshot snap{};
+    if (!wifiOpsGetSnapshot(&snap)) return;
+
+    // Phase 2: recovery idle tick (Home countdown / auto-Hotspot).
+    process_boot_idle_timer_tick();
+
+    const YoRadioPalette& pal = yoradio_palette_service();
+
+    // Phase 3: panel visibility flags (no early return — used by later phases).
+    const bool pass_visible  = _panel_pass  && !lv_obj_has_flag(_panel_pass,  LV_OBJ_FLAG_HIDDEN);
+    const bool saved_visible = _panel_saved && !lv_obj_has_flag(_panel_saved, LV_OBJ_FLAG_HIDDEN);
+    const bool net_visible   = _panel_net   && !lv_obj_has_flag(_panel_net,   LV_OBJ_FLAG_HIDDEN);
+
+    // Phase 4–6: connect result routing (dispatch only — handlers own semantics).
+    if (poll_handle_password_result(snap, pass_visible, pal)) {
+        return;
+    }
+    if (poll_handle_saved_result(snap, saved_visible, pal)) {
+        return;
+    }
+    if (poll_handle_open_result(snap, net_visible, pal)) {
+        return;
     }
 
+    // Phase 7: scan-progress blocking guard (S6V9F stale-Scanning workaround).
+    if (poll_scan_progress_blocks_ui(snap, net_visible, pal)) {
+        return;
+    }
+
+    // Phase 8: restore operation buttons.
+    poll_restore_operation_buttons(net_visible);
+
+    // Phase 9: scan completion.
+    poll_handle_scan_completion(snap, pass_visible, saved_visible, pal);
+
+    // Phase 10: Password Connect button sync.
     if (pass_visible && !_await_connect_ui) {
         sync_connect_button_enabled();
     }
 
-#if WIFI_FLOW_DIAG_GLITCH
-    wifi_flow_diag_maybe_periodic_summary();
-#endif
+    // Phase 11: diagnostics.
+    poll_emit_diagnostics();
 }
 
 void LvglWifiFlowScreen::on_btn_scan(lv_event_t* e) {

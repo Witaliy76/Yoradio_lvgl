@@ -1,7 +1,7 @@
 # Wi-Fi Flow ? LVGL object tree (`scr_wifi_flow`)
 
 **Purpose / ??????????:**
-**English:** Layout, state and transition ownership for `LvglWifiFlowScreen` in `scr_wifi_flow.cpp`. Documents five panel surfaces, object hierarchy, dynamic list children, shared style lifecycle, font resources, UI string inventory, partial-allocation, panel transition matrix, password/saved state contracts, recovery idle, and backend-operation boundary. Polling guard ordering will be documented in WIFIREF-D.
+**English:** Layout, state and transition ownership for `LvglWifiFlowScreen` in `scr_wifi_flow.cpp`. Documents five panel surfaces, object hierarchy, dynamic list children, shared style lifecycle, font resources, UI string inventory, partial-allocation, panel transition matrix, password/saved state contracts, recovery idle, backend-operation boundary, and polling dispatcher (WIFIREF-D1).
 **???????:** ?????????, state ? ???????? `LvglWifiFlowScreen` ?? `scr_wifi_flow.cpp`: ???? ???????, ????????, dynamic lists, lifecycle ??????, ??????, UI ??????, partial-allocation, transition matrix, state Password/Saved, recovery idle, ??????? ? backend. ??????? guards polling ? ? WIFIREF-D.
 
 **Source of truth:**
@@ -638,6 +638,132 @@ Reboot is scheduled only after full persistence success in Password and Open han
 - Saved connect success schedules reboot without credential rewrite
 - Saved removal, all failure paths: no reboot
 
+## Polling dispatcher ownership
+
+`pollOpsSnapshot()` is the sole top-level polling dispatcher. It is invoked from `on_poll_timer()` every `kPollIntervalMs` (200 ms).
+
+Polling dispatches completed operations. It does not interpret their product result semantics ? that remains in `handle_*_finished()` and persistence handlers.
+
+Private helpers (WIFIREF-D1) are called only from `pollOpsSnapshot()`:
+
+| Helper | Role |
+|--------|------|
+| `poll_handle_password_result` | Route Password connect completion |
+| `poll_handle_saved_result` | Route Saved connect completion |
+| `poll_handle_open_result` | Route Open connect completion |
+| `poll_scan_progress_blocks_ui` | S6V9F scan-progress blocking guard |
+| `poll_restore_operation_buttons` | Re-enable Scan/Rescan after scan block |
+| `poll_handle_scan_completion` | Scan await completion + list rebuild |
+| `poll_emit_diagnostics` | Periodic diag summary (if enabled) |
+
+## Polling phase order
+
+Load-bearing order (must not be reordered):
+
+```
+1. Snapshot acquisition (wifiOpsGetSnapshot ? once per tick)
+2. Recovery idle tick (process_boot_idle_timer_tick)
+3. Panel visibility flags (pass_visible, saved_visible, net_visible)
+4. Password result routing
+5. Saved result routing
+6. Open result routing
+7. Scan-progress blocking guard
+8. Button restoration
+9. Scan completion
+10. Password button sync (sync_connect_button_enabled)
+11. Diagnostics
+```
+
+## Snapshot ownership
+
+A single immutable operation snapshot is used for the complete polling tick.
+
+- `pollOpsSnapshot()` calls `wifiOpsGetSnapshot()` exactly once.
+- All helpers receive `const WifiOpsSnapshot& snap` ? no second snapshot fetch.
+- Snapshot is not stored in a member field.
+
+## Password result routing
+
+`poll_handle_password_result(snap, pass_visible, pal)`:
+
+- Condition: `pass_visible && _await_connect_ui`
+- Busy Connect: update status, `set_password_panel_connecting_ui(true)` ? **early return**
+- Idle: call `handle_connect_finished()` ? fall through
+
+Helper does not reset `_await_connect_ui`, interpret result, call persistence, or schedule reboot.
+
+## Saved result routing
+
+`poll_handle_saved_result(snap, saved_visible, pal)`:
+
+- Condition: `saved_visible && _await_saved_connect_ui`
+- Busy Connect: update status (if not terminal) ? **early return**
+- Idle: call `handle_saved_connect_finished()` ? fall through
+
+No wifi.csv rewrite from polling ? handler owns last-success + reboot.
+
+## Open result routing
+
+`poll_handle_open_result(snap, net_visible, pal)`:
+
+- Condition: `net_visible && _await_open_connect_ui`
+- Busy Connect: update status, `set_networks_panel_connecting_ui(true)` ? **early return**
+- Idle: call `handle_open_connect_finished()` ? fall through
+
+Separate from Password routing; never uses `_connectCandidatePass`.
+
+## Scan-progress blocking guard
+
+S6V9F workaround ? scan-in-progress blocks UI only when:
+
+```
+scan_progress_blocks_ui = net_visible || _await_scan_ui
+AND (phase == Scanning OR (busy AND currentOp == Scan))
+```
+
+Not equivalent to `if (snapshot.scanning) return` ? Home-only after stop AP must not block forever.
+
+When blocking: show kStrScanning, disable Scan/Rescan ? **early return** (skips button restore, scan completion, sync, diagnostics).
+
+## Button restoration boundary
+
+`poll_restore_operation_buttons(net_visible)` runs only after scan-progress guard does not early-return.
+
+- `_btn_scan`: always enabled
+- `_btn_rescan`: disabled if `net_visible && (_saving_in_progress || _await_open_connect_ui)`
+
+Not moved into scan-progress helper or result handlers.
+
+## Scan completion and sequence ownership
+
+`poll_handle_scan_completion` runs when:
+
+```
+_await_scan_ui && !pass_visible && !saved_visible && !_await_open_connect_ui
+&& phase == Idle && !busy
+```
+
+Order: `_await_scan_ui = false` ? rebuild_scan_list() ? status by lastResult ? color ? `_last_results_seq = snap.resultsSeq`.
+
+Not triggered on Password or Saved panel visibility.
+
+## Polling early-return matrix
+
+| Phase | Condition | Returns from tick | Later phases skipped | State mutation owner |
+|-------|-----------|-------------------|----------------------|----------------------|
+| Snapshot fail | !wifiOpsGetSnapshot | yes | all | none |
+| Password busy | pass + await + busy Connect | yes | scan block, restore, completion, sync, diag | connecting_ui helper |
+| Saved busy | saved + await + busy Connect | yes | scan block, restore, completion, sync, diag | status label only |
+| Open busy | net + await + busy Connect | yes | scan block, restore, completion, sync, diag | connecting_ui helper |
+| Scan progress | S6V9F guard active | yes | restore, completion, sync, diag | scan/rescan disabled |
+| Password/Saved/Open idle | handler called | no | none | result handler owns await reset |
+
+## Diagnostics boundary
+
+`poll_emit_diagnostics()` ? `wifi_flow_diag_maybe_periodic_summary()` (under `WIFI_FLOW_DIAG_GLITCH`).
+
+Runs last ? not before early-return points. No new Serial logs added in D1.
+
 ## Panel visibility owner
 
 `_showOnlyPanel(lv_obj_t* panel)` hides all five panel roots and shows only the specified target. Sets `_home_visible = (panel == _panel_home)`. Does not touch state, cancel ops, or control AP.
@@ -819,7 +945,8 @@ SoftAP stop happens in `on_btn_back_hotspot` via `network.recoveryStopSoftAP()`.
 - **WIFIREF-B** (`f790521`, `E51W`): panel navigation, local UI state, and transition contracts. `_showOnlyPanel` helper, `_setSavedRemoveConfirmationVisible` helper, section headers. No behavioral changes.
 - **WIFIREF-C1** (`E52W`): operation pipelines and dynamic list pipelines. Section headers for Scan, Password-protected, Open-network and Saved-network pipelines. Operation UI strings centralized. No behavioral changes; persistence Cases A-E deferred to WIFIREF-C2.
 - **WIFIREF-C2** (`E53W`): credential persistence decision tables and Saved-network removal organization. Persistence UI strings centralized. Cases A-E semantics unchanged. No behavioral changes.
-- **WIFIREF-D** (deferred): polling decomposition, callback refactor.
+- **WIFIREF-D1** (`E54W`): polling dispatcher decomposition. `pollOpsSnapshot()` split into phase helpers; guard order unchanged. No behavioral changes.
+- **WIFIREF-D2** (deferred): callback refactor.
 - Deferred hardening: stale `_screen` validity check, `_entered_from_runtime_disconnect` cleanup in `exit()`.
 - `_panel_pass` hidden flag is set inside `create_password_panel()` to keep the builder self-contained.
 - `_panel_saved` hidden flag is set inside `create_saved_panel()` for the same reason.

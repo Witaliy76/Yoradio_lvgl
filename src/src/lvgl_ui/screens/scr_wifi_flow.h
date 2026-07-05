@@ -4,6 +4,8 @@
 #include "../lv_screen.h"
 #include "../theme/lv_theme_yoradio.h"
 
+struct WifiOpsSnapshot;
+
 namespace lvgl_ui {
 
 // LvglWifiFlowScreen — fixed-service Wi-Fi recovery workflow.
@@ -51,6 +53,17 @@ private:
 
     static void on_poll_timer(lv_timer_t* t);
     void        pollOpsSnapshot();
+
+    // WIFIREF-D1: Polling dispatcher helpers — bool return = early exit from poll tick (not op result).
+    // WIFIREF-D1: helpers polling dispatcher — bool = досрочный выход из tick (не результат операции).
+    bool poll_handle_password_result(const WifiOpsSnapshot& snap, bool pass_visible, const YoRadioPalette& pal);
+    bool poll_handle_saved_result(const WifiOpsSnapshot& snap, bool saved_visible, const YoRadioPalette& pal);
+    bool poll_handle_open_result(const WifiOpsSnapshot& snap, bool net_visible, const YoRadioPalette& pal);
+    bool poll_scan_progress_blocks_ui(const WifiOpsSnapshot& snap, bool net_visible, const YoRadioPalette& pal);
+    void poll_restore_operation_buttons(bool net_visible);
+    void poll_handle_scan_completion(const WifiOpsSnapshot& snap, bool pass_visible, bool saved_visible,
+                                     const YoRadioPalette& pal);
+    void poll_emit_diagnostics();
     static void on_btn_scan(lv_event_t* e);
     static void on_btn_hotspot(lv_event_t* e);
     static void on_btn_back_hotspot(lv_event_t* e);
