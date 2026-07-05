@@ -6,8 +6,17 @@
 
 namespace lvgl_ui {
 
-// Wi-Fi 3A–6D + S6V7A–S6V9C: LVGL service shell — S6V9C = strict Hotspot-only SoftAP (AP starts on Hotspot page, stops on Back via recoveryStopSoftAP).
-// Wi-Fi 3A–6D + S6V7A–S6V9C: тот же shell; S6V9C — AP только при Hotspot page, гасится через recoveryStopSoftAP() при Back.
+// LvglWifiFlowScreen — fixed-service Wi-Fi recovery workflow.
+// LvglWifiFlowScreen — фиксированный сервисный Wi-Fi recovery workflow.
+//
+// Five panel surfaces: Home, Networks, Password, Saved Network and Hotspot.
+// Пять панелей: Home, Networks, Password, Saved Network и Hotspot.
+//
+// Uses a fixed service Dark palette and shared static LVGL styles to limit
+// local-style heap pressure. Backend operations are asynchronous and observed
+// by polling. All LVGL access is DspTask-only.
+// Использует фиксированную сервисную Dark-палитру и общие static LVGL styles для экономии heap.
+// Backend-операции асинхронны и наблюдаются через polling. Только DspTask для lv_*.
 
 class LvglWifiFlowScreen final : public ILvglScreen {
 public:
@@ -20,6 +29,16 @@ public:
     lv_obj_t*   screen() override;
 
 private:
+    // WIFIREF-A: private static layout builders — keep create() a short orchestration skeleton.
+    // create_panel_roots() returns false if any panel allocation fails (triggers early return in create()).
+    // WIFIREF-A: private static билдеры — create() остаётся коротким оркестратором.
+    static bool create_panel_roots(LvglWifiFlowScreen& self, const YoRadioPalette& pal);
+    static void create_home_panel(LvglWifiFlowScreen& self, const YoRadioPalette& pal);
+    static void create_networks_panel(LvglWifiFlowScreen& self, const YoRadioPalette& pal);
+    static void create_password_panel(LvglWifiFlowScreen& self, const YoRadioPalette& pal);
+    static void create_saved_panel(LvglWifiFlowScreen& self, const YoRadioPalette& pal);
+    static void create_hotspot_panel(LvglWifiFlowScreen& self, const YoRadioPalette& pal);
+
     static void on_poll_timer(lv_timer_t* t);
     void        pollOpsSnapshot();
     static void on_btn_scan(lv_event_t* e);
