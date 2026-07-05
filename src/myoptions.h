@@ -142,7 +142,11 @@
 // Block 8-E5C: slide-анимация карусели при свайпе. 0 = мгновенно (partial 4848); 1 = slide 300 ms.
 // Future Settings / ESP32-P4 may enable 1 at runtime; not stored in NVS yet.
 // Будущие Settings / быстрые платы — runtime; в NVS пока не сохраняется.
+// Не используется на 4848S040, но остаётся для совместимости.
 #define YORADIO_LVGL_PAGE_TRANSITION_ANIM_DEFAULT 0
+
+// 1: lightweight paged Station list; 0/undefined: legacy continuous scroll
+#define STATION_LIST_SIMPLE_PAGED 1
 
 // Day of week uppercase (true = uppercase, false = lowercase)
 //#define DOW_UPPERCASE true                     // Uncomment and set to true/false if needed
@@ -156,6 +160,7 @@
 // 0 = release (only important logs), 1 = debug (all logs)
 // 0 = релиз (только важные логи), 1 = отладка (все логи)
 #define AI_LAYER_DEBUG 0
+#define WIFI_FLOW_DIAG_GLITCH 0
 #define YORADIO_WEATHER_DIAG 0
 #define PRESENCE_RAIL_PERF_PROBE 0
 #define YORADIO_WEATHER_FC_DIAG 0
@@ -163,4 +168,5 @@
 #define YORADIO_WEATHER_REQ_DIAG 0
 #define YORADIO_WEATHER_STACK_DIAG 0
 #define YORADIO_NET_DNS_DIAG 0
+#define YORADIO_PPM_PCM_TELEMETRY_DIAG 0
 #endif
