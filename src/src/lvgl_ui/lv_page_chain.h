@@ -69,6 +69,8 @@ public:
     int currentIndex() const;
     ILvglScreen* currentPage() const;
     bool isTemporaryActive() const;
+    // True when scr is the active Temporary overlay (Preset today). / scr — активный Temporary (Preset).
+    bool isTemporaryActiveFor(const ILvglScreen* scr) const;
 
     // Stage 6.4B: reset Preset Temporary idle timer while user interacts (DspTask only).
     // Этап 6.4B: сброс таймера Preset Temporary при взаимодействии (только DspTask).

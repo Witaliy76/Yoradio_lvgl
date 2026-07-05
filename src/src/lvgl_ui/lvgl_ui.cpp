@@ -765,6 +765,11 @@ void lvgl_ui::dismissActiveTemporary() {
     s_page_chain.dismissTemporary();
 }
 
+bool lvgl_ui::isTemporaryActiveFor(const ILvglScreen* screen) {
+    ensurePageChainRegistered();
+    return s_page_chain.isTemporaryActiveFor(screen);
+}
+
 void lvgl_ui::refreshActiveTemporaryTimeout() {
     ensurePageChainRegistered();
     s_page_chain.refreshTemporaryTimeout();

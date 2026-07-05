@@ -433,6 +433,11 @@ bool PageChain::isTemporaryActive() const {
     return _special == SpecialMode::Temporary;
 }
 
+bool PageChain::isTemporaryActiveFor(const ILvglScreen* scr) const {
+    if (!scr) return false;
+    return (_special == SpecialMode::Temporary) && (_tempScreen == scr);
+}
+
 void PageChain::refreshTemporaryTimeout() {
     if (_special != SpecialMode::Temporary || !_tempScreen) return;
     _tempStartMillis = millis();

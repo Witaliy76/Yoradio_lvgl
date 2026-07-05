@@ -17,6 +17,8 @@ typedef struct _lv_obj_t lv_obj_t;
 
 namespace lvgl_ui {
 
+class ILvglScreen;
+
 // Stage 0: compile-time check that LVGL is linked
 // Stage 0: проверка на этапе компиляции, что LVGL подключён
 bool isCompiled();
@@ -136,6 +138,8 @@ void installCarouselGesturesOnPageRoot(lv_obj_t* screen_root);
 // Stage 6.4A: dismiss active Preset Temporary (tap / future Back parity). DspTask only.
 // Этап 6.4A: закрыть Preset Temporary (тап / позже Back). Только DspTask.
 void dismissActiveTemporary();
+// True when screen is the active Temporary overlay (Preset). / screen — активный Temporary (Preset).
+bool isTemporaryActiveFor(const ILvglScreen* screen);
 // Stage 6.4B: extend Preset Temporary timeout while row is pressed / saving. DspTask only.
 // Этап 6.4B: продлить таймаут Preset при удержании строки / save. Только DspTask.
 void refreshActiveTemporaryTimeout();

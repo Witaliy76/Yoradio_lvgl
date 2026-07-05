@@ -604,8 +604,11 @@ void LvglPresetScreen::_rowEventCb(lv_event_t* e) {
 
 void LvglPresetScreen::_helperEventCb(lv_event_t* e) {
     if (!e || lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    auto* self = static_cast<LvglPresetScreen*>(lv_event_get_user_data(e));
-    if (!self || !self->_helper_box) return;
+    LvglPresetScreen* const self = self_from_event(e);
+    if (!self) return;
+    // PageChain ownership: ignore stale callbacks after destroy/dismiss (dismissTemporary is idempotent).
+    // Владение PageChain: игнор stale callback после destroy/dismiss (dismissTemporary идемпотентен).
+    if (!isTemporaryActiveFor(self)) return;
     dismissActiveTemporary();
 }
 
