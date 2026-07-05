@@ -5,9 +5,8 @@
  * scr_station.h — Station list page: tap-to-focus overlays with separate current-station marker.
  * scr_station.h — страница Station: tap-to-focus оверлеи и независимый маркер «текущая станция».
  *
- * Focus station is UI-local state; current station comes from the adapter (what is playing).
- * List rendering delegated to station_list_legacy_scroll (continuous-scroll renderer).
- * Фокус — UI-local state; текущая станция из адаптера. Список — station_list_legacy_scroll.
+ * STATIONPAGED-2: active list renderer selected at compile time via STATION_LIST_SIMPLE_PAGED (myoptions.h).
+ * STATIONPAGED-2: активный renderer — compile-time через STATION_LIST_SIMPLE_PAGED (myoptions.h).
  */
 
 #include <stdint.h>
@@ -16,7 +15,7 @@
 
 #include "../lv_screen.h"
 #include "../widgets/wgt_status_line.h"
-#include "station_list_legacy_scroll.h"
+#include "station_list_renderer_select.h"
 
 namespace lvgl_ui {
 
@@ -60,7 +59,7 @@ private:
 
     uint16_t _station_total = 0;
 
-    station_list_legacy_scroll::Instance _list{};
+    station_list_active::Instance _list{};
 };
 
 } // namespace lvgl_ui

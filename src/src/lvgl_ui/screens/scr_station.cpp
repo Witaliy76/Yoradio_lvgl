@@ -1,6 +1,6 @@
 /*
- * LvglStationPage — Station page chrome + legacy continuous-scroll list renderer delegation.
- * Страница Station: chrome + делегирование continuous-scroll renderer'у.
+ * LvglStationPage — Station page chrome + compile-time selected list renderer (STATIONPAGED-2).
+ * Страница Station: chrome + renderer списка, выбранный на этапе компиляции (STATIONPAGED-2).
  *
  * ILvglScreen lifecycle: create → enter → update → exit → destroy (DspTask only).
  */
@@ -213,22 +213,26 @@ void LvglStationPage::create() {
 
     create_header(*this, pal);
 
-    if (station_list_legacy_scroll::create(_list, _screen, pal)) {
-        station_list_legacy_scroll::populate(_list);
+    if (station_list_active::create(_list, _screen, pal)) {
+        create_hint_band(*this, pal);
+        installCarouselGesturesOnPageRoot(_screen);
+        // Footer affects flex height — finalize layout before rows_per_page / first page fill.
+        // Footer влияет на flex-высоту — layout до расчёта rows_per_page и первой страницы.
+        lv_obj_update_layout(_screen);
+        station_list_active::populate(_list);
         _updateCountLabel(station_list_adapter::current_station_num(),
                           station_list_adapter::station_count());
+    } else {
+        create_hint_band(*this, pal);
+        installCarouselGesturesOnPageRoot(_screen);
     }
-
-    create_hint_band(*this, pal);
-
-    installCarouselGesturesOnPageRoot(_screen);
 }
 
 void LvglStationPage::_refreshOnPageActivate() {
     if (!_list.list_area) return;
 
-    const auto result = station_list_legacy_scroll::refreshOnActivate(_list);
-    if (result == station_list_legacy_scroll::RefreshOnActivateResult::Rebuilt) {
+    const auto result = station_list_active::refreshOnActivate(_list);
+    if (result == station_list_active::RefreshOnActivateResult::Rebuilt) {
         _updateCountLabel(station_list_adapter::current_station_num(),
                           station_list_adapter::station_count());
         return;
@@ -238,7 +242,7 @@ void LvglStationPage::_refreshOnPageActivate() {
 
 void LvglStationPage::enter() {
     _refreshOnPageActivate();
-    station_list_legacy_scroll::onEnter(_list);
+    station_list_active::onEnter(_list);
     if (!_screen || !_status_line.root) return;
     wgt_status_line::update(_status_line);
 }
@@ -253,7 +257,7 @@ void LvglStationPage::refreshCurrentStationVisuals() {
     const uint16_t total = station_list_adapter::station_count();
     const uint16_t current = station_list_adapter::current_station_num();
     _updateCountLabel(current, total);
-    station_list_legacy_scroll::refreshCurrentStationVisuals(_list);
+    station_list_active::refreshCurrentStationVisuals(_list);
 }
 
 void LvglStationPage::_updateCountLabel(uint16_t current, uint16_t total) {
@@ -305,7 +309,7 @@ void LvglStationPage::liveReapplyTheme() {
     if (_lbl_hint_text) lv_obj_set_style_text_color(_lbl_hint_text, pal.text_secondary, LV_PART_MAIN);
 
     station_reapply_dividers(_screen, pal);
-    station_list_legacy_scroll::liveReapplyTheme(_list, pal);
+    station_list_active::liveReapplyTheme(_list, pal);
 
     lv_obj_invalidate(_screen);
 }
@@ -323,7 +327,7 @@ void LvglStationPage::releaseAfterAutoDelete() {
 }
 
 void LvglStationPage::_nullHandles() {
-    station_list_legacy_scroll::releaseAfterTreeDelete(_list);
+    station_list_active::releaseAfterTreeDelete(_list);
     _screen = nullptr;
     _status_line = {};
     _lbl_title = nullptr;
