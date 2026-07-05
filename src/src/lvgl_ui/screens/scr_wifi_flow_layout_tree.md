@@ -93,7 +93,7 @@ _panel_pass  (HIDDEN until open_password_entry())
 ??? _hdr_pass       "Wi-Fi Setup"; title font; text_primary
 ??? _lbl_pass_ssid  selected SSID; body font; LONG_DOT; 100%W; initial " "; text_primary
 ??? _lbl_pass_hint  "Enter the password?"; status font; LONG_WRAP; 100%W; text_secondary
-??? _ta_password    lv_textarea; 100%W; one-line; password-mode; body font; text_primary
+??? _ta_password    lv_textarea; 100%W; one-line; password-mode; title font (M20 Cyr); text_primary
 ?                   (keyboard attached only in open_password_entry())
 ??? [rowp]          local transparent flex ROW; gap=10
 ?   ??? _btn_connect   "Connect" (Primary; DISABLED initially)
@@ -248,7 +248,19 @@ destroy():
 | List row | body font | Montserrat 18 Cyr |
 | Header icon | Wi-Fi Icons 24 | Wi-Fi Icons 36 |
 
-Keyboard (`_kbd`) font is **never replaced** ? it must retain the LVGL built-in symbol glyphs for special keys.
+Keyboard (`_kbd`) key labels use built-in LVGL Montserrat 18 (`LV_PART_ITEMS`); Password textarea uses title font ? see **Keyboard and Password typography** below.
+
+---
+
+## Keyboard and Password typography
+
+- **Keyboard:** built-in LVGL Montserrat 18 (`LV_PART_ITEMS` on `_kbd`).
+- **Password textarea:** YoRadio Montserrat 20 Cyr (`wifi_title_font_slot()` on `_ta_password`).
+- **Other body/status text:** YoRadio Montserrat 16 Cyr (`wifi_body_font_slot()` / `wifi_status_font_slot()`).
+- Keyboard does not use YoRadio Cyrillic ? special keys require LVGL symbol glyph coverage.
+- Keyboard width, flex behavior and 140 px minimum height on 480×480 remain unchanged.
+- Password textarea height/width unchanged ? M20 in existing field requires visual acceptance (mask glyph, cursor, clipping).
+- Shift, Backspace, OK and keyboard layout clipping require device acceptance.
 
 ---
 
@@ -1041,7 +1053,7 @@ WIFIREF-D2 does not fix:
 - `_entered_from_runtime_disconnect` cleanup in `exit()`
 - partial-allocation handling in `create()`
 
-Also excluded from D2: keyboard font size UX, RTC WDT diagnostics.
+Keyboard font size UX addressed in WIFIUX-KBD (built-in M18 on `_kbd` only). RTC WDT diagnostics remain deferred.
 
 ---
 

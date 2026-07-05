@@ -2054,7 +2054,7 @@ void LvglWifiFlowScreen::create_password_panel(LvglWifiFlowScreen& self, const Y
     lv_textarea_set_max_length(self._ta_password, kPasswordMaxInputChars);
     lv_textarea_set_password_mode(self._ta_password, true);
     lv_obj_set_style_text_color(self._ta_password, pal.text_primary, wifi_sel(LV_PART_MAIN, LV_STATE_DEFAULT));
-    wifi_set_font(self._ta_password, wifi_body_font_slot());
+    wifi_set_font(self._ta_password, wifi_title_font_slot());
     // Smaller radius reduces rounded-rect mask pressure on textarea / малый радиус снижает маску TA.
     lv_obj_set_style_radius(self._ta_password, kTextAreaRadius, LV_PART_MAIN);
     lv_obj_add_event_cb(self._ta_password, on_ta_password_changed, LV_EVENT_VALUE_CHANGED, &self);
@@ -2094,8 +2094,10 @@ void LvglWifiFlowScreen::create_password_panel(LvglWifiFlowScreen& self, const Y
         // Keyboard is initially detached; it is bound to _ta_password in open_password_entry().
         // Клавиатура отсоединена при create; привязывается к _ta_password в open_password_entry().
         lv_keyboard_set_textarea(self._kbd, nullptr);
-        // Do not set Montserrat on _kbd — it breaks LVGL symbol font on special keys.
-        // Не устанавливать Montserrat на _kbd — ломает LVGL symbol glyphs на спецклавишах.
+        // Built-in LVGL Montserrat 18 on key labels only (LV_PART_ITEMS) — not YoRadio Cyrillic:
+        // custom Montserrat lacks LVGL symbol glyphs (Shift / Backspace / OK). Device smoke required.
+        // Встроенный LVGL Montserrat 18 только на подписи клавиш — не YoRadio Cyrillic (нет symbol glyphs).
+        lv_obj_set_style_text_font(self._kbd, &lv_font_montserrat_18, LV_PART_ITEMS);
         lv_obj_add_event_cb(self._kbd, on_keyboard_event, LV_EVENT_ALL, &self);
     }
 
