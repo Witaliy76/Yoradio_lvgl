@@ -366,6 +366,139 @@ No Wi-Fi Flow helpers are exported to `widgets/` in WIFIREF-A. Wi-Fi-specific he
 
 ---
 
+## Scan operation pipeline
+
+```
+start_scan_from_user()
+    → guard: no open connect, no saving
+    → check if already scanning → show status, return
+    → wifiOpsRequestScan()
+        failure → show error, return
+    → _await_scan_ui = true
+    → show_networks_panel()
+    → show "Starting scan..."
+
+pollOpsSnapshot() handles scan completion:
+    → rebuild_scan_list()
+    → show result status (kStrScanComplete / Cancelled / Timeout / Busy / Finished)
+```
+
+## Dynamic Scan rows
+
+`rebuild_scan_list()` rebuilds from current WifiOps snapshot.
+
+```
+_list_scan
+├── [empty row: kStrNoNetworksFound]   if scanCount == 0
+└── [result rows: "SSID  •  dBm  •  Open/Lock"]
+    user_data = result_index + 1  (1-based; on_scan_row_click subtracts 1)
+    LV_EVENT_CLICKED → on_scan_row_click → this
+```
+
+## Dynamic Saved rows
+
+`rebuild_saved_list()` rebuilds from credential store.
+
+```
+_list_saved
+├── [empty row: kStrNoSavedNetworks]   if no entries
+└── [saved rows: "N  SSID"]
+    user_data = slot + 1  (1-based; on_saved_row_click subtracts 1)
+    LV_EVENT_CLICKED → on_saved_row_click → this
+```
+
+**User-data encoding:** `reinterpret_cast<void*>(static_cast<uintptr_t>(index + 1))`. Zero is never used as a valid encoded index.
+
+## Password-protected connect pipeline
+
+```
+start_connect_from_user()
+    → guards
+    → _pass_status_terminal = false
+    → validate password length
+    → copy to _connectCandidatePass (before any textarea clear)
+    → on-stack tmp → wifiOpsRequestConnectWithPassword → memset(tmp)
+    → _await_connect_ui = true
+    → set_password_panel_connecting_ui(true)
+
+handle_connect_finished()
+    → _await_connect_ui = false
+    → result switch:
+        Success/AlreadyConnected → clear textarea → handle_successful_connect_persist()
+        AuthFailed → terminal status
+        Timeout → terminal status
+        NoNetwork → terminal status (kWifiOpsNoNetworkUserMsg)
+        Cancelled → clear_password_panel_state() → show_networks_panel()
+        InternalError/Busy → terminal status
+```
+
+## Open-network connect pipeline
+
+Open networks use empty credentials — this is a SEPARATE flow from password connect.
+
+```
+start_open_connect_from_user(ssid)
+    → guards
+    → copy to _selectedOpenSsid
+    → wifiOpsRequestConnectWithPassword(ssid, "", true)
+    → _await_open_connect_ui = true
+    → set_networks_panel_connecting_ui(true)
+
+handle_open_connect_finished()
+    → result switch:
+        Success → handle_open_network_success_persist()
+        AuthFailed/Timeout → timeout message
+        NoNetwork → kWifiOpsNoNetworkUserMsg
+        Cancelled → cancelled message
+        InternalError/Busy → error message
+    → set_networks_panel_connecting_ui(false)
+
+cancel_open_connect_state()
+    → called from show_home/password/saved/hotspot
+    → resets _await_open_connect_ui, _open_status_terminal, _selectedOpenSsid
+    → restores Networks buttons
+```
+
+## Saved-network connect pipeline
+
+Successful Saved connect does NOT rewrite `wifi.csv`. It only updates last-success and schedules reboot.
+
+```
+start_connect_from_saved()
+    → guards (slot, no in-flight, no save pending)
+    → wifiCredStoreResolvePasswordForSlot → on-stack tmpPass → backend → memset(tmpPass)
+    → _await_saved_connect_ui = true
+    → set_saved_panel_connecting_ui(true)
+
+handle_saved_connect_finished()
+    → result switch:
+        Success/AlreadyConnected → wifiCredStoreSetLastSuccessFromSlot() (no wifi.csv write)
+                                  → schedule reboot
+        NoNetwork → kWifiOpsNoNetworkUserMsg
+        Timeout/AuthFailed → kStrSavedAuthFailed
+        Cancelled → cancelled message
+        default → error message
+```
+
+## Result-routing ownership
+
+The four result handlers are intentionally separate:
+
+| Handler | Panel | await flag | Persistence | wifi.csv |
+|---------|-------|-----------|-------------|---------|
+| `handle_connect_finished` | Password | `_await_connect_ui` | `handle_successful_connect_persist()` | Yes (Cases A–E) |
+| `handle_open_connect_finished` | Networks | `_await_open_connect_ui` | `handle_open_network_success_persist()` | Yes (Cases A–E) |
+| `handle_saved_connect_finished` | Saved | `_await_saved_connect_ui` | `wifiCredStoreSetLastSuccessFromSlot()` only | No |
+| scan completion | Networks | `_await_scan_ui` | none | No |
+
+Do not merge these handlers — they differ in panel, status label, buffer ownership, Back semantics and persistence behavior.
+
+## Persistence boundary after WIFIREF-C1
+
+Credential persistence Cases A–E (new SSID, existing same password, changed password, full store, legacy file rejection) remain unchanged and will be handled separately in WIFIREF-C2.
+
+`handle_successful_connect_persist()` and `handle_open_network_success_persist()` are structurally untouched in this slice.
+
 ## Panel visibility owner
 
 `_showOnlyPanel(lv_obj_t* panel)` hides all five panel roots and shows only the specified target. Sets `_home_visible = (panel == _panel_home)`. Does not touch state, cancel ops, or control AP.
@@ -544,8 +677,9 @@ SoftAP stop happens in `on_btn_back_hotspot` via `network.recoveryStopSoftAP()`.
 ## Notes / Заметки
 
 - **WIFIREF-A** (`052bc4d`, `E50W`): resources/styles/layout-builders refactor. No behavioral changes.
-- **WIFIREF-B** (`E51W`): panel navigation, local UI state, and transition contracts. `_showOnlyPanel` helper, `_setSavedRemoveConfirmationVisible` helper, section headers, cleaner method structure. No behavioral changes.
-- **WIFIREF-C/D** (deferred): operation/persistence pipelines, polling decomposition, callback refactor.
+- **WIFIREF-B** (`f790521`, `E51W`): panel navigation, local UI state, and transition contracts. `_showOnlyPanel` helper, `_setSavedRemoveConfirmationVisible` helper, section headers. No behavioral changes.
+- **WIFIREF-C1** (`E52W`): operation pipelines and dynamic list pipelines. Section headers for Scan, Password-protected, Open-network and Saved-network pipelines. Operation UI strings centralized. No behavioral changes; persistence Cases A–E deferred to WIFIREF-C2.
+- **WIFIREF-C2/D** (deferred): credential persistence refactor, polling decomposition, callback refactor.
 - Deferred hardening: stale `_screen` validity check, `_entered_from_runtime_disconnect` cleanup in `exit()`.
 - `_panel_pass` hidden flag is set inside `create_password_panel()` to keep the builder self-contained.
 - `_panel_saved` hidden flag is set inside `create_saved_panel()` for the same reason.
