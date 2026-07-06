@@ -24,6 +24,7 @@ SPECTRUM*.md
 !/partitions.csv
 !/minimal_spiffs.csv
 !/partition_16MB_ota_spiffs.csv
+!/partition_16MB_ota_largefs.csv
 !/MD80ET_GPIO_Pinout_EN_UTF8_BOM.md
 !/README.md
 !/readme_english.md
