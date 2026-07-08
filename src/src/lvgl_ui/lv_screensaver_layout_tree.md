@@ -1,7 +1,7 @@
 # LVGL Screensaver Overlay — layout tree (SSCLK production)
 
 > **Module:** `lv_screensaver.cpp` / `lv_screensaver.h`  
-> **Stage slice:** SSCLK-A3B — production hands/caps + PSRAM background; **A3B1/A3B2** — LargeFS partition + deployment preflight; **A3E** — production cleanup; **A3F-C** — retained background cache (accepted); **A3F-D** — finalize production cache
+> **Stage slice:** SSCLK-A3B — production hands/caps + PSRAM background; **A3B1/A3B2** — LargeFS partition + deployment preflight; **A3E** — production cleanup; **A3F-C** — retained background cache (accepted); **A3F-D** — finalize production cache; **A4B1** — corrected Light/Custom runtime backgrounds from approved fitted sources
 > **ScreenType:** Overlay on `lv_layer_top()` — **not** `ILvglScreen`, **not** PageChain
 
 ---
@@ -51,6 +51,8 @@ Tails (all themes): hour 8 px, minute 10 px, second 18 px.
 | Custom | `/screensaver_clock/ssclk_custom_bg_480.bin` |
 
 Format: 4-byte LVGL header (`LV_IMG_CF_TRUE_COLOR`) + RGB565 LE pixels, 480×480, 460804 bytes/file.
+
+**SSCLK-A4B1 (accepted):** Light and Custom runtime `.bin` files replaced from approved fitted complete-source PNGs. Dark unchanged. Custom uses **current-size** fit (apparent outer radius **208.733 px @480**). Light uses approved fitted complete source. Both themes visually retain four minor ticks between major hour indices. No runtime code, hands, pivot, or cache changes. A4A/A4A-R1 inpainting experiments are **not** production sources (review history only).
 
 Source tree: `data/screensaver_clock/*.bin` → `pio run -t buildfs`.
 
