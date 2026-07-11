@@ -24,6 +24,9 @@ inline const char* control_glyph_utf8_list() {
 inline const char* control_glyph_utf8_settings() {
     return reinterpret_cast<const char*>(u8"\uEB20");
 }
+inline const char* control_glyph_utf8_chevron_right() {
+    return reinterpret_cast<const char*>(u8"\uEA61");
+}
 inline const char* control_glyph_utf8_volume_2() {
     return reinterpret_cast<const char*>(u8"\uEB4F");
 }

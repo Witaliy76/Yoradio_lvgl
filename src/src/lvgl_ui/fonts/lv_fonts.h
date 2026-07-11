@@ -68,6 +68,8 @@ extern const lv_font_t lv_font_yora_info_section_icons_32;
 extern const lv_font_t lv_font_yora_info_section_icons_36;
 extern const lv_font_t lv_font_yora_info_section_icons_40;
 extern const lv_font_t lv_font_yora_info_section_icons_44;
+/* Tabler subset: Settings Page category icons @ 28 px (Stage 6.7S1). */
+extern const lv_font_t lv_font_yora_settings_icons_28;
 
 #ifdef __cplusplus
 }

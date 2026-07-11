@@ -483,6 +483,16 @@ void Display::loop() {
         lastVisualRefresh = millis();
       }
     }
+    // 6.7S1a: refresh Settings status line while Settings slot is active (~1 Hz).
+    // Same policy as Station/Weather — LvglSettingsPage::update() is status line only.
+    // 6.7S1a: обновление status line Settings на слоте Settings (~1 Гц); только status line.
+    if (lvgl_ui::isLvglCarouselOnSettingsSlot()) {
+      static uint32_t lastSettingsRefresh = 0;
+      if (millis() - lastSettingsRefresh >= 1000) {
+        lvgl_ui::refreshSettingsScreen();
+        lastSettingsRefresh = millis();
+      }
+    }
   }
   lvgl_ui::taskHandler();
 #if YORADIO_PPM_PCM_TELEMETRY_DIAG

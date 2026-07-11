@@ -23,6 +23,7 @@
 #include "screens/scr_visual.h"
 #include "screens/scr_weather.h"
 #include "screens/scr_preset.h"
+#include "screens/scr_settings.h"
 #include "screens/scr_boot.h"
 #include "screens/scr_wifi_flow.h"
 #include "../core/config.h"
@@ -43,7 +44,7 @@ static LvglMainScreen s_main_screen;
 static LvglVisualPage s_visual_page;
 static LvglStationPage s_station_page;
 static LvglWeatherPage s_weather_page;  // Weather W2: real page replaces the stub / реальная страница вместо заглушки
-static LvglStubPage s_stub_settings("Settings");
+static LvglSettingsPage s_settings_page;
 static LvglPresetScreen s_preset_screen;
 static LvglBootScreen s_boot_screen;
 static LvglWifiFlowScreen s_wifi_flow_screen;
@@ -185,7 +186,7 @@ static void ensurePageChainRegistered() {
     s_page_chain.registerPage(PageChain::VISUAL_INDEX, &s_visual_page);
     s_page_chain.registerPage(PageChain::STATION_INDEX, &s_station_page);
     s_page_chain.registerPage(PageChain::WEATHER_INDEX, &s_weather_page);
-    s_page_chain.registerPage(PageChain::SETTINGS_INDEX, &s_stub_settings);
+    s_page_chain.registerPage(PageChain::SETTINGS_INDEX, &s_settings_page);
     s_registered = true;
 }
 
@@ -376,6 +377,13 @@ void lvgl_ui::refreshVisualScreen() {
     if (!lvgl_page_refresh_allowed()) return;
     if (s_page_chain.currentIndex() != PageChain::VISUAL_INDEX) return;
     s_visual_page.update();
+}
+
+// 6.7S1a: refresh Settings status line while Settings carousel slot is active (~1 Hz).
+// 6.7S1a: обновление status line Settings при активном слоте карусели (~1 Гц).
+void lvgl_ui::refreshSettingsScreen() {
+    if (!lvgl_page_refresh_allowed()) return;
+    s_settings_page.update();
 }
 
 void lvgl_ui::onMainBackgroundSlotCommitted(uint8_t slot) {
@@ -824,6 +832,10 @@ bool lvgl_ui::isLvglCarouselOnWeatherSlot() {
 // E6C1: карусель на слоте Visual (индекс 2).
 bool lvgl_ui::isLvglCarouselOnVisualSlot() {
     return s_page_chain.currentIndex() == PageChain::VISUAL_INDEX;
+}
+
+bool lvgl_ui::isLvglCarouselOnSettingsSlot() {
+    return s_page_chain.currentIndex() == PageChain::SETTINGS_INDEX;
 }
 
 bool lvgl_ui::isWifiSetupFlowActive() {

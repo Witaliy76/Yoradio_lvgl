@@ -203,6 +203,7 @@
 #define LV_FONT_YORA_INFO_SECTION_ICONS_36 1
 #define LV_FONT_YORA_INFO_SECTION_ICONS_40 1
 #define LV_FONT_YORA_INFO_SECTION_ICONS_44 1
+#define LV_FONT_YORA_SETTINGS_ICONS_28 1
 
 #define LV_FONT_MONTSERRAT_14 1
 #define LV_FONT_MONTSERRAT_8  0
@@ -278,7 +279,8 @@
     extern const lv_font_t lv_font_yora_info_section_icons_32;                                      \
     extern const lv_font_t lv_font_yora_info_section_icons_36;                                      \
     extern const lv_font_t lv_font_yora_info_section_icons_40;                                      \
-    extern const lv_font_t lv_font_yora_info_section_icons_44;
+    extern const lv_font_t lv_font_yora_info_section_icons_44;                                      \
+    extern const lv_font_t lv_font_yora_settings_icons_28;
 
 #define LV_FONT_DEFAULT &lv_font_montserrat_14
 #define LV_FONT_FMT_TXT_LARGE 0

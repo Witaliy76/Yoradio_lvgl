@@ -66,6 +66,10 @@ void refreshStationScreen();
 // E6C1: обновление Visual status row + metadata; только при активном слоте Visual; ≤1 Гц.
 void refreshVisualScreen();
 
+// 6.7S1a: refresh Settings status line (clock/RSSI/weather). Settings slot only; ~1 Hz.
+// 6.7S1a: обновление status line на Settings; только слот Settings; ≤1 Гц.
+void refreshSettingsScreen();
+
 // 8.1H-I-B: forced Main redraw for WebUI settings/reset (replaces the old CLEAR;PLAYER guard-buster).
 // Goes to Main page + refreshes, without a mode transition. Use only from REFRESH_MAIN handler (DspTask).
 // force_full_redraw: invalidate whole screen + flush now — needed after panel orientation flip.
@@ -176,6 +180,10 @@ bool isLvglCarouselOnWeatherSlot();
 // E6C1: carousel on Visual slot (index 2) — gates ~1 Hz refresh in Display::loop.
 // E6C1: карусель на слоте Visual (индекс 2) — основание refresh ~1 Гц в Display::loop.
 bool isLvglCarouselOnVisualSlot();
+
+// 6.7S1a: carousel on Settings slot (index 5) — gates ~1 Hz refresh in Display::loop.
+// 6.7S1a: карусель на слоте Settings (индекс 5) — основание refresh ~1 Гц в Display::loop.
+bool isLvglCarouselOnSettingsSlot();
 
 // Wi-Fi 3A: cancel ops, dismiss RebootRequired shell, return display mode to PLAYER (DspTask only).
 // Wi-Fi 3A: cancel ops, снять RebootRequired, режим PLAYER (только DspTask).
