@@ -2,16 +2,25 @@
 #define SCR_SETTINGS_H
 
 #include "../lv_screen.h"
+#include "../theme/lv_theme_yoradio.h"
 #include "../widgets/wgt_status_line.h"
 
 namespace lvgl_ui {
 
-// Settings main page: row-unit layout, status line, footer; detail views inside same ILvglScreen.
-// Главная Settings: row-unit layout, status line, footer; detail views внутри одного экрана.
+// In-page views inside Settings carousel slot — no extra PageChain page.
+// Представления внутри слота Settings — без новой страницы карусели.
+enum class SettingsView : uint8_t {
+    Main,
+    Display,
+};
+
+// Settings carousel page: main category rows + optional detail views (Display first).
+// Страница Settings: главный вид + detail views (сначала Display).
 class LvglSettingsPage final : public ILvglScreen {
 public:
     // Row widget handles for theme reapply / хэндлы строк для перекраски темы
     struct RowChrome {
+        lv_obj_t* hit     = nullptr; // Full-row tap target / зона тапа по всей строке
         lv_obj_t* icon    = nullptr;
         lv_obj_t* label   = nullptr;
         lv_obj_t* value   = nullptr;
@@ -28,25 +37,49 @@ public:
     void liveReapplyTheme() override;
     void releaseAfterAutoDelete() override;
 
-    // Footer tap → Main carousel slot (PageChain contract, same as Station hint band).
-    // Тап по footer → слот Main (как hint band на Station).
     static void footerClickedEvt(lv_event_t* e);
+    static void displayRowClickedEvt(lv_event_t* e);
+    static void displayBackClickedEvt(lv_event_t* e);
+    static void themeRowClickedEvt(lv_event_t* e);
+    static void brightnessSliderEvt(lv_event_t* e);
+
+    // 6.7S2a: Display detail blocks PageChain horizontal swipe on Settings slot.
+    // 6.7S2a: Display detail блокирует горизонтальный swipe карусели.
+    bool isDisplayDetailActive() const { return _view == SettingsView::Display; }
 
 private:
     void _nullHandles();
     void _applyThemeColors();
+    void _showView(SettingsView view);
+    void _syncMainRowValues();
+    void _syncDisplayValues();
+    void _updateBrightnessLabels(uint8_t pct);
+    void _applySliderTheme(const YoRadioPalette& pal);
+
+    SettingsView _view = SettingsView::Main;
+    bool         _brightness_drag_active = false;
 
     lv_obj_t* _screen           = nullptr;
     wgt_status_line::Instance   _status_line{};
+    lv_obj_t* _view_main        = nullptr;
     lv_obj_t* _cont_content     = nullptr;
     lv_obj_t* _footer_area      = nullptr;
     lv_obj_t* _lbl_footer       = nullptr;
+    lv_obj_t* _view_display     = nullptr;
+    lv_obj_t* _display_back_hit = nullptr;
+    lv_obj_t* _display_header_icon = nullptr;
+    lv_obj_t* _lbl_display_header  = nullptr;
+    lv_obj_t* _cont_display_content = nullptr;
+    lv_obj_t* _lbl_brightness_title = nullptr;
+    lv_obj_t* _brightness_slider    = nullptr;
+    lv_obj_t* _lbl_brightness_value = nullptr;
     RowChrome   _row_display{};
     RowChrome   _row_music{};
     RowChrome   _row_ai{};
     RowChrome   _row_sleep{};
     RowChrome   _row_sleep_sub{};
     RowChrome   _row_wifi{};
+    RowChrome   _row_theme{};
 };
 
 } // namespace lvgl_ui
