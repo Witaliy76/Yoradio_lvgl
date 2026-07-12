@@ -5,6 +5,7 @@
 #include "WiFi.h"
 #include "time.h"
 #include "display.h"
+#include "autodim.h"
 #include "player.h"
 #include "network.h"
 #include "../core/spidog.h"
@@ -494,6 +495,7 @@ void Display::loop() {
       }
     }
   }
+  autodim_loop();
   lvgl_ui::taskHandler();
 #if YORADIO_PPM_PCM_TELEMETRY_DIAG
   ppmPcmTelemetryConsumerService();

@@ -26,7 +26,7 @@
 #include "screens/scr_settings.h"
 #include "screens/scr_boot.h"
 #include "screens/scr_wifi_flow.h"
-#include "../core/config.h"
+#include "../core/autodim.h"
 #include "../core/display.h"
 #include "../core/options.h"
 #include "../core/spidog.h"
@@ -793,8 +793,9 @@ uint32_t lvgl_ui::temporaryRemainingMs() {
     return s_page_chain.temporaryRemainingMs();
 }
 
-void lvgl_ui::notifyPageChainActivity() {
+void lvgl_ui::notifyPageChainActivity(const char* source) {
     s_page_chain.onActivity();
+    autodim_notify_activity(source);
 }
 
 void lvgl_ui::goToCarouselPage(int page_index) {

@@ -1,4 +1,5 @@
 #include "config.h"
+#include "autodim.h"
 
 //#include <LittleFS.h>  // Migrated to LittleFS (Stage 1)
 #include "display.h"
@@ -338,6 +339,11 @@ void Config::init() {
   if(store.version>CONFIG_VERSION) store.version=1;
   while(store.version!=CONFIG_VERSION) _setupVersion();
   BOOTLOG("CONFIG_VERSION\t%d", store.version);
+  if (autodim_sanitize_store()) {
+    saveValue(&store.autodim_enabled, store.autodim_enabled, false, true);
+    saveValue(&store.autodim_timeout_sec, store.autodim_timeout_sec, false, true);
+    saveValue(&store.autodim_level, store.autodim_level, true, true);
+  }
   
   // Проверка и инициализация AI полей если они невалидны (для конфигов которые были обновлены без миграции)
   // Check and initialize AI fields if they are invalid (for configs that were updated without migration)
@@ -443,6 +449,11 @@ void Config::_setupVersion(){
       saveValue(store.ai_api_key, "", AI_API_KEY_LENGTH);
       saveValue(store.ai_model, "deepseek-v4-flash", AI_MODEL_LENGTH);
       saveValue(&store.ai_enableFiles, false);
+      break;
+    case 6:
+      saveValue(&store.autodim_enabled, false);
+      saveValue(&store.autodim_timeout_sec, static_cast<uint16_t>(60));
+      saveValue(&store.autodim_level, static_cast<uint8_t>(20));
       break;
     default:
       break;
@@ -680,9 +691,11 @@ void Config::setDefaults() {
   strlcpy(store.ai_api_key, "", AI_API_KEY_LENGTH);
   strlcpy(store.ai_model, "deepseek-v4-flash", AI_MODEL_LENGTH);  // DeepSeek default model
   store.ai_enableFiles = false;
-  
+  store.autodim_enabled = false;
+  store.autodim_timeout_sec = 60;
+  store.autodim_level = 20;
+
   // AI settings migrated to FS /ai.json and runtime cache (see aiGetRuntimeConfig())
-  // Настройки AI мигрированы на FS /ai.json и runtime кеш (см. aiGetRuntimeConfig())
   // Runtime config will be applied in Config::init() after store is loaded
   // Runtime config будет применена в Config::init() после загрузки store
   
@@ -1037,8 +1050,14 @@ void Config::setBrightness(bool dosave){
   dsp.setBrightness(store.brightness);
   if(!store.dspon) store.dspon = true;
   if(dosave){
+    const uint8_t dim_cap = autodim_level_max_for_brightness(store.brightness);
+    if (store.autodim_level > dim_cap) {
+      store.autodim_level = dim_cap;
+    }
     saveValue(&store.brightness, store.brightness, false, true);
+    saveValue(&store.autodim_level, store.autodim_level, false, true);
     saveValue(&store.dspon, store.dspon, true, true);
+    autodim_notify_activity("brightness-save");
   }
 #endif
 }

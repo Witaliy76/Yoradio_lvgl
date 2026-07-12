@@ -94,13 +94,7 @@
 #define BRIGHTNESS_PIN 255                // Don't use standard brightness pin
 #define ENABLE_BRIGHTNESS_CONTROL         // Enable brightness control in web interface
 
-// Auto-dimming (optional, see main.cpp for implementation)
-//#define AUTOBACKLIGHT(x)    *function*    // Autobacklight function. See options.h for example
-//#define AUTOBACKLIGHT_MAX     2500
-//#define AUTOBACKLIGHT_MIN     12
-//#define DOWN_LEVEL           60      // Lowest brightness level (0-255, default 2)
-//#define DOWN_INTERVAL        30      // Interval for backlight dimming in seconds (default 60)
-//#define GFX_BL      ST7701_BL  // Alias for autobacklight functions
+// Auto-dimming: use LVGL Settings → Display → Auto Dim (runtime, CONFIG v7+).
 
 /* ===============================================
    GENERAL SETTINGS

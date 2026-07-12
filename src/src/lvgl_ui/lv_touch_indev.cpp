@@ -6,6 +6,7 @@
 #include "../core/touchscreen.h"
 #include "../core/display.h"
 #include "../core/config.h"
+#include "../core/autodim.h"
 #endif
 
 #include "profiles/lv_profile_select.h"
@@ -112,6 +113,7 @@ static void lv_touch_debug_on_feed(bool raw_down, uint16_t x, uint16_t y, lv_ind
 static void lv_touch_read_cb(lv_indev_drv_t* drv, lv_indev_data_t* data) {
     (void)drv;
 #if (TS_MODEL!=TS_MODEL_UNDEFINED)
+    static bool s_prev_touch_down = false;
     uint16_t x = 0;
     uint16_t y = 0;
     if (touchscreen.readPointerForLvgl(&x, &y)) {
@@ -131,11 +133,18 @@ static void lv_touch_read_cb(lv_indev_drv_t* drv, lv_indev_data_t* data) {
         }
         // Track LVGL-fed state (after suppress) for indev-level swipe polling.
         // Фиксируем реально переданное состояние (после suppress) для polling.
-        s_touch_is_down = (data->state == LV_INDEV_STATE_PRESSED);
-        if (s_touch_is_down) {
+        // Auto Dim: activity only on RELEASED→PRESSED edge, not every poll frame.
+        // Auto Dim: активность только на фронте нажатия, не на каждом poll.
+        const bool touch_down = (data->state == LV_INDEV_STATE_PRESSED);
+        s_touch_is_down = touch_down;
+        if (touch_down) {
             s_touch_last_x = static_cast<int16_t>(data->point.x);
             s_touch_last_y = static_cast<int16_t>(data->point.y);
+            if (!s_prev_touch_down) {
+                autodim_notify_activity("touch");
+            }
         }
+        s_prev_touch_down = touch_down;
 #if YORADIO_LVGL_TOUCH_DEBUG && (TS_MODEL!=TS_MODEL_UNDEFINED)
         lv_touch_debug_on_feed(true, x, y, data->state);
 #endif
@@ -143,6 +152,7 @@ static void lv_touch_read_cb(lv_indev_drv_t* drv, lv_indev_data_t* data) {
         touch_wake_saver_or_blank_if_needed(0, 0, false);
         data->state = LV_INDEV_STATE_RELEASED;
         s_touch_is_down = false;
+        s_prev_touch_down = false;
 #if YORADIO_LVGL_TOUCH_DEBUG && (TS_MODEL!=TS_MODEL_UNDEFINED)
         lv_touch_debug_on_feed(false, 0, 0, data->state);
 #endif

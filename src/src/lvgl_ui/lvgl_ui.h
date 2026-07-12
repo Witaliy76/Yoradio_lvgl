@@ -152,7 +152,7 @@ void refreshActiveTemporaryTimeout();
 uint32_t temporaryRemainingMs();
 // Stage 5.3: screensaver prep — hook from tap/gesture; body stays empty until 5.6.
 // Этап 5.3: задел под screensaver; вызов из тапа/жеста, реализация позже.
-void notifyPageChainActivity();
+void notifyPageChainActivity(const char* source = "pagechain");
 
 // Navigate carousel by slot index (PageChain::STATION_INDEX, SETTINGS_INDEX, …). DspTask / LVGL events only.
 // Переход по индексу карусели — только из DspTask / LVGL callbacks.

@@ -15,6 +15,7 @@
 #include "lvgl.h"
 
 #include "../../core/config.h"
+#include "../../core/autodim.h"
 #include "../control_glyph_utf8.h"
 #include "../fonts/lv_fonts.h"
 #include "../fonts/settings_glyph_utf8.h"
@@ -36,6 +37,9 @@ static constexpr char kStrWhenTimerEnds[]   = "WHEN TIMER ENDS";
 static constexpr char kStrWifi[]            = "WI-FI";
 static constexpr char kStrBrightness[]      = "BRIGHTNESS";
 static constexpr char kStrTheme[]           = "THEME";
+static constexpr char kStrAutoDim[]         = "AUTO DIM";
+static constexpr char kStrDimAfter[]        = "DIM AFTER";
+static constexpr char kStrDimLevel[]        = "DIM LEVEL";
 static constexpr char kStrValOn[]           = "ON";
 static constexpr char kStrValOff[]          = "OFF";
 static constexpr char kStrValStopRadio[]    = "STOP RADIO";
@@ -73,8 +77,17 @@ static constexpr lv_coord_t kSliderRowH           = 32;
 static constexpr lv_coord_t kSliderValueGap       = 10;
 static constexpr lv_coord_t kValueColWidth        = 52;
 static constexpr lv_coord_t kBrightnessBlockGap   = 10;
-static constexpr lv_coord_t kBrightnessMinUi      = 5;
+static constexpr lv_coord_t kDisplayThemeSectionGap = 12;
+static constexpr lv_coord_t kBrightnessMinUi      = 1;
 static constexpr uint8_t    kBrightnessMaxUi      = 100;
+static constexpr uint8_t    kDimLevelMinUi        = 1;
+
+static constexpr uint16_t   kAutodimTimeoutsSec[] = {30, 60, 120, 300, 600};
+static constexpr char       kStrTimeout30Sec[]    = "30 SEC";
+static constexpr char       kStrTimeout60Sec[]    = "60 SEC";
+static constexpr char       kStrTimeout2Min[]     = "2 MIN";
+static constexpr char       kStrTimeout5Min[]     = "5 MIN";
+static constexpr char       kStrTimeout10Min[]    = "10 MIN";
 
 static void set_font_slot(lv_obj_t* obj, const void* font_slot) {
     if (!obj || !font_slot) return;
@@ -92,6 +105,39 @@ static void style_transparent_flex(lv_obj_t* o) {
 static void format_brightness_pct(char* buf, size_t cap, uint8_t pct) {
     if (!buf || cap == 0) return;
     snprintf(buf, cap, "%u%%", static_cast<unsigned>(pct));
+}
+
+static const char* autodim_enabled_label() {
+    return config.store.autodim_enabled ? kStrValOn : kStrValOff;
+}
+
+static const char* autodim_timeout_label(uint16_t sec) {
+    switch (sec) {
+        case 30:  return kStrTimeout30Sec;
+        case 60:  return kStrTimeout60Sec;
+        case 120: return kStrTimeout2Min;
+        case 300: return kStrTimeout5Min;
+        case 600: return kStrTimeout10Min;
+        default:  return kStrTimeout60Sec;
+    }
+}
+
+static void cycle_autodim_timeout_sec() {
+    constexpr size_t n = sizeof(kAutodimTimeoutsSec) / sizeof(kAutodimTimeoutsSec[0]);
+    size_t idx = 0;
+    for (; idx < n; ++idx) {
+        if (config.store.autodim_timeout_sec == kAutodimTimeoutsSec[idx]) {
+            break;
+        }
+    }
+    if (idx >= n) {
+        idx = 1;
+    } else {
+        idx = (idx + 1) % n;
+    }
+    // saveValue assigns store — pass new value only, do not pre-write the field.
+    // saveValue сам пишет store — передавать новое значение, не менять field заранее.
+    config.saveValue(&config.store.autodim_timeout_sec, kAutodimTimeoutsSec[idx]);
 }
 
 static const char* theme_preset_label(ThemePreset preset) {
@@ -452,7 +498,7 @@ static void block_gesture_bubble_deep(lv_obj_t* root) {
     }
 }
 
-static void style_brightness_slider(lv_obj_t* slider, const YoRadioPalette& pal) {
+static void style_settings_bar_slider(lv_obj_t* slider, const YoRadioPalette& pal) {
     if (!slider) return;
     lv_obj_set_height(slider, kSliderTrackH);
     lv_obj_set_style_min_height(slider, kSliderTrackH, LV_PART_MAIN);
@@ -607,89 +653,205 @@ void LvglSettingsPage::create() {
         lv_obj_set_flex_flow(_cont_display_content, LV_FLEX_FLOW_COLUMN);
         style_transparent_flex(_cont_display_content);
         lv_obj_set_style_pad_top(_cont_display_content, kContentTopInset, LV_PART_MAIN);
-        lv_obj_set_style_pad_row(_cont_display_content, kBrightnessBlockGap, LV_PART_MAIN);
+        lv_obj_set_style_pad_row(_cont_display_content, 0, LV_PART_MAIN);
 
 #ifdef ENABLE_BRIGHTNESS_CONTROL
-        lv_obj_t* brightness_block = lv_obj_create(_cont_display_content);
-        if (brightness_block) {
-            lv_obj_set_width(brightness_block, LV_PCT(100));
-            lv_obj_set_height(brightness_block, LV_SIZE_CONTENT);
-            lv_obj_set_flex_flow(brightness_block, LV_FLEX_FLOW_COLUMN);
-            style_transparent_flex(brightness_block);
-            lv_obj_set_style_pad_row(brightness_block, 8, LV_PART_MAIN);
-            lv_obj_clear_flag(brightness_block, LV_OBJ_FLAG_GESTURE_BUBBLE);
+        lv_obj_t* brightness_unit = lv_obj_create(_cont_display_content);
+        if (brightness_unit) {
+            style_row_unit(brightness_unit);
 
-            _lbl_brightness_title = add_row_label(brightness_block, kStrBrightness, pal, false, false);
+            lv_obj_t* brightness_block = lv_obj_create(brightness_unit);
+            if (brightness_block) {
+                lv_obj_set_width(brightness_block, LV_PCT(100));
+                lv_obj_set_height(brightness_block, LV_SIZE_CONTENT);
+                lv_obj_set_flex_flow(brightness_block, LV_FLEX_FLOW_COLUMN);
+                style_transparent_flex(brightness_block);
+                lv_obj_set_style_pad_row(brightness_block, 8, LV_PART_MAIN);
+                lv_obj_clear_flag(brightness_block, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
-            lv_obj_t* slider_row = lv_obj_create(brightness_block);
-            if (slider_row) {
-                lv_obj_set_width(slider_row, LV_PCT(100));
-                lv_obj_set_height(slider_row, kSliderRowH);
-                lv_obj_set_style_min_height(slider_row, kSliderRowH, LV_PART_MAIN);
-                lv_obj_set_flex_flow(slider_row, LV_FLEX_FLOW_ROW);
-                lv_obj_set_flex_align(slider_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-                style_transparent_flex(slider_row);
-                lv_obj_set_style_pad_column(slider_row, 0, LV_PART_MAIN);
-                lv_obj_add_flag(slider_row, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
-                lv_obj_clear_flag(slider_row, LV_OBJ_FLAG_GESTURE_BUBBLE);
+                _lbl_brightness_title = add_row_label(brightness_block, kStrBrightness, pal, false, false);
 
-                lv_obj_t* slider_wrapper = lv_obj_create(slider_row);
-                if (slider_wrapper) {
-                    lv_obj_set_height(slider_wrapper, kSliderRowH);
-                    lv_obj_set_flex_grow(slider_wrapper, 1);
-                    lv_obj_set_flex_flow(slider_wrapper, LV_FLEX_FLOW_ROW);
-                    lv_obj_set_flex_align(
-                        slider_wrapper,
-                        LV_FLEX_ALIGN_CENTER,
-                        LV_FLEX_ALIGN_CENTER,
-                        LV_FLEX_ALIGN_CENTER);
-                    style_transparent_flex(slider_wrapper);
-                    lv_obj_add_flag(slider_wrapper, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
-                    lv_obj_clear_flag(slider_wrapper, LV_OBJ_FLAG_GESTURE_BUBBLE);
+                lv_obj_t* slider_row = lv_obj_create(brightness_block);
+                if (slider_row) {
+                    lv_obj_set_width(slider_row, LV_PCT(100));
+                    lv_obj_set_height(slider_row, kSliderRowH);
+                    lv_obj_set_style_min_height(slider_row, kSliderRowH, LV_PART_MAIN);
+                    lv_obj_set_flex_flow(slider_row, LV_FLEX_FLOW_ROW);
+                    lv_obj_set_flex_align(slider_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+                    style_transparent_flex(slider_row);
+                    lv_obj_set_style_pad_column(slider_row, 0, LV_PART_MAIN);
+                    lv_obj_add_flag(slider_row, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+                    lv_obj_clear_flag(slider_row, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
-                    _brightness_slider = lv_slider_create(slider_wrapper);
-                    if (_brightness_slider) {
-                        lv_obj_set_width(_brightness_slider, LV_PCT(100));
-                        lv_slider_set_range(_brightness_slider, kBrightnessMinUi, kBrightnessMaxUi);
-                        lv_slider_set_value(_brightness_slider, config.store.brightness, LV_ANIM_OFF);
-                        style_brightness_slider(_brightness_slider, pal);
-                        lv_obj_add_flag(_brightness_slider, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
-                        lv_obj_clear_flag(_brightness_slider, LV_OBJ_FLAG_GESTURE_BUBBLE);
-                        lv_obj_add_event_cb(_brightness_slider, brightnessSliderEvt, LV_EVENT_ALL, this);
+                    lv_obj_t* slider_wrapper = lv_obj_create(slider_row);
+                    if (slider_wrapper) {
+                        lv_obj_set_height(slider_wrapper, kSliderRowH);
+                        lv_obj_set_flex_grow(slider_wrapper, 1);
+                        lv_obj_set_flex_flow(slider_wrapper, LV_FLEX_FLOW_ROW);
+                        lv_obj_set_flex_align(
+                            slider_wrapper,
+                            LV_FLEX_ALIGN_CENTER,
+                            LV_FLEX_ALIGN_CENTER,
+                            LV_FLEX_ALIGN_CENTER);
+                        style_transparent_flex(slider_wrapper);
+                        lv_obj_add_flag(slider_wrapper, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+                        lv_obj_clear_flag(slider_wrapper, LV_OBJ_FLAG_GESTURE_BUBBLE);
+
+                        _brightness_slider = lv_slider_create(slider_wrapper);
+                        if (_brightness_slider) {
+                            lv_obj_set_width(_brightness_slider, LV_PCT(100));
+                            lv_slider_set_range(_brightness_slider, kBrightnessMinUi, kBrightnessMaxUi);
+                            lv_slider_set_value(_brightness_slider, config.store.brightness, LV_ANIM_OFF);
+                            style_settings_bar_slider(_brightness_slider, pal);
+                            lv_obj_add_flag(_brightness_slider, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+                            lv_obj_clear_flag(_brightness_slider, LV_OBJ_FLAG_GESTURE_BUBBLE);
+                            lv_obj_add_event_cb(_brightness_slider, brightnessSliderEvt, LV_EVENT_ALL, this);
+                        }
+                    }
+
+                    lv_obj_t* gap = lv_obj_create(slider_row);
+                    if (gap) {
+                        lv_obj_set_width(gap, kSliderValueGap);
+                        lv_obj_set_height(gap, 1);
+                        style_transparent_flex(gap);
+                        lv_obj_set_flex_grow(gap, 0);
+                    }
+
+                    lv_obj_t* value_col = lv_obj_create(slider_row);
+                    if (value_col) {
+                        lv_obj_set_width(value_col, kValueColWidth);
+                        lv_obj_set_style_min_width(value_col, kValueColWidth, LV_PART_MAIN);
+                        lv_obj_set_style_max_width(value_col, kValueColWidth, LV_PART_MAIN);
+                        lv_obj_set_height(value_col, LV_SIZE_CONTENT);
+                        lv_obj_set_flex_grow(value_col, 0);
+                        lv_obj_set_flex_flow(value_col, LV_FLEX_FLOW_ROW);
+                        lv_obj_set_flex_align(
+                            value_col,
+                            LV_FLEX_ALIGN_END,
+                            LV_FLEX_ALIGN_CENTER,
+                            LV_FLEX_ALIGN_CENTER);
+                        style_transparent_flex(value_col);
+                        lv_obj_clear_flag(value_col, LV_OBJ_FLAG_GESTURE_BUBBLE);
+
+                        char brightness_buf[8] = "100%";
+                        format_brightness_pct(brightness_buf, sizeof(brightness_buf), config.store.brightness);
+                        _lbl_brightness_value = add_row_value(value_col, brightness_buf, pal);
                     }
                 }
+            }
+            add_bottom_divider(brightness_unit, pal);
+        }
+#endif
 
-                lv_obj_t* gap = lv_obj_create(slider_row);
-                if (gap) {
-                    lv_obj_set_width(gap, kSliderValueGap);
-                    lv_obj_set_height(gap, 1);
-                    style_transparent_flex(gap);
-                    lv_obj_set_flex_grow(gap, 0);
-                }
+        lv_obj_t* autodim_row = create_row_unit(_cont_display_content, pal, kRowHeight);
+        if (autodim_row) {
+            _row_autodim.hit = autodim_row;
+            _row_autodim.label = add_row_label(autodim_row, kStrAutoDim, pal, false, true);
+            _row_autodim.value = add_row_value(autodim_row, autodim_enabled_label(), pal);
+            make_row_tappable(autodim_row, autodimRowClickedEvt, this);
+        }
 
-                lv_obj_t* value_col = lv_obj_create(slider_row);
-                if (value_col) {
-                    lv_obj_set_width(value_col, kValueColWidth);
-                    lv_obj_set_style_min_width(value_col, kValueColWidth, LV_PART_MAIN);
-                    lv_obj_set_style_max_width(value_col, kValueColWidth, LV_PART_MAIN);
-                    lv_obj_set_height(value_col, LV_SIZE_CONTENT);
-                    lv_obj_set_flex_grow(value_col, 0);
-                    lv_obj_set_flex_flow(value_col, LV_FLEX_FLOW_ROW);
-                    lv_obj_set_flex_align(
-                        value_col,
-                        LV_FLEX_ALIGN_END,
-                        LV_FLEX_ALIGN_CENTER,
-                        LV_FLEX_ALIGN_CENTER);
-                    style_transparent_flex(value_col);
-                    lv_obj_clear_flag(value_col, LV_OBJ_FLAG_GESTURE_BUBBLE);
+        lv_obj_t* dim_after_row = create_row_unit(_cont_display_content, pal, kRowHeight);
+        if (dim_after_row) {
+            _row_dim_after.hit = dim_after_row;
+            _row_dim_after.label = add_row_label(dim_after_row, kStrDimAfter, pal, false, true);
+            _row_dim_after.value = add_row_value(
+                dim_after_row, autodim_timeout_label(config.store.autodim_timeout_sec), pal);
+            make_row_tappable(dim_after_row, dimAfterRowClickedEvt, this);
+        }
 
-                    char brightness_buf[8] = "100%";
-                    format_brightness_pct(brightness_buf, sizeof(brightness_buf), config.store.brightness);
-                    _lbl_brightness_value = add_row_value(value_col, brightness_buf, pal);
+        lv_obj_t* dim_level_unit = lv_obj_create(_cont_display_content);
+        if (dim_level_unit) {
+            style_row_unit(dim_level_unit);
+
+            lv_obj_t* dim_level_block = lv_obj_create(dim_level_unit);
+            if (dim_level_block) {
+                lv_obj_set_width(dim_level_block, LV_PCT(100));
+                lv_obj_set_height(dim_level_block, LV_SIZE_CONTENT);
+                lv_obj_set_flex_flow(dim_level_block, LV_FLEX_FLOW_COLUMN);
+                style_transparent_flex(dim_level_block);
+                lv_obj_set_style_pad_row(dim_level_block, 8, LV_PART_MAIN);
+                lv_obj_clear_flag(dim_level_block, LV_OBJ_FLAG_GESTURE_BUBBLE);
+
+                _lbl_dim_level_title = add_row_label(dim_level_block, kStrDimLevel, pal, false, false);
+
+                lv_obj_t* slider_row = lv_obj_create(dim_level_block);
+                if (slider_row) {
+                    lv_obj_set_width(slider_row, LV_PCT(100));
+                    lv_obj_set_height(slider_row, kSliderRowH);
+                    lv_obj_set_style_min_height(slider_row, kSliderRowH, LV_PART_MAIN);
+                    lv_obj_set_flex_flow(slider_row, LV_FLEX_FLOW_ROW);
+                    lv_obj_set_flex_align(slider_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+                    style_transparent_flex(slider_row);
+                    lv_obj_add_flag(slider_row, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+                    lv_obj_clear_flag(slider_row, LV_OBJ_FLAG_GESTURE_BUBBLE);
+
+                    lv_obj_t* slider_wrapper = lv_obj_create(slider_row);
+                    if (slider_wrapper) {
+                        lv_obj_set_height(slider_wrapper, kSliderRowH);
+                        lv_obj_set_flex_grow(slider_wrapper, 1);
+                        lv_obj_set_flex_flow(slider_wrapper, LV_FLEX_FLOW_ROW);
+                        lv_obj_set_flex_align(
+                            slider_wrapper,
+                            LV_FLEX_ALIGN_CENTER,
+                            LV_FLEX_ALIGN_CENTER,
+                            LV_FLEX_ALIGN_CENTER);
+                        style_transparent_flex(slider_wrapper);
+                        lv_obj_add_flag(slider_wrapper, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+                        lv_obj_clear_flag(slider_wrapper, LV_OBJ_FLAG_GESTURE_BUBBLE);
+
+                        _dim_level_slider = lv_slider_create(slider_wrapper);
+                        if (_dim_level_slider) {
+                            lv_obj_set_width(_dim_level_slider, LV_PCT(100));
+                            lv_slider_set_range(
+                                _dim_level_slider,
+                                kDimLevelMinUi,
+                                autodim_level_max_for_brightness(config.store.brightness));
+                            lv_slider_set_value(_dim_level_slider, config.store.autodim_level, LV_ANIM_OFF);
+                            style_settings_bar_slider(_dim_level_slider, pal);
+                            lv_obj_add_flag(_dim_level_slider, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+                            lv_obj_clear_flag(_dim_level_slider, LV_OBJ_FLAG_GESTURE_BUBBLE);
+                            lv_obj_add_event_cb(_dim_level_slider, dimLevelSliderEvt, LV_EVENT_ALL, this);
+                        }
+                    }
+
+                    lv_obj_t* gap = lv_obj_create(slider_row);
+                    if (gap) {
+                        lv_obj_set_width(gap, kSliderValueGap);
+                        lv_obj_set_height(gap, 1);
+                        style_transparent_flex(gap);
+                    }
+
+                    lv_obj_t* value_col = lv_obj_create(slider_row);
+                    if (value_col) {
+                        lv_obj_set_width(value_col, kValueColWidth);
+                        lv_obj_set_style_min_width(value_col, kValueColWidth, LV_PART_MAIN);
+                        lv_obj_set_style_max_width(value_col, kValueColWidth, LV_PART_MAIN);
+                        lv_obj_set_flex_grow(value_col, 0);
+                        lv_obj_set_flex_flow(value_col, LV_FLEX_FLOW_ROW);
+                        lv_obj_set_flex_align(
+                            value_col,
+                            LV_FLEX_ALIGN_END,
+                            LV_FLEX_ALIGN_CENTER,
+                            LV_FLEX_ALIGN_CENTER);
+                        style_transparent_flex(value_col);
+                        lv_obj_clear_flag(value_col, LV_OBJ_FLAG_GESTURE_BUBBLE);
+
+                        char dim_buf[8];
+                        format_brightness_pct(dim_buf, sizeof(dim_buf), config.store.autodim_level);
+                        _lbl_dim_level_value = add_row_value(value_col, dim_buf, pal);
+                    }
                 }
             }
         }
-#endif
+
+        lv_obj_t* theme_gap = lv_obj_create(_cont_display_content);
+        if (theme_gap) {
+            lv_obj_set_width(theme_gap, LV_PCT(100));
+            lv_obj_set_height(theme_gap, kDisplayThemeSectionGap);
+            style_transparent_flex(theme_gap);
+            lv_obj_clear_flag(theme_gap, LV_OBJ_FLAG_SCROLLABLE);
+        }
 
         lv_obj_t* theme_row = create_row_unit(_cont_display_content, pal, kRowHeight);
         if (theme_row) {
@@ -709,6 +871,7 @@ void LvglSettingsPage::create() {
 void LvglSettingsPage::enter() {
     _view = SettingsView::Main;
     _brightness_drag_active = false;
+    _dim_level_drag_active = false;
     _showView(SettingsView::Main);
     update();
 }
@@ -720,6 +883,7 @@ void LvglSettingsPage::update() {
 
 void LvglSettingsPage::exit() {
     _brightness_drag_active = false;
+    _dim_level_drag_active = false;
     _view = SettingsView::Main;
 }
 
@@ -761,6 +925,17 @@ void LvglSettingsPage::_syncDisplayValues() {
     if (_row_theme.value) {
         lv_label_set_text(_row_theme.value, theme_preset_label(yoradio_theme_active_preset()));
     }
+    if (_row_autodim.value) {
+        lv_label_set_text(_row_autodim.value, autodim_enabled_label());
+    }
+    if (_row_dim_after.value) {
+        lv_label_set_text(
+            _row_dim_after.value, autodim_timeout_label(config.store.autodim_timeout_sec));
+    }
+    if (_dim_level_slider) {
+        _syncDimLevelSliderRange(true);
+    }
+    _applyAutodimRowTreatment(yoradio_palette());
 }
 
 void LvglSettingsPage::_updateBrightnessLabels(uint8_t pct) {
@@ -774,10 +949,65 @@ void LvglSettingsPage::_updateBrightnessLabels(uint8_t pct) {
     }
 }
 
+void LvglSettingsPage::_updateDimLevelLabels(uint8_t pct) {
+    char buf[8];
+    format_brightness_pct(buf, sizeof(buf), pct);
+    if (_lbl_dim_level_value) {
+        lv_label_set_text(_lbl_dim_level_value, buf);
+    }
+}
+
+uint8_t LvglSettingsPage::_normalBrightnessForDimUi() const {
+    if (_brightness_slider && _brightness_drag_active) {
+        return static_cast<uint8_t>(lv_slider_get_value(_brightness_slider));
+    }
+    return config.store.brightness;
+}
+
+void LvglSettingsPage::_syncDimLevelSliderRange(bool persist_clamp) {
+    if (!_dim_level_slider) {
+        return;
+    }
+    const uint8_t normal = _normalBrightnessForDimUi();
+    const uint8_t max_lv = autodim_level_max_for_brightness(normal);
+    lv_slider_set_range(_dim_level_slider, kDimLevelMinUi, max_lv);
+
+    uint8_t level = config.store.autodim_level;
+    if (persist_clamp && level > max_lv) {
+        level = max_lv;
+        config.store.autodim_level = level;
+    }
+    const uint8_t show = (level > max_lv) ? max_lv : level;
+    lv_slider_set_value(_dim_level_slider, show, LV_ANIM_OFF);
+    _updateDimLevelLabels(show);
+}
+
+void LvglSettingsPage::_applyAutodimRowTreatment(const YoRadioPalette& pal) {
+    const bool secondary = !config.store.autodim_enabled;
+    auto apply_secondary = [&](const RowChrome& r) {
+        if (r.label) {
+            lv_obj_set_style_text_color(
+                r.label, secondary ? pal.text_meta : pal.text_primary, LV_PART_MAIN);
+        }
+        if (r.value) {
+            lv_obj_set_style_text_color(r.value, pal.text_meta, LV_PART_MAIN);
+        }
+    };
+    apply_secondary(_row_dim_after);
+    if (_lbl_dim_level_title) {
+        lv_obj_set_style_text_color(
+            _lbl_dim_level_title, secondary ? pal.text_meta : pal.text_primary, LV_PART_MAIN);
+    }
+    if (_lbl_dim_level_value) {
+        lv_obj_set_style_text_color(_lbl_dim_level_value, pal.text_meta, LV_PART_MAIN);
+    }
+}
+
 void LvglSettingsPage::_applySliderTheme(const YoRadioPalette& pal) {
 #ifdef ENABLE_BRIGHTNESS_CONTROL
-    style_brightness_slider(_brightness_slider, pal);
+    style_settings_bar_slider(_brightness_slider, pal);
 #endif
+    style_settings_bar_slider(_dim_level_slider, pal);
 }
 
 void LvglSettingsPage::footerClickedEvt(lv_event_t* e) {
@@ -800,6 +1030,7 @@ void LvglSettingsPage::displayBackClickedEvt(lv_event_t* e) {
     auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
     if (!self) return;
     self->_brightness_drag_active = false;
+    self->_dim_level_drag_active = false;
     self->_showView(SettingsView::Main);
 }
 
@@ -823,7 +1054,7 @@ void LvglSettingsPage::brightnessSliderEvt(lv_event_t* e) {
 
     if (code == LV_EVENT_PRESSED) {
         self->_brightness_drag_active = true;
-        notifyPageChainActivity();
+        notifyPageChainActivity("settings-brightness");
         return;
     }
 
@@ -837,20 +1068,99 @@ void LvglSettingsPage::brightnessSliderEvt(lv_event_t* e) {
         config.store.brightness = val;
         config.setBrightness(false);
         self->_updateBrightnessLabels(val);
-        notifyPageChainActivity();
+        self->_syncDimLevelSliderRange(false);
+        notifyPageChainActivity("settings-brightness");
         return;
     }
 
     if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
         uint8_t val = static_cast<uint8_t>(lv_slider_get_value(self->_brightness_slider));
         if (val < kBrightnessMinUi) {
-            val = kBrightnessMinUi;
+            val = static_cast<uint8_t>(kBrightnessMinUi);
             lv_slider_set_value(self->_brightness_slider, val, LV_ANIM_OFF);
         }
         config.store.brightness = val;
         config.setBrightness(true);
         self->_updateBrightnessLabels(val);
+        self->_syncDimLevelSliderRange(true);
         self->_brightness_drag_active = false;
+    }
+}
+
+void LvglSettingsPage::autodimRowClickedEvt(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
+    if (!self) return;
+
+    config.saveValue(&config.store.autodim_enabled, !config.store.autodim_enabled);
+    if (!config.store.autodim_enabled) {
+        autodim_on_disabled();
+    } else {
+        notifyPageChainActivity("settings-autodim");
+    }
+    self->_syncDisplayValues();
+}
+
+void LvglSettingsPage::dimAfterRowClickedEvt(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
+    if (!self) return;
+
+    cycle_autodim_timeout_sec();
+    notifyPageChainActivity("settings-dim-after");
+    self->_syncDisplayValues();
+}
+
+void LvglSettingsPage::dimLevelSliderEvt(lv_event_t* e) {
+    auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
+    if (!self || !self->_dim_level_slider) return;
+    if (lv_event_get_target(e) != self->_dim_level_slider) return;
+
+    const lv_event_code_t code = lv_event_get_code(e);
+
+    if (code == LV_EVENT_PRESSED) {
+        self->_dim_level_drag_active = true;
+        notifyPageChainActivity("settings-dim-level");
+        return;
+    }
+
+    if (code == LV_EVENT_VALUE_CHANGED) {
+        self->_dim_level_drag_active = true;
+        const uint8_t max_lv = autodim_level_max_for_brightness(self->_normalBrightnessForDimUi());
+        uint8_t val = static_cast<uint8_t>(lv_slider_get_value(self->_dim_level_slider));
+        if (val < kDimLevelMinUi) {
+            val = kDimLevelMinUi;
+            lv_slider_set_value(self->_dim_level_slider, val, LV_ANIM_OFF);
+        }
+        if (val > max_lv) {
+            val = max_lv;
+            lv_slider_set_value(self->_dim_level_slider, val, LV_ANIM_OFF);
+        }
+        config.store.autodim_level = val;
+        autodim_on_dim_level_changed();
+        self->_updateDimLevelLabels(val);
+        notifyPageChainActivity("settings-dim-level");
+        return;
+    }
+
+    if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+        const uint8_t max_lv = autodim_level_max_for_brightness(self->_normalBrightnessForDimUi());
+        uint8_t val = static_cast<uint8_t>(lv_slider_get_value(self->_dim_level_slider));
+        if (val < kDimLevelMinUi) {
+            val = kDimLevelMinUi;
+            lv_slider_set_value(self->_dim_level_slider, val, LV_ANIM_OFF);
+        }
+        if (val > max_lv) {
+            val = max_lv;
+            lv_slider_set_value(self->_dim_level_slider, val, LV_ANIM_OFF);
+        }
+        config.store.autodim_level = val;
+        // force=true after live drag (store already equals val) — mirrors config.saveVolume().
+        // force=true после live drag — как config.saveVolume().
+        config.saveValue(&config.store.autodim_level, val, true, true);
+        autodim_on_dim_level_changed();
+        self->_updateDimLevelLabels(val);
+        self->_dim_level_drag_active = false;
     }
 }
 
@@ -888,6 +1198,9 @@ void LvglSettingsPage::_applyThemeColors() {
     apply_row(_row_sleep_sub, true);
     apply_row(_row_wifi, false);
     apply_row(_row_theme, false);
+    apply_row(_row_autodim, false);
+    apply_row(_row_dim_after, false);
+    _applyAutodimRowTreatment(pal);
 
     if (_display_header_icon) {
         lv_obj_set_style_text_color(_display_header_icon, pal.text_secondary, LV_PART_MAIN);
@@ -939,6 +1252,7 @@ void LvglSettingsPage::releaseAfterAutoDelete() {
 void LvglSettingsPage::_nullHandles() {
     _view = SettingsView::Main;
     _brightness_drag_active = false;
+    _dim_level_drag_active = false;
     _screen = nullptr;
     _status_line = {};
     _view_main = nullptr;
@@ -953,6 +1267,9 @@ void LvglSettingsPage::_nullHandles() {
     _lbl_brightness_title = nullptr;
     _brightness_slider = nullptr;
     _lbl_brightness_value = nullptr;
+    _lbl_dim_level_title = nullptr;
+    _dim_level_slider = nullptr;
+    _lbl_dim_level_value = nullptr;
     _row_display = {};
     _row_music = {};
     _row_ai = {};
@@ -960,6 +1277,8 @@ void LvglSettingsPage::_nullHandles() {
     _row_sleep_sub = {};
     _row_wifi = {};
     _row_theme = {};
+    _row_autodim = {};
+    _row_dim_after = {};
 }
 
 lv_obj_t* LvglSettingsPage::screen() {

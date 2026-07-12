@@ -59,7 +59,7 @@
 #if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
   #define ESP_ARDUINO_3 1
 #endif
-#define CONFIG_VERSION  6  // Incremented for AI settings addition
+#define CONFIG_VERSION  7  // Auto Dim settings (autodim_* fields)
 
 enum playMode_e      : uint8_t  { PM_WEB=0, PM_SDCARD=1 };
 enum BitrateFormat { BF_UNCNOWN, BF_MP3, BF_AAC, BF_FLAC, BF_OGG, BF_WAV, BF_VOR, BF_OPU };
@@ -133,6 +133,9 @@ struct config_t
   char      ai_api_key[AI_API_KEY_LENGTH]; // API ключ / API key
   char      ai_model[AI_MODEL_LENGTH];     // Модель / Model
   bool      ai_enableFiles;                // Опция для файлов (если используется) / Files option
+  bool      autodim_enabled;               // Runtime Auto Dim / авто-приглушение подсветки
+  uint16_t  autodim_timeout_sec;           // Inactivity timeout (seconds) / таймаут бездействия
+  uint8_t   autodim_level;                 // Dim brightness 1..(brightness-1) / уровень приглушения
 };
 
 #if __cplusplus >= 201103L

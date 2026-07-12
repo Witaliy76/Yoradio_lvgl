@@ -663,8 +663,10 @@ constexpr const char* kV2Namespace = "yo_sm_v2";
 //   v8 (M4d):        +Network (mdnsname .. ai_enabled).
 //                    On a device jumping v4->v8 in one flash, all four reseed
 //                    steps run in one boot (additive `if (stored_ver < N)`).
+//   v9:              Ai tail grew (autodim_* fields, CONFIG_VERSION 7). Partial
+//                    overlay of older smaller `ai` blobs + tail defaults.
 constexpr const char* kV2MarkerKey = "v2m";
-constexpr uint32_t kV2SchemaVersion = 8u;
+constexpr uint32_t kV2SchemaVersion = 9u;
 
 // Legacy blob sentinel — `config.store.config_set` magic (see config.cpp / config.h).
 constexpr uint16_t kLegacyMagic = 4262u;
@@ -773,13 +775,25 @@ bool loadSection(SectionId sid, void* dst, size_t expected_size) {
     return false;
   }
   const size_t stored = p.getBytesLength(key);
-  if (stored != expected_size) {
+  if (stored == expected_size) {
+    const size_t n = p.getBytes(key, dst, expected_size);
     p.end();
-    return false;
+    return n == expected_size;
   }
-  const size_t n = p.getBytes(key, dst, expected_size);
+  // Ai tail grew (autodim_*): merge prefix from smaller on-disk blob.
+  // Хвост Ai вырос (autodim_*): подмешиваем префикс из меньшего blob.
+  if (sid == SectionId::Ai && stored > 0 && stored < expected_size) {
+    const size_t n = p.getBytes(key, dst, stored);
+    p.end();
+    if (n != stored) {
+      return false;
+    }
+    uint8_t* tail = static_cast<uint8_t*>(dst) + stored;
+    memset(tail, 0, expected_size - stored);
+    return true;
+  }
   p.end();
-  return n == expected_size;
+  return false;
 }
 
 bool saveSection(SectionId sid, const void* src, size_t size) {
@@ -897,6 +911,7 @@ void runBootMigrationIfNeeded() {
           SM_LOG("v2 upgrade: reseed sec=net(7) FAILED — will degrade to stale overlay");
         }
       }
+      // v8 -> v9: Ai tail grew (autodim_*); partial overlay in loadSection().
       // Add future schema steps ABOVE in ascending order.
       if (!writeMarker()) {
         SM_LOG("v2 upgrade: writeMarker FAILED — upgrade will retry on next boot");

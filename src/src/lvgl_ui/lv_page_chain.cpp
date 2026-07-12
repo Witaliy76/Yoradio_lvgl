@@ -3,6 +3,7 @@
 #include "lvgl.h"
 #include "Arduino.h"
 #include "../core/config.h"
+#include "../core/autodim.h"
 #include "../core/options.h"   // pulls myoptions.h → YORADIO_WEATHER_UI_DIAG
 
 // W2D: gated page-transition diagnostics (carousel mem/object pressure investigation).
@@ -250,6 +251,7 @@ void PageChain::goTo(int index) {
     // After load: destination is the active LVGL screen (e.g. after Main becomes active).
     diagDump("goTo_after_load", index, next_scr);
 #endif
+    autodim_notify_activity("navigation");
 }
 
 void PageChain::showTemporary(ILvglScreen* scr, uint32_t timeout_ms) {

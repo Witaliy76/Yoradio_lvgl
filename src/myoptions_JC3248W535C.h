@@ -53,12 +53,7 @@
    =============================================== */
 #define ENABLE_BRIGHTNESS_CONTROL            // Enable brightness control in web interface
 
-// Auto-dimming (optional, uncomment to enable)
-//#define AUTOBACKLIGHT(x)    *function*     // Autobacklight function. See options.h for example
-//#define AUTOBACKLIGHT_MAX     2500
-//#define AUTOBACKLIGHT_MIN     12
-//#define DOWN_LEVEL           50            // Lowest brightness level (0-255, default 2)
-//#define DOWN_INTERVAL        60            // Interval for backlight dimming in seconds (default 60)
+// Auto-dimming: use LVGL Settings → Display → Auto Dim (runtime, CONFIG v7+).
 
 /* ===============================================
    GENERAL SETTINGS

@@ -42,6 +42,9 @@ public:
     static void displayBackClickedEvt(lv_event_t* e);
     static void themeRowClickedEvt(lv_event_t* e);
     static void brightnessSliderEvt(lv_event_t* e);
+    static void autodimRowClickedEvt(lv_event_t* e);
+    static void dimAfterRowClickedEvt(lv_event_t* e);
+    static void dimLevelSliderEvt(lv_event_t* e);
 
     // 6.7S2a: Display detail blocks PageChain horizontal swipe on Settings slot.
     // 6.7S2a: Display detail блокирует горизонтальный swipe карусели.
@@ -54,10 +57,15 @@ private:
     void _syncMainRowValues();
     void _syncDisplayValues();
     void _updateBrightnessLabels(uint8_t pct);
+    void _updateDimLevelLabels(uint8_t pct);
+    void _syncDimLevelSliderRange(bool persist_clamp);
+    uint8_t _normalBrightnessForDimUi() const;
     void _applySliderTheme(const YoRadioPalette& pal);
+    void _applyAutodimRowTreatment(const YoRadioPalette& pal);
 
     SettingsView _view = SettingsView::Main;
     bool         _brightness_drag_active = false;
+    bool         _dim_level_drag_active  = false;
 
     lv_obj_t* _screen           = nullptr;
     wgt_status_line::Instance   _status_line{};
@@ -73,6 +81,9 @@ private:
     lv_obj_t* _lbl_brightness_title = nullptr;
     lv_obj_t* _brightness_slider    = nullptr;
     lv_obj_t* _lbl_brightness_value = nullptr;
+    lv_obj_t* _lbl_dim_level_title  = nullptr;
+    lv_obj_t* _dim_level_slider     = nullptr;
+    lv_obj_t* _lbl_dim_level_value  = nullptr;
     RowChrome   _row_display{};
     RowChrome   _row_music{};
     RowChrome   _row_ai{};
@@ -80,6 +91,8 @@ private:
     RowChrome   _row_sleep_sub{};
     RowChrome   _row_wifi{};
     RowChrome   _row_theme{};
+    RowChrome   _row_autodim{};
+    RowChrome   _row_dim_after{};
 };
 
 } // namespace lvgl_ui
