@@ -3,6 +3,7 @@
 #include "config.h"
 #include "display.h"
 #include "options.h"
+#include "sleep_timer.h"
 
 #include <Arduino.h>
 
@@ -124,6 +125,9 @@ bool autodim_is_dimmed() {
 }
 
 void autodim_loop() {
+    if (sleep_timer_is_shutdown_active()) {
+        return;
+    }
     ensure_timer_started();
 
     if (!config.store.autodim_enabled) {

@@ -59,7 +59,7 @@
 #if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
   #define ESP_ARDUINO_3 1
 #endif
-#define CONFIG_VERSION  7  // Auto Dim settings (autodim_* fields)
+#define CONFIG_VERSION  8  // Sleep Timer action (sleep_timer_action)
 
 enum playMode_e      : uint8_t  { PM_WEB=0, PM_SDCARD=1 };
 enum BitrateFormat { BF_UNCNOWN, BF_MP3, BF_AAC, BF_FLAC, BF_OGG, BF_WAV, BF_VOR, BF_OPU };
@@ -136,6 +136,7 @@ struct config_t
   bool      autodim_enabled;               // Runtime Auto Dim / авто-приглушение подсветки
   uint16_t  autodim_timeout_sec;           // Inactivity timeout (seconds) / таймаут бездействия
   uint8_t   autodim_level;                 // Dim brightness 1..(brightness-1) / уровень приглушения
+  uint8_t   sleep_timer_action;            // SleepTimerAction at expiry / действие по истечению
 };
 
 #if __cplusplus >= 201103L

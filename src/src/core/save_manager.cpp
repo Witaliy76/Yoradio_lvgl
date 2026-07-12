@@ -665,8 +665,10 @@ constexpr const char* kV2Namespace = "yo_sm_v2";
 //                    steps run in one boot (additive `if (stored_ver < N)`).
 //   v9:              Ai tail grew (autodim_* fields, CONFIG_VERSION 7). Partial
 //                    overlay of older smaller `ai` blobs + tail defaults.
+//   v10:             Ai tail grew (sleep_timer_action, CONFIG_VERSION 8). Partial
+//                    overlay of older smaller `ai` blobs + tail defaults.
 constexpr const char* kV2MarkerKey = "v2m";
-constexpr uint32_t kV2SchemaVersion = 9u;
+constexpr uint32_t kV2SchemaVersion = 10u;
 
 // Legacy blob sentinel — `config.store.config_set` magic (see config.cpp / config.h).
 constexpr uint16_t kLegacyMagic = 4262u;
@@ -912,6 +914,7 @@ void runBootMigrationIfNeeded() {
         }
       }
       // v8 -> v9: Ai tail grew (autodim_*); partial overlay in loadSection().
+      // v9 -> v10: Ai tail grew (sleep_timer_action); partial overlay in loadSection().
       // Add future schema steps ABOVE in ascending order.
       if (!writeMarker()) {
         SM_LOG("v2 upgrade: writeMarker FAILED — upgrade will retry on next boot");

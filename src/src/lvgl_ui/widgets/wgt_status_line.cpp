@@ -18,6 +18,7 @@
 #include "../wifi_signal_map.h"
 #include "../../core/config.h"
 #include "../../core/network.h"
+#include "../../core/sleep_timer.h"
 #include "../../core/weather_state.h"
 
 namespace lvgl_ui {
@@ -46,6 +47,26 @@ static void style_status_column(lv_obj_t* col) {
     lv_obj_set_style_border_width(col, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(col, 0, LV_PART_MAIN);
     lv_obj_clear_flag(col, LV_OBJ_FLAG_SCROLLABLE);
+}
+
+static void format_sleep_timer_text(char* out, size_t cap, bool compact) {
+    if (!out || cap == 0) return;
+    out[0] = '\0';
+    if (!sleep_timer_active()) return;
+
+    const uint32_t remaining_seconds = sleep_timer_remaining_seconds();
+    if (remaining_seconds == 0) return;
+    if (remaining_seconds < 60) {
+        snprintf(out, cap, "%s", compact ? "<1m" : "SLEEP <1m");
+        return;
+    }
+
+    const uint32_t remaining_minutes = (remaining_seconds + 59u) / 60u;
+    snprintf(
+        out,
+        cap,
+        compact ? "%lum" : "SLEEP %lum",
+        static_cast<unsigned long>(remaining_minutes));
 }
 
 bool create(lv_obj_t* parent, Instance& out) {
@@ -141,8 +162,21 @@ bool create(lv_obj_t* parent, Instance& out) {
         lv_obj_add_flag(out.cont_weather, LV_OBJ_FLAG_HIDDEN);
     }
 
+    out.lbl_sleep_timer = lv_label_create(out.root);
+    if (out.lbl_sleep_timer) {
+        lv_obj_add_flag(out.lbl_sleep_timer, LV_OBJ_FLAG_FLOATING);
+        lv_obj_set_width(out.lbl_sleep_timer, 84);
+        lv_label_set_text(out.lbl_sleep_timer, "");
+        lv_label_set_long_mode(out.lbl_sleep_timer, LV_LABEL_LONG_CLIP);
+        set_font_slot(out.lbl_sleep_timer, wx_temp_f);
+        lv_obj_set_style_text_color(out.lbl_sleep_timer, pal.status_line_text, LV_PART_MAIN);
+        lv_obj_set_style_text_align(out.lbl_sleep_timer, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+        lv_obj_align(out.lbl_sleep_timer, LV_ALIGN_RIGHT_MID, -76, 0);
+        lv_obj_add_flag(out.lbl_sleep_timer, LV_OBJ_FLAG_HIDDEN);
+    }
+
     const bool ok = col_left && col_center && col_right && out.lbl_wifi && out.cont_weather && out.lbl_weather_glyph
-                    && out.lbl_weather_temp && out.lbl_clock;
+                    && out.lbl_weather_temp && out.lbl_sleep_timer && out.lbl_clock;
     if (!ok && out.root) {
         lv_obj_del(out.root);
         out = Instance{};
@@ -197,6 +231,19 @@ void update(const Instance& inst) {
     }
     status_line_set_text_if_changed(inst.lbl_clock, s_clock_line);
 
+    if (inst.root && inst.lbl_sleep_timer) {
+        const lv_coord_t root_w = lv_obj_get_width(inst.root);
+        const bool compact = root_w > 0 && root_w < 400;
+        char sleep_text[24];
+        format_sleep_timer_text(sleep_text, sizeof(sleep_text), compact);
+        status_line_set_text_if_changed(inst.lbl_sleep_timer, sleep_text);
+        if (sleep_text[0] == '\0') {
+            lv_obj_add_flag(inst.lbl_sleep_timer, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_clear_flag(inst.lbl_sleep_timer, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
     // A4.1: compact status weather from WeatherState.current (icon + °C).
     // A4.1: компактная погода из WeatherState.current (иконка + °C).
     static char weather_temp[16];
@@ -236,6 +283,7 @@ void reapplyTheme(Instance& inst) {
     const YoRadioPalette& pal = yoradio_palette();
     if (inst.lbl_wifi)          lv_obj_set_style_text_color(inst.lbl_wifi,          pal.status_line_text,    LV_PART_MAIN);
     if (inst.lbl_clock)         lv_obj_set_style_text_color(inst.lbl_clock,         pal.clock_text,          LV_PART_MAIN);
+    if (inst.lbl_sleep_timer)   lv_obj_set_style_text_color(inst.lbl_sleep_timer,   pal.status_line_text,    LV_PART_MAIN);
     if (inst.lbl_weather_glyph) lv_obj_set_style_text_color(inst.lbl_weather_glyph, pal.status_weather_icon, LV_PART_MAIN);
     if (inst.lbl_weather_temp)  lv_obj_set_style_text_color(inst.lbl_weather_temp,  pal.status_weather_temp, LV_PART_MAIN);
 }

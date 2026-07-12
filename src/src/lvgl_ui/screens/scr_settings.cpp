@@ -16,6 +16,7 @@
 
 #include "../../core/config.h"
 #include "../../core/autodim.h"
+#include "../../core/sleep_timer.h"
 #include "../control_glyph_utf8.h"
 #include "../fonts/lv_fonts.h"
 #include "../fonts/settings_glyph_utf8.h"
@@ -43,6 +44,7 @@ static constexpr char kStrDimLevel[]        = "DIM LEVEL";
 static constexpr char kStrValOn[]           = "ON";
 static constexpr char kStrValOff[]          = "OFF";
 static constexpr char kStrValStopRadio[]    = "STOP RADIO";
+static constexpr char kStrValSleepDevice[]  = "SLEEP DEVICE";
 static constexpr char kStrValNotConnected[] = "NOT CONNECTED";
 static constexpr char kStrValDark[]         = "DARK";
 static constexpr char kStrValLight[]        = "LIGHT";
@@ -83,6 +85,7 @@ static constexpr uint8_t    kBrightnessMaxUi      = 100;
 static constexpr uint8_t    kDimLevelMinUi        = 1;
 
 static constexpr uint16_t   kAutodimTimeoutsSec[] = {30, 60, 120, 300, 600};
+static constexpr uint16_t   kSleepTimerMinutes[]  = {0, 15, 30, 45, 60, 90, 120};
 static constexpr char       kStrTimeout30Sec[]    = "30 SEC";
 static constexpr char       kStrTimeout60Sec[]    = "60 SEC";
 static constexpr char       kStrTimeout2Min[]     = "2 MIN";
@@ -120,6 +123,38 @@ static const char* autodim_timeout_label(uint16_t sec) {
         case 600: return kStrTimeout10Min;
         default:  return kStrTimeout60Sec;
     }
+}
+
+static const char* sleep_timer_label(uint16_t minutes) {
+    switch (minutes) {
+        case 15:  return "15 MIN";
+        case 30:  return "30 MIN";
+        case 45:  return "45 MIN";
+        case 60:  return "1 H";
+        case 90:  return "1 H 30";
+        case 120: return "2 H";
+        case 0:
+        default:  return kStrValOff;
+    }
+}
+
+static const char* sleep_timer_settings_value_label() {
+    return sleep_timer_label(sleep_timer_selected_minutes());
+}
+
+static const char* sleep_timer_action_value_label() {
+    return (sleep_timer_action() == SleepTimerAction::SleepDevice) ? kStrValSleepDevice
+                                                                   : kStrValStopRadio;
+}
+
+static uint16_t next_sleep_timer_minutes(uint16_t current) {
+    constexpr size_t n = sizeof(kSleepTimerMinutes) / sizeof(kSleepTimerMinutes[0]);
+    for (size_t i = 0; i < n; ++i) {
+        if (kSleepTimerMinutes[i] == current) {
+            return kSleepTimerMinutes[(i + 1) % n];
+        }
+    }
+    return kSleepTimerMinutes[1];
 }
 
 static void cycle_autodim_timeout_sec() {
@@ -323,6 +358,7 @@ static void add_sleep_block_unit(
     lv_obj_t* block = lv_obj_create(unit);
     if (!block) return;
     style_data_row(block, kSleepBlockHeight);
+    out_main.hit = block;
 
     out_main.icon = add_icon_column(block, YORA_SETTINGS_GLYPH_SLEEP_TIMER, pal);
 
@@ -359,7 +395,22 @@ static void add_sleep_block_unit(
 
         out_sub.label = add_row_label(line_sub, kStrWhenTimerEnds, pal, true, true);
         out_sub.value = add_row_value(line_sub, kStrValStopRadio, pal);
+        out_sub.hit = line_sub;
     }
+
+    // 6.7S4B: duration on `block`; action on `line_sub` — separate click targets.
+    // 6.7S4B: duration на `block`; action на `line_sub` — раздельные зоны тапа.
+    if (out_main.icon) {
+        lv_obj_t* icon_col = lv_obj_get_parent(out_main.icon);
+        wgt_footer_pill::make_child_passive(icon_col);
+        wgt_footer_pill::make_child_passive(out_main.icon);
+    }
+    wgt_footer_pill::make_child_passive(text_col);
+    wgt_footer_pill::make_child_passive(line_main);
+    wgt_footer_pill::make_child_passive(out_main.label);
+    wgt_footer_pill::make_child_passive(out_main.value);
+    wgt_footer_pill::make_child_passive(out_sub.label);
+    wgt_footer_pill::make_child_passive(out_sub.value);
 
     add_bottom_divider(unit, pal);
 }
@@ -618,6 +669,8 @@ void LvglSettingsPage::create() {
         _cont_content, YORA_SETTINGS_GLYPH_AI_LAYER, kStrAiLayer, kStrValOn, false, pal);
 
     add_sleep_block_unit(_cont_content, _row_sleep, _row_sleep_sub, pal);
+    make_row_tappable(_row_sleep.hit, sleepRowClickedEvt, this);
+    make_row_tappable(_row_sleep_sub.hit, sleepActionRowClickedEvt, this);
 
     _row_wifi = add_category_row_unit(
         _cont_content,
@@ -879,12 +932,16 @@ void LvglSettingsPage::enter() {
 void LvglSettingsPage::update() {
     if (!_screen || !_status_line.root) return;
     wgt_status_line::update(_status_line);
+    if (_view == SettingsView::Main) {
+        _syncMainRowValues();
+    }
 }
 
 void LvglSettingsPage::exit() {
     _brightness_drag_active = false;
     _dim_level_drag_active = false;
     _view = SettingsView::Main;
+    _hideSleepDeviceWarning();
 }
 
 void LvglSettingsPage::_showView(SettingsView view) {
@@ -910,6 +967,12 @@ void LvglSettingsPage::_syncMainRowValues() {
         lv_label_set_text(_row_display.value, buf);
     }
 #endif
+    if (_row_sleep.value) {
+        lv_label_set_text(_row_sleep.value, sleep_timer_settings_value_label());
+    }
+    if (_row_sleep_sub.value) {
+        lv_label_set_text(_row_sleep_sub.value, sleep_timer_action_value_label());
+    }
 }
 
 void LvglSettingsPage::_syncDisplayValues() {
@@ -1003,6 +1066,172 @@ void LvglSettingsPage::_applyAutodimRowTreatment(const YoRadioPalette& pal) {
     }
 }
 
+static void style_sleep_overlay_btn(lv_obj_t* btn, const YoRadioPalette& pal, bool primary) {
+    if (!btn) return;
+    lv_obj_set_style_bg_color(btn, primary ? pal.accent : pal.panel_background, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_color(btn, pal.panel_border, LV_PART_MAIN);
+    lv_obj_set_style_border_width(btn, 1, LV_PART_MAIN);
+    lv_obj_set_style_radius(btn, 8, LV_PART_MAIN);
+    lv_obj_set_style_pad_hor(btn, 12, LV_PART_MAIN);
+    lv_obj_set_style_pad_ver(btn, 10, LV_PART_MAIN);
+}
+
+void LvglSettingsPage::_hideSleepDeviceWarning() {
+    if (_sleep_device_overlay) {
+        lv_obj_del(_sleep_device_overlay);
+        _sleep_device_overlay = nullptr;
+    }
+}
+
+void LvglSettingsPage::_applySleepDeviceOverlayTheme(const YoRadioPalette& pal) {
+    if (!_sleep_device_overlay) return;
+
+    lv_obj_set_style_bg_color(_sleep_device_overlay, pal.overlay_scrim, LV_PART_MAIN);
+
+    lv_obj_t* card = lv_obj_get_child(_sleep_device_overlay, 0);
+    if (!card) return;
+
+    lv_obj_set_style_bg_color(card, pal.overlay_card_bg, LV_PART_MAIN);
+
+    lv_obj_t* title = lv_obj_get_child(card, 0);
+    if (title) {
+        lv_obj_set_style_text_color(title, pal.overlay_title_text, LV_PART_MAIN);
+    }
+    lv_obj_t* body = lv_obj_get_child(card, 1);
+    if (body) {
+        lv_obj_set_style_text_color(body, pal.overlay_body_text, LV_PART_MAIN);
+    }
+
+    lv_obj_t* btn_row = lv_obj_get_child(card, 2);
+    if (!btn_row) return;
+    const uint32_t btn_n = lv_obj_get_child_cnt(btn_row);
+    for (uint32_t i = 0; i < btn_n; ++i) {
+        lv_obj_t* btn = lv_obj_get_child(btn_row, i);
+        if (!btn) continue;
+        const bool primary = (i + 1 == btn_n);
+        style_sleep_overlay_btn(btn, pal, primary);
+        lv_obj_t* lbl = lv_obj_get_child(btn, 0);
+        if (lbl) {
+            lv_obj_set_style_text_color(
+                lbl, primary ? pal.device_background : pal.overlay_title_text, LV_PART_MAIN);
+        }
+    }
+}
+
+void LvglSettingsPage::_showSleepDeviceWarning() {
+    if (_sleep_device_overlay) return;
+
+    lv_disp_t* disp = lv_disp_get_default();
+    if (!disp) return;
+
+    lv_obj_t* top = lv_layer_top();
+    if (!top) return;
+
+    const lv_coord_t hor = lv_disp_get_hor_res(disp);
+    const lv_coord_t ver = lv_disp_get_ver_res(disp);
+    const YoRadioPalette& pal = yoradio_palette();
+
+    _sleep_device_overlay = lv_obj_create(top);
+    if (!_sleep_device_overlay) return;
+
+    lv_obj_set_size(_sleep_device_overlay, hor, ver);
+    lv_obj_align(_sleep_device_overlay, LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_set_style_bg_color(_sleep_device_overlay, pal.overlay_scrim, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(_sleep_device_overlay, LV_OPA_70, LV_PART_MAIN);
+    lv_obj_set_style_border_width(_sleep_device_overlay, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(_sleep_device_overlay, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(_sleep_device_overlay, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(_sleep_device_overlay, LV_OBJ_FLAG_SCROLL_CHAIN);
+    lv_obj_add_event_cb(
+        _sleep_device_overlay, sleepDeviceOverlayBlockGestureEvt, LV_EVENT_GESTURE, nullptr);
+
+    lv_obj_t* card = lv_obj_create(_sleep_device_overlay);
+    if (!card) {
+        _hideSleepDeviceWarning();
+        return;
+    }
+    lv_obj_set_width(card, LV_PCT(88));
+    lv_obj_set_height(card, LV_SIZE_CONTENT);
+    lv_obj_center(card);
+    lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(card, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_all(card, 20, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(card, 12, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(card, pal.overlay_card_bg, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(card, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_width(card, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t* title = lv_label_create(card);
+    if (title) {
+        lv_label_set_text(title, kStrValSleepDevice);
+        lv_label_set_long_mode(title, LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(title, LV_PCT(100));
+        lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+        lv_obj_set_style_text_color(title, pal.overlay_title_text, LV_PART_MAIN);
+        if (LV_ACTIVE_PROFILE.font_large) {
+            lv_obj_set_style_text_font(
+                title, static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_large), LV_PART_MAIN);
+        }
+    }
+
+    lv_obj_t* body = lv_label_create(card);
+    if (body) {
+        lv_label_set_text(
+            body,
+            "The device will enter deep sleep.\n"
+            "Press Reset or reconnect power\n"
+            "to start it again.");
+        lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
+        lv_obj_set_width(body, LV_PCT(100));
+        lv_obj_set_style_text_align(body, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+        lv_obj_set_style_text_color(body, pal.overlay_body_text, LV_PART_MAIN);
+        if (LV_ACTIVE_PROFILE.font_small) {
+            lv_obj_set_style_text_font(
+                body, static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_small), LV_PART_MAIN);
+        }
+    }
+
+    lv_obj_t* btn_row = lv_obj_create(card);
+    if (btn_row) {
+        lv_obj_set_width(btn_row, LV_PCT(100));
+        lv_obj_set_height(btn_row, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(btn_row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(btn_row, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_pad_column(btn_row, 12, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(btn_row, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_border_width(btn_row, 0, LV_PART_MAIN);
+        lv_obj_clear_flag(btn_row, LV_OBJ_FLAG_SCROLLABLE);
+
+        lv_obj_t* btn_cancel = lv_btn_create(btn_row);
+        if (btn_cancel) {
+            lv_obj_set_flex_grow(btn_cancel, 1);
+            style_sleep_overlay_btn(btn_cancel, pal, false);
+            lv_obj_add_event_cb(btn_cancel, sleepDeviceOverlayCancelEvt, LV_EVENT_CLICKED, this);
+            lv_obj_t* lbl = lv_label_create(btn_cancel);
+            if (lbl) {
+                lv_label_set_text(lbl, "CANCEL");
+                lv_obj_set_style_text_color(lbl, pal.overlay_title_text, LV_PART_MAIN);
+                lv_obj_center(lbl);
+            }
+        }
+
+        lv_obj_t* btn_confirm = lv_btn_create(btn_row);
+        if (btn_confirm) {
+            lv_obj_set_flex_grow(btn_confirm, 1);
+            style_sleep_overlay_btn(btn_confirm, pal, true);
+            lv_obj_add_event_cb(btn_confirm, sleepDeviceOverlayConfirmEvt, LV_EVENT_CLICKED, this);
+            lv_obj_t* lbl = lv_label_create(btn_confirm);
+            if (lbl) {
+                lv_label_set_text(lbl, "USE SLEEP DEVICE");
+                lv_obj_set_style_text_color(lbl, pal.device_background, LV_PART_MAIN);
+                lv_obj_center(lbl);
+            }
+        }
+    }
+}
+
 void LvglSettingsPage::_applySliderTheme(const YoRadioPalette& pal) {
 #ifdef ENABLE_BRIGHTNESS_CONTROL
     style_settings_bar_slider(_brightness_slider, pal);
@@ -1032,6 +1261,64 @@ void LvglSettingsPage::displayBackClickedEvt(lv_event_t* e) {
     self->_brightness_drag_active = false;
     self->_dim_level_drag_active = false;
     self->_showView(SettingsView::Main);
+}
+
+void LvglSettingsPage::sleepRowClickedEvt(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
+    if (!self) return;
+
+    const uint16_t next = next_sleep_timer_minutes(sleep_timer_selected_minutes());
+    if (next == 0) {
+        sleep_timer_cancel();
+    } else {
+        sleep_timer_set_minutes(next);
+    }
+    notifyPageChainActivity("settings-sleep-timer");
+    self->_syncMainRowValues();
+    wgt_status_line::update(self->_status_line);
+}
+
+void LvglSettingsPage::sleepActionRowClickedEvt(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
+    if (!self) return;
+
+    if (sleep_timer_action() == SleepTimerAction::SleepDevice) {
+        sleep_timer_set_action(SleepTimerAction::StopRadio);
+        self->_syncMainRowValues();
+        notifyPageChainActivity("settings-sleep-action");
+        return;
+    }
+
+    self->_showSleepDeviceWarning();
+    notifyPageChainActivity("settings-sleep-action-pending");
+}
+
+void LvglSettingsPage::sleepDeviceOverlayBlockGestureEvt(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_GESTURE) return;
+    lv_indev_t* indev = lv_indev_get_act();
+    if (indev) {
+        lv_indev_wait_release(indev);
+    }
+}
+
+void LvglSettingsPage::sleepDeviceOverlayCancelEvt(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
+    if (!self) return;
+    self->_hideSleepDeviceWarning();
+    notifyPageChainActivity("settings-sleep-action-cancel");
+}
+
+void LvglSettingsPage::sleepDeviceOverlayConfirmEvt(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
+    if (!self) return;
+    sleep_timer_set_action(SleepTimerAction::SleepDevice);
+    self->_hideSleepDeviceWarning();
+    self->_syncMainRowValues();
+    notifyPageChainActivity("settings-sleep-action-confirm");
 }
 
 void LvglSettingsPage::themeRowClickedEvt(lv_event_t* e) {
@@ -1234,10 +1521,13 @@ void LvglSettingsPage::_applyThemeColors() {
         reapply_dividers_in(_cont_display_content, pal);
     }
 
+    _applySleepDeviceOverlayTheme(pal);
+
     lv_obj_invalidate(_screen);
 }
 
 void LvglSettingsPage::destroy() {
+    _hideSleepDeviceWarning();
     if (_screen) {
         lv_obj_del(_screen);
         _screen = nullptr;
@@ -1250,6 +1540,7 @@ void LvglSettingsPage::releaseAfterAutoDelete() {
 }
 
 void LvglSettingsPage::_nullHandles() {
+    _hideSleepDeviceWarning();
     _view = SettingsView::Main;
     _brightness_drag_active = false;
     _dim_level_drag_active = false;
@@ -1279,6 +1570,7 @@ void LvglSettingsPage::_nullHandles() {
     _row_theme = {};
     _row_autodim = {};
     _row_dim_after = {};
+    _sleep_device_overlay = nullptr;
 }
 
 lv_obj_t* LvglSettingsPage::screen() {

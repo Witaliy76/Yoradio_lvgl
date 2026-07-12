@@ -455,6 +455,9 @@ void Config::_setupVersion(){
       saveValue(&store.autodim_timeout_sec, static_cast<uint16_t>(60));
       saveValue(&store.autodim_level, static_cast<uint8_t>(20));
       break;
+    case 7:
+      saveValue(&store.sleep_timer_action, static_cast<uint8_t>(0));
+      break;
     default:
       break;
   }
@@ -694,6 +697,7 @@ void Config::setDefaults() {
   store.autodim_enabled = false;
   store.autodim_timeout_sec = 60;
   store.autodim_level = 20;
+  store.sleep_timer_action = 0;
 
   // AI settings migrated to FS /ai.json and runtime cache (see aiGetRuntimeConfig())
   // Runtime config will be applied in Config::init() after store is loaded

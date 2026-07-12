@@ -15,6 +15,7 @@ struct Instance {
     lv_obj_t* cont_weather = nullptr;
     lv_obj_t* lbl_weather_glyph = nullptr;
     lv_obj_t* lbl_weather_temp = nullptr;
+    lv_obj_t* lbl_sleep_timer = nullptr;
     lv_obj_t* lbl_clock = nullptr;
 };
 

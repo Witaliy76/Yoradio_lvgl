@@ -40,6 +40,11 @@ public:
     static void footerClickedEvt(lv_event_t* e);
     static void displayRowClickedEvt(lv_event_t* e);
     static void displayBackClickedEvt(lv_event_t* e);
+    static void sleepRowClickedEvt(lv_event_t* e);
+    static void sleepActionRowClickedEvt(lv_event_t* e);
+    static void sleepDeviceOverlayCancelEvt(lv_event_t* e);
+    static void sleepDeviceOverlayConfirmEvt(lv_event_t* e);
+    static void sleepDeviceOverlayBlockGestureEvt(lv_event_t* e);
     static void themeRowClickedEvt(lv_event_t* e);
     static void brightnessSliderEvt(lv_event_t* e);
     static void autodimRowClickedEvt(lv_event_t* e);
@@ -62,6 +67,9 @@ private:
     uint8_t _normalBrightnessForDimUi() const;
     void _applySliderTheme(const YoRadioPalette& pal);
     void _applyAutodimRowTreatment(const YoRadioPalette& pal);
+    void _showSleepDeviceWarning();
+    void _hideSleepDeviceWarning();
+    void _applySleepDeviceOverlayTheme(const YoRadioPalette& pal);
 
     SettingsView _view = SettingsView::Main;
     bool         _brightness_drag_active = false;
@@ -93,6 +101,7 @@ private:
     RowChrome   _row_theme{};
     RowChrome   _row_autodim{};
     RowChrome   _row_dim_after{};
+    lv_obj_t*   _sleep_device_overlay = nullptr;
 };
 
 } // namespace lvgl_ui

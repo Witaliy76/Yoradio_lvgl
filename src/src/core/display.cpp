@@ -6,6 +6,7 @@
 #include "time.h"
 #include "display.h"
 #include "autodim.h"
+#include "sleep_timer.h"
 #include "player.h"
 #include "network.h"
 #include "../core/spidog.h"
@@ -91,6 +92,7 @@ void Display::init() {
   _suspendFlush = true;
 
   dsp.initDisplay();
+  sleep_timer_init();
 
   if (!dsp.getOutputDisplay()) {
     Serial.println("[Display] Failed to initialize display (no output_display)!");
@@ -496,6 +498,7 @@ void Display::loop() {
     }
   }
   autodim_loop();
+  sleep_timer_loop();
   lvgl_ui::taskHandler();
 #if YORADIO_PPM_PCM_TELEMETRY_DIAG
   ppmPcmTelemetryConsumerService();
