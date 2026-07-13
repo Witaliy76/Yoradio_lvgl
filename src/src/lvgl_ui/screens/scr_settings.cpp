@@ -601,93 +601,19 @@ ScreenType LvglSettingsPage::screenType() const {
     return ScreenType::Page;
 }
 
-void LvglSettingsPage::create() {
-    if (_screen) return;
+bool LvglSettingsPage::_ensureDisplayView() {
+    if (_view_display) {
+        return true;
+    }
+    if (!_screen) {
+        return false;
+    }
 
     const YoRadioPalette& pal = yoradio_palette();
 
-    _screen = lv_obj_create(nullptr);
-    if (!_screen) return;
-
-    lv_obj_set_style_bg_color(_screen, pal.device_background, LV_PART_MAIN);
-    lv_obj_set_flex_flow(_screen, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_all(_screen, LV_ACTIVE_PROFILE.frame_padding, LV_PART_MAIN);
-    lv_obj_set_style_pad_row(_screen, kRootRowGap, LV_PART_MAIN);
-    lv_obj_clear_flag(_screen, LV_OBJ_FLAG_SCROLLABLE);
-
-    wgt_status_line::create(_screen, _status_line);
-    if (!_status_line.root) {
-        lv_obj_del(_screen);
-        _screen = nullptr;
-        return;
-    }
-    add_bottom_divider(_screen, pal);
-
-    _view_main = lv_obj_create(_screen);
-    if (!_view_main) {
-        lv_obj_del(_screen);
-        _screen = nullptr;
-        _nullHandles();
-        return;
-    }
-    lv_obj_set_width(_view_main, LV_PCT(100));
-    lv_obj_set_flex_grow(_view_main, 1);
-    lv_obj_set_flex_flow(_view_main, LV_FLEX_FLOW_COLUMN);
-    style_transparent_flex(_view_main);
-    lv_obj_set_style_pad_row(_view_main, 0, LV_PART_MAIN);
-
-    _cont_content = lv_obj_create(_view_main);
-    if (!_cont_content) {
-        lv_obj_del(_screen);
-        _screen = nullptr;
-        _nullHandles();
-        return;
-    }
-    lv_obj_set_width(_cont_content, LV_PCT(100));
-    lv_obj_set_flex_grow(_cont_content, 1);
-    lv_obj_set_flex_flow(_cont_content, LV_FLEX_FLOW_COLUMN);
-    style_transparent_flex(_cont_content);
-    lv_obj_set_style_pad_top(_cont_content, kContentTopInset, LV_PART_MAIN);
-    lv_obj_set_style_pad_bottom(_cont_content, kContentBottomGap, LV_PART_MAIN);
-    lv_obj_set_style_pad_row(_cont_content, 0, LV_PART_MAIN);
-
-    {
-        lv_obj_t* display_row = create_row_unit(_cont_content, pal, kRowHeight);
-        char brightness_buf[8] = "100%";
-#ifdef ENABLE_BRIGHTNESS_CONTROL
-        format_brightness_pct(brightness_buf, sizeof(brightness_buf), config.store.brightness);
-#endif
-        _row_display = fill_category_row(
-            display_row, YORA_SETTINGS_GLYPH_DISPLAY, kStrDisplay, brightness_buf, true, pal);
-        make_row_tappable(display_row, displayRowClickedEvt, this);
-    }
-
-    _row_music = add_category_row_unit(
-        _cont_content, YORA_SETTINGS_GLYPH_MUSIC_RAIL, kStrMusicRail, kStrValOn, false, pal);
-
-    _row_ai = add_category_row_unit(
-        _cont_content, YORA_SETTINGS_GLYPH_AI_LAYER, kStrAiLayer, kStrValOn, false, pal);
-
-    add_sleep_block_unit(_cont_content, _row_sleep, _row_sleep_sub, pal);
-    make_row_tappable(_row_sleep.hit, sleepRowClickedEvt, this);
-    make_row_tappable(_row_sleep_sub.hit, sleepActionRowClickedEvt, this);
-
-    _row_wifi = add_category_row_unit(
-        _cont_content,
-        YORA_SETTINGS_GLYPH_WIFI,
-        kStrWifi,
-        kStrValNotConnected,
-        true,
-        pal);
-
-    create_footer(_view_main, _footer_area, _lbl_footer, this, pal);
-
     _view_display = lv_obj_create(_screen);
     if (!_view_display) {
-        lv_obj_del(_screen);
-        _screen = nullptr;
-        _nullHandles();
-        return;
+        return false;
     }
     lv_obj_set_width(_view_display, LV_PCT(100));
     lv_obj_set_flex_grow(_view_display, 1);
@@ -917,8 +843,92 @@ void LvglSettingsPage::create() {
         }
     }
 
-    installCarouselGesturesOnPageRoot(_screen);
     block_gesture_bubble_deep(_view_display);
+    return true;
+}
+
+void LvglSettingsPage::create() {
+    if (_screen) return;
+
+    const YoRadioPalette& pal = yoradio_palette();
+
+    _screen = lv_obj_create(nullptr);
+    if (!_screen) return;
+
+    lv_obj_set_style_bg_color(_screen, pal.device_background, LV_PART_MAIN);
+    lv_obj_set_flex_flow(_screen, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_all(_screen, LV_ACTIVE_PROFILE.frame_padding, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(_screen, kRootRowGap, LV_PART_MAIN);
+    lv_obj_clear_flag(_screen, LV_OBJ_FLAG_SCROLLABLE);
+
+    wgt_status_line::create(_screen, _status_line);
+    if (!_status_line.root) {
+        lv_obj_del(_screen);
+        _screen = nullptr;
+        return;
+    }
+    add_bottom_divider(_screen, pal);
+
+    _view_main = lv_obj_create(_screen);
+    if (!_view_main) {
+        lv_obj_del(_screen);
+        _screen = nullptr;
+        _nullHandles();
+        return;
+    }
+    lv_obj_set_width(_view_main, LV_PCT(100));
+    lv_obj_set_flex_grow(_view_main, 1);
+    lv_obj_set_flex_flow(_view_main, LV_FLEX_FLOW_COLUMN);
+    style_transparent_flex(_view_main);
+    lv_obj_set_style_pad_row(_view_main, 0, LV_PART_MAIN);
+
+    _cont_content = lv_obj_create(_view_main);
+    if (!_cont_content) {
+        lv_obj_del(_screen);
+        _screen = nullptr;
+        _nullHandles();
+        return;
+    }
+    lv_obj_set_width(_cont_content, LV_PCT(100));
+    lv_obj_set_flex_grow(_cont_content, 1);
+    lv_obj_set_flex_flow(_cont_content, LV_FLEX_FLOW_COLUMN);
+    style_transparent_flex(_cont_content);
+    lv_obj_set_style_pad_top(_cont_content, kContentTopInset, LV_PART_MAIN);
+    lv_obj_set_style_pad_bottom(_cont_content, kContentBottomGap, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(_cont_content, 0, LV_PART_MAIN);
+
+    {
+        lv_obj_t* display_row = create_row_unit(_cont_content, pal, kRowHeight);
+        char brightness_buf[8] = "100%";
+#ifdef ENABLE_BRIGHTNESS_CONTROL
+        format_brightness_pct(brightness_buf, sizeof(brightness_buf), config.store.brightness);
+#endif
+        _row_display = fill_category_row(
+            display_row, YORA_SETTINGS_GLYPH_DISPLAY, kStrDisplay, brightness_buf, true, pal);
+        make_row_tappable(display_row, displayRowClickedEvt, this);
+    }
+
+    _row_music = add_category_row_unit(
+        _cont_content, YORA_SETTINGS_GLYPH_MUSIC_RAIL, kStrMusicRail, kStrValOn, false, pal);
+
+    _row_ai = add_category_row_unit(
+        _cont_content, YORA_SETTINGS_GLYPH_AI_LAYER, kStrAiLayer, kStrValOn, false, pal);
+
+    add_sleep_block_unit(_cont_content, _row_sleep, _row_sleep_sub, pal);
+    make_row_tappable(_row_sleep.hit, sleepRowClickedEvt, this);
+    make_row_tappable(_row_sleep_sub.hit, sleepActionRowClickedEvt, this);
+
+    _row_wifi = add_category_row_unit(
+        _cont_content,
+        YORA_SETTINGS_GLYPH_WIFI,
+        kStrWifi,
+        kStrValNotConnected,
+        true,
+        pal);
+
+    create_footer(_view_main, _footer_area, _lbl_footer, this, pal);
+
+    installCarouselGesturesOnPageRoot(_screen);
 }
 
 void LvglSettingsPage::enter() {
@@ -946,13 +956,16 @@ void LvglSettingsPage::exit() {
 
 void LvglSettingsPage::_showView(SettingsView view) {
     _view = view;
-    if (!_view_main || !_view_display) return;
+    if (!_view_main) return;
 
     if (view == SettingsView::Main) {
         lv_obj_clear_flag(_view_main, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(_view_display, LV_OBJ_FLAG_HIDDEN);
+        if (_view_display) {
+            lv_obj_add_flag(_view_display, LV_OBJ_FLAG_HIDDEN);
+        }
         _syncMainRowValues();
     } else {
+        if (!_view_display) return;
         lv_obj_add_flag(_view_main, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(_view_display, LV_OBJ_FLAG_HIDDEN);
         _syncDisplayValues();
@@ -1251,6 +1264,11 @@ void LvglSettingsPage::displayRowClickedEvt(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
     if (!self) return;
+
+    notifyPageChainActivity("settings-display");
+    if (!self->_ensureDisplayView()) {
+        return;
+    }
     self->_showView(SettingsView::Display);
 }
 

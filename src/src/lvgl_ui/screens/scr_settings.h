@@ -56,6 +56,9 @@ public:
     bool isDisplayDetailActive() const { return _view == SettingsView::Display; }
 
 private:
+    // 6.7S-MEM1: Display detail tree — lazy once per Settings lifecycle.
+    // 6.7S-MEM1: дерево Display detail — лениво один раз за lifecycle Settings.
+    bool _ensureDisplayView();
     void _nullHandles();
     void _applyThemeColors();
     void _showView(SettingsView view);
