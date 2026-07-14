@@ -58,6 +58,7 @@ public:
     static void musicBackClickedEvt(lv_event_t* e);
     static void musicPresenceRailClickedEvt(lv_event_t* e);
     static void musicProfileRowClickedEvt(lv_event_t* e);
+    static void resumeOnStartupRowClickedEvt(lv_event_t* e);
 
     // 6.7S2a: Display detail blocks PageChain horizontal swipe on Settings slot.
     // 6.7S2a: Display detail блокирует горизонтальный swipe карусели.
@@ -123,7 +124,7 @@ private:
     lv_obj_t* _lbl_dim_level_value  = nullptr;
     RowChrome   _row_display{};
     RowChrome   _row_music{};
-    RowChrome   _row_ai{};
+    RowChrome   _row_resume_startup{};
     RowChrome   _row_sleep{};
     RowChrome   _row_sleep_sub{};
     RowChrome   _row_wifi{};

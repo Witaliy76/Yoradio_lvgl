@@ -17,6 +17,7 @@
 
 #include "../../core/config.h"
 #include "../../core/autodim.h"
+#include "../../core/player.h"
 #include "../../core/sleep_timer.h"
 #include "../control_glyph_utf8.h"
 #include "../fonts/lv_fonts.h"
@@ -33,7 +34,7 @@ namespace {
 
 static constexpr char kStrDisplay[]         = "DISPLAY";
 static constexpr char kStrMusicRail[]       = "MUSIC RAIL";
-static constexpr char kStrAiLayer[]         = "AI LAYER";
+static constexpr char kStrResumeOnStartup[] = "RESUME ON STARTUP";
 static constexpr char kStrSleepTimer[]      = "SLEEP TIMER";
 static constexpr char kStrWhenTimerEnds[]   = "WHEN TIMER ENDS";
 static constexpr char kStrWifi[]            = "WI-FI";
@@ -125,6 +126,14 @@ static const char* vumeter_enabled_label() {
 
 static const char* rail_profile_label() {
     return config.store.usespectrum ? kStrValOscilloscope : kStrValFence;
+}
+
+static bool resume_on_startup_enabled() {
+    return config.store.smartstart != 2;
+}
+
+static const char* resume_on_startup_value_label() {
+    return resume_on_startup_enabled() ? kStrValOn : kStrValOff;
 }
 
 static const char* autodim_timeout_label(uint16_t sec) {
@@ -1020,8 +1029,17 @@ void LvglSettingsPage::create() {
         make_row_tappable(music_row, musicRowClickedEvt, this);
     }
 
-    _row_ai = add_category_row_unit(
-        _cont_content, YORA_SETTINGS_GLYPH_AI_LAYER, kStrAiLayer, kStrValOn, false, pal);
+    {
+        lv_obj_t* resume_row = create_row_unit(_cont_content, pal, kRowHeight);
+        _row_resume_startup = fill_category_row(
+            resume_row,
+            YORA_SETTINGS_GLYPH_RESUME_ON_STARTUP,
+            kStrResumeOnStartup,
+            resume_on_startup_value_label(),
+            false,
+            pal);
+        make_row_tappable(resume_row, resumeOnStartupRowClickedEvt, this);
+    }
 
     add_sleep_block_unit(_cont_content, _row_sleep, _row_sleep_sub, pal);
     make_row_tappable(_row_sleep.hit, sleepRowClickedEvt, this);
@@ -1106,6 +1124,9 @@ void LvglSettingsPage::_syncMainRowValues() {
 #endif
     if (_row_music.value) {
         lv_label_set_text(_row_music.value, vumeter_enabled_label());
+    }
+    if (_row_resume_startup.value) {
+        lv_label_set_text(_row_resume_startup.value, resume_on_startup_value_label());
     }
     if (_row_sleep.value) {
         lv_label_set_text(_row_sleep.value, sleep_timer_settings_value_label());
@@ -1503,6 +1524,26 @@ void LvglSettingsPage::musicProfileRowClickedEvt(lv_event_t* e) {
     self->_syncMusicRailValues();
 }
 
+void LvglSettingsPage::resumeOnStartupRowClickedEvt(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
+    if (!self) return;
+
+    // Match WebUI smartstart path (netserver.cpp) — boot reads store.smartstart on next boot.
+    // Совпадает с WebUI smartstart (netserver.cpp) — boot читает store.smartstart при следующем старте.
+    if (config.store.smartstart == 2) {
+        uint8_t ss = 1;
+        if (!player.isRunning()) {
+            ss = 0;
+        }
+        config.setSmartStart(ss);
+    } else {
+        config.setSmartStart(2);
+    }
+    notifyPageChainActivity("settings-resume-startup");
+    self->_syncMainRowValues();
+}
+
 void LvglSettingsPage::sleepRowClickedEvt(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
@@ -1720,7 +1761,7 @@ void LvglSettingsPage::_applyThemeColors() {
 
     apply_row(_row_display, false);
     apply_row(_row_music, false);
-    apply_row(_row_ai, false);
+    apply_row(_row_resume_startup, false);
     apply_row(_row_sleep, false);
     apply_row(_row_sleep_sub, true);
     apply_row(_row_wifi, false);
@@ -1830,7 +1871,7 @@ void LvglSettingsPage::_nullHandles() {
     _lbl_dim_level_value = nullptr;
     _row_display = {};
     _row_music = {};
-    _row_ai = {};
+    _row_resume_startup = {};
     _row_sleep = {};
     _row_sleep_sub = {};
     _row_wifi = {};
