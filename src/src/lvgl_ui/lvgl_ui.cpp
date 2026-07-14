@@ -125,9 +125,9 @@ static void carousel_gesture_event_cb(lv_event_t* e) {
 
     if (dir != LV_DIR_LEFT && dir != LV_DIR_RIGHT) return;
 
-    // 6.7S2a: Settings Display detail — no carousel navigation until Back.
-    // 6.7S2a: Display detail Settings — карусель не листается до Back.
-    if (isLvglCarouselOnSettingsSlot() && s_settings_page.isDisplayDetailActive()) return;
+    // 6.7S2a/6.7S6: Settings detail — no carousel navigation until Back.
+    // 6.7S2a/6.7S6: detail Settings — карусель не листается до Back.
+    if (isLvglCarouselOnSettingsSlot() && s_settings_page.isSettingsDetailBlockingCarousel()) return;
 
     s_page_chain.onActivity();
     map_horizontal_gesture_to_carousel(dir);

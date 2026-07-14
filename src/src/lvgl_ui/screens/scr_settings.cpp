@@ -42,6 +42,8 @@ static constexpr char kStrTheme[]           = "THEME";
 static constexpr char kStrAutoDim[]         = "AUTO DIM";
 static constexpr char kStrDimAfter[]        = "DIM AFTER";
 static constexpr char kStrDimLevel[]        = "DIM LEVEL";
+static constexpr char kStrPresenceRail[]    = "PRESENCE RAIL";
+static constexpr char kStrRailProfile[]   = "RAIL PROFILE";
 static constexpr char kStrValOn[]           = "ON";
 static constexpr char kStrValOff[]          = "OFF";
 static constexpr char kStrValStopRadio[]    = "STOP RADIO";
@@ -50,6 +52,8 @@ static constexpr char kStrValNotConnected[] = "NOT CONNECTED";
 static constexpr char kStrValDark[]         = "DARK";
 static constexpr char kStrValLight[]        = "LIGHT";
 static constexpr char kStrValCustom[]       = "CUSTOM";
+static constexpr char kStrValFence[]        = "FENCE";
+static constexpr char kStrValOscilloscope[] = "OSCILLOSCOPE";
 static constexpr char kStrFooterReturn[]    = "RETURN TO MAIN";
 
 static const void* const kFontSettingsIcon =
@@ -113,6 +117,14 @@ static void format_brightness_pct(char* buf, size_t cap, uint8_t pct) {
 
 static const char* autodim_enabled_label() {
     return config.store.autodim_enabled ? kStrValOn : kStrValOff;
+}
+
+static const char* vumeter_enabled_label() {
+    return config.store.vumeter ? kStrValOn : kStrValOff;
+}
+
+static const char* rail_profile_label() {
+    return config.store.usespectrum ? kStrValOscilloscope : kStrValFence;
 }
 
 static const char* autodim_timeout_label(uint16_t sec) {
@@ -476,14 +488,17 @@ static void make_row_tappable(lv_obj_t* row, lv_event_cb_t cb, LvglSettingsPage*
     lv_obj_add_event_cb(row, cb, LV_EVENT_CLICKED, owner);
 }
 
-static void create_display_header(
+static void create_detail_header(
     lv_obj_t*          parent,
+    const char*        title_text,
+    const char*        icon_glyph,
+    lv_event_cb_t      back_cb,
     lv_obj_t*&         out_back_hit,
     lv_obj_t*&         out_icon,
     lv_obj_t*&         out_title,
     LvglSettingsPage*  owner,
     const YoRadioPalette& pal) {
-    if (!parent || !owner) return;
+    if (!parent || !owner || !title_text || !icon_glyph || !back_cb) return;
 
     lv_obj_t* header = lv_obj_create(parent);
     if (!header) return;
@@ -503,7 +518,7 @@ static void create_display_header(
         lv_obj_set_flex_align(out_back_hit, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         style_transparent_flex(out_back_hit);
         lv_obj_add_flag(out_back_hit, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_event_cb(out_back_hit, LvglSettingsPage::displayBackClickedEvt, LV_EVENT_CLICKED, owner);
+        lv_obj_add_event_cb(out_back_hit, back_cb, LV_EVENT_CLICKED, owner);
 
         lv_obj_t* back_glyph = lv_label_create(out_back_hit);
         if (back_glyph) {
@@ -524,7 +539,7 @@ static void create_display_header(
 
         out_icon = lv_label_create(icon_col);
         if (out_icon) {
-            lv_label_set_text(out_icon, YORA_SETTINGS_GLYPH_DISPLAY);
+            lv_label_set_text(out_icon, icon_glyph);
             set_font_slot(out_icon, kFontSettingsIcon);
             lv_obj_set_style_text_color(out_icon, pal.text_secondary, LV_PART_MAIN);
         }
@@ -532,7 +547,7 @@ static void create_display_header(
 
     out_title = lv_label_create(header);
     if (out_title) {
-        lv_label_set_text(out_title, kStrDisplay);
+        lv_label_set_text(out_title, title_text);
         set_font_slot(out_title, kFontDisplayHeader);
         lv_obj_set_style_text_color(out_title, pal.text_primary, LV_PART_MAIN);
         lv_obj_set_flex_grow(out_title, 1);
@@ -623,8 +638,16 @@ bool LvglSettingsPage::_ensureDisplayView() {
     lv_obj_set_style_pad_row(_view_display, 0, LV_PART_MAIN);
     lv_obj_add_flag(_view_display, LV_OBJ_FLAG_HIDDEN);
 
-    create_display_header(
-        _view_display, _display_back_hit, _display_header_icon, _lbl_display_header, this, pal);
+    create_detail_header(
+        _view_display,
+        kStrDisplay,
+        YORA_SETTINGS_GLYPH_DISPLAY,
+        LvglSettingsPage::displayBackClickedEvt,
+        _display_back_hit,
+        _display_header_icon,
+        _lbl_display_header,
+        this,
+        pal);
 
     _cont_display_content = lv_obj_create(_view_display);
     if (_cont_display_content) {
@@ -848,6 +871,82 @@ bool LvglSettingsPage::_ensureDisplayView() {
     return true;
 }
 
+bool LvglSettingsPage::_ensureMusicRailView() {
+    if (_view_music) {
+        return true;
+    }
+    if (!_screen) {
+        return false;
+    }
+
+    const YoRadioPalette& pal = yoradio_palette();
+
+    _view_music = lv_obj_create(_screen);
+    if (!_view_music) {
+        return false;
+    }
+    lv_obj_set_width(_view_music, LV_PCT(100));
+    lv_obj_set_flex_grow(_view_music, 1);
+    lv_obj_set_flex_flow(_view_music, LV_FLEX_FLOW_COLUMN);
+    style_transparent_flex(_view_music);
+    lv_obj_set_style_pad_row(_view_music, 0, LV_PART_MAIN);
+    lv_obj_add_flag(_view_music, LV_OBJ_FLAG_HIDDEN);
+
+    create_detail_header(
+        _view_music,
+        kStrMusicRail,
+        YORA_SETTINGS_GLYPH_MUSIC_RAIL,
+        LvglSettingsPage::musicBackClickedEvt,
+        _music_back_hit,
+        _music_header_icon,
+        _lbl_music_header,
+        this,
+        pal);
+
+    _cont_music_content = lv_obj_create(_view_music);
+    if (_cont_music_content) {
+        lv_obj_set_width(_cont_music_content, LV_PCT(100));
+        lv_obj_set_flex_grow(_cont_music_content, 1);
+        lv_obj_set_flex_flow(_cont_music_content, LV_FLEX_FLOW_COLUMN);
+        style_transparent_flex(_cont_music_content);
+        lv_obj_set_style_pad_top(_cont_music_content, kContentTopInset, LV_PART_MAIN);
+        lv_obj_set_style_pad_row(_cont_music_content, 0, LV_PART_MAIN);
+
+        lv_obj_t* enabled_row = create_row_unit(_cont_music_content, pal, kRowHeight);
+        if (enabled_row) {
+            _row_rail_enabled.hit = enabled_row;
+            _row_rail_enabled.label = add_row_label(enabled_row, kStrPresenceRail, pal, false, true);
+            _row_rail_enabled.value = add_row_value(enabled_row, vumeter_enabled_label(), pal);
+            make_row_tappable(enabled_row, musicPresenceRailClickedEvt, this);
+        }
+
+        lv_obj_t* profile_row = create_row_unit(_cont_music_content, pal, kRowHeight);
+        if (profile_row) {
+            _row_rail_profile.hit = profile_row;
+            _row_rail_profile.label = add_row_label(profile_row, kStrRailProfile, pal, false, true);
+            _row_rail_profile.value = add_row_value(profile_row, rail_profile_label(), pal);
+            make_row_tappable(profile_row, musicProfileRowClickedEvt, this);
+        }
+    }
+
+    block_gesture_bubble_deep(_view_music);
+    _applyMusicRailProfileRowTreatment(pal);
+    return true;
+}
+
+void LvglSettingsPage::_destroyMusicRailView() {
+    if (_view_music) {
+        lv_obj_del(_view_music);
+    }
+    _view_music = nullptr;
+    _music_back_hit = nullptr;
+    _music_header_icon = nullptr;
+    _lbl_music_header = nullptr;
+    _cont_music_content = nullptr;
+    _row_rail_enabled = {};
+    _row_rail_profile = {};
+}
+
 void LvglSettingsPage::create() {
     if (_screen) return;
 
@@ -909,8 +1008,17 @@ void LvglSettingsPage::create() {
         make_row_tappable(display_row, displayRowClickedEvt, this);
     }
 
-    _row_music = add_category_row_unit(
-        _cont_content, YORA_SETTINGS_GLYPH_MUSIC_RAIL, kStrMusicRail, kStrValOn, false, pal);
+    {
+        lv_obj_t* music_row = create_row_unit(_cont_content, pal, kRowHeight);
+        _row_music = fill_category_row(
+            music_row,
+            YORA_SETTINGS_GLYPH_MUSIC_RAIL,
+            kStrMusicRail,
+            vumeter_enabled_label(),
+            true,
+            pal);
+        make_row_tappable(music_row, musicRowClickedEvt, this);
+    }
 
     _row_ai = add_category_row_unit(
         _cont_content, YORA_SETTINGS_GLYPH_AI_LAYER, kStrAiLayer, kStrValOn, false, pal);
@@ -946,12 +1054,15 @@ void LvglSettingsPage::update() {
     wgt_status_line::update(_status_line);
     if (_view == SettingsView::Main) {
         _syncMainRowValues();
+    } else if (_view == SettingsView::MusicRail && _view_music) {
+        _syncMusicRailValues();
     }
 }
 
 void LvglSettingsPage::exit() {
     _brightness_drag_active = false;
     _dim_level_drag_active = false;
+    _destroyMusicRailView();
     _view = SettingsView::Main;
     _hideSleepDeviceWarning();
 }
@@ -966,11 +1077,22 @@ void LvglSettingsPage::_showView(SettingsView view) {
             lv_obj_add_flag(_view_display, LV_OBJ_FLAG_HIDDEN);
         }
         _syncMainRowValues();
-    } else {
+    } else if (view == SettingsView::Display) {
         if (!_view_display) return;
         lv_obj_add_flag(_view_main, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(_view_display, LV_OBJ_FLAG_HIDDEN);
+        if (_view_music) {
+            lv_obj_add_flag(_view_music, LV_OBJ_FLAG_HIDDEN);
+        }
         _syncDisplayValues();
+    } else if (view == SettingsView::MusicRail) {
+        if (!_view_music) return;
+        lv_obj_add_flag(_view_main, LV_OBJ_FLAG_HIDDEN);
+        if (_view_display) {
+            lv_obj_add_flag(_view_display, LV_OBJ_FLAG_HIDDEN);
+        }
+        lv_obj_clear_flag(_view_music, LV_OBJ_FLAG_HIDDEN);
+        _syncMusicRailValues();
     }
 }
 
@@ -982,6 +1104,9 @@ void LvglSettingsPage::_syncMainRowValues() {
         lv_label_set_text(_row_display.value, buf);
     }
 #endif
+    if (_row_music.value) {
+        lv_label_set_text(_row_music.value, vumeter_enabled_label());
+    }
     if (_row_sleep.value) {
         lv_label_set_text(_row_sleep.value, sleep_timer_settings_value_label());
     }
@@ -1026,6 +1151,34 @@ void LvglSettingsPage::_syncDisplayValues() {
         _syncDimLevelSliderRange(true);
     }
     _applyAutodimRowTreatment(yoradio_palette());
+}
+
+void LvglSettingsPage::_syncMusicRailValues() {
+    if (_row_rail_enabled.value) {
+        lv_label_set_text(_row_rail_enabled.value, vumeter_enabled_label());
+    }
+    if (_row_rail_profile.value) {
+        lv_label_set_text(_row_rail_profile.value, rail_profile_label());
+    }
+    _applyMusicRailProfileRowTreatment(yoradio_palette());
+}
+
+void LvglSettingsPage::_applyMusicRailProfileRowTreatment(const YoRadioPalette& pal) {
+    if (!_row_rail_profile.hit) return;
+
+    const bool disabled = !config.store.vumeter;
+    if (_row_rail_profile.label) {
+        lv_obj_set_style_text_color(
+            _row_rail_profile.label, disabled ? pal.text_meta : pal.text_primary, LV_PART_MAIN);
+    }
+    if (_row_rail_profile.value) {
+        lv_obj_set_style_text_color(_row_rail_profile.value, pal.text_meta, LV_PART_MAIN);
+    }
+    if (disabled) {
+        lv_obj_clear_flag(_row_rail_profile.hit, LV_OBJ_FLAG_CLICKABLE);
+    } else {
+        lv_obj_add_flag(_row_rail_profile.hit, LV_OBJ_FLAG_CLICKABLE);
+    }
 }
 
 void LvglSettingsPage::_updateBrightnessLabels(uint8_t pct) {
@@ -1304,6 +1457,52 @@ void LvglSettingsPage::displayBackClickedEvt(lv_event_t* e) {
     self->_showView(SettingsView::Main);
 }
 
+void LvglSettingsPage::musicRowClickedEvt(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
+    if (!self) return;
+
+    notifyPageChainActivity("settings-music-rail");
+    if (!self->_ensureMusicRailView()) {
+        return;
+    }
+    self->_showView(SettingsView::MusicRail);
+}
+
+void LvglSettingsPage::musicBackClickedEvt(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
+    if (!self) return;
+    // 6.7S6: destroy Music detail on Back — do not accumulate lazy trees in LVGL pool.
+    // 6.7S6: уничтожаем Music detail на Back — не копим lazy-деревья в LVGL pool.
+    self->_destroyMusicRailView();
+    self->_showView(SettingsView::Main);
+}
+
+void LvglSettingsPage::musicPresenceRailClickedEvt(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
+    if (!self) return;
+
+    const bool new_value = !config.store.vumeter;
+    config.saveValue(&config.store.vumeter, new_value);
+    notifyPageChainActivity("settings-rail-enabled");
+    self->_syncMusicRailValues();
+    self->_syncMainRowValues();
+}
+
+void LvglSettingsPage::musicProfileRowClickedEvt(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
+    if (!self) return;
+    if (!config.store.vumeter) return;
+
+    const bool new_value = !config.store.usespectrum;
+    config.saveValue(&config.store.usespectrum, new_value);
+    notifyPageChainActivity("settings-rail-profile");
+    self->_syncMusicRailValues();
+}
+
 void LvglSettingsPage::sleepRowClickedEvt(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
@@ -1542,6 +1741,26 @@ void LvglSettingsPage::_applyThemeColors() {
             lv_obj_set_style_text_color(back_glyph, pal.text_meta, LV_PART_MAIN);
         }
     }
+    if (_view_music) {
+        apply_row(_row_rail_enabled, false);
+        apply_row(_row_rail_profile, false);
+        _applyMusicRailProfileRowTreatment(pal);
+        if (_music_header_icon) {
+            lv_obj_set_style_text_color(_music_header_icon, pal.text_secondary, LV_PART_MAIN);
+        }
+        if (_lbl_music_header) {
+            lv_obj_set_style_text_color(_lbl_music_header, pal.text_primary, LV_PART_MAIN);
+        }
+        if (_music_back_hit) {
+            lv_obj_t* back_glyph = lv_obj_get_child(_music_back_hit, 0);
+            if (back_glyph) {
+                lv_obj_set_style_text_color(back_glyph, pal.text_meta, LV_PART_MAIN);
+            }
+        }
+        if (_cont_music_content) {
+            reapply_dividers_in(_cont_music_content, pal);
+        }
+    }
     if (_lbl_brightness_title) {
         lv_obj_set_style_text_color(_lbl_brightness_title, pal.text_primary, LV_PART_MAIN);
     }
@@ -1591,6 +1810,13 @@ void LvglSettingsPage::_nullHandles() {
     _cont_content = nullptr;
     _footer_area = nullptr;
     _lbl_footer = nullptr;
+    _view_music = nullptr;
+    _music_back_hit = nullptr;
+    _music_header_icon = nullptr;
+    _lbl_music_header = nullptr;
+    _cont_music_content = nullptr;
+    _row_rail_enabled = {};
+    _row_rail_profile = {};
     _view_display = nullptr;
     _display_back_hit = nullptr;
     _display_header_icon = nullptr;

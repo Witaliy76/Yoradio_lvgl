@@ -12,6 +12,9 @@ namespace lvgl_ui {
 enum class SettingsView : uint8_t {
     Main,
     Display,
+    // 6.7S6: Music Rail detail — lazy, destroy-on-Back (unlike Display MEM1).
+    // 6.7S6: Music Rail detail — lazy, destroy-on-Back (в отличие от Display MEM1).
+    MusicRail,
 };
 
 // Settings carousel page: main category rows + optional detail views (Display first).
@@ -51,26 +54,41 @@ public:
     static void dimAfterRowClickedEvt(lv_event_t* e);
     static void dimLevelSliderEvt(lv_event_t* e);
     static void wifiRowClickedEvt(lv_event_t* e);
+    static void musicRowClickedEvt(lv_event_t* e);
+    static void musicBackClickedEvt(lv_event_t* e);
+    static void musicPresenceRailClickedEvt(lv_event_t* e);
+    static void musicProfileRowClickedEvt(lv_event_t* e);
 
     // 6.7S2a: Display detail blocks PageChain horizontal swipe on Settings slot.
     // 6.7S2a: Display detail блокирует горизонтальный swipe карусели.
     bool isDisplayDetailActive() const { return _view == SettingsView::Display; }
+    // 6.7S6: any Settings detail view blocks carousel swipe until Back.
+    // 6.7S6: любой detail Settings блокирует swipe карусели до Back.
+    bool isSettingsDetailBlockingCarousel() const {
+        return _view == SettingsView::Display || _view == SettingsView::MusicRail;
+    }
 
 private:
     // 6.7S-MEM1: Display detail tree — lazy once per Settings lifecycle.
     // 6.7S-MEM1: дерево Display detail — лениво один раз за lifecycle Settings.
     bool _ensureDisplayView();
+    // 6.7S6: Music Rail detail — lazy per visit, destroyed on Back.
+    // 6.7S6: Music Rail detail — lazy при входе, уничтожается на Back.
+    bool _ensureMusicRailView();
+    void _destroyMusicRailView();
     void _nullHandles();
     void _applyThemeColors();
     void _showView(SettingsView view);
     void _syncMainRowValues();
     void _syncDisplayValues();
+    void _syncMusicRailValues();
     void _updateBrightnessLabels(uint8_t pct);
     void _updateDimLevelLabels(uint8_t pct);
     void _syncDimLevelSliderRange(bool persist_clamp);
     uint8_t _normalBrightnessForDimUi() const;
     void _applySliderTheme(const YoRadioPalette& pal);
     void _applyAutodimRowTreatment(const YoRadioPalette& pal);
+    void _applyMusicRailProfileRowTreatment(const YoRadioPalette& pal);
     void _showSleepDeviceWarning();
     void _hideSleepDeviceWarning();
     void _applySleepDeviceOverlayTheme(const YoRadioPalette& pal);
@@ -85,6 +103,13 @@ private:
     lv_obj_t* _cont_content     = nullptr;
     lv_obj_t* _footer_area      = nullptr;
     lv_obj_t* _lbl_footer       = nullptr;
+    lv_obj_t* _view_music       = nullptr;
+    lv_obj_t* _music_back_hit   = nullptr;
+    lv_obj_t* _music_header_icon = nullptr;
+    lv_obj_t* _lbl_music_header  = nullptr;
+    lv_obj_t* _cont_music_content = nullptr;
+    RowChrome   _row_rail_enabled{};
+    RowChrome   _row_rail_profile{};
     lv_obj_t* _view_display     = nullptr;
     lv_obj_t* _display_back_hit = nullptr;
     lv_obj_t* _display_header_icon = nullptr;
