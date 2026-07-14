@@ -155,9 +155,9 @@ void autodim_loop() {
 
     const uint8_t normal = config.store.brightness;
     const uint8_t effective = autodim_effective_level();
-    // Settled no-op when dim would not darken (e.g. both 1%) / settled без PWM.
+    // No-op when dim would not darken (e.g. brightness 1%) — do not latch s_dimmed.
+    // Без затемнения (напр. 1%) — не ставим s_dimmed, иначе loop заблокируется.
     if (effective >= normal) {
-        s_dimmed = true;
         return;
     }
 
