@@ -197,6 +197,17 @@ bool isWifiSetupFlowActive();
 void notifyWifiRecoveryEnteredFromBootFailure();
 bool consumeWifiRecoveryEnteredFromBootFailure();
 
+// 6.7S5A-v4: request deferred one-way Settings→Wi-Fi service transition (DspTask only).
+// Deferred via lv_async_call — safe to call from LVGL event dispatch.
+// Guard: no-op if transition already pending. Not reboot-persistent.
+// Запрос отложенного одностороннего перехода Settings→Wi-Fi; безопасен из LVGL event dispatch.
+void requestSettingsWifiServiceEntry();
+// Consume settings-service context for LvglWifiFlowScreen::enter().
+// Returns true once if entered via requestSettingsWifiServiceEntry().
+// Back→ESP.restart() only when this returns true.
+// Consumed в LvglWifiFlowScreen::enter(); Back→ESP.restart() только при true.
+bool consumeWifiEnteredFromSettingsService();
+
 // S6V8A: runtime disconnect LOST → Recovery escalation (60 s timeout; Display-owned timer).
 // S6V8A: эскалация runtime LOST → Recovery (60 с таймер; владелец — Display).
 void notifyWifiRecoveryEnteredFromRuntimeDisconnect();

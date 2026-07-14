@@ -724,6 +724,27 @@ static bool s_wifi_recovery_enter_from_boot_failure       = false;
 // S6V8A: runtime disconnect escalation context flag (one-shot, consumed in enter()).
 // S6V8A: флаг runtime-контекста эскалации (одноразовый, consumable в enter()).
 static bool s_wifi_recovery_enter_from_runtime_disconnect = false;
+
+// 6.7S5A-v4: one-way Settings→Wi-Fi service transition flags.
+// pending: set by requestSettingsWifiServiceEntry(), cleared in async callback (not reboot-persistent).
+// context: set before showWifiServiceOneWay(), consumed in LvglWifiFlowScreen::enter().
+// Флаги одностороннего сервисного перехода из Settings (не persistent через reboot).
+static bool s_wifi_settings_service_pending = false;
+static bool s_wifi_settings_service_context = false;
+
+// 6.7S5A-v4: deferred handoff callback — executes at start of next lv_timer_handler(),
+// outside any LVGL event dispatch. Safe to call lv_obj_del() on origin screen here.
+// Отложенный handoff: выполняется в начале следующего lv_timer_handler(), вне event dispatch.
+static void settings_wifi_service_async_cb(void* /*data*/) {
+    if (!s_wifi_settings_service_pending) return;
+    s_wifi_settings_service_pending = false;
+    // Set context BEFORE showWifiServiceOneWay() so enter() can consume it.
+    // Context ДО showWifiServiceOneWay(), чтобы enter() его consumeил.
+    s_wifi_settings_service_context = true;
+    overlayHideAll();
+    ensurePageChainRegistered();
+    s_page_chain.showWifiServiceOneWay(&s_wifi_flow_screen);
+}
 } // namespace
 
 void lvgl_ui::notifyWifiRecoveryEnteredFromBootFailure() {
@@ -745,6 +766,25 @@ void lvgl_ui::notifyWifiRecoveryEnteredFromRuntimeDisconnect() {
 bool lvgl_ui::consumeWifiRecoveryEnteredFromRuntimeDisconnect() {
     if (!s_wifi_recovery_enter_from_runtime_disconnect) return false;
     s_wifi_recovery_enter_from_runtime_disconnect = false;
+    return true;
+}
+
+// 6.7S5A-v4: deferred one-way Settings→Wi-Fi service entry.
+// Guard: no-op (lv_async_call not queued again) if transition already pending.
+// Отложенный односторонний переход Settings→Wi-Fi; lv_async_call не ставится дважды.
+void lvgl_ui::requestSettingsWifiServiceEntry() {
+    if (s_wifi_settings_service_pending) return;
+    // Queue deferred handoff first; arm pending only when lv_async_call succeeds.
+    // Сначала ставим deferred handoff; pending только при успешном lv_async_call.
+    if (lv_async_call(settings_wifi_service_async_cb, nullptr) != LV_RES_OK) {
+        return;
+    }
+    s_wifi_settings_service_pending = true;
+}
+
+bool lvgl_ui::consumeWifiEnteredFromSettingsService() {
+    if (!s_wifi_settings_service_context) return false;
+    s_wifi_settings_service_context = false;
     return true;
 }
 

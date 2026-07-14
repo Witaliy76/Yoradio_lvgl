@@ -212,6 +212,10 @@ private:
     // S6V8A: entered from runtime disconnect escalation (Back visible; subtitle differs from manual).
     // S6V8A: вход через runtime disconnect escalation (Back виден; подзаголовок отличается от manual).
     bool        _entered_from_runtime_disconnect = false;
+    // 6.7S5A-v4: entered via one-way Settings service mode (Back→ESP.restart(), no return to carousel).
+    // Not reboot-persistent. Back handler calls ESP.restart() directly without dismissRebootRequired().
+    // 6.7S5A-v4: вход через односторонний Settings service mode (Back→ESP.restart(), без возврата в карусель).
+    bool        _entered_from_settings_service = false;
     // S6V7A/S6V9B: Recovery Home idle → Hotspot panel after WIFI_RECOVERY_IDLE_TO_AP_TIMEOUT_MS.
     // S6V9B: arms on any Recovery Home idle / армируется на любом простое Home.
     bool        _boot_idle_armed         = false;

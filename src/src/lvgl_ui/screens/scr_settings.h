@@ -50,6 +50,7 @@ public:
     static void autodimRowClickedEvt(lv_event_t* e);
     static void dimAfterRowClickedEvt(lv_event_t* e);
     static void dimLevelSliderEvt(lv_event_t* e);
+    static void wifiRowClickedEvt(lv_event_t* e);
 
     // 6.7S2a: Display detail blocks PageChain horizontal swipe on Settings slot.
     // 6.7S2a: Display detail блокирует горизонтальный swipe карусели.

@@ -423,6 +423,61 @@ void PageChain::dismissRebootRequired() {
     _special = SpecialMode::None;
 }
 
+void PageChain::showWifiServiceOneWay(ILvglScreen* scr) {
+    if (!scr) return;
+    // Not gated by navigationBlocked() — forced one-way exit from any carousel state.
+    // Не проверяем navigationBlocked() — принудительный односторонний выход из любого состояния карусели.
+
+    ILvglScreen* cur = (_currentIndex >= 0 && _currentIndex < PAGE_COUNT)
+                       ? _pages[_currentIndex] : nullptr;
+
+    // Phase 1: destroy origin carousel page via blank intermediary so LVGL always
+    // has a valid active screen while the old object tree is freed.
+    // Фаза 1: удалить origin carousel через blank intermediary — LVGL требует действующий
+    // active screen во время удаления старого дерева объектов.
+    lv_obj_t* blank = nullptr;
+    if (cur && cur->screen()) {
+        cur->exit();
+        // Minimal blank: no widgets, no callbacks — purely a technical active-screen placeholder.
+        // Minimal blank: без виджетов и callback'ов — технический placeholder для active screen.
+        blank = lv_obj_create(nullptr);
+        if (!blank) {
+            // Cannot swap active screen safely — controlled reboot into normal Main boot.
+            // Нельзя безопасно сменить active screen — контролируемый reboot в Main boot.
+            ESP.restart();
+            return;
+        }
+        lv_scr_load(blank);     // blank is now lv_scr_act()
+        cur->destroy();         // LVGL tree freed; pool reclaimed. cur->screen() → nullptr
+    }
+
+    // Phase 2: set PageChain state BEFORE create/enter (mirrors showRebootRequired ordering).
+    // Фаза 2: PageChain state ДО create/enter (порядок как в showRebootRequired).
+    _currentIndex = -1;
+    _rebootScreen = scr;
+    _special = SpecialMode::RebootRequired;
+
+    // Phase 3: create service screen on freed pool, then synchronously auto-delete blank.
+    // Фаза 3: создать service screen на освобождённом пуле, затем синхронно auto-delete blank.
+    scr->create();
+    lv_obj_t* svc_scr = scr->screen();
+
+    if (svc_scr) {
+        if (blank) {
+            // auto_del=true + ANIM_NONE/0/0: LVGL synchronously loads svc_scr and deletes blank.
+            // auto_del=true + ANIM_NONE/0/0: LVGL синхронно загружает svc_scr и удаляет blank.
+            loadScreenAnimAutoDel(svc_scr, LV_SCR_LOAD_ANIM_NONE, 0);
+        } else {
+            lv_scr_load(svc_scr);
+        }
+        scr->enter();
+    } else {
+        // create() failed — OOM even on freed pool; controlled reboot into normal Main boot.
+        // create() провалился — OOM даже на освобождённом пуле; контролируемый reboot в Main boot.
+        ESP.restart();
+    }
+}
+
 int PageChain::currentIndex() const {
     return _currentIndex;
 }

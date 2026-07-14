@@ -62,6 +62,12 @@ public:
     // Wi-Fi 3A+: выход из RebootRequired, возврат карусели на Main.
     void dismissRebootRequired();
 
+    // 6.7S5A-v4: one-way service mode — destroy active carousel page, open scr on freed LVGL pool.
+    // No origin preserved; no return path. Only for Settings→Wi-Fi service entry.
+    // Односторонний сервисный режим: уничтожить active carousel page, открыть scr на освобождённом пуле.
+    // Origin не сохраняется; return path отсутствует. Только для перехода Settings→Wi-Fi service.
+    void showWifiServiceOneWay(ILvglScreen* scr);
+
     // Wi‑Fi 4C: RebootRequired shell is active for this screen pointer (LVGL Wi‑Fi flow only today).
     // Wi‑Fi 4C: активен полноэкранный RebootRequired для данного экрана (сейчас только Wi‑Fi).
     bool isRebootRequiredActiveFor(const ILvglScreen* scr) const;

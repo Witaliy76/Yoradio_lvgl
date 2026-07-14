@@ -12,6 +12,7 @@
 
 #include <stdio.h>
 
+#include <WiFi.h>
 #include "lvgl.h"
 
 #include "../../core/config.h"
@@ -925,6 +926,7 @@ void LvglSettingsPage::create() {
         kStrValNotConnected,
         true,
         pal);
+    make_row_tappable(_row_wifi.hit, wifiRowClickedEvt, this);
 
     create_footer(_view_main, _footer_area, _lbl_footer, this, pal);
 
@@ -985,6 +987,18 @@ void LvglSettingsPage::_syncMainRowValues() {
     }
     if (_row_sleep_sub.value) {
         lv_label_set_text(_row_sleep_sub.value, sleep_timer_action_value_label());
+    }
+    if (_row_wifi.value) {
+        if (WiFi.status() == WL_CONNECTED) {
+            const String ssid = WiFi.SSID();
+            if (ssid.length() > 0) {
+                lv_label_set_text(_row_wifi.value, ssid.c_str());
+            } else {
+                lv_label_set_text(_row_wifi.value, kStrValNotConnected);
+            }
+        } else {
+            lv_label_set_text(_row_wifi.value, kStrValNotConnected);
+        }
     }
 }
 
@@ -1258,6 +1272,15 @@ void LvglSettingsPage::footerClickedEvt(lv_event_t* e) {
     if (!self || !self->_footer_area) return;
     if (lv_event_get_target(e) != self->_footer_area) return;
     goToCarouselPage(PageChain::MAIN_INDEX);
+}
+
+void LvglSettingsPage::wifiRowClickedEvt(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    notifyPageChainActivity("settings-wifi");
+    // Phase A: request only — deferred via lv_async_call; do NOT touch origin tree here.
+    // Фаза A: только запрос — deferred через lv_async_call; origin tree здесь не трогать.
+    Serial.println("[SETTINGS_WIFI] request");
+    requestSettingsWifiServiceEntry();
 }
 
 void LvglSettingsPage::displayRowClickedEvt(lv_event_t* e) {

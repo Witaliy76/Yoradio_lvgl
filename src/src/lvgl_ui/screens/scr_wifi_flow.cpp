@@ -2280,11 +2280,16 @@ void LvglWifiFlowScreen::enter() {
     _selectedSavedSlot      = 255;
     memset(_selectedSavedSsid, 0, sizeof(_selectedSavedSsid));
 
-    // Phase 2: consume entry context (boot-failure vs runtime-disconnect vs manual).
+    // Phase 2: consume entry context (boot-failure vs runtime-disconnect vs settings-service vs manual).
+    // Contexts are mutually exclusive: at most one is true per enter().
+    // Контексты взаимно исключают друг друга: не более одного true за enter().
     _entered_from_boot_failure         = lvgl_ui::consumeWifiRecoveryEnteredFromBootFailure();
     // S6V8A: consume runtime disconnect entry context — mutually exclusive with boot-fail. / Контекст runtime эскалации.
     // If neither flag is set (e.g. manual entry via InvertDisplay), both remain false. / Если ни один флаг — оба false.
     _entered_from_runtime_disconnect   = lvgl_ui::consumeWifiRecoveryEnteredFromRuntimeDisconnect();
+    // 6.7S5A-v4: consume settings-service context — Back→ESP.restart(), no return to carousel.
+    // 6.7S5A-v4: consume settings-service context — Back→ESP.restart(), без возврата в карусель.
+    _entered_from_settings_service     = lvgl_ui::consumeWifiEnteredFromSettingsService();
     // S6V9C: in LVGL path boot-fail no longer raises AP immediately; AP starts only on Hotspot page.
     // S6V9C: в LVGL path AP при boot-fail больше не поднимается; лог только если AP всё же активен (non-LVGL fallback).
     if (_entered_from_boot_failure && network.status == SOFT_AP) {
@@ -2311,6 +2316,7 @@ void LvglWifiFlowScreen::exit() {
     disarm_boot_idle_timer();
     clear_password_panel_state();
     _entered_from_boot_failure = false;
+    _entered_from_settings_service = false;
     sync_home_boot_failure_ui();
 
     // Phase 2: timer release / освобождение таймеров.
@@ -2593,6 +2599,17 @@ void LvglWifiFlowScreen::on_btn_back_home(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     LvglWifiFlowScreen* self = wifi_flow_self_from_event(e);
     if (!self || self->_entered_from_boot_failure) return;
+
+    // 6.7S5A-v4: Settings service mode — no return to carousel; reboot into normal Main boot.
+    // Does not call dismissRebootRequired() or dismissWifiFlowReturnToPlayer().
+    // 6.7S5A-v4: сервисный режим Settings — нет возврата в карусель; reboot в нормальный Main boot.
+    // Не вызывает dismissRebootRequired() и dismissWifiFlowReturnToPlayer().
+    if (self->_entered_from_settings_service) {
+        Serial.println("[SETTINGS_WIFI] back-reboot");
+        ESP.restart();
+        return;
+    }
+
     lvgl_ui::dismissWifiFlowReturnToPlayer();
 }
 
