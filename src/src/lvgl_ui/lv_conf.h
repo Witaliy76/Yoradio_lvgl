@@ -30,11 +30,26 @@
 
 #define LV_MEM_CUSTOM 0
 #if LV_MEM_CUSTOM == 0
-    #define LV_MEM_SIZE (48U * 1024U)
+    /* Compile-time logical TLSF pool size in KiB (default 48). Experiment may set 64 via build flag.
+     * Логический размер TLSF pool в KiB (по умолчанию 48). Эксперимент может задать 64 через build flag. */
+    #ifndef YORADIO_LVGL_POOL_SIZE_KIB
+        #define YORADIO_LVGL_POOL_SIZE_KIB 48U
+    #endif
+    #define LV_MEM_SIZE (YORADIO_LVGL_POOL_SIZE_KIB * 1024U)
     #define LV_MEM_ADR 0
+    /* Compile-time pool placement: 0=static DRAM work_mem_int, 1=PSRAM via project wrapper.
+     * Размещение pool: 0=static DRAM work_mem_int, 1=PSRAM через project wrapper. */
+    #ifndef YORADIO_LVGL_POOL_IN_PSRAM
+        #define YORADIO_LVGL_POOL_IN_PSRAM 0
+    #endif
     #if LV_MEM_ADR == 0
-        #undef LV_MEM_POOL_INCLUDE
-        #undef LV_MEM_POOL_ALLOC
+        #if YORADIO_LVGL_POOL_IN_PSRAM
+            #define LV_MEM_POOL_INCLUDE "lv_mem_pool_psram.h"
+            #define LV_MEM_POOL_ALLOC(size) yoradio_lvgl_pool_alloc(size)
+        #else
+            #undef LV_MEM_POOL_INCLUDE
+            #undef LV_MEM_POOL_ALLOC
+        #endif
     #endif
 #else
     #define LV_MEM_CUSTOM_INCLUDE <stdlib.h>

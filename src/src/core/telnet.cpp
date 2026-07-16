@@ -490,7 +490,9 @@ void Telnet::on_input(const char* str, uint8_t clientId) {
 #ifndef DUMMYDISPLAY
   // Block 8-E1: one-shot display topology / memory snapshot (no periodic logging).
   // Block 8-E1: однократный снимок дисплея / памяти (без периодических логов).
-  if (strcmp(str, "diag display") == 0 || strcmp(str, "displaydiag") == 0) {
+  // Short alias "dd" for interactive telnet (same handler as diag display).
+  // Короткий алиас "dd" для интерактивного telnet (тот же handler, что diag display).
+  if (strcmp(str, "diag display") == 0 || strcmp(str, "displaydiag") == 0 || strcmp(str, "dd") == 0) {
     static char s_diag_display_buf[1024];
     const size_t n = display.diagSnapshot(s_diag_display_buf, sizeof(s_diag_display_buf));
     printf(clientId, "##DIAG.DISPLAY#\n");
