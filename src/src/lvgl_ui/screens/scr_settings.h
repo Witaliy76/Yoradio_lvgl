@@ -2,10 +2,13 @@
 #define SCR_SETTINGS_H
 
 #include "../lv_screen.h"
-#include "../theme/lv_theme_yoradio.h"
 #include "../widgets/wgt_status_line.h"
 
 namespace lvgl_ui {
+
+// SETTINGSREF-A: forward declaration — builders take const YoRadioPalette& without theme .h here.
+// SETTINGSREF-A: forward-декларация — билдеры принимают palette без include темы в .h.
+struct YoRadioPalette;
 
 // In-page views inside Settings carousel slot — no extra PageChain page.
 // Представления внутри слота Settings — без новой страницы карусели.
@@ -40,26 +43,6 @@ public:
     void liveReapplyTheme() override;
     void releaseAfterAutoDelete() override;
 
-    static void footerClickedEvt(lv_event_t* e);
-    static void displayRowClickedEvt(lv_event_t* e);
-    static void displayBackClickedEvt(lv_event_t* e);
-    static void sleepRowClickedEvt(lv_event_t* e);
-    static void sleepActionRowClickedEvt(lv_event_t* e);
-    static void sleepDeviceOverlayCancelEvt(lv_event_t* e);
-    static void sleepDeviceOverlayConfirmEvt(lv_event_t* e);
-    static void sleepDeviceOverlayBlockGestureEvt(lv_event_t* e);
-    static void themeRowClickedEvt(lv_event_t* e);
-    static void brightnessSliderEvt(lv_event_t* e);
-    static void autodimRowClickedEvt(lv_event_t* e);
-    static void dimAfterRowClickedEvt(lv_event_t* e);
-    static void dimLevelSliderEvt(lv_event_t* e);
-    static void wifiRowClickedEvt(lv_event_t* e);
-    static void musicRowClickedEvt(lv_event_t* e);
-    static void musicBackClickedEvt(lv_event_t* e);
-    static void musicPresenceRailClickedEvt(lv_event_t* e);
-    static void musicProfileRowClickedEvt(lv_event_t* e);
-    static void resumeOnStartupRowClickedEvt(lv_event_t* e);
-
     // 6.7S2a: Display detail blocks PageChain horizontal swipe on Settings slot.
     // 6.7S2a: Display detail блокирует горизонтальный swipe карусели.
     bool isDisplayDetailActive() const { return _view == SettingsView::Display; }
@@ -70,6 +53,13 @@ public:
     }
 
 private:
+    // SETTINGSREF-A: private static layout builders — create() stays orchestration only.
+    // SETTINGSREF-A: private static билдеры — create() только оркестрация.
+    static bool create_main_structure(LvglSettingsPage& self, const YoRadioPalette& pal);
+    static void populate_main_rows(LvglSettingsPage& self, const YoRadioPalette& pal);
+    static void build_display_detail(LvglSettingsPage& self, const YoRadioPalette& pal);
+    static void build_music_rail_detail(LvglSettingsPage& self, const YoRadioPalette& pal);
+
     // 6.7S-MEM1: Display detail tree — lazy once per Settings lifecycle.
     // 6.7S-MEM1: дерево Display detail — лениво один раз за lifecycle Settings.
     bool _ensureDisplayView();
@@ -93,6 +83,26 @@ private:
     void _showSleepDeviceWarning();
     void _hideSleepDeviceWarning();
     void _applySleepDeviceOverlayTheme(const YoRadioPalette& pal);
+
+    static void footerClickedEvt(lv_event_t* e);
+    static void displayRowClickedEvt(lv_event_t* e);
+    static void displayBackClickedEvt(lv_event_t* e);
+    static void sleepRowClickedEvt(lv_event_t* e);
+    static void sleepActionRowClickedEvt(lv_event_t* e);
+    static void sleepDeviceOverlayCancelEvt(lv_event_t* e);
+    static void sleepDeviceOverlayConfirmEvt(lv_event_t* e);
+    static void sleepDeviceOverlayBlockGestureEvt(lv_event_t* e);
+    static void themeRowClickedEvt(lv_event_t* e);
+    static void brightnessSliderEvt(lv_event_t* e);
+    static void autodimRowClickedEvt(lv_event_t* e);
+    static void dimAfterRowClickedEvt(lv_event_t* e);
+    static void dimLevelSliderEvt(lv_event_t* e);
+    static void wifiRowClickedEvt(lv_event_t* e);
+    static void musicRowClickedEvt(lv_event_t* e);
+    static void musicBackClickedEvt(lv_event_t* e);
+    static void musicPresenceRailClickedEvt(lv_event_t* e);
+    static void musicProfileRowClickedEvt(lv_event_t* e);
+    static void resumeOnStartupRowClickedEvt(lv_event_t* e);
 
     SettingsView _view = SettingsView::Main;
     bool         _brightness_drag_active = false;
