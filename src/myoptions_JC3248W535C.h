@@ -59,7 +59,6 @@
    GENERAL SETTINGS
    =============================================== */
 #define PLAYER_FORCE_MONO true               // Mono mode (enabled)
-#define L10N_LANGUAGE RU                     // Interface language (Russian)
 #define CLOCKFONT_MONO    true               // Monospace font for clock
 #define RSSI_DIGIT        true               // Display RSSI as digits instead of icon
 // Block 8.1F-B: config.store.vumeter / usespectrum kept for future LVGL widgets (WebUI toggles).

@@ -100,7 +100,6 @@
    GENERAL SETTINGS
    =============================================== */
 #define PLAYER_FORCE_MONO true           // Mono mode (disabled)
-#define L10N_LANGUAGE RU                  // Interface language (Russian)
 // Block 8.1F-B: config.store.vumeter / usespectrum kept for future LVGL widgets (WebUI toggles).
 // Block 8.1F-B: config.store.vumeter / usespectrum — будущие LVGL-виджеты (переключатели WebUI).
 #define EXT_WEATHER       false           // Extended weather (network.cpp)

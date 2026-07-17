@@ -9,6 +9,8 @@ ALL YOUR SETTINGS WILL BE OVERWRITTEN DURING THE UPDATE.
 STORE YOUR SETTINGS IN THE *** myoptions.h *** FILE.
 ********************************************************/
 
+#include "../i18n/language_codes.h"
+
 #if __has_include("../../myoptions.h")
   #include "../../myoptions.h"        /* <- write your variable values here */
 #endif
@@ -361,10 +363,11 @@ The connection tables are located here https://github.com/e2002/yoradio#connecti
   #define IR_TIMEOUT            80        // kTimeout, see IRremoteESP8266 documentation
 #endif
 
-#define EN  1
-#define RU  2
 #ifndef L10N_LANGUAGE
   #define L10N_LANGUAGE EN
+#endif
+#if L10N_LANGUAGE != EN && L10N_LANGUAGE != RU && L10N_LANGUAGE != PL
+  #error "Unsupported L10N_LANGUAGE"
 #endif
 
 #ifdef VSPI
