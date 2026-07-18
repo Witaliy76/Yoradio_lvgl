@@ -21,16 +21,11 @@
 #include <cstring>
 #include "../profiles/lv_profile_select.h"
 #include "../assets/bootlogo_assets.h"
+#include "../../i18n/i18n.h"
 
 namespace lvgl_ui {
 
 namespace {
-
-// ─────────────────────────────────────────────────────────────────────────────
-// UI strings (l10n readiness) / Строки UI
-// ─────────────────────────────────────────────────────────────────────────────
-
-static constexpr char kStrStarting[] = "Starting...";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Font resources / Ресурсы шрифтов
@@ -287,7 +282,8 @@ void LvglBootScreen::create_status(LvglBootScreen& self, lv_obj_t* parent,
 
     self._lbl_status = lv_label_create(parent);
     if (self._lbl_status) {
-        strncpy(self._status_text, kStrStarting, sizeof(self._status_text) - 1);
+        strncpy(self._status_text, i18n::text(i18n::TextId::BootStarting),
+                sizeof(self._status_text) - 1);
         self._status_text[sizeof(self._status_text) - 1] = '\0';
         // _status_text is owned by LvglBootScreen; LVGL stores only the pointer (no copy).
         // _status_text принадлежит LvglBootScreen; LVGL хранит только указатель без копирования.

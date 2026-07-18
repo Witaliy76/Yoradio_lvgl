@@ -7,7 +7,7 @@
 #include "lvgl.h"
 #include "profiles/lv_profile_select.h"
 #include "theme/lv_theme_yoradio.h"
-#include "../displays/tools/l10n.h"
+#include "../i18n/i18n.h"
 
 namespace lvgl_ui {
 
@@ -17,12 +17,6 @@ lv_obj_t* s_lost_root       = nullptr;
 // S6V8A + S6V9I: second label — reconnect hint + Recovery escalation copy (multiline OK). / Вторая строка LOST.
 lv_obj_t* s_lost_status_lbl = nullptr;
 lv_obj_t* s_update_root     = nullptr;
-
-static void copy_pgm_title(char* dst, size_t dst_sz, const char* pgm) {
-    if (!dst || dst_sz == 0) return;
-    strncpy_P(dst, pgm, dst_sz - 1);
-    dst[dst_sz - 1] = '\0';
-}
 
 static void apply_overlay_title_font(lv_obj_t* lbl) {
     if (!lbl) return;
@@ -91,9 +85,7 @@ void overlayShowLost() {
 
         lv_obj_t* lbl = lv_label_create(col);
         if (lbl) {
-            char line[48];
-            copy_pgm_title(line, sizeof(line), const_DlgLost);
-            lv_label_set_text(lbl, line);
+            lv_label_set_text_static(lbl, i18n::text(i18n::TextId::OverlayConnectionLost));
             lv_label_set_long_mode(lbl, LV_LABEL_LONG_WRAP);
             lv_obj_set_width(lbl, LV_PCT(100));
             lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
@@ -157,9 +149,7 @@ void overlayShowUpdating() {
 
     lv_obj_t* lbl = lv_label_create(s_update_root);
     if (lbl) {
-        char line[48];
-        copy_pgm_title(line, sizeof(line), const_DlgUpdate);
-        lv_label_set_text(lbl, line);
+        lv_label_set_text_static(lbl, i18n::text(i18n::TextId::OverlayUpdating));
         lv_label_set_long_mode(lbl, LV_LABEL_LONG_WRAP);
         lv_obj_set_style_text_align(lbl, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
         lv_obj_set_style_text_color(lbl, pal.overlay_title_text, LV_PART_MAIN);

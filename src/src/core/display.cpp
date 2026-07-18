@@ -37,6 +37,26 @@ void lvgl_ui::recordLvglDirectPanelFlush() {
 
 Display display;
 
+namespace {
+
+// Format catalog text into an owned buffer; any failure falls back to a complete static message.
+// Форматирует каталожный текст в собственный буфер; при ошибке ставит полное статичное сообщение.
+bool formatLocalizedText(char* destination, size_t capacity,
+                         i18n::TextId format_id, i18n::TextId fallback_id, ...) {
+  if (!destination || capacity == 0) return false;
+
+  va_list args;
+  va_start(args, fallback_id);
+  const int written = vsnprintf(destination, capacity, i18n::text(format_id), args);
+  va_end(args);
+
+  if (written >= 0 && static_cast<size_t>(written) < capacity) return true;
+  strlcpy(destination, i18n::text(fallback_id), capacity);
+  return false;
+}
+
+}  // namespace
+
 #ifndef DUMMYDISPLAY
 //============================================================================================================================
 
@@ -128,7 +148,9 @@ void Display::_start() {
     if (lvgl_ui::isLvglBootActive()) {
       _mode = PLAYER;
       lvgl_ui::bootScreenSetStatusUtf8(
-          (config.ssidsCount == 0) ? "No saved Wi-Fi networks" : "Could not connect to saved networks");
+          i18n::text((config.ssidsCount == 0)
+                         ? i18n::TextId::BootNoSavedWifiNetworks
+                         : i18n::TextId::BootSavedWifiConnectionFailed));
       lvgl_ui::bootScreenNotifyBootSignal();
       _lvgl_wifi_recovery_handoff_pending   = true;
       _lvgl_wifi_recovery_handoff_phase     = 0;
@@ -161,7 +183,7 @@ void Display::_tryCompleteLvglWifiRecoveryHandoff() {
 
   if (_lvgl_wifi_recovery_handoff_phase == 0) {
     if (!lvgl_ui::isLvglBootMinDwellElapsed()) return;
-    lvgl_ui::bootScreenSetStatusUtf8("Opening Wi-Fi Setup…");
+    lvgl_ui::bootScreenSetStatusUtf8(i18n::text(i18n::TextId::BootOpeningWifiSetup));
     lvgl_ui::bootScreenNotifyBootSignal();
     _lvgl_wifi_recovery_handoff_phase    = 1;
     _lvgl_wifi_recovery_phase_started_ms = millis();
@@ -195,17 +217,23 @@ void Display::_tryCompleteLostEscalation() {
   const uint32_t elapsed = (uint32_t)(millis() - _lost_started_ms);
 
   if (_lost_escalation_milestone == 0) {
-    lvgl_ui::overlayLostSetStatusText("Trying to reconnect...\nWi-Fi Recovery in 60s");
+    char line[128];
+    formatLocalizedText(line, sizeof(line), i18n::TextId::BootRecoveryCountdownFormat,
+                        i18n::TextId::BootReconnectStatus, 60U);
+    lvgl_ui::overlayLostSetStatusText(line);
     _lost_escalation_milestone = 1;
   }
 
   if (_lost_escalation_milestone < 2 && elapsed >= 30000U) {
-    lvgl_ui::overlayLostSetStatusText("Trying to reconnect...\nWi-Fi Recovery in 30s");
+    char line[128];
+    formatLocalizedText(line, sizeof(line), i18n::TextId::BootRecoveryCountdownFormat,
+                        i18n::TextId::BootReconnectStatus, 30U);
+    lvgl_ui::overlayLostSetStatusText(line);
     _lost_escalation_milestone = 2;
   }
 
   if (_lost_escalation_milestone < 3 && elapsed >= 50000U) {
-    lvgl_ui::overlayLostSetStatusText("Trying to reconnect...\nOpening Wi-Fi Recovery...");
+    lvgl_ui::overlayLostSetStatusText(i18n::text(i18n::TextId::BootOpeningRecovery));
     _lost_escalation_milestone = 3;
   }
 
@@ -387,11 +415,9 @@ void Display::loop() {
           if (lvgl_ui::isLvglBootActive()) {
             if (s_lvgl_boot_connected_latched) break;
             char line[96];
-            const int written = snprintf(line, sizeof(line),
-                                         i18n::text(i18n::TextId::BootConnectFormat),
-                                         config.ssids[request.payload].ssid);
-            if (written < 0) line[0] = '\0';
-            if (written >= static_cast<int>(sizeof(line))) line[sizeof(line) - 1] = '\0';
+            formatLocalizedText(line, sizeof(line), i18n::TextId::BootConnectFormat,
+                                i18n::TextId::BootStarting,
+                                config.ssids[request.payload].ssid);
             lvgl_ui::bootScreenSetStatusUtf8(line);
             lvgl_ui::bootScreenNotifyBootSignal();
           }
@@ -439,7 +465,10 @@ void Display::loop() {
     if (!s_lvgl_boot_connected_latched && WiFi.status() == WL_CONNECTED) {
       const String ssid = WiFi.SSID();
       char line[96];
-      snprintf(line, sizeof(line), "Connected to %s", ssid.length() ? ssid.c_str() : "WiFi");
+      formatLocalizedText(line, sizeof(line), i18n::TextId::BootConnectedToFormat,
+                          i18n::TextId::BootStarting,
+                          ssid.length() ? ssid.c_str()
+                                        : i18n::text(i18n::TextId::BootWifiFallbackName));
       lvgl_ui::bootScreenSetStatusUtf8(line);
       s_lvgl_boot_connected_latched = true;
     }

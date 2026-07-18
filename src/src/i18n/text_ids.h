@@ -23,6 +23,15 @@ enum class TextId : uint16_t {
   OverlayConnectionLost,
   OverlayUpdating,
   WeatherGustsPrefix,
+  BootStarting,
+  BootNoSavedWifiNetworks,
+  BootSavedWifiConnectionFailed,
+  BootConnectedToFormat,
+  BootWifiFallbackName,
+  BootOpeningWifiSetup,
+  BootReconnectStatus,
+  BootRecoveryCountdownFormat,
+  BootOpeningRecovery,
   Count
 };
 
@@ -247,6 +256,15 @@ inline constexpr std::array<TextSpec, textCount()> kTextSpecs{{
   makeTextSpec("", 48),    // OverlayConnectionLost
   makeTextSpec("", 48),    // OverlayUpdating
   makeTextSpec("", 20),    // WeatherGustsPrefix: prefix for an integer gust value
+  makeTextSpec("", 32),    // BootStarting
+  makeTextSpec("", 64),    // BootNoSavedWifiNetworks
+  makeTextSpec("", 112),   // BootSavedWifiConnectionFailed
+  makeTextSpec("%s", 64),  // BootConnectedToFormat: connected SSID (32 bytes maximum)
+  makeTextSpec("", 16),    // BootWifiFallbackName
+  makeTextSpec("", 64),    // BootOpeningWifiSetup
+  makeTextSpec("", 64),    // BootReconnectStatus: safe non-formatted fallback
+  makeTextSpec("%u", 120), // BootRecoveryCountdownFormat: seconds until Recovery
+  makeTextSpec("", 120),   // BootOpeningRecovery
 }};
 
 // Parser foundation checks. These stay next to the constexpr implementation so

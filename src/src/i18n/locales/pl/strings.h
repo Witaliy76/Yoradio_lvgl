@@ -22,6 +22,15 @@ inline constexpr std::array<TextEntry, textCount()> kStrings{{
   {TextId::OverlayConnectionLost, "ROZŁĄCZONO"},
   {TextId::OverlayUpdating, "AKTUALIZACJA"},
   {TextId::WeatherGustsPrefix, ", porywy "},
+  {TextId::BootStarting, "Uruchamianie..."},
+  {TextId::BootNoSavedWifiNetworks, "Brak zapisanych sieci Wi-Fi"},
+  {TextId::BootSavedWifiConnectionFailed, "Nie udało się połączyć z zapisanymi sieciami"},
+  {TextId::BootConnectedToFormat, "Połączono z %s"},
+  {TextId::BootWifiFallbackName, "Wi-Fi"},
+  {TextId::BootOpeningWifiSetup, "Otwieranie ustawień Wi-Fi..."},
+  {TextId::BootReconnectStatus, "Ponowne łączenie..."},
+  {TextId::BootRecoveryCountdownFormat, "Ponowne łączenie...\nOdzyskiwanie Wi-Fi za %u s"},
+  {TextId::BootOpeningRecovery, "Ponowne łączenie...\nOtwieranie odzyskiwania Wi-Fi..."},
 }};
 
 }  // namespace i18n::locales::pl

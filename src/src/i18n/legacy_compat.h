@@ -50,8 +50,6 @@ class CalendarTableRef {
 
 }  // namespace i18n::legacy
 
-inline constexpr i18n::legacy::TextRef const_DlgLost{i18n::TextId::OverlayConnectionLost};
-inline constexpr i18n::legacy::TextRef const_DlgUpdate{i18n::TextId::OverlayUpdating};
 inline constexpr i18n::legacy::CalendarTableRef dow{i18n::legacy::CalendarTable::WeekdaysShort};
 inline constexpr i18n::legacy::CalendarTableRef mnths{i18n::legacy::CalendarTable::MonthsDate};
 
