@@ -1,3 +1,9 @@
+/*
+ * RU: Польские calendar tables и направления ветра с нативной диакритикой.
+ * EN: Polish calendar tables and wind directions with native diacritics.
+ * RU: PL package владеет данными; размеры таблиц проверяются compile-time validators.
+ * EN: The PL package owns the data; compile-time validators enforce table sizes.
+ */
 #ifndef YORADIO_I18N_LOCALES_PL_CALENDAR_H
 #define YORADIO_I18N_LOCALES_PL_CALENDAR_H
 
@@ -8,10 +14,20 @@
 namespace i18n::locales::pl {
 
 inline constexpr std::array<const char*, 0> kMonthsFull{};
-inline constexpr std::array<const char*, 0> kMonthsDate{};
+inline constexpr std::array<const char*, 12> kMonthsDate{{
+  "stycznia", "lutego", "marca", "kwietnia", "maja", "czerwca",
+  "lipca", "sierpnia", "września", "października", "listopada", "grudnia"
+}};
 inline constexpr std::array<const char*, 0> kWeekdaysFull{};
-inline constexpr std::array<const char*, 0> kWeekdaysShort{};
-inline constexpr std::array<const char*, 0> kWindDirections{};
+inline constexpr std::array<const char*, 7> kWeekdaysShort{{
+  "nd", "pn", "wt", "śr", "cz", "pt", "so"
+}};
+inline constexpr std::array<const char*, 17> kWindDirections{{
+  "Północny", "Północno-wschodni", "Północno-wschodni", "Wschodni", "Wschodni",
+  "Południowo-wschodni", "Południowo-wschodni", "Południowy", "Południowy",
+  "Południowo-zachodni", "Południowo-zachodni", "Zachodni", "Zachodni",
+  "Północno-zachodni", "Północno-zachodni", "Północny", "Północny"
+}};
 
 inline constexpr CalendarData kCalendar{
   makeStringTableView(kMonthsFull),
@@ -21,7 +37,7 @@ inline constexpr CalendarData kCalendar{
   makeStringTableView(kWindDirections)
 };
 
-inline constexpr CalendarTableCounts kCalendarCounts{0, 0, 0, 0, 0};
+inline constexpr CalendarTableCounts kCalendarCounts = kCalendarCountsExpected;
 
 }  // namespace i18n::locales::pl
 

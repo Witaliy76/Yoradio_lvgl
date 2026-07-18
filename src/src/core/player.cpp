@@ -8,6 +8,7 @@
 #include "display.h"
 #include "sdmanager.h"
 #include "netserver.h"
+#include "../i18n/i18n.h"
 
 #include <freertos/portmacro.h>
 
@@ -164,7 +165,9 @@ void Player::_stop(bool alreadyStopped){
   if(config.getMode()==PM_SDCARD && !alreadyStopped) config.sdResumePos = player.getFilePos();
   _status = STOPPED;
   setOutputPins(false);
-  if(!hasError()) config.setTitle((display.mode()==LOST || display.mode()==UPDATING)?"":const_PlStopped);
+  if(!hasError()) config.setTitle((display.mode()==LOST || display.mode()==UPDATING)
+                                      ? ""
+                                      : i18n::text(i18n::TextId::PlayerStopped));
   config.station.bitrate = 0;
   config.station.stream_sample_rate_hz   = 0;
   config.station.stream_bits_per_sample = 0;
@@ -334,8 +337,8 @@ void Player::_play(uint16_t stationId) {
   config.screensaverTicks=SCREENSAVERSTARTUPDELAY;
   config.screensaverPlayingTicks=SCREENSAVERSTARTUPDELAY;
   setOutputPins(false);
-  config.setTitle(config.getMode()==PM_WEB?const_PlConnect:"");
-//  config.setTitle(config.getMode()==PM_WEB?const_PlConnect:"[next track]");
+  config.setTitle(config.getMode()==PM_WEB?i18n::text(i18n::TextId::PlayerConnecting):"");
+//  config.setTitle(config.getMode()==PM_WEB?i18n::text(i18n::TextId::PlayerConnecting):"[next track]");
   config.station.bitrate = 0;
   config.station.stream_sample_rate_hz   = 0;
   config.station.stream_bits_per_sample = 0;
@@ -396,7 +399,7 @@ void Player::browseUrl(){
   resumeAfterUrl = _status==PLAYING;
 //  setDefaults();
   setOutputPins(false);
-  config.setTitle(const_PlConnect);
+  config.setTitle(i18n::text(i18n::TextId::PlayerConnecting));
   if (connecttohost(burl)){
     _status = PLAYING;
     config.setTitle("");

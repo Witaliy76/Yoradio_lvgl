@@ -1,3 +1,9 @@
+/*
+ * RU: Собирает PL compile-time locale package и запускает его static validation.
+ * EN: Assembles the PL compile-time locale package and runs its static validation.
+ * RU: PL folder владеет metadata/строками/calendar data; пакет выбирается только locale_select.h.
+ * EN: The PL folder owns metadata, strings, and calendar data; only locale_select.h selects it.
+ */
 #ifndef YORADIO_I18N_LOCALES_PL_LOCALE_H
 #define YORADIO_I18N_LOCALES_PL_LOCALE_H
 

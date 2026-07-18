@@ -1,3 +1,9 @@
+/*
+ * RU: Стабильный публичный API к выбранным compile-time строкам, metadata и calendar data.
+ * EN: Stable public API for selected compile-time strings, metadata, and calendar data.
+ * RU: Возвращаемые данные статичны; runtime switching и heap allocation отсутствуют.
+ * EN: Returned data is static; runtime switching and heap allocation are not supported.
+ */
 #ifndef YORADIO_I18N_H
 #define YORADIO_I18N_H
 
@@ -10,6 +16,9 @@ namespace i18n {
 const char* text(TextId id) noexcept;
 const LocaleMetadata& locale() noexcept;
 const CalendarData& calendar() noexcept;
+const char* dayShort(uint8_t index) noexcept;
+const char* monthName(uint8_t index) noexcept;
+const char* windDirection(uint8_t index) noexcept;
 
 }  // namespace i18n
 

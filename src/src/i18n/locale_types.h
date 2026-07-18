@@ -1,3 +1,9 @@
+/*
+ * RU: Общие типы и constexpr validators каталогов, metadata и calendar tables.
+ * EN: Shared types and constexpr validators for catalogs, metadata, and calendar tables.
+ * RU: Файл не выбирает язык и не владеет переводами выбранного пакета.
+ * EN: This file neither selects a language nor owns selected-package translations.
+ */
 #ifndef YORADIO_I18N_LOCALE_TYPES_H
 #define YORADIO_I18N_LOCALE_TYPES_H
 
@@ -38,6 +44,10 @@ struct CalendarTableCounts {
   std::size_t weekdaysShort;
   std::size_t windDirections;
 };
+
+// L20 migrates only calendar tables with active legacy consumers. Full month
+// and weekday names remain absent until a screen-owning slice needs them.
+inline constexpr CalendarTableCounts kCalendarCountsExpected{0, 12, 0, 7, 17};
 
 template <std::size_t Size>
 constexpr StringTableView makeStringTableView(const std::array<const char*, Size>& values) noexcept {

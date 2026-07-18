@@ -1,3 +1,9 @@
+/*
+ * RU: Польский каталог человекочитаемых строк compile-time i18n с нативной диакритикой.
+ * EN: Polish catalog of human-readable compile-time i18n strings with native diacritics.
+ * RU: PL package владеет значениями; порядок и placeholders обязаны совпадать с TextId/TextSpec.
+ * EN: The PL package owns values; ordering and placeholders must match TextId/TextSpec.
+ */
 #ifndef YORADIO_I18N_LOCALES_PL_STRINGS_H
 #define YORADIO_I18N_LOCALES_PL_STRINGS_H
 
@@ -7,7 +13,16 @@
 
 namespace i18n::locales::pl {
 
-inline constexpr std::array<TextEntry, textCount()> kStrings{};
+inline constexpr std::array<TextEntry, textCount()> kStrings{{
+  {TextId::PlayerReady, "[gotowy]"},
+  {TextId::PlayerStopped, "[zatrzymano]"},
+  {TextId::PlayerConnecting, "[łączenie]"},
+  {TextId::BootConnectFormat, "Łączenie z %s"},
+  {TextId::WaitForSd, "INDEKS SD"},
+  {TextId::OverlayConnectionLost, "ROZŁĄCZONO"},
+  {TextId::OverlayUpdating, "AKTUALIZACJA"},
+  {TextId::WeatherGustsPrefix, ", porywy "},
+}};
 
 }  // namespace i18n::locales::pl
 

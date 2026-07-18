@@ -14,6 +14,7 @@
 #include "../lvgl_ui/lv_screensaver.h"
 #include "../lvgl_ui/lv_ui_events.h"
 #include "../ai/ai_subsystem.h"
+#include "../i18n/i18n.h"
 #if YORADIO_PPM_PCM_TELEMETRY_DIAG
 #include "ppm_pcm_telemetry.h"
 #endif
@@ -150,7 +151,7 @@ void Display::_start() {
   }
 
   _mode = PLAYER;
-  config.setTitle(const_PlReady);
+  config.setTitle(i18n::text(i18n::TextId::PlayerReady));
   _lvgl_player_handoff_pending = true;
 }
 
@@ -386,7 +387,11 @@ void Display::loop() {
           if (lvgl_ui::isLvglBootActive()) {
             if (s_lvgl_boot_connected_latched) break;
             char line[96];
-            snprintf(line, sizeof(line), bootstrFmt, config.ssids[request.payload].ssid);
+            const int written = snprintf(line, sizeof(line),
+                                         i18n::text(i18n::TextId::BootConnectFormat),
+                                         config.ssids[request.payload].ssid);
+            if (written < 0) line[0] = '\0';
+            if (written >= static_cast<int>(sizeof(line))) line[sizeof(line) - 1] = '\0';
             lvgl_ui::bootScreenSetStatusUtf8(line);
             lvgl_ui::bootScreenNotifyBootSignal();
           }
@@ -396,8 +401,7 @@ void Display::loop() {
           if (lvgl_ui::isLvglBootActive()) {
             if (s_lvgl_boot_connected_latched) break;
             char line[64];
-            strncpy_P(line, const_waitForSD, sizeof(line) - 1);
-            line[sizeof(line) - 1] = '\0';
+            strlcpy(line, i18n::text(i18n::TextId::WaitForSd), sizeof(line));
             lvgl_ui::bootScreenSetStatusUtf8(line);
             lvgl_ui::bootScreenNotifyBootSignal();
           }

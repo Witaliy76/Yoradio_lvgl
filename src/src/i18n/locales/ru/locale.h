@@ -1,3 +1,9 @@
+/*
+ * RU: Собирает RU compile-time locale package и запускает его static validation.
+ * EN: Assembles the RU compile-time locale package and runs its static validation.
+ * RU: RU folder владеет metadata/строками/calendar data; пакет выбирается только locale_select.h.
+ * EN: The RU folder owns metadata, strings, and calendar data; only locale_select.h selects it.
+ */
 #ifndef YORADIO_I18N_LOCALES_RU_LOCALE_H
 #define YORADIO_I18N_LOCALES_RU_LOCALE_H
 

@@ -1,3 +1,9 @@
+/*
+ * RU: Семантические TextId и центральные format specs compile-time i18n.
+ * EN: Semantic TextId values and central format specs for compile-time i18n.
+ * RU: Переводы принадлежат locale-пакетам; порядок и placeholders общие для всех языков.
+ * EN: Locale packages own translations; ordering and placeholders are shared by all languages.
+ */
 #ifndef YORADIO_I18N_TEXT_IDS_H
 #define YORADIO_I18N_TEXT_IDS_H
 
@@ -7,10 +13,17 @@
 
 namespace i18n {
 
-// L10 intentionally starts with no user-visible strings. New IDs are added by
-// the slice that migrates their UI owner.
+// IDs are ordered identically in every compile-time selected locale catalog.
 enum class TextId : uint16_t {
-  Count = 0
+  PlayerReady,
+  PlayerStopped,
+  PlayerConnecting,
+  BootConnectFormat,
+  WaitForSd,
+  OverlayConnectionLost,
+  OverlayUpdating,
+  WeatherGustsPrefix,
+  Count
 };
 
 constexpr std::size_t textCount() noexcept {
@@ -225,7 +238,16 @@ constexpr TextSpec makeTextSpec(const char* format,
   return {parseFormatSignature(format), maxBytes, allowEmpty};
 }
 
-inline constexpr std::array<TextSpec, textCount()> kTextSpecs{};
+inline constexpr std::array<TextSpec, textCount()> kTextSpecs{{
+  makeTextSpec("", 32),    // PlayerReady
+  makeTextSpec("", 32),    // PlayerStopped
+  makeTextSpec("", 32),    // PlayerConnecting
+  makeTextSpec("%s", 48),  // BootConnectFormat: saved SSID (29 bytes maximum)
+  makeTextSpec("", 32),    // WaitForSd
+  makeTextSpec("", 48),    // OverlayConnectionLost
+  makeTextSpec("", 48),    // OverlayUpdating
+  makeTextSpec("", 20),    // WeatherGustsPrefix: prefix for an integer gust value
+}};
 
 // Parser foundation checks. These stay next to the constexpr implementation so
 // every supported locale build verifies the exact signature semantics.

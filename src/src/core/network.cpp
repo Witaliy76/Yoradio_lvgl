@@ -11,6 +11,7 @@
 #include "weather_state.h"       // W-R3: fetch lifecycle metadata / метаданные цикла fetch
 #include "net_dns_resolver.h"     // HF-W-DNS: generic selected-DNS resolver / выбранный DNS-резолвер
 #include "weather_edge_session.h" // HF-W-DNS: per-cycle edge tracking / отслеживание рёбер
+#include "../i18n/i18n.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "esp_heap_caps.h"
@@ -62,6 +63,9 @@ void doSync(void * pvParameters);
 // Однопоточно по контракту (только Core0/doSync).
 static WeatherTrueCurrent s_current_tc{};
 static bool               s_current_tc_valid = false;
+
+// OpenWeather units are a shared request policy, not locale-owned text.
+static constexpr char kWeatherUnits[] = "metric";
 
 // W-R3/A4.0: forecast fetch lifecycle — status-only publish on non-success; success via
 // weatherPublishState (called inside weatherFetchForecast on Published result).
@@ -119,7 +123,8 @@ static void finishWeatherForecastFetch(WeatherForecastFetchResult result,
 static void runWeatherForecastFetch(WeatherEdgeSession& session,
                                      const WeatherTrueCurrent* true_current) {
   const WeatherForecastFetchResult result =
-      weatherFetchForecast(weatherUnits, weatherLang, session, true_current);
+      weatherFetchForecast(kWeatherUnits, i18n::locale().weatherApiLanguage,
+                           session, true_current);
   finishWeatherForecastFetch(result,
                               true_current != nullptr && true_current->valid,
                               true_current);
@@ -408,7 +413,8 @@ static void heapSnapshot() {
 
 static size_t pathLenEstimate() {
   return 48U + strlen(config.store.weatherlat) + strlen(config.store.weatherlon) +
-         strlen_P(weatherUnits) + strlen_P(weatherLang) + strlen(config.store.weatherkey);
+         strlen(kWeatherUnits) + strlen(i18n::locale().weatherApiLanguage) +
+         strlen(config.store.weatherkey);
 }
 
 static void logStart() {
@@ -1039,14 +1045,10 @@ bool getWeather(WeatherEdgeSession& edgeSession) {
 
   weather_diag::logStart();
 
-  // displayL10n_*.h: units/lang are PROGMEM — copy before snprintf/%s.
-  // displayL10n_*.h: units/lang в PROGMEM — копируем перед snprintf/%s.
   char weatherUnitsRam[12];
   char weatherLangRam[8];
-  strncpy_P(weatherUnitsRam, weatherUnits, sizeof(weatherUnitsRam) - 1);
-  weatherUnitsRam[sizeof(weatherUnitsRam) - 1] = '\0';
-  strncpy_P(weatherLangRam, weatherLang, sizeof(weatherLangRam) - 1);
-  weatherLangRam[sizeof(weatherLangRam) - 1] = '\0';
+  strlcpy(weatherUnitsRam, kWeatherUnits, sizeof(weatherUnitsRam));
+  strlcpy(weatherLangRam, i18n::locale().weatherApiLanguage, sizeof(weatherLangRam));
 
 #if YORADIO_WEATHER_REQ_DIAG
   Serial.printf("[WEATHER_CFG] lat=\"%s\" lon=\"%s\" units=%s lang=%s key_present=%d key_len=%u\n",
@@ -1335,15 +1337,10 @@ bool getWeather(WeatherEdgeSession& edgeSession) {
 
   // ── Human-readable serial diagnostic (##WEATHER###) ──────────────────────────
   // ── Человекочитаемая serial-диагностика (##WEATHER###) ─────────────────────
-  char gust[20];
-  // displayL10n_*.h: const_getWeather/prv are PROGMEM — copy before strlcat.
-  // displayL10n_*.h: const_getWeather/prv в PROGMEM — копируем перед strlcat.
-  strncpy_P(gust, const_getWeather, sizeof(gust) - 1);
-  gust[sizeof(gust) - 1] = '\0';
+  char gust[20] = "";
   if (parsed.has_gust && parsed.gust_mps > 0) {
     char porv[10];
-    strncpy_P(gust, prv, sizeof(gust) - 1);
-    gust[sizeof(gust) - 1] = '\0';
+    strlcpy(gust, i18n::text(i18n::TextId::WeatherGustsPrefix), sizeof(gust));
     itoa(parsed.gust_mps, porv, 10);
     strlcat(gust, porv, sizeof(gust));
   }
@@ -1366,7 +1363,8 @@ bool getWeather(WeatherEdgeSession& edgeSession) {
                 " \007 wind %s %.0f%s m/s (st. %s)\n",
                 parsed.full_desc, (double)parsed.tc.temp_c, (double)parsed.tc.feels_like_c,
                 parsed.pressure_mmhg, parsed.humidity_str,
-                wind[parsed.wind_dir_idx], (double)parsed.tc.wind_speed,
+                i18n::windDirection(static_cast<uint8_t>(parsed.wind_dir_idx)),
+                (double)parsed.tc.wind_speed,
                 gust, parsed.tc.location.city);
 
   // W1+A2b-loop-guard: do NOT call requestWeatherSync() here — forecast already runs in the same

@@ -1,3 +1,9 @@
+/*
+ * RU: Выбирает ровно один compile-time пакет локализации EN/RU/PL.
+ * EN: Selects exactly one compile-time EN/RU/PL locale package.
+ * RU: Подключается только владельцем данных i18n.cpp, не экранными модулями.
+ * EN: Included only by the i18n.cpp data owner, never directly by screen modules.
+ */
 #ifndef YORADIO_I18N_LOCALE_SELECT_H
 #define YORADIO_I18N_LOCALE_SELECT_H
 
