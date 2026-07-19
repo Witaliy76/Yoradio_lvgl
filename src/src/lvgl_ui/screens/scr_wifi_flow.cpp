@@ -25,6 +25,7 @@
 #include "../../core/network.h"
 #include "../../core/wifi_credentials_store.h"
 #include "../../core/wifi_ops_adapter.h"
+#include "../../i18n/i18n.h"
 #include "../fonts/lv_fonts.h"
 #include "../wifi_flow_glyph_utf8.h"
 #include "../lvgl_ui.h"
@@ -38,136 +39,15 @@ namespace lvgl_ui {
 namespace {
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Static UI strings (l10n readiness) / Статические строки UI
-// All static layout labels are gathered here for future localization.
-// Все статические метки собраны здесь для будущей локализации.
+// Typed UI strings are owned by the selected compile-time locale package.
+// Типизированные UI-строки принадлежат выбранному compile-time locale package.
 // ─────────────────────────────────────────────────────────────────────────────
-
-// Panel titles / Заголовки панелей
-static constexpr char kStrHomeTitle[]     = "Wi-Fi Recovery";
-static constexpr char kStrNetworksTitle[] = "Available networks";
-static constexpr char kStrPasswordTitle[] = "Wi-Fi Setup";
-static constexpr char kStrHotspotTitle[]  = "Open Hotspot Mode";
-
-// Home panel subtitle — overwritten at runtime by sync_home_boot_failure_ui() / Текст перезаписывается при enter.
-static constexpr char kStrHomeSubtitleDefault[] =
-    "Tap a saved network, or Scan to choose another.";
-
-// Password panel / Панель пароля
-static constexpr char kStrPasswordHint[] =
-    "Enter the password for the selected network.";
-
-// Saved Network panel / Панель сохранённой сети
-static constexpr char kStrSavedSubtitle[] =
-    "Saved network. Use saved password or change it.";
-
-// Button labels / Подписи кнопок
-static constexpr char kStrButtonScan[]           = "Scan";
-static constexpr char kStrButtonHotspot[]        = "Hotspot";
-static constexpr char kStrButtonBack[]           = "Back";
-static constexpr char kStrButtonRescan[]         = "Rescan";
-static constexpr char kStrButtonCancel[]         = "Cancel";
-static constexpr char kStrButtonHome[]           = "Home";
-static constexpr char kStrButtonConnect[]        = "Connect";
-static constexpr char kStrButtonChangePassword[] = "Chg pwd";
-static constexpr char kStrButtonRemove[]         = "Remove";
-static constexpr char kStrButtonYes[]            = "Yes";
-static constexpr char kStrButtonNo[]             = "No";
-static constexpr char kStrButtonBackToRecovery[] = "Back to Recovery";
 
 // Intentional state placeholders — do not merge / Намеренные плейсхолдеры — не объединять.
 // Empty string "" resets label to no content; single space " " is a visible placeholder slot.
 // Пустая строка "" сбрасывает label; одиночный пробел " " — видимый placeholder-слот.
 static constexpr char kStrEmpty[]             = "";
 static constexpr char kStrStatusPlaceholder[] = " ";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Runtime message resource / Ресурс runtime-сообщения
-// NoNetwork is a specific product-UX message; other runtime messages stay local.
-// NoNetwork — специфическое product-UX сообщение; остальные runtime-сообщения локальны.
-// ─────────────────────────────────────────────────────────────────────────────
-
-// NoNetwork (e.g. phone hotspot not beaconing yet) — not wrong-password; prompt Rescan.
-// NoNetwork (например, хотспот телефона ещё не виден) — не ошибка пароля; предложить Rescan.
-static const char kWifiOpsNoNetworkUserMsg[] = "Network not found. Wait, then Rescan.";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Operation UI strings / Строки операций
-// Centralized for future localization; used by scan, connect and list pipelines.
-// Централизованы для будущей локализации; используются scan, connect и list pipeline.
-// Runtime messages from persistence handlers are NOT included here (handled in WIFIREF-C2).
-// Runtime-сообщения persistence handlers не включены (обрабатываются в WIFIREF-C2).
-// ─────────────────────────────────────────────────────────────────────────────
-
-// Scan / Сканирование
-static constexpr char kStrScanning[]           = "Scanning...";
-static constexpr char kStrScanInProgress[]     = "Scan in progress... / уже идёт";
-static constexpr char kStrScanStarting[]       = "Starting scan... / запуск...";
-static constexpr char kStrScanNotStarted[]     = "Scan not started (busy?) / не стартовало";
-static constexpr char kStrScanComplete[]       = "Scan complete";
-static constexpr char kStrScanCancelled[]      = "Scan cancelled";
-static constexpr char kStrScanTimeout[]        = "Scan timeout";
-static constexpr char kStrScanBusy[]           = "Busy";
-static constexpr char kStrScanFinished[]       = "Scan finished";
-
-// Connect status / Статус подключения
-static constexpr char kStrConnecting[]         = "Connecting... current Wi-Fi may disconnect / подключение... возможен разрыв Wi-Fi";
-static constexpr char kStrConnectingOpen[]     = "Connecting to open network...";
-static constexpr char kStrConnectingSaved[]    = "Connecting...";
-static constexpr char kStrConnectBusy[]        = "Wi-Fi busy / занято";
-static constexpr char kStrConnectBusyShort[]   = "Busy - cannot start / занято";
-static constexpr char kStrConnectCannotStart[] = "Cannot start connect / не удалось запустить";
-static constexpr char kStrConnectWifiBusy[]    = "Wi-Fi busy. Try again.";
-static constexpr char kStrConnectWifiError[]   = "Wi-Fi error. Try again.";
-
-// Connect results / Результаты подключения
-static constexpr char kStrAuthFailed[]         = "Wrong password / неверный пароль";
-static constexpr char kStrConnectTimeout[]     = "Timeout / таймаут";
-static constexpr char kStrConnectCancelled[]   = "Cancelled.";
-static constexpr char kStrInternalError[]      = "Wi-Fi error / ошибка Wi-Fi";
-static constexpr char kStrConnectBusyResult[]  = "Busy / занято";
-static constexpr char kStrConnectFinished[]    = "Connect finished / подключение завершено";
-
-// Open-network connect results / Результаты open connect
-static constexpr char kStrOpenConnectTimeout[] = "Could not connect. Check signal.";
-static constexpr char kStrOpenConnectFailed[]  = "Wi-Fi error. Try again.";
-static constexpr char kStrOpenCancelled[]      = "Cancelled.";
-
-// Saved-network connect results / Результаты saved connect
-static constexpr char kStrSavedAuthFailed[]    = "Could not connect. Check password or signal.";
-static constexpr char kStrSavedConnected[]     = "Connected. Restarting...";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Credential persistence UI strings / Строки UI persistence
-// Used by handle_successful_connect_persist(), handle_open_network_success_persist(), on_btn_saved_yes().
-// Используются методами persistence. Значения byte-for-byte идентичны baseline.
-// ─────────────────────────────────────────────────────────────────────────────
-
-// Shared / Общие
-static constexpr char kStrPersistSavedRestarting[]       = "Saved. Restarting... / сохранено, перезагрузка...";
-static constexpr char kStrPersistSaved[]                 = "Saved. Restarting..."; // Open flow variant
-
-// Failure / Ошибки
-static constexpr char kStrPersistCannotSaveNetwork[]     = "Cannot save this network / нельзя сохранить эту сеть";
-static constexpr char kStrPersistNetworkFull[]           = "Saved networks full. Remove one first. / хранилище заполнено - удалите сеть";
-static constexpr char kStrPersistCouldNotSave[]          = "Could not save network / ошибка сохранения сети";
-static constexpr char kStrPersistCouldNotWrite[]         = "Could not save network / ошибка записи на диск";
-static constexpr char kStrPersistCouldNotUpdate[]        = "Could not update password / ошибка обновления пароля";
-
-// Open-specific failure / Ошибки Open flow
-static constexpr char kStrOpenCannotSaveNetwork[]        = "Cannot save this network.";
-static constexpr char kStrOpenNetworkFull[]              = "Saved networks full. Remove one first.";
-static constexpr char kStrOpenCouldNotSave[]             = "Could not save network.";
-
-// Password validation / Валидация пароля
-static constexpr char kStrPasswordMin[]        = "Min 8 characters / минимум 8 символов";
-static constexpr char kStrPasswordPrompt[]     = "Enter password / введите пароль";
-
-// Dynamic lists / Динамические списки
-static constexpr char kStrNoSavedNetworks[]    = "No saved networks";
-static constexpr char kStrNoNetworksFound[]    = "No networks found";
-static constexpr char kStrUiMemoryLow[]        = "UI memory low. Reopen Wi-Fi screen.";
-static constexpr char kStrScanMemoryLow[]      = "UI memory low. Try Rescan.";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Timing and input/buffer constants / Константы таймингов и буферов
@@ -386,6 +266,31 @@ static bool wifi_flow_set_text_if_changed(lv_obj_t* label, const char* text, Wif
     }
 #endif
     return true;
+}
+
+// Formatted UI text is published only when complete; fallback copy never truncates UTF-8.
+// Форматированный UI-текст публикуется только целиком; fallback не усекает UTF-8.
+static bool wifi_copy_complete(char* out, size_t cap, const char* text) {
+    if (!out || cap == 0U) return false;
+    out[0] = '\0';
+    if (!text) return false;
+    const size_t bytes = strlen(text) + 1U;
+    if (bytes > cap) return false;
+    memcpy(out, text, bytes);
+    return true;
+}
+
+template <typename... Args>
+static bool wifi_format_checked(char* out, size_t cap, const char* fallback,
+                                const char* format, Args... args) {
+    if (!out || cap == 0U) return false;
+    out[0] = '\0';
+    if (format) {
+        const int written = snprintf(out, cap, format, args...);
+        if (written >= 0 && static_cast<size_t>(written) < cap) return true;
+    }
+    wifi_copy_complete(out, cap, fallback ? fallback : "");
+    return false;
 }
 
 // Only add/clear LV_STATE when needed / меняем состояние только при реальном отличии.
@@ -867,8 +772,13 @@ void LvglWifiFlowScreen::arm_recovery_idle_if_home_only() {
     // One LVGL write on arm only — avoids per-second full_refresh churn.
     // Один запрос к LVGL при арме — без периодических обновлений на каждый тик.
     if (_lbl_recovery_idle_countdown) {
+        char countdown[96];
+        wifi_format_checked(
+            countdown, sizeof(countdown), i18n::text(i18n::TextId::WifiHotspotTitle),
+            i18n::text(i18n::TextId::WifiHotspotAutoStartFormat),
+            static_cast<unsigned>(kRecoveryIdleToHotspotTimeoutMs / 1000U));
         wifi_flow_set_text_if_changed(
-            _lbl_recovery_idle_countdown, "Hotspot starts automatically in 60s", WifiFlowDiagTextSlot::None);
+            _lbl_recovery_idle_countdown, countdown, WifiFlowDiagTextSlot::None);
     }
 }
 
@@ -893,20 +803,34 @@ void LvglWifiFlowScreen::process_boot_idle_timer_tick() {
 
 void LvglWifiFlowScreen::sync_hotspot_panel_labels() {
     if (!_lbl_hotspot_ssid || !_lbl_hotspot_pwd || !_lbl_hotspot_ip || !_lbl_hotspot_help) return;
-    wifi_flow_set_text_if_changed(_lbl_hotspot_ssid, "SSID: yoRadioAP", WifiFlowDiagTextSlot::None);
-    wifi_flow_set_text_if_changed(_lbl_hotspot_pwd, "Password: open", WifiFlowDiagTextSlot::None);
+    char ssid_line[56];
+    wifi_format_checked(ssid_line, sizeof(ssid_line), apSsid,
+                        i18n::text(i18n::TextId::WifiHotspotSsidFormat), apSsid);
+    wifi_flow_set_text_if_changed(_lbl_hotspot_ssid, ssid_line, WifiFlowDiagTextSlot::None);
+    wifi_flow_set_text_if_changed(
+        _lbl_hotspot_pwd, i18n::text(i18n::TextId::WifiHotspotPasswordOpen), WifiFlowDiagTextSlot::None);
     const IPAddress ap_ip = WiFi.softAPIP();
-    char            ip_line[56];
+    char            ip_line[96];
     if (static_cast<uint32_t>(ap_ip) != 0U) {
-        snprintf(ip_line, sizeof(ip_line), "IP: %s", ap_ip.toString().c_str());
+        char ip_value[16];
+        wifi_format_checked(ip_value, sizeof(ip_value), "",
+                            "%u.%u.%u.%u",
+                            static_cast<unsigned>(ap_ip[0]), static_cast<unsigned>(ap_ip[1]),
+                            static_cast<unsigned>(ap_ip[2]), static_cast<unsigned>(ap_ip[3]));
+        wifi_format_checked(ip_line, sizeof(ip_line), ip_value,
+                            i18n::text(i18n::TextId::WifiHotspotIpFormat), ip_value);
     } else {
-        snprintf(ip_line, sizeof(ip_line), "IP: 192.168.4.1 (expected if AP starting)");
+        static constexpr char kExpectedApIp[] = "192.168.4.1";
+        wifi_format_checked(ip_line, sizeof(ip_line), kExpectedApIp,
+                            i18n::text(i18n::TextId::WifiHotspotIpPendingFormat), kExpectedApIp);
     }
     wifi_flow_set_text_if_changed(_lbl_hotspot_ip, ip_line, WifiFlowDiagTextSlot::None);
+    static constexpr char kHotspotSetupUrl[] = "http://192.168.4.1";
+    char help_line[160];
+    wifi_format_checked(help_line, sizeof(help_line), kHotspotSetupUrl,
+                        i18n::text(i18n::TextId::WifiHotspotHelpFormat), kHotspotSetupUrl);
     wifi_flow_set_text_if_changed(
-        _lbl_hotspot_help,
-        "Connect your phone or computer to this network.\nThen open http://192.168.4.1",
-        WifiFlowDiagTextSlot::None);
+        _lbl_hotspot_help, help_line, WifiFlowDiagTextSlot::None);
 }
 
 // Home subtitle and Back visibility depend on how the user entered Wi-Fi Flow.
@@ -921,21 +845,21 @@ void LvglWifiFlowScreen::sync_home_boot_failure_ui() {
         // Boot-failure entry: no Back (device cannot return to Main without a working connection).
         // Вход при boot-failure: нет Back (без рабочего Wi-Fi вернуться на Main нельзя).
         wifi_flow_set_text_if_changed(_sub_home,
-                                      "Could not connect. Tap a saved network or Scan.",
+                                      i18n::text(i18n::TextId::WifiHomeSubtitleBootFailure),
                                       WifiFlowDiagTextSlot::SubHome);
         if (_btn_back_home) lv_obj_add_flag(_btn_back_home, LV_OBJ_FLAG_HIDDEN);
     } else if (_entered_from_runtime_disconnect) {
         // Runtime-disconnect entry: Back visible; subtitle differs from manual entry.
         // Вход при runtime-disconnect: Back виден; subtitle отличается от manual.
         wifi_flow_set_text_if_changed(_sub_home,
-                                      "Wi-Fi disconnected. Tap a saved network or Scan.",
+                                      i18n::text(i18n::TextId::WifiHomeSubtitleDisconnected),
                                       WifiFlowDiagTextSlot::SubHome);
         if (_btn_back_home) lv_obj_clear_flag(_btn_back_home, LV_OBJ_FLAG_HIDDEN);
     } else {
         // Manual entry: Back visible; neutral subtitle.
         // Manual вход: Back виден; нейтральный subtitle.
         wifi_flow_set_text_if_changed(_sub_home,
-                                      "Tap a saved network, or Scan to choose another.",
+                                      i18n::text(i18n::TextId::WifiHomeSubtitleManual),
                                       WifiFlowDiagTextSlot::SubHome);
         if (_btn_back_home) lv_obj_clear_flag(_btn_back_home, LV_OBJ_FLAG_HIDDEN);
     }
@@ -991,7 +915,8 @@ void LvglWifiFlowScreen::open_saved_network(uint8_t slot) {
         wifi_flow_set_text_if_changed(_lbl_saved_ssid, _selectedSavedSsid, WifiFlowDiagTextSlot::None);
     }
     if (_lbl_saved_sub) {
-        wifi_flow_set_text_if_changed(_lbl_saved_sub, kStrSavedSubtitle, WifiFlowDiagTextSlot::None);
+        wifi_flow_set_text_if_changed(
+            _lbl_saved_sub, i18n::text(i18n::TextId::WifiSavedSubtitle), WifiFlowDiagTextSlot::None);
     }
     if (_lbl_saved_status) {
         const YoRadioPalette& pal = yoradio_palette_service();
@@ -1037,7 +962,8 @@ void LvglWifiFlowScreen::open_password_entry(const char* ssid_utf8) {
 
     if (_lbl_pass_status) {
         const YoRadioPalette& pal = yoradio_palette_service();
-        wifi_flow_set_text_if_changed(_lbl_pass_status, kStrPasswordPrompt, WifiFlowDiagTextSlot::PassStatus);
+        wifi_flow_set_text_if_changed(
+            _lbl_pass_status, i18n::text(i18n::TextId::WifiPasswordPrompt), WifiFlowDiagTextSlot::PassStatus);
         lv_obj_set_style_text_color(_lbl_pass_status, pal.text_meta, LV_PART_MAIN);
     }
     show_password_panel();
@@ -1163,7 +1089,7 @@ void LvglWifiFlowScreen::handle_successful_connect_persist() {
     // Case E: SSID or password rejects legacy csv format constraints.
     // Case E: SSID или пароль не проходят проверку legacy csv формата.
     if (!wifiCredStoreEntryFitsLegacyFile(_selectedSsid, _connectCandidatePass)) {
-        wifi_flow_set_text_if_changed(_lbl_pass_status, kStrPersistCannotSaveNetwork, WifiFlowDiagTextSlot::PassStatus);
+        wifi_flow_set_text_if_changed(_lbl_pass_status, i18n::text(i18n::TextId::WifiCannotSaveNetwork), WifiFlowDiagTextSlot::PassStatus);
         lv_obj_set_style_text_color(_lbl_pass_status, pal.text_secondary, LV_PART_MAIN);
         _pass_status_terminal = true;
         return;
@@ -1175,7 +1101,7 @@ void LvglWifiFlowScreen::handle_successful_connect_persist() {
         // Case D: store is full and SSID is new — cannot add.
         // Case D: хранилище заполнено, SSID новый — добавить нельзя.
         if (wifiCredStoreSavedCount() >= WIFI_CRED_STORE_CAPACITY) {
-            wifi_flow_set_text_if_changed(_lbl_pass_status, kStrPersistNetworkFull, WifiFlowDiagTextSlot::PassStatus);
+            wifi_flow_set_text_if_changed(_lbl_pass_status, i18n::text(i18n::TextId::WifiSavedNetworksFull), WifiFlowDiagTextSlot::PassStatus);
             lv_obj_set_style_text_color(_lbl_pass_status, pal.text_secondary, LV_PART_MAIN);
             _pass_status_terminal = true;
             return;
@@ -1184,7 +1110,7 @@ void LvglWifiFlowScreen::handle_successful_connect_persist() {
         // Case A: new SSID, free slot available — insert and persist.
         // Case A: новый SSID, есть свободный слот — вставляем и сохраняем.
         if (!wifiCredStoreAddOrUpdate(_selectedSsid, _connectCandidatePass)) {
-            wifi_flow_set_text_if_changed(_lbl_pass_status, kStrPersistCouldNotSave, WifiFlowDiagTextSlot::PassStatus);
+            wifi_flow_set_text_if_changed(_lbl_pass_status, i18n::text(i18n::TextId::WifiCouldNotSaveNetwork), WifiFlowDiagTextSlot::PassStatus);
             lv_obj_set_style_text_color(_lbl_pass_status, pal.text_secondary, LV_PART_MAIN);
             _pass_status_terminal = true;
             return;
@@ -1194,7 +1120,7 @@ void LvglWifiFlowScreen::handle_successful_connect_persist() {
             // RAM mutated but file write failed: reload to restore consistency.
             // RAM изменён, запись файла не удалась: перезагружаем из файла для consistency.
             wifiCredStoreReloadFromFs();
-            wifi_flow_set_text_if_changed(_lbl_pass_status, kStrPersistCouldNotWrite, WifiFlowDiagTextSlot::PassStatus);
+            wifi_flow_set_text_if_changed(_lbl_pass_status, i18n::text(i18n::TextId::WifiCouldNotSaveNetwork), WifiFlowDiagTextSlot::PassStatus);
             lv_obj_set_style_text_color(_lbl_pass_status, pal.text_secondary, LV_PART_MAIN);
             _pass_status_terminal = true;
             return;
@@ -1223,7 +1149,7 @@ void LvglWifiFlowScreen::handle_successful_connect_persist() {
                 !wifiCredStagingSetCandidatePassword(_connectCandidatePass) ||
                 !wifiCredStagingCommitToStoredPassword()) {
                 wifiCredStagingDiscard();
-                wifi_flow_set_text_if_changed(_lbl_pass_status, kStrPersistCouldNotUpdate, WifiFlowDiagTextSlot::PassStatus);
+                wifi_flow_set_text_if_changed(_lbl_pass_status, i18n::text(i18n::TextId::WifiCouldNotUpdatePassword), WifiFlowDiagTextSlot::PassStatus);
                 lv_obj_set_style_text_color(_lbl_pass_status, pal.text_secondary, LV_PART_MAIN);
                 _pass_status_terminal = true;
                 return;
@@ -1232,7 +1158,7 @@ void LvglWifiFlowScreen::handle_successful_connect_persist() {
                 // RAM mutated via staging; reload restores to last known good file state.
                 // RAM изменён через staging; reload восстанавливает из последнего файла.
                 wifiCredStoreReloadFromFs();
-                wifi_flow_set_text_if_changed(_lbl_pass_status, kStrPersistCouldNotWrite, WifiFlowDiagTextSlot::PassStatus);
+                wifi_flow_set_text_if_changed(_lbl_pass_status, i18n::text(i18n::TextId::WifiCouldNotSaveNetwork), WifiFlowDiagTextSlot::PassStatus);
                 lv_obj_set_style_text_color(_lbl_pass_status, pal.text_secondary, LV_PART_MAIN);
                 _pass_status_terminal = true;
                 return;
@@ -1246,7 +1172,7 @@ void LvglWifiFlowScreen::handle_successful_connect_persist() {
     memset(_connectCandidatePass, 0, sizeof(_connectCandidatePass));
     _saving_in_progress   = true;
     _pass_status_terminal = true;
-    wifi_flow_set_text_if_changed(_lbl_pass_status, kStrPersistSavedRestarting, WifiFlowDiagTextSlot::PassStatus);
+    wifi_flow_set_text_if_changed(_lbl_pass_status, i18n::text(i18n::TextId::WifiSavedRestarting), WifiFlowDiagTextSlot::PassStatus);
     lv_obj_set_style_text_color(_lbl_pass_status, pal.text_secondary, LV_PART_MAIN);
     set_password_panel_saving_ui();
 
@@ -1269,7 +1195,7 @@ void LvglWifiFlowScreen::handle_open_network_success_persist() {
     // Case E: SSID rejects legacy csv format constraints.
     // Case E: SSID не проходит проверку legacy csv формата.
     if (!wifiCredStoreEntryFitsLegacyFile(_selectedOpenSsid, kEmptyPass)) {
-        wifi_flow_set_text_if_changed(_lbl_net_status, kStrOpenCannotSaveNetwork, WifiFlowDiagTextSlot::NetStatus);
+        wifi_flow_set_text_if_changed(_lbl_net_status, i18n::text(i18n::TextId::WifiCannotSaveNetwork), WifiFlowDiagTextSlot::NetStatus);
         lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
         _open_status_terminal = true;
         set_networks_panel_connecting_ui(false);
@@ -1282,7 +1208,7 @@ void LvglWifiFlowScreen::handle_open_network_success_persist() {
         // Case D: store is full and SSID is new — cannot add.
         // Case D: хранилище заполнено, SSID новый — добавить нельзя.
         if (wifiCredStoreSavedCount() >= WIFI_CRED_STORE_CAPACITY) {
-            wifi_flow_set_text_if_changed(_lbl_net_status, kStrOpenNetworkFull, WifiFlowDiagTextSlot::NetStatus);
+            wifi_flow_set_text_if_changed(_lbl_net_status, i18n::text(i18n::TextId::WifiSavedNetworksFull), WifiFlowDiagTextSlot::NetStatus);
             lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
             _open_status_terminal = true;
             set_networks_panel_connecting_ui(false);
@@ -1292,7 +1218,7 @@ void LvglWifiFlowScreen::handle_open_network_success_persist() {
         // Case A: new SSID, free slot available — insert and persist.
         // Case A: новый SSID, есть свободный слот — вставляем и сохраняем.
         if (!wifiCredStoreAddOrUpdate(_selectedOpenSsid, kEmptyPass)) {
-            wifi_flow_set_text_if_changed(_lbl_net_status, kStrOpenCouldNotSave, WifiFlowDiagTextSlot::NetStatus);
+            wifi_flow_set_text_if_changed(_lbl_net_status, i18n::text(i18n::TextId::WifiCouldNotSaveNetwork), WifiFlowDiagTextSlot::NetStatus);
             lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
             _open_status_terminal = true;
             set_networks_panel_connecting_ui(false);
@@ -1303,7 +1229,7 @@ void LvglWifiFlowScreen::handle_open_network_success_persist() {
             // RAM mutated but file write failed: reload to restore consistency.
             // RAM изменён, запись файла не удалась: перезагружаем из файла.
             wifiCredStoreReloadFromFs();
-            wifi_flow_set_text_if_changed(_lbl_net_status, kStrOpenCouldNotSave, WifiFlowDiagTextSlot::NetStatus);
+            wifi_flow_set_text_if_changed(_lbl_net_status, i18n::text(i18n::TextId::WifiCouldNotSaveNetwork), WifiFlowDiagTextSlot::NetStatus);
             lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
             _open_status_terminal = true;
             set_networks_panel_connecting_ui(false);
@@ -1332,7 +1258,7 @@ void LvglWifiFlowScreen::handle_open_network_success_persist() {
             if (!wifiCredStagingBegin(static_cast<uint8_t>(existingIdx)) ||
                 !wifiCredStagingSetCandidatePassword(kEmptyPass) || !wifiCredStagingCommitToStoredPassword()) {
                 wifiCredStagingDiscard();
-                wifi_flow_set_text_if_changed(_lbl_net_status, kStrOpenCouldNotSave, WifiFlowDiagTextSlot::NetStatus);
+                wifi_flow_set_text_if_changed(_lbl_net_status, i18n::text(i18n::TextId::WifiCouldNotSaveNetwork), WifiFlowDiagTextSlot::NetStatus);
                 lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
                 _open_status_terminal = true;
                 set_networks_panel_connecting_ui(false);
@@ -1342,7 +1268,7 @@ void LvglWifiFlowScreen::handle_open_network_success_persist() {
                 // RAM mutated via staging; reload restores to last known good file state.
                 // RAM изменён через staging; reload восстанавливает из последнего файла.
                 wifiCredStoreReloadFromFs();
-                wifi_flow_set_text_if_changed(_lbl_net_status, kStrOpenCouldNotSave, WifiFlowDiagTextSlot::NetStatus);
+                wifi_flow_set_text_if_changed(_lbl_net_status, i18n::text(i18n::TextId::WifiCouldNotSaveNetwork), WifiFlowDiagTextSlot::NetStatus);
                 lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
                 _open_status_terminal = true;
                 set_networks_panel_connecting_ui(false);
@@ -1356,7 +1282,7 @@ void LvglWifiFlowScreen::handle_open_network_success_persist() {
     // Все cases успешны: блокируем UI, планируем reboot.
     _open_status_terminal = true;
     _saving_in_progress   = true;
-    wifi_flow_set_text_if_changed(_lbl_net_status, kStrPersistSaved, WifiFlowDiagTextSlot::NetStatus);
+    wifi_flow_set_text_if_changed(_lbl_net_status, i18n::text(i18n::TextId::WifiSavedRestarting), WifiFlowDiagTextSlot::NetStatus);
     lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
     set_networks_panel_saving_ui();
 
@@ -1389,7 +1315,7 @@ void LvglWifiFlowScreen::start_open_connect_from_user(const char* ssid) {
     WifiOpsSnapshot cur{};
     if (wifiOpsGetSnapshot(&cur) && cur.busy) {
         const YoRadioPalette& pal = yoradio_palette_service();
-        wifi_flow_set_text_if_changed(_lbl_net_status, kStrConnectWifiError, WifiFlowDiagTextSlot::NetStatus);
+        wifi_flow_set_text_if_changed(_lbl_net_status, i18n::text(i18n::TextId::WifiConnectErrorRetry), WifiFlowDiagTextSlot::NetStatus);
         lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
         memset(_selectedOpenSsid, 0, sizeof(_selectedOpenSsid));
         return;
@@ -1401,7 +1327,7 @@ void LvglWifiFlowScreen::start_open_connect_from_user(const char* ssid) {
     const bool started = wifiOpsRequestConnectWithPassword(_selectedOpenSsid, kEmptyPass, true);
     if (!started) {
         const YoRadioPalette& pal = yoradio_palette_service();
-        wifi_flow_set_text_if_changed(_lbl_net_status, kStrConnectWifiError, WifiFlowDiagTextSlot::NetStatus);
+        wifi_flow_set_text_if_changed(_lbl_net_status, i18n::text(i18n::TextId::WifiConnectErrorRetry), WifiFlowDiagTextSlot::NetStatus);
         lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
         memset(_selectedOpenSsid, 0, sizeof(_selectedOpenSsid));
         return;
@@ -1409,7 +1335,7 @@ void LvglWifiFlowScreen::start_open_connect_from_user(const char* ssid) {
 
     _await_open_connect_ui = true;
     const YoRadioPalette& pal = yoradio_palette_service();
-    wifi_flow_set_text_if_changed(_lbl_net_status, kStrConnectingOpen, WifiFlowDiagTextSlot::NetStatus);
+    wifi_flow_set_text_if_changed(_lbl_net_status, i18n::text(i18n::TextId::WifiConnectingOpen), WifiFlowDiagTextSlot::NetStatus);
     lv_obj_set_style_text_color(_lbl_net_status, pal.text_meta, LV_PART_MAIN);
     set_networks_panel_connecting_ui(true);
 }
@@ -1435,28 +1361,28 @@ void LvglWifiFlowScreen::handle_open_connect_finished() {
         return;
     case WifiOpsResult::AuthFailed:
     case WifiOpsResult::Timeout:
-        wifi_flow_set_text_if_changed(_lbl_net_status, kStrOpenConnectTimeout, WifiFlowDiagTextSlot::NetStatus);
+        wifi_flow_set_text_if_changed(_lbl_net_status, i18n::text(i18n::TextId::WifiOpenConnectSignalFailed), WifiFlowDiagTextSlot::NetStatus);
         lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
         _open_status_terminal = true;
         break;
     case WifiOpsResult::NoNetwork:
-        wifi_flow_set_text_if_changed(_lbl_net_status, kWifiOpsNoNetworkUserMsg, WifiFlowDiagTextSlot::NetStatus);
+        wifi_flow_set_text_if_changed(_lbl_net_status, i18n::text(i18n::TextId::WifiNoNetwork), WifiFlowDiagTextSlot::NetStatus);
         lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
         _open_status_terminal = true;
         break;
     case WifiOpsResult::Cancelled:
-        wifi_flow_set_text_if_changed(_lbl_net_status, kStrOpenCancelled, WifiFlowDiagTextSlot::NetStatus);
+        wifi_flow_set_text_if_changed(_lbl_net_status, i18n::text(i18n::TextId::WifiCancelled), WifiFlowDiagTextSlot::NetStatus);
         lv_obj_set_style_text_color(_lbl_net_status, pal.text_meta, LV_PART_MAIN);
         _open_status_terminal = true;
         break;
     case WifiOpsResult::InternalError:
     case WifiOpsResult::Busy:
-        wifi_flow_set_text_if_changed(_lbl_net_status, kStrOpenConnectFailed, WifiFlowDiagTextSlot::NetStatus);
+        wifi_flow_set_text_if_changed(_lbl_net_status, i18n::text(i18n::TextId::WifiConnectErrorRetry), WifiFlowDiagTextSlot::NetStatus);
         lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
         _open_status_terminal = true;
         break;
     default:
-        wifi_flow_set_text_if_changed(_lbl_net_status, kStrOpenConnectFailed, WifiFlowDiagTextSlot::NetStatus);
+        wifi_flow_set_text_if_changed(_lbl_net_status, i18n::text(i18n::TextId::WifiConnectErrorRetry), WifiFlowDiagTextSlot::NetStatus);
         lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
         _open_status_terminal = true;
         break;
@@ -1489,17 +1415,17 @@ void LvglWifiFlowScreen::handle_connect_finished() {
         handle_successful_connect_persist();
         return; // persist fn owns further UI; do not fall through to sync_connect_button_enabled.
     case WifiOpsResult::AuthFailed:
-        wifi_flow_set_text_if_changed(_lbl_pass_status, kStrAuthFailed, WifiFlowDiagTextSlot::PassStatus);
+        wifi_flow_set_text_if_changed(_lbl_pass_status, i18n::text(i18n::TextId::WifiWrongPassword), WifiFlowDiagTextSlot::PassStatus);
         lv_obj_set_style_text_color(_lbl_pass_status, pal.text_secondary, LV_PART_MAIN);
         _pass_status_terminal = true;
         break;
     case WifiOpsResult::Timeout:
-        wifi_flow_set_text_if_changed(_lbl_pass_status, kStrConnectTimeout, WifiFlowDiagTextSlot::PassStatus);
+        wifi_flow_set_text_if_changed(_lbl_pass_status, i18n::text(i18n::TextId::WifiConnectTimeout), WifiFlowDiagTextSlot::PassStatus);
         lv_obj_set_style_text_color(_lbl_pass_status, pal.text_secondary, LV_PART_MAIN);
         _pass_status_terminal = true;
         break;
     case WifiOpsResult::NoNetwork:
-        wifi_flow_set_text_if_changed(_lbl_pass_status, kWifiOpsNoNetworkUserMsg, WifiFlowDiagTextSlot::PassStatus);
+        wifi_flow_set_text_if_changed(_lbl_pass_status, i18n::text(i18n::TextId::WifiNoNetwork), WifiFlowDiagTextSlot::PassStatus);
         lv_obj_set_style_text_color(_lbl_pass_status, pal.text_secondary, LV_PART_MAIN);
         _pass_status_terminal = true;
         break;
@@ -1510,17 +1436,17 @@ void LvglWifiFlowScreen::handle_connect_finished() {
         show_networks_panel();
         return;
     case WifiOpsResult::InternalError:
-        wifi_flow_set_text_if_changed(_lbl_pass_status, kStrInternalError, WifiFlowDiagTextSlot::PassStatus);
+        wifi_flow_set_text_if_changed(_lbl_pass_status, i18n::text(i18n::TextId::WifiInternalError), WifiFlowDiagTextSlot::PassStatus);
         lv_obj_set_style_text_color(_lbl_pass_status, pal.text_secondary, LV_PART_MAIN);
         _pass_status_terminal = true;
         break;
     case WifiOpsResult::Busy:
-        wifi_flow_set_text_if_changed(_lbl_pass_status, kStrConnectBusyResult, WifiFlowDiagTextSlot::PassStatus);
+        wifi_flow_set_text_if_changed(_lbl_pass_status, i18n::text(i18n::TextId::WifiBusy), WifiFlowDiagTextSlot::PassStatus);
         lv_obj_set_style_text_color(_lbl_pass_status, pal.text_secondary, LV_PART_MAIN);
         _pass_status_terminal = true;
         break;
     default:
-        wifi_flow_set_text_if_changed(_lbl_pass_status, kStrConnectFinished, WifiFlowDiagTextSlot::PassStatus);
+        wifi_flow_set_text_if_changed(_lbl_pass_status, i18n::text(i18n::TextId::WifiConnectFinished), WifiFlowDiagTextSlot::PassStatus);
         lv_obj_set_style_text_color(_lbl_pass_status, pal.text_meta, LV_PART_MAIN);
         _pass_status_terminal = true;
         break;
@@ -1549,7 +1475,7 @@ void LvglWifiFlowScreen::start_connect_from_user() {
     WifiOpsSnapshot cur{};
     if (wifiOpsGetSnapshot(&cur) && cur.busy) {
         const YoRadioPalette& pal = yoradio_palette_service();
-        wifi_flow_set_text_if_changed(_lbl_pass_status, kStrConnectBusy, WifiFlowDiagTextSlot::PassStatus);
+        wifi_flow_set_text_if_changed(_lbl_pass_status, i18n::text(i18n::TextId::WifiBusy), WifiFlowDiagTextSlot::PassStatus);
         lv_obj_set_style_text_color(_lbl_pass_status, pal.text_secondary, LV_PART_MAIN);
         return;
     }
@@ -1558,7 +1484,7 @@ void LvglWifiFlowScreen::start_connect_from_user() {
     const size_t plen = pw_in ? strlen(pw_in) : 0U;
     if (plen < kMinPasswordLen) {
         const YoRadioPalette& pal = yoradio_palette_service();
-        wifi_flow_set_text_if_changed(_lbl_pass_status, kStrPasswordMin, WifiFlowDiagTextSlot::PassStatus);
+        wifi_flow_set_text_if_changed(_lbl_pass_status, i18n::text(i18n::TextId::WifiPasswordMinChars), WifiFlowDiagTextSlot::PassStatus);
         lv_obj_set_style_text_color(_lbl_pass_status, pal.text_secondary, LV_PART_MAIN);
         return;
     }
@@ -1582,16 +1508,16 @@ void LvglWifiFlowScreen::start_connect_from_user() {
         WifiOpsSnapshot after{};
         (void)wifiOpsGetSnapshot(&after);
         if (after.busy) {
-            wifi_flow_set_text_if_changed(_lbl_pass_status, kStrConnectBusyShort, WifiFlowDiagTextSlot::PassStatus);
+            wifi_flow_set_text_if_changed(_lbl_pass_status, i18n::text(i18n::TextId::WifiBusy), WifiFlowDiagTextSlot::PassStatus);
         } else {
-            wifi_flow_set_text_if_changed(_lbl_pass_status, kStrConnectCannotStart, WifiFlowDiagTextSlot::PassStatus);
+            wifi_flow_set_text_if_changed(_lbl_pass_status, i18n::text(i18n::TextId::WifiConnectCannotStart), WifiFlowDiagTextSlot::PassStatus);
         }
         lv_obj_set_style_text_color(_lbl_pass_status, pal.text_secondary, LV_PART_MAIN);
         return;
     }
 
     _await_connect_ui = true;
-    wifi_flow_set_text_if_changed(_lbl_pass_status, kStrConnecting, WifiFlowDiagTextSlot::PassStatus);
+    wifi_flow_set_text_if_changed(_lbl_pass_status, i18n::text(i18n::TextId::WifiConnectingWarning), WifiFlowDiagTextSlot::PassStatus);
     lv_obj_set_style_text_color(_lbl_pass_status, pal.text_meta, LV_PART_MAIN);
     set_password_panel_connecting_ui(true);
 }
@@ -1609,13 +1535,13 @@ void LvglWifiFlowScreen::start_scan_from_user() {
     if (wifiOpsGetSnapshot(&cur) &&
         (cur.phase == WifiOpsPhase::Scanning || (cur.busy && cur.currentOp == WifiOpsOp::Scan))) {
         const YoRadioPalette& pal = yoradio_palette_service();
-        wifi_flow_set_text_if_changed(_lbl_net_status, kStrScanInProgress, WifiFlowDiagTextSlot::NetStatus);
+        wifi_flow_set_text_if_changed(_lbl_net_status, i18n::text(i18n::TextId::WifiScanning), WifiFlowDiagTextSlot::NetStatus);
         lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
         return;
     }
     if (!wifiOpsRequestScan()) {
         const YoRadioPalette& pal = yoradio_palette_service();
-        wifi_flow_set_text_if_changed(_lbl_net_status, kStrScanNotStarted, WifiFlowDiagTextSlot::NetStatus);
+        wifi_flow_set_text_if_changed(_lbl_net_status, i18n::text(i18n::TextId::WifiScanNotStarted), WifiFlowDiagTextSlot::NetStatus);
         lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
         return;
     }
@@ -1623,7 +1549,7 @@ void LvglWifiFlowScreen::start_scan_from_user() {
     // Скан запущен: переходим на Networks, статус «запуск».
     _await_scan_ui = true;
     show_networks_panel();
-    wifi_flow_set_text_if_changed(_lbl_net_status, kStrScanStarting, WifiFlowDiagTextSlot::NetStatus);
+    wifi_flow_set_text_if_changed(_lbl_net_status, i18n::text(i18n::TextId::WifiScanStarting), WifiFlowDiagTextSlot::NetStatus);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1643,7 +1569,8 @@ void LvglWifiFlowScreen::rebuild_saved_list() {
     if (n == 0) {
         // Montserrat cannot render LVGL built-in symbol glyphs (U+F00B → boxes); no icon here.
         // Montserrat не рендерит LVGL-символы (U+F00B → квадраты); иконки не используем.
-        lv_obj_t* empty = lv_list_add_btn(_list_saved, nullptr, kStrNoSavedNetworks);
+        lv_obj_t* empty = lv_list_add_btn(
+            _list_saved, nullptr, i18n::text(i18n::TextId::BootNoSavedWifiNetworks));
         if (empty) wifi_apply_list_row_empty(empty);
         return;
     }
@@ -1652,12 +1579,13 @@ void LvglWifiFlowScreen::rebuild_saved_list() {
         WifiCredStoreEntryView v{};
         if (!wifiCredStoreGetEntry(i, &v) || !v.ssid) continue;
         char line[40];
-        snprintf(line, sizeof(line), "%u  %s", static_cast<unsigned>(i + 1U), v.ssid);
+        wifi_format_checked(line, sizeof(line), v.ssid, "%u  %s",
+                            static_cast<unsigned>(i + 1U), v.ssid);
         lv_obj_t* btn = lv_list_add_btn(_list_saved, nullptr, line);
         if (!btn) {
             // Lightweight OOM guard: stop row creation gracefully / мягкий guard при нехватке памяти.
             if (_sub_home) {
-                wifi_flow_set_text_if_changed(_sub_home, kStrUiMemoryLow, WifiFlowDiagTextSlot::SubHome);
+                wifi_flow_set_text_if_changed(_sub_home, i18n::text(i18n::TextId::WifiUiMemoryLow), WifiFlowDiagTextSlot::SubHome);
             }
             break;
         }
@@ -1683,10 +1611,10 @@ void LvglWifiFlowScreen::rebuild_scan_list() {
         char line[96];
         // U+2022 BULLET • matches Main meta row separator; wider spacing for scan readability.
         // U+2022 «•» — тот же разделитель что на Main; wider spacing для читаемости.
-        snprintf(
-            line,
-            sizeof(line),
-            is_open ? "%s  \xE2\x80\xA2  %d dBm  \xE2\x80\xA2  Open" : "%s  \xE2\x80\xA2  %d dBm  \xE2\x80\xA2  Lock",
+        wifi_format_checked(
+            line, sizeof(line), scan_row.ssid,
+            i18n::text(is_open ? i18n::TextId::WifiScanOpenRowFormat
+                               : i18n::TextId::WifiScanSecuredRowFormat),
             scan_row.ssid,
             static_cast<int>(scan_row.rssi));
 
@@ -1695,7 +1623,7 @@ void LvglWifiFlowScreen::rebuild_scan_list() {
             // Lightweight OOM guard / мягкий guard при нехватке памяти.
             if (_lbl_net_status) {
                 const YoRadioPalette& pal = yoradio_palette_service();
-                wifi_flow_set_text_if_changed(_lbl_net_status, kStrScanMemoryLow, WifiFlowDiagTextSlot::NetStatus);
+                wifi_flow_set_text_if_changed(_lbl_net_status, i18n::text(i18n::TextId::WifiScanMemoryLow), WifiFlowDiagTextSlot::NetStatus);
                 lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
             }
             break;
@@ -1706,7 +1634,8 @@ void LvglWifiFlowScreen::rebuild_scan_list() {
         lv_obj_add_event_cb(btn, on_scan_row_click, LV_EVENT_CLICKED, this);
     }
     if (snap.scanCount == 0) {
-        lv_obj_t* empty = lv_list_add_btn(_list_scan, nullptr, kStrNoNetworksFound);
+        lv_obj_t* empty = lv_list_add_btn(
+            _list_scan, nullptr, i18n::text(i18n::TextId::WifiNoNetworksFound));
         if (empty) wifi_apply_list_row_empty(empty);
     }
 }
@@ -1773,7 +1702,7 @@ void LvglWifiFlowScreen::start_connect_from_saved() {
     if (wifiOpsGetSnapshot(&cur) && cur.busy) {
         if (_lbl_saved_status) {
             const YoRadioPalette& pal = yoradio_palette_service();
-            wifi_flow_set_text_if_changed(_lbl_saved_status, kStrConnectWifiBusy, WifiFlowDiagTextSlot::SavedStatus);
+            wifi_flow_set_text_if_changed(_lbl_saved_status, i18n::text(i18n::TextId::WifiConnectBusyRetry), WifiFlowDiagTextSlot::SavedStatus);
             lv_obj_set_style_text_color(_lbl_saved_status, pal.text_secondary, LV_PART_MAIN);
             _saved_status_terminal = true;
         }
@@ -1787,7 +1716,7 @@ void LvglWifiFlowScreen::start_connect_from_saved() {
         memset(tmpPass, 0, sizeof(tmpPass));
         if (_lbl_saved_status) {
             const YoRadioPalette& pal = yoradio_palette_service();
-            wifi_flow_set_text_if_changed(_lbl_saved_status, kStrConnectWifiError, WifiFlowDiagTextSlot::SavedStatus);
+            wifi_flow_set_text_if_changed(_lbl_saved_status, i18n::text(i18n::TextId::WifiConnectErrorRetry), WifiFlowDiagTextSlot::SavedStatus);
             lv_obj_set_style_text_color(_lbl_saved_status, pal.text_secondary, LV_PART_MAIN);
             _saved_status_terminal = true;
         }
@@ -1800,7 +1729,7 @@ void LvglWifiFlowScreen::start_connect_from_saved() {
     if (!started) {
         if (_lbl_saved_status) {
             const YoRadioPalette& pal = yoradio_palette_service();
-            wifi_flow_set_text_if_changed(_lbl_saved_status, kStrConnectWifiError, WifiFlowDiagTextSlot::SavedStatus);
+            wifi_flow_set_text_if_changed(_lbl_saved_status, i18n::text(i18n::TextId::WifiConnectErrorRetry), WifiFlowDiagTextSlot::SavedStatus);
             lv_obj_set_style_text_color(_lbl_saved_status, pal.text_secondary, LV_PART_MAIN);
             _saved_status_terminal = true;
         }
@@ -1811,7 +1740,7 @@ void LvglWifiFlowScreen::start_connect_from_saved() {
     _saved_status_terminal  = false;
     if (_lbl_saved_status) {
         const YoRadioPalette& pal = yoradio_palette_service();
-        wifi_flow_set_text_if_changed(_lbl_saved_status, kStrConnectingSaved, WifiFlowDiagTextSlot::SavedStatus);
+        wifi_flow_set_text_if_changed(_lbl_saved_status, i18n::text(i18n::TextId::WifiConnecting), WifiFlowDiagTextSlot::SavedStatus);
         lv_obj_set_style_text_color(_lbl_saved_status, pal.text_meta, LV_PART_MAIN);
     }
     set_saved_panel_connecting_ui(true);
@@ -1835,12 +1764,12 @@ void LvglWifiFlowScreen::handle_saved_connect_finished() {
         // Only update lastSSID; no wifi.csv rewrite (product contract). / Только lastSSID, без wifi.csv.
         const bool ok = wifiCredStoreSetLastSuccessFromSlot(_selectedSavedSlot);
         if (!ok) {
-            wifi_flow_set_text_if_changed(_lbl_saved_status, kStrConnectWifiError, WifiFlowDiagTextSlot::SavedStatus);
+            wifi_flow_set_text_if_changed(_lbl_saved_status, i18n::text(i18n::TextId::WifiConnectErrorRetry), WifiFlowDiagTextSlot::SavedStatus);
             lv_obj_set_style_text_color(_lbl_saved_status, pal.text_secondary, LV_PART_MAIN);
             _saved_status_terminal = true;
             return;
         }
-        wifi_flow_set_text_if_changed(_lbl_saved_status, kStrSavedConnected, WifiFlowDiagTextSlot::SavedStatus);
+        wifi_flow_set_text_if_changed(_lbl_saved_status, i18n::text(i18n::TextId::WifiConnectedRestarting), WifiFlowDiagTextSlot::SavedStatus);
         lv_obj_set_style_text_color(_lbl_saved_status, pal.text_secondary, LV_PART_MAIN);
         _saved_status_terminal = true;
         _saving_in_progress    = true;
@@ -1853,7 +1782,7 @@ void LvglWifiFlowScreen::handle_saved_connect_finished() {
         return;
     }
     case WifiOpsResult::NoNetwork:
-        wifi_flow_set_text_if_changed(_lbl_saved_status, kWifiOpsNoNetworkUserMsg, WifiFlowDiagTextSlot::SavedStatus);
+        wifi_flow_set_text_if_changed(_lbl_saved_status, i18n::text(i18n::TextId::WifiNoNetwork), WifiFlowDiagTextSlot::SavedStatus);
         lv_obj_set_style_text_color(_lbl_saved_status, pal.text_secondary, LV_PART_MAIN);
         _saved_status_terminal = true;
         break;
@@ -1861,17 +1790,17 @@ void LvglWifiFlowScreen::handle_saved_connect_finished() {
     case WifiOpsResult::AuthFailed:
         // Auth/timeout — password mismatch or weak signal; NoNetwork is handled above.
         // Auth/timeout — неверный пароль или слабый сигнал; NoNetwork обрабатывается выше.
-        wifi_flow_set_text_if_changed(_lbl_saved_status, kStrSavedAuthFailed, WifiFlowDiagTextSlot::SavedStatus);
+        wifi_flow_set_text_if_changed(_lbl_saved_status, i18n::text(i18n::TextId::WifiSavedAuthOrSignalFailed), WifiFlowDiagTextSlot::SavedStatus);
         lv_obj_set_style_text_color(_lbl_saved_status, pal.text_secondary, LV_PART_MAIN);
         _saved_status_terminal = true;
         break;
     case WifiOpsResult::Cancelled:
-        wifi_flow_set_text_if_changed(_lbl_saved_status, kStrConnectCancelled, WifiFlowDiagTextSlot::SavedStatus);
+        wifi_flow_set_text_if_changed(_lbl_saved_status, i18n::text(i18n::TextId::WifiCancelled), WifiFlowDiagTextSlot::SavedStatus);
         lv_obj_set_style_text_color(_lbl_saved_status, pal.text_meta, LV_PART_MAIN);
         _saved_status_terminal = true;
         break;
     default:
-        wifi_flow_set_text_if_changed(_lbl_saved_status, kStrConnectWifiError, WifiFlowDiagTextSlot::SavedStatus);
+        wifi_flow_set_text_if_changed(_lbl_saved_status, i18n::text(i18n::TextId::WifiConnectErrorRetry), WifiFlowDiagTextSlot::SavedStatus);
         lv_obj_set_style_text_color(_lbl_saved_status, pal.text_secondary, LV_PART_MAIN);
         _saved_status_terminal = true;
         break;
@@ -1931,7 +1860,7 @@ void LvglWifiFlowScreen::create_home_panel(LvglWifiFlowScreen& self, const YoRad
         self._hdr_home = lv_label_create(self._panel_home);
     }
     if (self._hdr_home) {
-        lv_label_set_text(self._hdr_home, kStrHomeTitle);
+        lv_label_set_text(self._hdr_home, i18n::text(i18n::TextId::WifiHomeTitle));
         lv_obj_set_style_text_color(self._hdr_home, pal.text_primary, LV_PART_MAIN);
         wifi_set_font(self._hdr_home, wifi_title_font_slot());
     }
@@ -1939,7 +1868,8 @@ void LvglWifiFlowScreen::create_home_panel(LvglWifiFlowScreen& self, const YoRad
     self._sub_home = lv_label_create(self._panel_home);
     // Initial text is immediately overwritten by sync_home_boot_failure_ui() on enter.
     // Перезаписывается при enter через sync_home_boot_failure_ui().
-    wifi_flow_set_text_if_changed(self._sub_home, kStrHomeSubtitleDefault, WifiFlowDiagTextSlot::SubHome);
+    wifi_flow_set_text_if_changed(
+        self._sub_home, i18n::text(i18n::TextId::WifiHomeSubtitleManual), WifiFlowDiagTextSlot::SubHome);
     lv_obj_set_style_text_color(self._sub_home, pal.text_secondary, LV_PART_MAIN);
     wifi_set_font(self._sub_home, wifi_status_font_slot());
     lv_label_set_long_mode(self._sub_home, LV_LABEL_LONG_WRAP);
@@ -1967,9 +1897,12 @@ void LvglWifiFlowScreen::create_home_panel(LvglWifiFlowScreen& self, const YoRad
     lv_obj_t* rowh = lv_obj_create(self._panel_home);
     if (rowh) {
         style_action_row(rowh, kPrimaryActionRowColumnGap);
-        self._btn_scan     = add_footer_button(rowh, kStrButtonScan,    pal, on_btn_scan,       &self);
-        self._btn_hotspot  = add_footer_button(rowh, kStrButtonHotspot, pal, on_btn_hotspot,    &self);
-        self._btn_back_home = add_footer_button(rowh, kStrButtonBack,   pal, on_btn_back_home,  &self);
+        self._btn_scan = add_footer_button(
+            rowh, i18n::text(i18n::TextId::WifiActionScan), pal, on_btn_scan, &self);
+        self._btn_hotspot = add_footer_button(
+            rowh, i18n::text(i18n::TextId::WifiActionHotspot), pal, on_btn_hotspot, &self);
+        self._btn_back_home = add_footer_button(
+            rowh, i18n::text(i18n::TextId::WifiActionBack), pal, on_btn_back_home, &self);
         wifi_apply_button_role(self._btn_scan,      pal, WifiBtnRole::Primary);
         wifi_apply_button_role(self._btn_hotspot,   pal, WifiBtnRole::Secondary);
         wifi_apply_button_role(self._btn_back_home, pal, WifiBtnRole::Ghost);
@@ -1992,7 +1925,7 @@ void LvglWifiFlowScreen::create_networks_panel(LvglWifiFlowScreen& self, const Y
         self._hdr_net = lv_label_create(self._panel_net);
     }
     if (self._hdr_net) {
-        lv_label_set_text(self._hdr_net, kStrNetworksTitle);
+        lv_label_set_text(self._hdr_net, i18n::text(i18n::TextId::WifiNetworksTitle));
         lv_obj_set_style_text_color(self._hdr_net, pal.text_primary, LV_PART_MAIN);
         wifi_set_font(self._hdr_net, wifi_title_font_slot());
     }
@@ -2014,9 +1947,12 @@ void LvglWifiFlowScreen::create_networks_panel(LvglWifiFlowScreen& self, const Y
     lv_obj_t* rown = lv_obj_create(self._panel_net);
     if (rown) {
         style_action_row(rown, kPrimaryActionRowColumnGap);
-        self._btn_rescan      = add_footer_button(rown, kStrButtonRescan,  pal, on_btn_rescan,       &self);
-        self._btn_cancel_scan = add_footer_button(rown, kStrButtonCancel,  pal, on_btn_cancel_scan,  &self);
-        self._btn_back_net    = add_footer_button(rown, kStrButtonHome,    pal, on_btn_back_net,     &self);
+        self._btn_rescan = add_footer_button(
+            rown, i18n::text(i18n::TextId::WifiActionRescan), pal, on_btn_rescan, &self);
+        self._btn_cancel_scan = add_footer_button(
+            rown, i18n::text(i18n::TextId::WifiActionCancel), pal, on_btn_cancel_scan, &self);
+        self._btn_back_net = add_footer_button(
+            rown, i18n::text(i18n::TextId::WifiActionHome), pal, on_btn_back_net, &self);
         wifi_apply_button_role(self._btn_rescan,      pal, WifiBtnRole::Primary);
         wifi_apply_button_role(self._btn_cancel_scan, pal, WifiBtnRole::Secondary);
         wifi_apply_button_role(self._btn_back_net,    pal, WifiBtnRole::Ghost);
@@ -2027,7 +1963,7 @@ void LvglWifiFlowScreen::create_networks_panel(LvglWifiFlowScreen& self, const Y
 // Панель Password: заголовок, SSID, подсказка, поле ввода, ряд кнопок, статус, клавиатура.
 void LvglWifiFlowScreen::create_password_panel(LvglWifiFlowScreen& self, const YoRadioPalette& pal) {
     self._hdr_pass = lv_label_create(self._panel_pass);
-    lv_label_set_text(self._hdr_pass, kStrPasswordTitle);
+    lv_label_set_text(self._hdr_pass, i18n::text(i18n::TextId::WifiPasswordTitle));
     lv_obj_set_style_text_color(self._hdr_pass, pal.text_primary, LV_PART_MAIN);
     wifi_set_font(self._hdr_pass, wifi_title_font_slot());
 
@@ -2039,7 +1975,7 @@ void LvglWifiFlowScreen::create_password_panel(LvglWifiFlowScreen& self, const Y
     lv_obj_set_width(self._lbl_pass_ssid, LV_PCT(100));
 
     self._lbl_pass_hint = lv_label_create(self._panel_pass);
-    lv_label_set_text(self._lbl_pass_hint, kStrPasswordHint);
+    lv_label_set_text(self._lbl_pass_hint, i18n::text(i18n::TextId::WifiPasswordHint));
     lv_obj_set_style_text_color(self._lbl_pass_hint, pal.text_secondary, LV_PART_MAIN);
     wifi_set_font(self._lbl_pass_hint, wifi_status_font_slot());
     lv_label_set_long_mode(self._lbl_pass_hint, LV_LABEL_LONG_WRAP);
@@ -2069,10 +2005,11 @@ void LvglWifiFlowScreen::create_password_panel(LvglWifiFlowScreen& self, const Y
             wifi_flow_set_state_if_changed(self._btn_connect, LV_STATE_DISABLED, true, WifiFlowDiagBtnSlot::PassConnect);
             lv_obj_add_event_cb(self._btn_connect, on_btn_connect, LV_EVENT_CLICKED, &self);
             lv_obj_t* lc = lv_label_create(self._btn_connect);
-            lv_label_set_text(lc, kStrButtonConnect);
+            lv_label_set_text(lc, i18n::text(i18n::TextId::WifiActionConnect));
             lv_obj_center(lc);
         }
-        self._btn_back_pass = add_footer_button(rowp, kStrButtonBack, pal, on_btn_back_pass, &self);
+        self._btn_back_pass = add_footer_button(
+            rowp, i18n::text(i18n::TextId::WifiActionBack), pal, on_btn_back_pass, &self);
         wifi_apply_button_role(self._btn_back_pass, pal, WifiBtnRole::Secondary);
     }
 
@@ -2115,7 +2052,7 @@ void LvglWifiFlowScreen::create_saved_panel(LvglWifiFlowScreen& self, const YoRa
     lv_obj_set_width(self._lbl_saved_ssid, LV_PCT(100));
 
     self._lbl_saved_sub = lv_label_create(self._panel_saved);
-    lv_label_set_text(self._lbl_saved_sub, kStrSavedSubtitle);
+    lv_label_set_text(self._lbl_saved_sub, i18n::text(i18n::TextId::WifiSavedSubtitle));
     lv_obj_set_style_text_color(self._lbl_saved_sub, pal.text_secondary, LV_PART_MAIN);
     wifi_set_font(self._lbl_saved_sub, wifi_status_font_slot());
     lv_label_set_long_mode(self._lbl_saved_sub, LV_LABEL_LONG_WRAP);
@@ -2132,10 +2069,20 @@ void LvglWifiFlowScreen::create_saved_panel(LvglWifiFlowScreen& self, const YoRa
     self._row_saved_normal = lv_obj_create(self._panel_saved);
     if (self._row_saved_normal) {
         style_action_row(self._row_saved_normal, kCompactActionRowColumnGap);
-        self._btn_saved_connect = add_footer_button(self._row_saved_normal, kStrButtonConnect,        pal, on_btn_saved_connect, &self);
-        self._btn_saved_chpwd   = add_footer_button(self._row_saved_normal, kStrButtonChangePassword, pal, on_btn_saved_chpwd,   &self);
-        self._btn_saved_remove  = add_footer_button(self._row_saved_normal, kStrButtonRemove,         pal, on_btn_saved_remove,  &self);
-        self._btn_saved_back    = add_footer_button(self._row_saved_normal, kStrButtonBack,           pal, on_btn_saved_back,    &self);
+        self._btn_saved_connect = add_footer_button(
+            self._row_saved_normal, i18n::text(i18n::TextId::WifiActionConnect), pal, on_btn_saved_connect, &self);
+        self._btn_saved_chpwd = add_footer_button(
+            self._row_saved_normal, i18n::text(i18n::TextId::WifiActionChangePassword), pal, on_btn_saved_chpwd, &self);
+        self._btn_saved_remove = add_footer_button(
+            self._row_saved_normal, i18n::text(i18n::TextId::WifiActionRemove), pal, on_btn_saved_remove, &self);
+        self._btn_saved_back = add_footer_button(
+            self._row_saved_normal, i18n::text(i18n::TextId::WifiActionBack), pal, on_btn_saved_back, &self);
+        // Give the longer RU Connect caption extra flex width without changing row geometry.
+        // Длинной RU-подписи «Подключить» отдаём дополнительную flex-ширину без изменения геометрии ряда.
+        if (self._btn_saved_connect) lv_obj_set_flex_grow(self._btn_saved_connect, 15);
+        if (self._btn_saved_chpwd)   lv_obj_set_flex_grow(self._btn_saved_chpwd,   12);
+        if (self._btn_saved_remove)  lv_obj_set_flex_grow(self._btn_saved_remove,  11);
+        if (self._btn_saved_back)    lv_obj_set_flex_grow(self._btn_saved_back,    10);
         wifi_apply_button_role(self._btn_saved_connect, pal, WifiBtnRole::Primary);
         wifi_apply_button_role(self._btn_saved_chpwd,   pal, WifiBtnRole::Secondary);
         wifi_apply_button_role(self._btn_saved_remove,  pal, WifiBtnRole::Destructive);
@@ -2146,8 +2093,10 @@ void LvglWifiFlowScreen::create_saved_panel(LvglWifiFlowScreen& self, const YoRa
     self._row_saved_confirm = lv_obj_create(self._panel_saved);
     if (self._row_saved_confirm) {
         style_action_row(self._row_saved_confirm, kCompactActionRowColumnGap);
-        self._btn_saved_yes = add_footer_button(self._row_saved_confirm, kStrButtonYes, pal, on_btn_saved_yes, &self);
-        self._btn_saved_no  = add_footer_button(self._row_saved_confirm, kStrButtonNo,  pal, on_btn_saved_no,  &self);
+        self._btn_saved_yes = add_footer_button(
+            self._row_saved_confirm, i18n::text(i18n::TextId::WifiActionYes), pal, on_btn_saved_yes, &self);
+        self._btn_saved_no = add_footer_button(
+            self._row_saved_confirm, i18n::text(i18n::TextId::WifiActionNo), pal, on_btn_saved_no, &self);
         wifi_apply_button_role(self._btn_saved_yes, pal, WifiBtnRole::Destructive);
         wifi_apply_button_role(self._btn_saved_no,  pal, WifiBtnRole::Secondary);
         lv_obj_add_flag(self._row_saved_confirm, LV_OBJ_FLAG_HIDDEN);
@@ -2162,7 +2111,7 @@ void LvglWifiFlowScreen::create_saved_panel(LvglWifiFlowScreen& self, const YoRa
 // Builder не запускает и не останавливает SoftAP — backend управляется через show_hotspot_panel() / on_btn_back_hotspot.
 void LvglWifiFlowScreen::create_hotspot_panel(LvglWifiFlowScreen& self, const YoRadioPalette& pal) {
     self._hdr_hotspot = lv_label_create(self._panel_hotspot);
-    lv_label_set_text(self._hdr_hotspot, kStrHotspotTitle);
+    lv_label_set_text(self._hdr_hotspot, i18n::text(i18n::TextId::WifiHotspotTitle));
     lv_obj_set_style_text_color(self._hdr_hotspot, pal.text_primary, LV_PART_MAIN);
     wifi_set_font(self._hdr_hotspot, wifi_title_font_slot());
 
@@ -2187,7 +2136,8 @@ void LvglWifiFlowScreen::create_hotspot_panel(LvglWifiFlowScreen& self, const Yo
     lv_obj_t* row_ap = lv_obj_create(self._panel_hotspot);
     if (row_ap) {
         style_action_row(row_ap, kCompactActionRowColumnGap);
-        self._btn_hotspot_back = add_footer_button(row_ap, kStrButtonBackToRecovery, pal, on_btn_back_hotspot, &self);
+        self._btn_hotspot_back = add_footer_button(
+            row_ap, i18n::text(i18n::TextId::WifiActionBackToRecovery), pal, on_btn_back_hotspot, &self);
         wifi_apply_button_role(self._btn_hotspot_back, pal, WifiBtnRole::Secondary);
     }
 
@@ -2389,7 +2339,7 @@ bool LvglWifiFlowScreen::poll_handle_password_result(const WifiOpsSnapshot& snap
         if (_lbl_pass_status) {
             wifi_flow_set_text_if_changed(
                 _lbl_pass_status,
-                "Connecting... current Wi-Fi may disconnect / подключение... возможен разрыв Wi-Fi",
+                i18n::text(i18n::TextId::WifiConnectingWarning),
                 WifiFlowDiagTextSlot::PassStatus);
             lv_obj_set_style_text_color(_lbl_pass_status, pal.text_meta, LV_PART_MAIN);
         }
@@ -2411,7 +2361,8 @@ bool LvglWifiFlowScreen::poll_handle_saved_result(const WifiOpsSnapshot& snap, b
     }
     if (snap.busy && snap.currentOp == WifiOpsOp::Connect) {
         if (_lbl_saved_status && !_saved_status_terminal) {
-            wifi_flow_set_text_if_changed(_lbl_saved_status, kStrConnectingSaved, WifiFlowDiagTextSlot::SavedStatus);
+            wifi_flow_set_text_if_changed(
+                _lbl_saved_status, i18n::text(i18n::TextId::WifiConnecting), WifiFlowDiagTextSlot::SavedStatus);
             lv_obj_set_style_text_color(_lbl_saved_status, pal.text_meta, LV_PART_MAIN);
         }
         return true;
@@ -2431,7 +2382,8 @@ bool LvglWifiFlowScreen::poll_handle_open_result(const WifiOpsSnapshot& snap, bo
     }
     if (snap.busy && snap.currentOp == WifiOpsOp::Connect) {
         if (_lbl_net_status && !_open_status_terminal) {
-            wifi_flow_set_text_if_changed(_lbl_net_status, kStrConnectingOpen, WifiFlowDiagTextSlot::NetStatus);
+            wifi_flow_set_text_if_changed(
+                _lbl_net_status, i18n::text(i18n::TextId::WifiConnectingOpen), WifiFlowDiagTextSlot::NetStatus);
             lv_obj_set_style_text_color(_lbl_net_status, pal.text_meta, LV_PART_MAIN);
         }
         set_networks_panel_connecting_ui(true);
@@ -2456,7 +2408,8 @@ bool LvglWifiFlowScreen::poll_scan_progress_blocks_ui(const WifiOpsSnapshot& sna
         return false;
     }
     if (_lbl_net_status) {
-        wifi_flow_set_text_if_changed(_lbl_net_status, kStrScanning, WifiFlowDiagTextSlot::NetStatus);
+        wifi_flow_set_text_if_changed(
+            _lbl_net_status, i18n::text(i18n::TextId::WifiScanning), WifiFlowDiagTextSlot::NetStatus);
         lv_obj_set_style_text_color(_lbl_net_status, pal.text_meta, LV_PART_MAIN);
     }
     if (_btn_scan) {
@@ -2490,19 +2443,24 @@ void LvglWifiFlowScreen::poll_handle_scan_completion(const WifiOpsSnapshot& snap
     _await_scan_ui = false;
     if (snap.lastResult == WifiOpsResult::Success) {
         rebuild_scan_list();
-        wifi_flow_set_text_if_changed(_lbl_net_status, kStrScanComplete, WifiFlowDiagTextSlot::NetStatus);
+        wifi_flow_set_text_if_changed(
+            _lbl_net_status, i18n::text(i18n::TextId::WifiScanComplete), WifiFlowDiagTextSlot::NetStatus);
     } else if (snap.lastResult == WifiOpsResult::Cancelled) {
         rebuild_scan_list();
-        wifi_flow_set_text_if_changed(_lbl_net_status, kStrScanCancelled, WifiFlowDiagTextSlot::NetStatus);
+        wifi_flow_set_text_if_changed(
+            _lbl_net_status, i18n::text(i18n::TextId::WifiScanCancelled), WifiFlowDiagTextSlot::NetStatus);
     } else if (snap.lastResult == WifiOpsResult::Timeout) {
         rebuild_scan_list();
-        wifi_flow_set_text_if_changed(_lbl_net_status, kStrScanTimeout, WifiFlowDiagTextSlot::NetStatus);
+        wifi_flow_set_text_if_changed(
+            _lbl_net_status, i18n::text(i18n::TextId::WifiScanTimeout), WifiFlowDiagTextSlot::NetStatus);
     } else if (snap.lastResult == WifiOpsResult::Busy) {
         rebuild_scan_list();
-        wifi_flow_set_text_if_changed(_lbl_net_status, kStrScanBusy, WifiFlowDiagTextSlot::NetStatus);
+        wifi_flow_set_text_if_changed(
+            _lbl_net_status, i18n::text(i18n::TextId::WifiBusy), WifiFlowDiagTextSlot::NetStatus);
     } else {
         rebuild_scan_list();
-        wifi_flow_set_text_if_changed(_lbl_net_status, kStrScanFinished, WifiFlowDiagTextSlot::NetStatus);
+        wifi_flow_set_text_if_changed(
+            _lbl_net_status, i18n::text(i18n::TextId::WifiScanComplete), WifiFlowDiagTextSlot::NetStatus);
     }
     lv_obj_set_style_text_color(_lbl_net_status, pal.text_secondary, LV_PART_MAIN);
     (void)snap.resultsSeq;
@@ -2700,10 +2658,12 @@ void LvglWifiFlowScreen::on_ta_password_changed(lv_event_t* e) {
     }
 
     if (n == 0U) {
-        wifi_flow_set_text_if_changed(self->_lbl_pass_status, "Enter password / введите пароль", WifiFlowDiagTextSlot::PassStatus);
+        wifi_flow_set_text_if_changed(
+            self->_lbl_pass_status, i18n::text(i18n::TextId::WifiPasswordPrompt), WifiFlowDiagTextSlot::PassStatus);
         lv_obj_set_style_text_color(self->_lbl_pass_status, pal.text_meta, LV_PART_MAIN);
     } else if (n < kMinPasswordLen) {
-        wifi_flow_set_text_if_changed(self->_lbl_pass_status, "Min 8 characters / минимум 8 символов", WifiFlowDiagTextSlot::PassStatus);
+        wifi_flow_set_text_if_changed(
+            self->_lbl_pass_status, i18n::text(i18n::TextId::WifiPasswordMinChars), WifiFlowDiagTextSlot::PassStatus);
         lv_obj_set_style_text_color(self->_lbl_pass_status, pal.text_secondary, LV_PART_MAIN);
     } else {
         wifi_flow_set_text_if_changed(self->_lbl_pass_status, " ", WifiFlowDiagTextSlot::PassStatus);
@@ -2798,7 +2758,8 @@ void LvglWifiFlowScreen::on_btn_saved_chpwd(lv_event_t* e) {
     self->open_password_entry(self->_selectedSavedSsid);
     // Update hint to indicate context / уточняем подсказку для смены пароля.
     if (self->_lbl_pass_hint) {
-        lv_label_set_text(self->_lbl_pass_hint, "Enter new password. On success it will be saved.");
+        lv_label_set_text(
+            self->_lbl_pass_hint, i18n::text(i18n::TextId::WifiPasswordChangeHint));
     }
 }
 
@@ -2828,7 +2789,9 @@ void LvglWifiFlowScreen::on_btn_saved_remove(lv_event_t* e) {
     if (self->_lbl_saved_status) {
         const YoRadioPalette& pal = yoradio_palette_service();
         char msg[80];
-        snprintf(msg, sizeof(msg), "Remove \"%s\"? Cannot be undone.", self->_selectedSavedSsid);
+        wifi_format_checked(msg, sizeof(msg), i18n::text(i18n::TextId::WifiRemoveConfirm),
+                            i18n::text(i18n::TextId::WifiRemoveConfirmFormat),
+                            self->_selectedSavedSsid);
         wifi_flow_set_text_if_changed(self->_lbl_saved_status, msg, WifiFlowDiagTextSlot::SavedStatus);
         lv_obj_set_style_text_color(self->_lbl_saved_status, pal.text_secondary, LV_PART_MAIN);
         self->_saved_status_terminal = true;
@@ -2863,7 +2826,8 @@ void LvglWifiFlowScreen::on_btn_saved_yes(lv_event_t* e) {
     if (self->_selectedSavedSlot == 255 ||
         self->_selectedSavedSlot >= wifiCredStoreSavedCount()) {
         if (self->_lbl_saved_status) {
-            wifi_flow_set_text_if_changed(self->_lbl_saved_status, kStrConnectWifiError, WifiFlowDiagTextSlot::SavedStatus);
+            wifi_flow_set_text_if_changed(
+                self->_lbl_saved_status, i18n::text(i18n::TextId::WifiConnectErrorRetry), WifiFlowDiagTextSlot::SavedStatus);
             lv_obj_set_style_text_color(self->_lbl_saved_status, pal.text_secondary, LV_PART_MAIN);
             self->_saved_status_terminal = true;
         }
@@ -2876,7 +2840,8 @@ void LvglWifiFlowScreen::on_btn_saved_yes(lv_event_t* e) {
     const bool removed = wifiCredStoreRemoveAt(self->_selectedSavedSlot);
     if (!removed) {
         if (self->_lbl_saved_status) {
-            wifi_flow_set_text_if_changed(self->_lbl_saved_status, kStrConnectWifiError, WifiFlowDiagTextSlot::SavedStatus);
+            wifi_flow_set_text_if_changed(
+                self->_lbl_saved_status, i18n::text(i18n::TextId::WifiConnectErrorRetry), WifiFlowDiagTextSlot::SavedStatus);
             lv_obj_set_style_text_color(self->_lbl_saved_status, pal.text_secondary, LV_PART_MAIN);
             self->_saved_status_terminal = true;
         }

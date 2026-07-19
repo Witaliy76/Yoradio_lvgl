@@ -76,6 +76,70 @@ enum class TextId : uint16_t {
   PresetSaveFailed,
   PresetCountdownFormat,
   PresetSavedFormat,
+  WifiHomeTitle,
+  WifiNetworksTitle,
+  WifiPasswordTitle,
+  WifiHotspotTitle,
+  WifiHomeSubtitleManual,
+  WifiHomeSubtitleBootFailure,
+  WifiHomeSubtitleDisconnected,
+  WifiPasswordHint,
+  WifiPasswordChangeHint,
+  WifiSavedSubtitle,
+  WifiActionScan,
+  WifiActionHotspot,
+  WifiActionBack,
+  WifiActionRescan,
+  WifiActionCancel,
+  WifiActionHome,
+  WifiActionConnect,
+  WifiActionChangePassword,
+  WifiActionRemove,
+  WifiActionYes,
+  WifiActionNo,
+  WifiActionBackToRecovery,
+  WifiHotspotAutoStartFormat,
+  WifiHotspotSsidFormat,
+  WifiHotspotPasswordOpen,
+  WifiHotspotIpFormat,
+  WifiHotspotIpPendingFormat,
+  WifiHotspotHelpFormat,
+  WifiNoNetwork,
+  WifiScanning,
+  WifiScanStarting,
+  WifiScanNotStarted,
+  WifiScanComplete,
+  WifiScanCancelled,
+  WifiScanTimeout,
+  WifiBusy,
+  WifiConnectingWarning,
+  WifiConnectingOpen,
+  WifiConnecting,
+  WifiConnectCannotStart,
+  WifiConnectBusyRetry,
+  WifiConnectErrorRetry,
+  WifiWrongPassword,
+  WifiConnectTimeout,
+  WifiCancelled,
+  WifiInternalError,
+  WifiConnectFinished,
+  WifiOpenConnectSignalFailed,
+  WifiSavedAuthOrSignalFailed,
+  WifiConnectedRestarting,
+  WifiSavedRestarting,
+  WifiCannotSaveNetwork,
+  WifiSavedNetworksFull,
+  WifiCouldNotSaveNetwork,
+  WifiCouldNotUpdatePassword,
+  WifiPasswordMinChars,
+  WifiPasswordPrompt,
+  WifiNoNetworksFound,
+  WifiUiMemoryLow,
+  WifiScanMemoryLow,
+  WifiScanOpenRowFormat,
+  WifiScanSecuredRowFormat,
+  WifiRemoveConfirm,
+  WifiRemoveConfirmFormat,
   Count
 };
 
@@ -353,6 +417,70 @@ inline constexpr std::array<TextSpec, textCount()> kTextSpecs{{
   makeTextSpec("", 48),       // PresetSaveFailed: footer feedback
   makeTextSpec("%d", 96),     // PresetCountdownFormat: remaining seconds
   makeTextSpec("%u", 48),     // PresetSavedFormat: one-based preset slot
+  makeTextSpec("", 64),       // WifiHomeTitle
+  makeTextSpec("", 64),       // WifiNetworksTitle
+  makeTextSpec("", 64),       // WifiPasswordTitle
+  makeTextSpec("", 64),       // WifiHotspotTitle
+  makeTextSpec("", 128),      // WifiHomeSubtitleManual: WRAP
+  makeTextSpec("", 128),      // WifiHomeSubtitleBootFailure: WRAP
+  makeTextSpec("", 128),      // WifiHomeSubtitleDisconnected: WRAP
+  makeTextSpec("", 128),      // WifiPasswordHint: WRAP
+  makeTextSpec("", 160),      // WifiPasswordChangeHint: WRAP
+  makeTextSpec("", 128),      // WifiSavedSubtitle: WRAP
+  makeTextSpec("", 32),       // WifiActionScan
+  makeTextSpec("", 32),       // WifiActionHotspot
+  makeTextSpec("", 32),       // WifiActionBack
+  makeTextSpec("", 32),       // WifiActionRescan
+  makeTextSpec("", 32),       // WifiActionCancel
+  makeTextSpec("", 32),       // WifiActionHome
+  makeTextSpec("", 32),       // WifiActionConnect
+  makeTextSpec("", 32),       // WifiActionChangePassword
+  makeTextSpec("", 32),       // WifiActionRemove
+  makeTextSpec("", 16),       // WifiActionYes
+  makeTextSpec("", 16),       // WifiActionNo
+  makeTextSpec("", 64),       // WifiActionBackToRecovery
+  makeTextSpec("%u", 96),     // WifiHotspotAutoStartFormat: seconds
+  makeTextSpec("%s", 32),     // WifiHotspotSsidFormat: AP SSID
+  makeTextSpec("", 48),       // WifiHotspotPasswordOpen
+  makeTextSpec("%s", 32),     // WifiHotspotIpFormat: AP IP
+  makeTextSpec("%s", 96),     // WifiHotspotIpPendingFormat: expected AP IP
+  makeTextSpec("%s", 160),    // WifiHotspotHelpFormat: setup URL
+  makeTextSpec("", 128),      // WifiNoNetwork
+  makeTextSpec("", 64),       // WifiScanning
+  makeTextSpec("", 64),       // WifiScanStarting
+  makeTextSpec("", 96),       // WifiScanNotStarted
+  makeTextSpec("", 64),       // WifiScanComplete
+  makeTextSpec("", 64),       // WifiScanCancelled
+  makeTextSpec("", 64),       // WifiScanTimeout
+  makeTextSpec("", 48),       // WifiBusy
+  makeTextSpec("", 128),      // WifiConnectingWarning
+  makeTextSpec("", 96),       // WifiConnectingOpen
+  makeTextSpec("", 64),       // WifiConnecting
+  makeTextSpec("", 96),       // WifiConnectCannotStart
+  makeTextSpec("", 96),       // WifiConnectBusyRetry
+  makeTextSpec("", 96),       // WifiConnectErrorRetry
+  makeTextSpec("", 64),       // WifiWrongPassword
+  makeTextSpec("", 64),       // WifiConnectTimeout
+  makeTextSpec("", 48),       // WifiCancelled
+  makeTextSpec("", 64),       // WifiInternalError
+  makeTextSpec("", 64),       // WifiConnectFinished
+  makeTextSpec("", 128),      // WifiOpenConnectSignalFailed
+  makeTextSpec("", 160),      // WifiSavedAuthOrSignalFailed
+  makeTextSpec("", 96),       // WifiConnectedRestarting
+  makeTextSpec("", 96),       // WifiSavedRestarting
+  makeTextSpec("", 96),       // WifiCannotSaveNetwork
+  makeTextSpec("", 160),      // WifiSavedNetworksFull
+  makeTextSpec("", 96),       // WifiCouldNotSaveNetwork
+  makeTextSpec("", 96),       // WifiCouldNotUpdatePassword
+  makeTextSpec("", 64),       // WifiPasswordMinChars
+  makeTextSpec("", 64),       // WifiPasswordPrompt
+  makeTextSpec("", 64),       // WifiNoNetworksFound
+  makeTextSpec("", 128),      // WifiUiMemoryLow
+  makeTextSpec("", 96),       // WifiScanMemoryLow
+  makeTextSpec("%s %d", 64),  // WifiScanOpenRowFormat: SSID, RSSI
+  makeTextSpec("%s %d", 64),  // WifiScanSecuredRowFormat: SSID, RSSI
+  makeTextSpec("", 48),       // WifiRemoveConfirm: no-SSID fallback
+  makeTextSpec("%s", 64),     // WifiRemoveConfirmFormat: saved SSID
 }};
 
 // Parser foundation checks. These stay next to the constexpr implementation so
