@@ -39,17 +39,30 @@ Display display;
 
 namespace {
 
-// Format catalog text into an owned buffer; any failure falls back to a complete static message.
-// Форматирует каталожный текст в собственный буфер; при ошибке ставит полное статичное сообщение.
-bool formatLocalizedText(char* destination, size_t capacity,
-                         i18n::TextId format_id, i18n::TextId fallback_id, ...) {
+// Format catalog text with one unsigned arg; fallback is error recovery only.
+// Формат с одним unsigned; fallback только при ошибке/truncation.
+bool formatLocalizedTextU(char* destination, size_t capacity,
+                            i18n::TextId format_id, i18n::TextId fallback_id,
+                            unsigned int value) {
   if (!destination || capacity == 0) return false;
 
-  va_list args;
-  va_start(args, fallback_id);
-  const int written = vsnprintf(destination, capacity, i18n::text(format_id), args);
-  va_end(args);
+  const int written =
+      snprintf(destination, capacity, i18n::text(format_id), value);
+  if (written >= 0 && static_cast<size_t>(written) < capacity) return true;
+  strlcpy(destination, i18n::text(fallback_id), capacity);
+  return false;
+}
 
+// Format catalog text with one string arg; fallback is error recovery only.
+// Формат с одной строкой; fallback только при ошибке/truncation.
+bool formatLocalizedTextS(char* destination, size_t capacity,
+                          i18n::TextId format_id, i18n::TextId fallback_id,
+                          const char* string_arg) {
+  if (!destination || capacity == 0) return false;
+
+  const char* arg = string_arg ? string_arg : "";
+  const int written =
+      snprintf(destination, capacity, i18n::text(format_id), arg);
   if (written >= 0 && static_cast<size_t>(written) < capacity) return true;
   strlcpy(destination, i18n::text(fallback_id), capacity);
   return false;
@@ -218,16 +231,16 @@ void Display::_tryCompleteLostEscalation() {
 
   if (_lost_escalation_milestone == 0) {
     char line[128];
-    formatLocalizedText(line, sizeof(line), i18n::TextId::BootRecoveryCountdownFormat,
-                        i18n::TextId::BootReconnectStatus, 60U);
+    formatLocalizedTextU(line, sizeof(line), i18n::TextId::BootRecoveryCountdownFormat,
+                         i18n::TextId::BootReconnectStatus, 60U);
     lvgl_ui::overlayLostSetStatusText(line);
     _lost_escalation_milestone = 1;
   }
 
   if (_lost_escalation_milestone < 2 && elapsed >= 30000U) {
     char line[128];
-    formatLocalizedText(line, sizeof(line), i18n::TextId::BootRecoveryCountdownFormat,
-                        i18n::TextId::BootReconnectStatus, 30U);
+    formatLocalizedTextU(line, sizeof(line), i18n::TextId::BootRecoveryCountdownFormat,
+                         i18n::TextId::BootReconnectStatus, 30U);
     lvgl_ui::overlayLostSetStatusText(line);
     _lost_escalation_milestone = 2;
   }
@@ -415,9 +428,9 @@ void Display::loop() {
           if (lvgl_ui::isLvglBootActive()) {
             if (s_lvgl_boot_connected_latched) break;
             char line[96];
-            formatLocalizedText(line, sizeof(line), i18n::TextId::BootConnectFormat,
-                                i18n::TextId::BootStarting,
-                                config.ssids[request.payload].ssid);
+            formatLocalizedTextS(line, sizeof(line), i18n::TextId::BootConnectFormat,
+                                 i18n::TextId::BootStarting,
+                                 config.ssids[request.payload].ssid);
             lvgl_ui::bootScreenSetStatusUtf8(line);
             lvgl_ui::bootScreenNotifyBootSignal();
           }
@@ -465,10 +478,10 @@ void Display::loop() {
     if (!s_lvgl_boot_connected_latched && WiFi.status() == WL_CONNECTED) {
       const String ssid = WiFi.SSID();
       char line[96];
-      formatLocalizedText(line, sizeof(line), i18n::TextId::BootConnectedToFormat,
-                          i18n::TextId::BootStarting,
-                          ssid.length() ? ssid.c_str()
-                                        : i18n::text(i18n::TextId::BootWifiFallbackName));
+      formatLocalizedTextS(line, sizeof(line), i18n::TextId::BootConnectedToFormat,
+                           i18n::TextId::BootStarting,
+                           ssid.length() ? ssid.c_str()
+                                         : i18n::text(i18n::TextId::BootWifiFallbackName));
       lvgl_ui::bootScreenSetStatusUtf8(line);
       s_lvgl_boot_connected_latched = true;
     }

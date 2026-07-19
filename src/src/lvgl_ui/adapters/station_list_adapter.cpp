@@ -92,7 +92,7 @@ static bool append_station_line(char* out, size_t cap, size_t& used, uint16_t nu
         return false;
     }
     if (static_cast<size_t>(written) >= cap - used) {
-        out[used] = '\0';
+        // snprintf already null-terminated within cap; keep partial line / не затирать out[used].
         return false;
     }
     used += static_cast<size_t>(written);
