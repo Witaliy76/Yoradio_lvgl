@@ -45,9 +45,9 @@ struct CalendarTableCounts {
   std::size_t windDirections;
 };
 
-// L20 migrates only calendar tables with active legacy consumers. Full month
-// and weekday names remain absent until a screen-owning slice needs them.
-inline constexpr CalendarTableCounts kCalendarCountsExpected{0, 12, 0, 7, 17};
+// L40 adds the full weekday names consumed by the Weather hero date. Full
+// month names remain absent because Weather uses the existing date-form table.
+inline constexpr CalendarTableCounts kCalendarCountsExpected{0, 12, 7, 7, 17};
 
 template <std::size_t Size>
 constexpr StringTableView makeStringTableView(const std::array<const char*, Size>& values) noexcept {

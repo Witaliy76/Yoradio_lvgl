@@ -16,6 +16,7 @@ namespace i18n {
 const char* text(TextId id) noexcept;
 const LocaleMetadata& locale() noexcept;
 const CalendarData& calendar() noexcept;
+const char* dayFull(uint8_t index) noexcept;
 const char* dayShort(uint8_t index) noexcept;
 const char* monthName(uint8_t index) noexcept;
 const char* windDirection(uint8_t index) noexcept;

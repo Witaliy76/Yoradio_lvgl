@@ -18,7 +18,9 @@ inline constexpr std::array<const char*, 12> kMonthsDate{{
   "января", "февраля", "марта", "апреля", "мая", "июня",
   "июля", "августа", "сентября", "октября", "ноября", "декабря"
 }};
-inline constexpr std::array<const char*, 0> kWeekdaysFull{};
+inline constexpr std::array<const char*, 7> kWeekdaysFull{{
+  "воскресенье", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота"
+}};
 inline constexpr std::array<const char*, 7> kWeekdaysShort{{
   "вс", "пн", "вт", "ср", "чт", "пт", "сб"
 }};

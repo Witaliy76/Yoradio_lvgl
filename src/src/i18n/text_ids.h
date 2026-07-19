@@ -32,6 +32,36 @@ enum class TextId : uint16_t {
   BootReconnectStatus,
   BootRecoveryCountdownFormat,
   BootOpeningRecovery,
+  WeatherFeelsLikePrefix,
+  WeatherMetricWind,
+  WeatherMetricHumidity,
+  WeatherMetricPressure,
+  WeatherMetricRain,
+  WeatherTomorrow,
+  WeatherPlus3Hours,
+  WeatherPlus6Hours,
+  WeatherPlus9Hours,
+  WeatherToday,
+  WeatherHourlyNearest,
+  WeatherTodayTomorrow,
+  WeatherTomorrowLater,
+  WeatherForecastWaiting,
+  WeatherForecastNotLoaded,
+  WeatherUnavailable,
+  WeatherPleaseWait,
+  WeatherMemoryDeferredMessage,
+  WeatherMemoryDeferredStatus,
+  WeatherTemporarilyUnavailable,
+  WeatherDataMayBeOutdated,
+  WeatherRefreshing,
+  WeatherTapToRefresh,
+  WeatherTapToRetry,
+  WeatherUpdatedJustNow,
+  WeatherUpdatedMinutesAgoFormat,
+  WeatherUpdatedHoursAgoFormat,
+  WeatherHeroDateFullFormat,
+  WeatherHeroDateCompactFormat,
+  WeatherDailyDateFormat,
   Count
 };
 
@@ -265,6 +295,36 @@ inline constexpr std::array<TextSpec, textCount()> kTextSpecs{{
   makeTextSpec("", 64),    // BootReconnectStatus: safe non-formatted fallback
   makeTextSpec("%u", 120), // BootRecoveryCountdownFormat: seconds until Recovery
   makeTextSpec("", 120),   // BootOpeningRecovery
+  makeTextSpec("", 32),    // WeatherFeelsLikePrefix
+  makeTextSpec("", 24),    // WeatherMetricWind
+  makeTextSpec("", 24),    // WeatherMetricHumidity
+  makeTextSpec("", 24),    // WeatherMetricPressure
+  makeTextSpec("", 24),    // WeatherMetricRain
+  makeTextSpec("", 24),    // WeatherTomorrow
+  makeTextSpec("", 12),    // WeatherPlus3Hours
+  makeTextSpec("", 12),    // WeatherPlus6Hours
+  makeTextSpec("", 12),    // WeatherPlus9Hours
+  makeTextSpec("", 24),    // WeatherToday
+  makeTextSpec("", 48),    // WeatherHourlyNearest
+  makeTextSpec("", 48),    // WeatherTodayTomorrow
+  makeTextSpec("", 48),    // WeatherTomorrowLater
+  makeTextSpec("", 80),    // WeatherForecastWaiting
+  makeTextSpec("", 80),    // WeatherForecastNotLoaded
+  makeTextSpec("", 64),    // WeatherUnavailable
+  makeTextSpec("", 48),    // WeatherPleaseWait
+  makeTextSpec("", 160),   // WeatherMemoryDeferredMessage: centered WRAP text
+  makeTextSpec("", 144),   // WeatherMemoryDeferredStatus: circular footer text
+  makeTextSpec("", 80),    // WeatherTemporarilyUnavailable
+  makeTextSpec("", 80),    // WeatherDataMayBeOutdated
+  makeTextSpec("", 64),    // WeatherRefreshing
+  makeTextSpec("", 64),    // WeatherTapToRefresh
+  makeTextSpec("", 64),    // WeatherTapToRetry
+  makeTextSpec("", 64),    // WeatherUpdatedJustNow
+  makeTextSpec("%u", 80),  // WeatherUpdatedMinutesAgoFormat
+  makeTextSpec("%u", 80),  // WeatherUpdatedHoursAgoFormat
+  makeTextSpec("%d %s %d %s", 80),  // WeatherHeroDateFullFormat
+  makeTextSpec("%s %d %s", 48),     // WeatherHeroDateCompactFormat
+  makeTextSpec("%s %02d.%02d", 32), // WeatherDailyDateFormat
 }};
 
 // Parser foundation checks. These stay next to the constexpr implementation so

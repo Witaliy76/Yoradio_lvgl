@@ -45,6 +45,7 @@
 #include "../../core/network.h"  // A3.1: network.timeinfo (NTP-synced local date, read-only) / дата из NTP
 #include "../../core/weather_fetch.h"  // A2b: weatherRequestManualRefresh() / async refresh flag
 #include "../../core/weather_state.h"
+#include "../../i18n/i18n.h"
 
 // W2D: gated LVGL/heap diagnostics for the gradient-OOM investigation. Default OFF — set
 // YORADIO_WEATHER_UI_DIAG=1 in myoptions.h (local, not committed) to capture transition logs.
@@ -97,91 +98,12 @@ static void wx_diag_dump(const char* tag, lv_obj_t* root) {
 #endif // YORADIO_WEATHER_UI_DIAG
 
 // ─────────────────────────────────────────────────────────────────────────────
-// UI string constants / Строки интерфейса
+// Compile-time localized UI ownership / Владение compile-time локализацией UI
 // ─────────────────────────────────────────────────────────────────────────────
-// Weather Page UI strings: Russian baseline until a real i18n layer is added.
-// Keep user-visible copy centralized; do not scatter literals through widget code.
-// Строки Weather Page: русская база до i18n; не разбрасывать литералы по виджетам.
-static const char* const kStrFeelsLike      = "Ощущается ";
-static const char* const kStrMetricWind     = "Ветер";
-static const char* const kStrMetricHumidity = "Влажность";
-static const char* const kStrMetricPressure = "Давление";
-static const char* const kStrMetricRain     = "Осадки";
-static const char* const kStrTomorrow       = "Завтра"; // Завтра (hourly header only)
-static const char* const kStrPlus3h         = "+3 ч";
-static const char* const kStrPlus6h         = "+6 ч";
-static const char* const kStrPlus9h         = "+9 ч";
-static const char* const kStrTodayOnly      = "Сегодня";
-// A3.1f: right hourly block day header strings / заголовок дня в правом hourly-блоке.
-static const char* const kStrHourlyNearest       = "Ближайшие часы";
-static const char* const kStrTodaySlashTomorrow  = "Сегодня / завтра";
-static const char* const kStrTomorrowSlashLater  = "Завтра / позже";
-static const char* const kStrForecastWaiting = "Ожидание данных о погоде";
-static const char* const kStrForecastNotLoaded = "Прогноз ещё не загружен";
-static const char* const kStrWeatherUnavail  = "Погода недоступна";
-static const char* const kStrPleaseWait      = "Пожалуйста, подождите";
-// E38W-defer UX: resource defer (InternalLow) — user-visible, no raw "heap" wording.
-// E38W-defer UX: отложено из‑за нехватки системной памяти — без термина heap.
-static const char* const kStrDeferMemoryCenter =
-    "Недостаточно системной памяти. Обновление прогноза отложено, подождите.";
-static const char* const kStrFooterDeferStatus =
-    "Недостаточно системной памяти \xE2\x80\xA2 обновление прогноза отложено";
-static const char* const kStrTemporarilyUnavailable = "Погода временно недоступна";
-static const char* const kStrDataMayBeOutdated = "Данные могут быть устаревшими";
-static const char* const kStrCheckSettings   = "Проверьте настройки погоды";
-// A2b: footer status + tap hint strings / строки футера: статус и подсказка тапа.
-static const char* const kStrFooterRefreshing       = "Обновление погоды...";
-static const char* const kStrFooterTapRefresh       = "Нажать для обновления";
-static const char* const kStrFooterTapRetry         = "Нажмите, чтобы повторить";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Locale tables / Таблицы локали
-// ─────────────────────────────────────────────────────────────────────────────
-// A3.1: Russian genitive months + weekdays for hero date line (local to Weather page).
-// A3.1: месяцы (род. п.) и дни недели для строки даты в hero (только эта страница).
-static const char* const kRuMonthsGenitive[12] = {
-    "января",
-    "февраля",
-    "марта",
-    "апреля",
-    "мая",
-    "июня",
-    "июля",
-    "августа",
-    "сентября",
-    "октября",
-    "ноября",
-    "декабря",
-};
-// tm_wday: 0 = Sunday … 6 = Saturday / 0 = воскресенье
-static const char* const kRuWeekdayLower[7] = {
-    "воскресенье",
-    "понедельник",
-    "вторник",
-    "среда",
-    "четверг",
-    "пятница",
-    "суббота",
-};
-static const char* const kRuWeekdayTitle[7] = {
-    "Воскресенье",
-    "Понедельник",
-    "Вторник",
-    "Среда",
-    "Четверг",
-    "Пятница",
-    "Суббота",
-};
-// A3.1h: short weekday for daily card date line (Вс…Сб). / Краткий день недели для daily.
-static const char* const kRuWeekdayShort[7] = {
-    "Вс",
-    "Пн",
-    "Вт",
-    "Ср",
-    "Чт",
-    "Пт",
-    "Сб",
-};
+// Fixed Weather copy and date templates are owned by the selected i18n package.
+// Provider condition/city values and technical units stay outside the catalog.
+// Фиксированные строки и шаблоны дат принадлежат выбранному i18n-пакету.
+// Условия/город провайдера и технические единицы остаются вне каталога.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Font / icon resources / Шрифты и иконки
@@ -214,6 +136,10 @@ static constexpr const char* kStrFooterSep          = " \xE2\x80\xA2 ";
 // A4.1: буферы футера — city[64] + country + самые длинные русские фразы + разделители.
 static constexpr size_t kFooterAgeCap  = 48;
 static constexpr size_t kFooterTextCap = 192;
+// L40: complete localized hero dates can exceed the former shared 64-byte value buffer.
+// L40: полная локализованная hero-дата может превышать прежний общий буфер 64 байта.
+static constexpr size_t kHeroDateTextCap = 128;
+static constexpr size_t kWeatherValueTextCap = 64;
 // A3.1B: calm leading inset — full-width hero row without icon flush to panel edge.
 // A3.1B: спокойный левый отступ — полная ширина hero без иконки у края панели.
 static constexpr lv_coord_t kHeroInnerPadLeft = 16;
@@ -234,6 +160,51 @@ static constexpr lv_coord_t k_footer_pill_pad_v    = 10;
 // ─────────────────────────────────────────────────────────────────────────────
 // Formatting helpers / Форматирование строк
 // ─────────────────────────────────────────────────────────────────────────────
+// Copy only a complete string; on overflow leave a valid empty fallback instead
+// of a partial UTF-8 sequence. / Копируем только целую строку; при переполнении
+// оставляем корректный пустой fallback, а не обрезанную UTF-8 последовательность.
+static bool wx_copy_complete(char* buf, size_t cap, const char* text) {
+    if (!buf || cap == 0) return false;
+    buf[0] = '\0';
+    if (!text) return false;
+    const size_t len = strlen(text);
+    if (len >= cap) return false;
+    memcpy(buf, text, len + 1u);
+    return true;
+}
+
+// Every Weather snprintf is checked for both encoding failure and truncation.
+// A failed format resolves to one complete caller-supplied fallback (or empty).
+// Каждый Weather snprintf проверяет ошибку и усечение; при сбое используется
+// только полный fallback вызывающей стороны (либо пустая строка).
+template <typename... Args>
+static bool wx_format_checked(char* buf, size_t cap, const char* fallback,
+                              const char* format, Args... args) {
+    if (!buf || cap == 0) return false;
+    buf[0] = '\0';
+    if (!format) {
+        wx_copy_complete(buf, cap, fallback);
+        return false;
+    }
+    const int written = snprintf(buf, cap, format, args...);
+    if (written < 0 || static_cast<size_t>(written) >= cap) {
+        wx_copy_complete(buf, cap, fallback);
+        return false;
+    }
+    return true;
+}
+
+// Append only when the entire suffix fits; never leave a partial separator.
+// Добавляем суффикс только целиком; частичный разделитель не допускается.
+static bool wx_append_complete(char* buf, size_t cap, const char* suffix) {
+    if (!buf || cap == 0 || !suffix) return false;
+    const size_t base_len = strlen(buf);
+    const size_t suffix_len = strlen(suffix);
+    if (base_len >= cap || suffix_len >= cap - base_len) return false;
+    memcpy(buf + base_len, suffix, suffix_len + 1u);
+    return true;
+}
+
 // Same validity gate as status line / screensaver (tm_year > 100 ≈ year > 2000).
 // Тот же gate, что у status line / screensaver (tm_year > 100).
 static bool wx_system_date_valid(const struct tm* tm) {
@@ -244,32 +215,43 @@ static bool wx_system_date_valid(const struct tm* tm) {
 // Дата hero: полная строка; компактная, если не влезает по ширине.
 static void wx_format_hero_date(char* buf, size_t cap, const struct tm* tm, lv_coord_t max_text_w) {
     if (!buf || cap == 0) return;
+    const char* const today = i18n::text(i18n::TextId::WeatherToday);
     if (!wx_system_date_valid(tm)) {
-        snprintf(buf, cap, "%s", kStrTodayOnly);
+        wx_copy_complete(buf, cap, today);
         return;
     }
     const int mon  = tm->tm_mon;
     const int wday = tm->tm_wday;
     if (mon < 0 || mon > 11 || wday < 0 || wday > 6) {
-        snprintf(buf, cap, "%s", kStrTodayOnly);
+        wx_copy_complete(buf, cap, today);
         return;
     }
 
-    char full[96];
-    snprintf(full, sizeof(full),
-             "Сегодня, %d %s %d, %s",
-             tm->tm_mday, kRuMonthsGenitive[mon], tm->tm_year + 1900, kRuWeekdayLower[wday]);
+    const char* const month = i18n::monthName(static_cast<uint8_t>(mon));
+    const char* const weekday = i18n::dayFull(static_cast<uint8_t>(wday));
+    if (!month || month[0] == '\0' || !weekday || weekday[0] == '\0') {
+        wx_copy_complete(buf, cap, today);
+        return;
+    }
+
+    char full[kHeroDateTextCap];
+    wx_format_checked(full, sizeof(full), today,
+                      i18n::text(i18n::TextId::WeatherHeroDateFullFormat),
+                      tm->tm_mday, month, tm->tm_year + 1900, weekday);
 
     const lv_font_t* cap_font = static_cast<const lv_font_t*>(k_font_caption);
     if (max_text_w > 0) {
         const lv_coord_t fw = lv_txt_get_width(full, strlen(full), cap_font, 0, LV_TEXT_FLAG_NONE);
         if (fw > max_text_w) {
-            snprintf(buf, cap, "%s, %d %s",
-                     kRuWeekdayTitle[wday], tm->tm_mday, kRuMonthsGenitive[mon]);
+            wx_format_checked(buf, cap, today,
+                              i18n::text(i18n::TextId::WeatherHeroDateCompactFormat),
+                              weekday, tm->tm_mday, month);
             return;
         }
     }
-    snprintf(buf, cap, "%s", full);
+    if (!wx_copy_complete(buf, cap, full)) {
+        wx_copy_complete(buf, cap, today);
+    }
 }
 
 // A3.1f: local calendar Y-M-D from unix ts (localtime_r); not from HH:MM label text.
@@ -325,13 +307,13 @@ static void wx_format_hourly_day_header(char* buf, size_t cap, const struct tm* 
                                         const WeatherHourly* visible_slots, int slot_count) {
     if (!buf || cap == 0) return;
     if (!wx_system_date_valid(today_tm) || !visible_slots || slot_count <= 0) {
-        snprintf(buf, cap, "%s", kStrHourlyNearest);
+        wx_copy_complete(buf, cap, i18n::text(i18n::TextId::WeatherHourlyNearest));
         return;
     }
     int ty = 0, tmon = 0, td = 0;
     int tmy = 0, tmm = 0, tmd = 0;
     if (!wx_ymd_from_tm(today_tm, &ty, &tmon, &td) || !wx_tomorrow_ymd(today_tm, &tmy, &tmm, &tmd)) {
-        snprintf(buf, cap, "%s", kStrHourlyNearest);
+        wx_copy_complete(buf, cap, i18n::text(i18n::TextId::WeatherHourlyNearest));
         return;
     }
 
@@ -356,24 +338,24 @@ static void wx_format_hourly_day_header(char* buf, size_t cap, const struct tm* 
     }
 
     if (valid_count == 0) {
-        snprintf(buf, cap, "%s", kStrHourlyNearest);
+        wx_copy_complete(buf, cap, i18n::text(i18n::TextId::WeatherHourlyNearest));
     } else if (has_today && !has_tomorrow && !has_later) {
-        snprintf(buf, cap, "%s", kStrTodayOnly);
+        wx_copy_complete(buf, cap, i18n::text(i18n::TextId::WeatherToday));
     } else if (has_tomorrow && !has_today && !has_later) {
-        snprintf(buf, cap, "%s", kStrTomorrow);
+        wx_copy_complete(buf, cap, i18n::text(i18n::TextId::WeatherTomorrow));
     } else if (has_today && has_tomorrow) {
-        snprintf(buf, cap, "%s", kStrTodaySlashTomorrow);
+        wx_copy_complete(buf, cap, i18n::text(i18n::TextId::WeatherTodayTomorrow));
     } else if (has_tomorrow && has_later) {
-        snprintf(buf, cap, "%s", kStrTomorrowSlashLater);
+        wx_copy_complete(buf, cap, i18n::text(i18n::TextId::WeatherTomorrowLater));
     } else {
-        snprintf(buf, cap, "%s", kStrHourlyNearest);
+        wx_copy_complete(buf, cap, i18n::text(i18n::TextId::WeatherHourlyNearest));
     }
 }
 
 // A3.1g/1h: local DD.MM fragment. / Локальный фрагмент DD.MM.
 static void wx_format_dd_mm_local(char* buf, size_t cap, const struct tm* loc) {
     if (!buf || cap == 0 || !loc) return;
-    snprintf(buf, cap, "%02d.%02d", loc->tm_mday, loc->tm_mon + 1);
+    wx_format_checked(buf, cap, "", "%02d.%02d", loc->tm_mday, loc->tm_mon + 1);
 }
 
 // A3.1h: daily card date — short weekday + DD.MM (e.g. Чт 18.06).
@@ -385,8 +367,13 @@ static void wx_format_daily_weekday_date(char* buf, size_t cap, const struct tm*
         wx_format_dd_mm_local(buf, cap, loc);
         return;
     }
-    snprintf(buf, cap, "%s %02d.%02d",
-             kRuWeekdayShort[wday], loc->tm_mday, loc->tm_mon + 1);
+    const char* const weekday = i18n::dayShort(static_cast<uint8_t>(wday));
+    if (!weekday || weekday[0] == '\0' ||
+        !wx_format_checked(buf, cap, "",
+                           i18n::text(i18n::TextId::WeatherDailyDateFormat),
+                           weekday, loc->tm_mday, loc->tm_mon + 1)) {
+        wx_format_dd_mm_local(buf, cap, loc);
+    }
 }
 
 // W-R2: forecast-location calendar from day_ts + OWM timezone (not device localtime_r).
@@ -416,16 +403,17 @@ static void wx_format_hour_slot_label(char* buf, size_t cap, uint32_t forecast_u
                                       const char* relative_fallback) {
     if (!buf || cap == 0) return;
     if (forecast_unix_ts == 0u) {
-        snprintf(buf, cap, "%s", relative_fallback ? relative_fallback : "--");
+        wx_copy_complete(buf, cap, relative_fallback ? relative_fallback : "--");
         return;
     }
     const time_t t = static_cast<time_t>(forecast_unix_ts);
     struct tm tm_loc;
     if (localtime_r(&t, &tm_loc) != nullptr) {
-        snprintf(buf, cap, "%02u:00", static_cast<unsigned>(tm_loc.tm_hour));
+        wx_format_checked(buf, cap, relative_fallback ? relative_fallback : "--",
+                          "%02u:00", static_cast<unsigned>(tm_loc.tm_hour));
         return;
     }
-    snprintf(buf, cap, "%s", relative_fallback ? relative_fallback : "--");
+    wx_copy_complete(buf, cap, relative_fallback ? relative_fallback : "--");
 }
 
 // Relative age fragment — «мин. назад» / «ч. назад» (normal RU abbreviations).
@@ -433,9 +421,18 @@ static void wx_format_hour_slot_label(char* buf, size_t cap, uint32_t forecast_u
 static void wx_format_age(char* buf, size_t cap, uint32_t updated_at_ms) {
     if (!buf || cap == 0) return;
     const uint32_t age_min = (millis() - updated_at_ms) / 60000u;
-    if (age_min == 0u)        snprintf(buf, cap, "Обновлено только что");
-    else if (age_min < 60u)   snprintf(buf, cap, "Обновлено %u мин. назад", (unsigned)age_min);
-    else                      snprintf(buf, cap, "Обновлено %u ч. назад", (unsigned)(age_min / 60u));
+    const char* const just_now = i18n::text(i18n::TextId::WeatherUpdatedJustNow);
+    if (age_min == 0u) {
+        wx_copy_complete(buf, cap, just_now);
+    } else if (age_min < 60u) {
+        wx_format_checked(buf, cap, just_now,
+                          i18n::text(i18n::TextId::WeatherUpdatedMinutesAgoFormat),
+                          static_cast<unsigned>(age_min));
+    } else {
+        wx_format_checked(buf, cap, just_now,
+                          i18n::text(i18n::TextId::WeatherUpdatedHoursAgoFormat),
+                          static_cast<unsigned>(age_min / 60u));
+    }
 }
 
 // A4.1: location prefix — "" | "city" | "city, country" (UTF-8 byte-safe, bounded).
@@ -445,9 +442,9 @@ static void wx_format_location_prefix(char* buf, size_t cap, const WeatherLocati
     buf[0] = '\0';
     if (!loc.valid || loc.city[0] == '\0') return;
     if (loc.country[0] != '\0') {
-        snprintf(buf, cap, "%s, %s", loc.city, loc.country);
+        wx_format_checked(buf, cap, loc.city, "%s, %s", loc.city, loc.country);
     } else {
-        strlcpy(buf, loc.city, cap);
+        wx_copy_complete(buf, cap, loc.city);
     }
 }
 
@@ -818,9 +815,10 @@ static void wx_footer_prepend_location(char* out, size_t out_cap,
                                        const char* body) {
     if (!out || out_cap == 0) return;
     if (!location_prefix || location_prefix[0] == '\0') {
-        strlcpy(out, body, out_cap);
+        wx_copy_complete(out, out_cap, body);
     } else {
-        snprintf(out, out_cap, "%s%s%s", location_prefix, kStrFooterSep, body);
+        wx_format_checked(out, out_cap, body, "%s%s%s",
+                          location_prefix, kStrFooterSep, body);
     }
 }
 
@@ -830,7 +828,8 @@ static void wx_format_footer_action(char* buf, size_t cap, const char* status, c
     char inner[kFooterTextCap];
     // E33: no trailing sep here — caller appends it only when text overflows.
     // E33: trailing sep убран — вызывающий добавит его только при переполнении.
-    snprintf(inner, sizeof(inner), "%s%s%s", status, kStrFooterSep, action);
+    wx_format_checked(inner, sizeof(inner), status, "%s%s%s",
+                      status, kStrFooterSep, action);
     wx_footer_prepend_location(buf, cap, location_prefix, inner);
 }
 
@@ -853,27 +852,38 @@ static void wx_format_footer(char* buf, size_t cap, bool wx_enabled, bool have_d
     if (show_refreshing) {
         // E33: no trailing sep — refreshing text is often short and fits without scroll.
         // E33: trailing sep убран; "Обновление погоды..." короткое и обычно не скроллируется.
-        wx_footer_prepend_location(buf, cap, loc_p, kStrFooterRefreshing);
+        wx_footer_prepend_location(buf, cap, loc_p,
+                                   i18n::text(i18n::TextId::WeatherRefreshing));
         return;
     }
     if (!wx_enabled) {
-        wx_format_footer_action(buf, cap, kStrWeatherUnavail, kStrFooterTapRetry, nullptr);
+        wx_format_footer_action(buf, cap,
+                                i18n::text(i18n::TextId::WeatherUnavailable),
+                                i18n::text(i18n::TextId::WeatherTapToRetry), nullptr);
         return;
     }
     if (resource_deferred) {
-        wx_format_footer_action(buf, cap, kStrFooterDeferStatus, kStrFooterTapRefresh, loc_p);
+        wx_format_footer_action(buf, cap,
+                                i18n::text(i18n::TextId::WeatherMemoryDeferredStatus),
+                                i18n::text(i18n::TextId::WeatherTapToRefresh), loc_p);
         return;
     }
     if (!have_data) {
         if (unavailable_no_data) {
-            wx_format_footer_action(buf, cap, kStrTemporarilyUnavailable, kStrFooterTapRetry, nullptr);
+            wx_format_footer_action(
+                buf, cap, i18n::text(i18n::TextId::WeatherTemporarilyUnavailable),
+                i18n::text(i18n::TextId::WeatherTapToRetry), nullptr);
         } else {
-            wx_format_footer_action(buf, cap, kStrForecastNotLoaded, kStrFooterTapRefresh, nullptr);
+            wx_format_footer_action(buf, cap,
+                                    i18n::text(i18n::TextId::WeatherForecastNotLoaded),
+                                    i18n::text(i18n::TextId::WeatherTapToRefresh), nullptr);
         }
         return;
     }
     if (effective_stale) {
-        wx_format_footer_action(buf, cap, kStrDataMayBeOutdated, kStrFooterTapRefresh, loc_p);
+        wx_format_footer_action(buf, cap,
+                                i18n::text(i18n::TextId::WeatherDataMayBeOutdated),
+                                i18n::text(i18n::TextId::WeatherTapToRefresh), loc_p);
         return;
     }
     char age[kFooterAgeCap];
@@ -881,7 +891,8 @@ static void wx_format_footer(char* buf, size_t cap, bool wx_enabled, bool have_d
     char inner[kFooterTextCap];
     // E33: no trailing sep — appended by caller only if text overflows the label.
     // E33: trailing sep убран — вызывающий добавит только если текст переполняет label.
-    snprintf(inner, sizeof(inner), "%s%s%s", age, kStrFooterSep, kStrFooterTapRefresh);
+    wx_format_checked(inner, sizeof(inner), age, "%s%s%s", age, kStrFooterSep,
+                      i18n::text(i18n::TextId::WeatherTapToRefresh));
     wx_footer_prepend_location(buf, cap, loc_p, inner);
 }
 
@@ -900,7 +911,7 @@ static void wx_footer_maybe_add_trailing_sep(char* buf, size_t cap, lv_obj_t* la
     const lv_coord_t text_w = lv_txt_get_width(
         buf, static_cast<uint32_t>(len), font, letter_space, LV_TEXT_FLAG_NONE);
     if (text_w > avail) {
-        strlcat(buf, kStrFooterSep, cap);
+        wx_append_complete(buf, cap, kStrFooterSep);
     }
 }
 
@@ -1003,7 +1014,8 @@ void LvglWeatherPage::create_data_block(LvglWeatherPage& self, const YoRadioPale
                 // A3.1: строка «Сегодня …» из network.timeinfo (NTP/локальный TZ); не из API погоды.
                 self._lbl_hero_date = lv_label_create(self._cont_hero);
                 if (self._lbl_hero_date) {
-                    lv_label_set_text(self._lbl_hero_date, kStrTodayOnly);
+                    lv_label_set_text(self._lbl_hero_date,
+                                      i18n::text(i18n::TextId::WeatherToday));
                     wx_set_font(self._lbl_hero_date, k_font_caption);
                     lv_obj_set_style_text_color(self._lbl_hero_date, pal.text_meta, LV_PART_MAIN);
                     lv_obj_set_width(self._lbl_hero_date, LV_PCT(100));
@@ -1083,13 +1095,17 @@ void LvglWeatherPage::create_data_block(LvglWeatherPage& self, const YoRadioPale
                     lv_obj_set_style_pad_column(self._cont_metrics, 2, LV_PART_MAIN); // A3.1c: 3→2 — hero narrower, protect labels
                     lv_obj_set_style_pad_left(self._cont_metrics, 0, LV_PART_MAIN);
                     lv_obj_set_style_pad_right(self._cont_metrics, 0, LV_PART_MAIN);
-                    add_metric_cell(self._cont_metrics, YORA_WEATHER_METRIC_GLYPH_WIND,     kStrMetricWind,
+                    add_metric_cell(self._cont_metrics, YORA_WEATHER_METRIC_GLYPH_WIND,
+                                    i18n::text(i18n::TextId::WeatherMetricWind),
                                     &self._val_wind,     &self._lbl_wind,     pal);
-                    add_metric_cell(self._cont_metrics, YORA_WEATHER_METRIC_GLYPH_HUMIDITY, kStrMetricHumidity,
+                    add_metric_cell(self._cont_metrics, YORA_WEATHER_METRIC_GLYPH_HUMIDITY,
+                                    i18n::text(i18n::TextId::WeatherMetricHumidity),
                                     &self._val_humidity, &self._lbl_humidity, pal);
-                    add_metric_cell(self._cont_metrics, YORA_WEATHER_METRIC_GLYPH_PRESSURE, kStrMetricPressure,
+                    add_metric_cell(self._cont_metrics, YORA_WEATHER_METRIC_GLYPH_PRESSURE,
+                                    i18n::text(i18n::TextId::WeatherMetricPressure),
                                     &self._val_pressure, &self._lbl_pressure, pal);
-                    add_metric_cell(self._cont_metrics, YORA_WEATHER_METRIC_GLYPH_UMBRELLA, kStrMetricRain,
+                    add_metric_cell(self._cont_metrics, YORA_WEATHER_METRIC_GLYPH_UMBRELLA,
+                                    i18n::text(i18n::TextId::WeatherMetricRain),
                                     &self._val_rain,     &self._lbl_rain,     pal);
                 }
             }
@@ -1111,7 +1127,8 @@ void LvglWeatherPage::create_data_block(LvglWeatherPage& self, const YoRadioPale
                 // A3.1f: заголовок дня — тот же стиль, что строка даты в hero.
                 self._lbl_hourly_day = lv_label_create(self._cont_hourly);
                 if (self._lbl_hourly_day) {
-                    lv_label_set_text(self._lbl_hourly_day, kStrHourlyNearest);
+                    lv_label_set_text(self._lbl_hourly_day,
+                                      i18n::text(i18n::TextId::WeatherHourlyNearest));
                     wx_set_font(self._lbl_hourly_day, k_font_caption);
                     lv_obj_set_style_text_color(self._lbl_hourly_day, pal.text_meta, LV_PART_MAIN);
                     lv_obj_set_width(self._lbl_hourly_day, LV_PCT(100));
@@ -1180,7 +1197,8 @@ void LvglWeatherPage::create_empty_center(LvglWeatherPage& self, const YoRadioPa
 
         self._lbl_message = lv_label_create(self._cont_empty_center);
         if (self._lbl_message) {
-            lv_label_set_text(self._lbl_message, kStrForecastWaiting);
+            lv_label_set_text(self._lbl_message,
+                              i18n::text(i18n::TextId::WeatherForecastWaiting));
             lv_label_set_long_mode(self._lbl_message, LV_LABEL_LONG_WRAP);
             lv_obj_set_width(self._lbl_message, LV_PCT(85));
             wx_set_font(self._lbl_message, k_font_cond);
@@ -1219,7 +1237,10 @@ void LvglWeatherPage::create_footer(LvglWeatherPage& self, const YoRadioPalette&
             if (self._lbl_footer) {
                 {
                     char fb[kFooterTextCap];
-                    wx_format_footer_action(fb, sizeof(fb), kStrForecastNotLoaded, kStrFooterTapRefresh, nullptr);
+                    wx_format_footer_action(
+                        fb, sizeof(fb),
+                        i18n::text(i18n::TextId::WeatherForecastNotLoaded),
+                        i18n::text(i18n::TextId::WeatherTapToRefresh), nullptr);
                     lv_label_set_text(self._lbl_footer, fb);
                 }
                 wx_set_font(self._lbl_footer, k_font_cond);
@@ -1460,14 +1481,19 @@ void LvglWeatherPage::_renderEmptyState(const WeatherViewState& view) {
     wx_show(_cont_empty_center, true);
     wx_show(_cont_footer, true);
     if (!view.wx_enabled) {
-        wx_set_text_if_changed(_lbl_message, kStrWeatherUnavail);
+        wx_set_text_if_changed(_lbl_message,
+                               i18n::text(i18n::TextId::WeatherUnavailable));
     } else if (view.unavailable_without_data) {
-        wx_set_text_if_changed(_lbl_message, kStrTemporarilyUnavailable);
+        wx_set_text_if_changed(
+            _lbl_message, i18n::text(i18n::TextId::WeatherTemporarilyUnavailable));
     } else if (view.loading_without_data) {
         wx_set_text_if_changed(_lbl_message,
-                               view.resource_deferred ? kStrDeferMemoryCenter : kStrPleaseWait);
+                               i18n::text(view.resource_deferred
+                                              ? i18n::TextId::WeatherMemoryDeferredMessage
+                                              : i18n::TextId::WeatherPleaseWait));
     } else {
-        wx_set_text_if_changed(_lbl_message, kStrForecastWaiting);
+        wx_set_text_if_changed(_lbl_message,
+                               i18n::text(i18n::TextId::WeatherForecastWaiting));
     }
 }
 
@@ -1480,30 +1506,37 @@ void LvglWeatherPage::_renderWeatherData(const WeatherState& snap) {
     wx_show(_cont_footer, true);
 
     const WeatherCurrent& cur = snap.current;
-    char buf[64];
+    char buf[kWeatherValueTextCap];
 
     lv_coord_t hero_inner_w = 0;
     if (_cont_hero) {
         lv_obj_update_layout(_cont_hero);
         hero_inner_w = lv_obj_get_content_width(_cont_hero);
     }
-    wx_format_hero_date(buf, sizeof(buf), &network.timeinfo, hero_inner_w);
-    wx_set_text_if_changed(_lbl_hero_date, buf);
+    char hero_date[kHeroDateTextCap];
+    wx_format_hero_date(hero_date, sizeof(hero_date), &network.timeinfo, hero_inner_w);
+    wx_set_text_if_changed(_lbl_hero_date, hero_date);
 
     wx_set_text_if_changed(_lbl_hero_icon, weather_owm_icon_to_glyph_utf8(cur.owm_icon));
-    snprintf(buf, sizeof(buf), "%+.0f\xC2\xB0\x43", static_cast<double>(cur.temp_c)); // "+NN°C"
+    wx_format_checked(buf, sizeof(buf), "--", "%+.0f\xC2\xB0\x43",
+                      static_cast<double>(cur.temp_c)); // "+NN°C"
     wx_set_text_if_changed(_lbl_hero_temp, buf);
     wx_set_text_if_changed(_lbl_hero_cond, (cur.condition[0] != '\0') ? cur.condition : "--");
-    snprintf(buf, sizeof(buf), "%s%+.0f\xC2\xB0\x43", kStrFeelsLike, static_cast<double>(cur.feels_like_c));
+    wx_format_checked(buf, sizeof(buf), "--", "%s%+.0f\xC2\xB0\x43",
+                      i18n::text(i18n::TextId::WeatherFeelsLikePrefix),
+                      static_cast<double>(cur.feels_like_c));
     wx_set_text_if_changed(_lbl_hero_feels, buf);
 
-    snprintf(buf, sizeof(buf), "%.0f m/s", static_cast<double>(cur.wind_speed));
+    wx_format_checked(buf, sizeof(buf), "--", "%.0f m/s",
+                      static_cast<double>(cur.wind_speed));
     wx_set_text_if_changed(_val_wind, buf);
-    snprintf(buf, sizeof(buf), "%u%%", (unsigned)cur.humidity);
+    wx_format_checked(buf, sizeof(buf), "--", "%u%%", static_cast<unsigned>(cur.humidity));
     wx_set_text_if_changed(_val_humidity, buf);
-    snprintf(buf, sizeof(buf), "%u hPa", (unsigned)cur.pressure_hpa);
+    wx_format_checked(buf, sizeof(buf), "--", "%u hPa",
+                      static_cast<unsigned>(cur.pressure_hpa));
     wx_set_text_if_changed(_val_pressure, buf);
-    snprintf(buf, sizeof(buf), "%u%%", (unsigned)cur.rain_probability);
+    wx_format_checked(buf, sizeof(buf), "--", "%u%%",
+                      static_cast<unsigned>(cur.rain_probability));
     wx_set_text_if_changed(_val_rain, buf);
 
     // Hourly right column: day header + horizontal rows; wall-clock from forecast ts (local TZ).
@@ -1512,23 +1545,30 @@ void LvglWeatherPage::_renderWeatherData(const WeatherState& snap) {
                                 &snap.hourly[1], kHourlyCells);
     wx_set_text_if_changed(_lbl_hourly_day, buf);
 
-    static const char* const k_hourly_fallback[kHourlyCells] = {kStrPlus3h, kStrPlus6h, kStrPlus9h};
+    static constexpr i18n::TextId k_hourly_fallback_ids[kHourlyCells] = {
+        i18n::TextId::WeatherPlus3Hours,
+        i18n::TextId::WeatherPlus6Hours,
+        i18n::TextId::WeatherPlus9Hours,
+    };
     for (int i = 0; i < kHourlyCells; ++i) {
         const WeatherHourly& h = snap.hourly[i + 1]; // skip slot 0 (current / «сейчас»)
+        const char* const hourly_fallback = i18n::text(k_hourly_fallback_ids[i]);
         if (!h.valid) {
-            wx_format_hour_slot_label(buf, sizeof(buf), 0u, k_hourly_fallback[i]);
+            wx_format_hour_slot_label(buf, sizeof(buf), 0u, hourly_fallback);
             wx_set_text_if_changed(_hourly[i].time, buf);
             wx_set_text_if_changed(_hourly[i].icon, weather_owm_icon_to_glyph_utf8(nullptr));
             wx_set_text_if_changed(_hourly[i].temp, "--");
             wx_set_text_if_changed(_hourly[i].pop, "");
             continue;
         }
-        wx_format_hour_slot_label(buf, sizeof(buf), h.ts, k_hourly_fallback[i]);
+        wx_format_hour_slot_label(buf, sizeof(buf), h.ts, hourly_fallback);
         wx_set_text_if_changed(_hourly[i].time, buf);
         wx_set_text_if_changed(_hourly[i].icon, weather_owm_icon_to_glyph_utf8(h.owm_icon));
-        snprintf(buf, sizeof(buf), "%+.0f\xC2\xB0", static_cast<double>(h.temp_c));
+        wx_format_checked(buf, sizeof(buf), "--", "%+.0f\xC2\xB0",
+                          static_cast<double>(h.temp_c));
         wx_set_text_if_changed(_hourly[i].temp, buf);
-        snprintf(buf, sizeof(buf), "%u%%", (unsigned)h.rain_probability);
+        wx_format_checked(buf, sizeof(buf), "--", "%u%%",
+                          static_cast<unsigned>(h.rain_probability));
         wx_set_text_if_changed(_hourly[i].pop, buf);
     }
 
@@ -1548,11 +1588,13 @@ void LvglWeatherPage::_renderWeatherData(const WeatherState& snap) {
         wx_format_daily_date_label(buf, sizeof(buf), d.day_ts, snap.forecast_tz_sec);
         wx_set_text_if_changed(_daily[i].day, buf);
         wx_set_text_if_changed(_daily[i].icon, weather_owm_icon_to_glyph_utf8(d.owm_icon));
-        snprintf(buf, sizeof(buf), "%.0f\xC2\xB0 / %.0f\xC2\xB0",
-                 static_cast<double>(d.temp_min_c), static_cast<double>(d.temp_max_c));
+        wx_format_checked(buf, sizeof(buf), "--", "%.0f\xC2\xB0 / %.0f\xC2\xB0",
+                          static_cast<double>(d.temp_min_c),
+                          static_cast<double>(d.temp_max_c));
         wx_set_text_if_changed(_daily[i].range, buf);
         wx_set_text_if_changed(_daily[i].pop_icon, YORA_WEATHER_METRIC_GLYPH_UMBRELLA);
-        snprintf(buf, sizeof(buf), "%u%%", (unsigned)d.rain_probability_max);
+        wx_format_checked(buf, sizeof(buf), "--", "%u%%",
+                          static_cast<unsigned>(d.rain_probability_max));
         wx_set_text_if_changed(_daily[i].pop, buf);
     }
 }

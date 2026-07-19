@@ -34,6 +34,10 @@ const CalendarData& calendar() noexcept {
   return selected_locale::kCalendar;
 }
 
+const char* dayFull(uint8_t index) noexcept {
+  return tableValue(selected_locale::kCalendar.weekdaysFull, index);
+}
+
 const char* dayShort(uint8_t index) noexcept {
   return tableValue(selected_locale::kCalendar.weekdaysShort, index);
 }
