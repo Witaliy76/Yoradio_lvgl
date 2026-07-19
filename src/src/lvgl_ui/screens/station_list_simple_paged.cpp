@@ -18,6 +18,7 @@
 #include "../adapters/station_list_adapter.h"
 #include "../control_glyph_utf8.h"
 #include "../fonts/lv_fonts.h"
+#include "../../i18n/i18n.h"
 #include "../profiles/lv_profile_select.h"
 #include "../theme/lv_theme_yoradio.h"
 
@@ -62,9 +63,6 @@ constexpr int32_t kScrollbarRightIgnorePx = 26;
 constexpr lv_coord_t kTapMaxFingerTravelPx  = 24;
 constexpr lv_coord_t kPageSwipeMinTravelPx  = 24;
 static constexpr uint32_t kStationRowSafetyLimit = UINT16_MAX - 10u;
-
-static constexpr char kStrPageBufferAllocFailed[] = "Station list buffer allocation failed";
-static constexpr char kStrEmptyPlaylist[]         = "--  No stations indexed\n";
 
 static const void* const kFontStationList =
     reinterpret_cast<const void*>(&lv_font_yora_montserrat_22_cyr);
@@ -126,13 +124,29 @@ static void truncate_utf8_in_place(char* s, size_t max_bytes) {
     s[cut] = '\0';
 }
 
+static bool format_fallback_station_name(char* out, size_t cap, uint16_t num) {
+    if (!out || cap == 0u) return false;
+    out[0] = '\0';
+    const int written = snprintf(out, cap,
+                                 i18n::text(i18n::TextId::StationFallbackNameFormat),
+                                 static_cast<unsigned>(num));
+    if (written >= 0 && static_cast<size_t>(written) < cap) return true;
+    if (cap >= 3u) {
+        memcpy(out, "--", 3u);
+    }
+    return false;
+}
+
 static bool append_station_line(char* out, size_t cap, size_t& used, uint16_t num, const char* name) {
     if (!out || cap == 0u || used >= cap - 1u || !name) return false;
     const char* fmt = (num < 100u) ? "%02u    %s\n" : "%u    %s\n";
     const int written = snprintf(out + used, cap - used, fmt, static_cast<unsigned>(num), name);
-    if (written <= 0) return false;
+    if (written <= 0) {
+        out[used] = '\0';
+        return false;
+    }
     if (static_cast<size_t>(written) >= cap - used) {
-        out[cap - 1u] = '\0';
+        out[used] = '\0';
         return false;
     }
     used += static_cast<size_t>(written);
@@ -480,14 +494,16 @@ static void fillCurrentPage(Instance& instance) {
     if (!instance.lbl_page) return;
 
     if (instance.station_total == 0u) {
-        lv_label_set_text(instance.lbl_page, kStrEmptyPlaylist);
+        lv_label_set_text(instance.lbl_page,
+                          i18n::text(i18n::TextId::StationEmptyList));
         hideFocusOverlays(instance);
         hideCurrentMarker(instance);
         return;
     }
 
     if (!ensurePageTextBuffer(instance, instance.rows_per_page)) {
-        lv_label_set_text(instance.lbl_page, kStrPageBufferAllocFailed);
+        lv_label_set_text(instance.lbl_page,
+                          i18n::text(i18n::TextId::StationListUnavailable));
         hideFocusOverlays(instance);
         hideCurrentMarker(instance);
         instance.list_sig_cache_valid = false;
@@ -503,7 +519,7 @@ static void fillCurrentPage(Instance& instance) {
     for (uint16_t num = first; num <= last; ++num) {
         char name_buf[160];
         if (!station_list_adapter::station_name(num, name_buf, sizeof(name_buf))) {
-            snprintf(name_buf, sizeof(name_buf), "Station %u", static_cast<unsigned>(num));
+            format_fallback_station_name(name_buf, sizeof(name_buf), num);
         }
         truncate_utf8_in_place(name_buf, name_limit);
         if (!append_station_line(instance.page_text, instance.page_text_cap, used, num, name_buf)) {

@@ -8,6 +8,7 @@
 #include "scr_station.h"
 
 #include <cstdio>
+#include <cstring>
 
 #include "Arduino.h"
 #include <cstdint>
@@ -16,6 +17,7 @@
 #include "../adapters/station_list_adapter.h"
 #include "../control_glyph_utf8.h"
 #include "../fonts/lv_fonts.h"
+#include "../../i18n/i18n.h"
 #include "../lv_page_chain.h"
 #include "../lvgl_ui.h"
 #include "../widgets/wgt_footer_pill.h"
@@ -26,16 +28,7 @@ namespace lvgl_ui {
 
 namespace {
 
-static constexpr char kStrStationsTitle[]        = "STATIONS";
 static constexpr char kStrCountPlaceholder[]      = "-- / --";
-static constexpr char kStrHintSwipe[]             = "Swipe up/down to scroll";
-static constexpr char kStrHintReturnMain[]        = "Tap to return to Main";
-
-static constexpr char kFmtCountCurrentTotal[]  = "%u / %u";
-static constexpr char kFmtCountUnknownTotal[]  = "-- / %u";
-static constexpr char kFmtHintBand[]           = "%s%s%s";
-
-static constexpr char kMetaFieldSepUtf8[] = " \xE2\x80\xA2 ";
 
 static const char* const kIconHintClick = station_glyph_utf8_hand_click();
 
@@ -45,7 +38,6 @@ static const void* const kFontHintText = reinterpret_cast<const void*>(&lv_font_
 static const void* const kFontHintIcon = reinterpret_cast<const void*>(&lv_font_yora_station_icons_20);
 
 constexpr size_t kCountBufferSize = 24;
-constexpr size_t kHintBufferSize  = 80;
 
 static constexpr lv_coord_t kRootRowGap = 8;
 
@@ -57,6 +49,23 @@ static constexpr lv_coord_t kHintMinTextWidth  = 80;
 static void station_set_font(lv_obj_t* obj, const void* font_slot) {
     if (!obj || !font_slot) return;
     lv_obj_set_style_text_font(obj, static_cast<const lv_font_t*>(font_slot), LV_PART_MAIN);
+}
+
+// Localized count formats must either fit completely or use one complete fallback.
+// Локализованный счётчик выводится только целиком, иначе используется полный fallback.
+template <typename... Args>
+static bool station_format_checked(char* out, size_t cap, const char* fallback,
+                                   const char* format, Args... args) {
+    if (!out || cap == 0u) return false;
+    out[0] = '\0';
+    if (format) {
+        const int written = snprintf(out, cap, format, args...);
+        if (written >= 0 && static_cast<size_t>(written) < cap) return true;
+    }
+    const char* safe = fallback ? fallback : "";
+    const size_t bytes = strlen(safe) + 1u;
+    if (bytes <= cap) memcpy(out, safe, bytes);
+    return false;
 }
 
 static void style_transparent(lv_obj_t* obj) {
@@ -117,7 +126,7 @@ void LvglStationPage::create_header(LvglStationPage& self, const YoRadioPalette&
 
     self._lbl_title = lv_label_create(header);
     if (self._lbl_title) {
-        lv_label_set_text(self._lbl_title, kStrStationsTitle);
+        lv_label_set_text(self._lbl_title, i18n::text(i18n::TextId::StationTitle));
         station_set_font(self._lbl_title, kFontTitle);
         lv_obj_set_style_text_color(self._lbl_title, pal.text_primary, LV_PART_MAIN);
     }
@@ -170,13 +179,10 @@ void LvglStationPage::create_hint_band(LvglStationPage& self, const YoRadioPalet
 
     self._lbl_hint_text = lv_label_create(hint_row);
     if (self._lbl_hint_text) {
-        char hint_buf[kHintBufferSize];
-        snprintf(hint_buf, sizeof(hint_buf), kFmtHintBand,
-                 kStrHintSwipe, kMetaFieldSepUtf8, kStrHintReturnMain);
-        lv_label_set_text(self._lbl_hint_text, hint_buf);
+        lv_label_set_text(self._lbl_hint_text, i18n::text(i18n::TextId::StationFooter));
         station_set_font(self._lbl_hint_text, kFontHintText);
         lv_obj_set_style_text_color(self._lbl_hint_text, pal.text_secondary, LV_PART_MAIN);
-        lv_obj_set_style_text_align(self._lbl_hint_text, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
+        lv_obj_set_style_text_align(self._lbl_hint_text, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
         lv_label_set_long_mode(self._lbl_hint_text, LV_LABEL_LONG_CLIP);
         const lv_coord_t max_w = static_cast<lv_coord_t>(
             LV_ACTIVE_PROFILE.width
@@ -269,11 +275,15 @@ void LvglStationPage::_updateCountLabel(uint16_t current, uint16_t total) {
         return;
     }
     if (station_list_adapter::is_valid_station_num(current)) {
-        snprintf(count_buf, sizeof(count_buf), kFmtCountCurrentTotal,
-                 static_cast<unsigned>(current), static_cast<unsigned>(total));
+        station_format_checked(
+            count_buf, sizeof(count_buf), kStrCountPlaceholder,
+            i18n::text(i18n::TextId::StationCountCurrentTotalFormat),
+            static_cast<unsigned>(current), static_cast<unsigned>(total));
     } else {
-        snprintf(count_buf, sizeof(count_buf), kFmtCountUnknownTotal,
-                 static_cast<unsigned>(total));
+        station_format_checked(
+            count_buf, sizeof(count_buf), kStrCountPlaceholder,
+            i18n::text(i18n::TextId::StationCountUnknownTotalFormat),
+            static_cast<unsigned>(total));
     }
     lv_label_set_text(_lbl_count, count_buf);
 }

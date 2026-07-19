@@ -62,6 +62,20 @@ enum class TextId : uint16_t {
   WeatherHeroDateFullFormat,
   WeatherHeroDateCompactFormat,
   WeatherDailyDateFormat,
+  StationTitle,
+  StationCountCurrentTotalFormat,
+  StationCountUnknownTotalFormat,
+  StationFooter,
+  StationEmptyList,
+  StationListUnavailable,
+  StationFallbackNameFormat,
+  PresetTitle,
+  PresetEmptySlot,
+  PresetUnavailable,
+  PresetNoCurrentStation,
+  PresetSaveFailed,
+  PresetCountdownFormat,
+  PresetSavedFormat,
   Count
 };
 
@@ -325,6 +339,20 @@ inline constexpr std::array<TextSpec, textCount()> kTextSpecs{{
   makeTextSpec("%d %s %d %s", 80),  // WeatherHeroDateFullFormat
   makeTextSpec("%s %d %s", 48),     // WeatherHeroDateCompactFormat
   makeTextSpec("%s %02d.%02d", 32), // WeatherDailyDateFormat
+  makeTextSpec("", 24),       // StationTitle: uppercase page title
+  makeTextSpec("%u %u", 24),  // StationCountCurrentTotalFormat: current, total
+  makeTextSpec("%u", 24),     // StationCountUnknownTotalFormat: total
+  makeTextSpec("", 80),       // StationFooter: fixed navigation helper, CLIP
+  makeTextSpec("", 64),       // StationEmptyList: multiline renderer state
+  makeTextSpec("", 64),       // StationListUnavailable: normalized renderer error
+  makeTextSpec("%u", 32),     // StationFallbackNameFormat: one-based station number
+  makeTextSpec("", 24),       // PresetTitle: uppercase Temporary title
+  makeTextSpec("", 24),       // PresetEmptySlot: row state
+  makeTextSpec("", 32),       // PresetUnavailable: invalid/missing station row
+  makeTextSpec("", 64),       // PresetNoCurrentStation: footer feedback
+  makeTextSpec("", 48),       // PresetSaveFailed: footer feedback
+  makeTextSpec("%d", 96),     // PresetCountdownFormat: remaining seconds
+  makeTextSpec("%u", 48),     // PresetSavedFormat: one-based preset slot
 }};
 
 // Parser foundation checks. These stay next to the constexpr implementation so

@@ -1,3 +1,9 @@
+/*
+ * RU: Граница Station data для LVGL; внешние имена сохраняются без перевода.
+ * EN: Station data boundary for LVGL; external names remain untranslated.
+ * RU: Только application-owned empty/fallback text поступает из выбранного i18n-пакета.
+ * EN: Only application-owned empty/fallback text comes from the selected i18n package.
+ */
 #include "station_list_adapter.h"
 
 #include <cstdio>
@@ -5,11 +11,32 @@
 
 #include "../../core/config.h"
 #include "../../core/player.h"
+#include "../../i18n/i18n.h"
 
 namespace lvgl_ui {
 namespace station_list_adapter {
 
 namespace {
+
+static bool copy_complete(char* out, size_t cap, const char* text) {
+    if (!out || cap == 0u) return false;
+    out[0] = '\0';
+    if (!text) return false;
+    const size_t bytes = strlen(text) + 1u;
+    if (bytes > cap) return false;
+    memcpy(out, text, bytes);
+    return true;
+}
+
+static bool format_fallback_name(char* out, size_t cap, uint16_t num) {
+    if (!out || cap == 0u) return false;
+    out[0] = '\0';
+    const int written = snprintf(out, cap,
+                                 i18n::text(i18n::TextId::StationFallbackNameFormat),
+                                 static_cast<unsigned>(num));
+    if (written >= 0 && static_cast<size_t>(written) < cap) return true;
+    return copy_complete(out, cap, "--");
+}
 
 static void truncate_utf8_in_place(char* s, size_t max_bytes) {
     if (!s) return;
@@ -60,9 +87,12 @@ static bool append_station_line(char* out, size_t cap, size_t& used, uint16_t nu
     // Вдвое больше зазор между номером и названием (было 2 пробела).
     const char* fmt = (num < 100u) ? "%02u    %s\n" : "%u    %s\n";
     const int written = snprintf(out + used, cap - used, fmt, static_cast<unsigned>(num), name);
-    if (written <= 0) return false;
+    if (written <= 0) {
+        out[used] = '\0';
+        return false;
+    }
     if (static_cast<size_t>(written) >= cap - used) {
-        out[cap - 1u] = '\0';
+        out[used] = '\0';
         return false;
     }
     used += static_cast<size_t>(written);
@@ -123,8 +153,7 @@ bool station_list_text(char* out, size_t cap, size_t name_limit) {
 
     const uint16_t total = station_count();
     if (total == 0u) {
-        strlcpy(out, "--  No stations indexed\n", cap);
-        return true;
+        return copy_complete(out, cap, i18n::text(i18n::TextId::StationEmptyList));
     }
 
     FS* fs = config.SDPLFS();
@@ -136,7 +165,7 @@ bool station_list_text(char* out, size_t cap, size_t name_limit) {
     for (uint16_t n = 1u; n <= total && playlist.available(); ++n) {
         char name_buf[160];
         if (!read_playlist_name(playlist, name_buf, sizeof(name_buf))) {
-            snprintf(name_buf, sizeof(name_buf), "Station %u", static_cast<unsigned>(n));
+            format_fallback_name(name_buf, sizeof(name_buf), n);
         }
         truncate_utf8_in_place(name_buf, name_limit);
         if (!append_station_line(out, cap, used, n, name_buf)) {

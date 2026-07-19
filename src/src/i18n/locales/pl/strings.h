@@ -63,6 +63,20 @@ inline constexpr std::array<TextEntry, textCount()> kStrings{{
   {TextId::WeatherHeroDateFullFormat, "Dzisiaj, %d %s %d, %s"},
   {TextId::WeatherHeroDateCompactFormat, "%s, %d %s"},
   {TextId::WeatherDailyDateFormat, "%s %02d.%02d"},
+  {TextId::StationTitle, "STACJE"},
+  {TextId::StationCountCurrentTotalFormat, "%u / %u"},
+  {TextId::StationCountUnknownTotalFormat, "-- / %u"},
+  {TextId::StationFooter, "Przesuń w górę/dół • Dotknij - ekran główny"},
+  {TextId::StationEmptyList, "--  Brak dostępnych stacji\n"},
+  {TextId::StationListUnavailable, "Lista stacji niedostępna"},
+  {TextId::StationFallbackNameFormat, "Stacja %u"},
+  {TextId::PresetTitle, "PRESETY"},
+  {TextId::PresetEmptySlot, "Puste"},
+  {TextId::PresetUnavailable, "Niedostępne"},
+  {TextId::PresetNoCurrentStation, "BRAK STACJI DO ZAPISANIA"},
+  {TextId::PresetSaveFailed, "BŁĄD ZAPISU"},
+  {TextId::PresetCountdownFormat, "PRZYTRZYMAJ, ABY ZAPISAĆ • POWRÓT %d"},
+  {TextId::PresetSavedFormat, "PRESET %u ZAPISANY"},
 }};
 
 }  // namespace i18n::locales::pl

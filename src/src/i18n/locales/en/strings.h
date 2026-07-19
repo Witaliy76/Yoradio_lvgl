@@ -63,6 +63,20 @@ inline constexpr std::array<TextEntry, textCount()> kStrings{{
   {TextId::WeatherHeroDateFullFormat, "Today, %d %s %d, %s"},
   {TextId::WeatherHeroDateCompactFormat, "%s, %d %s"},
   {TextId::WeatherDailyDateFormat, "%s %02d.%02d"},
+  {TextId::StationTitle, "STATIONS"},
+  {TextId::StationCountCurrentTotalFormat, "%u / %u"},
+  {TextId::StationCountUnknownTotalFormat, "-- / %u"},
+  {TextId::StationFooter, "Swipe up/down • Tap to return to Main"},
+  {TextId::StationEmptyList, "--  No stations indexed\n"},
+  {TextId::StationListUnavailable, "Station list unavailable"},
+  {TextId::StationFallbackNameFormat, "Station %u"},
+  {TextId::PresetTitle, "PRESETS"},
+  {TextId::PresetEmptySlot, "Empty"},
+  {TextId::PresetUnavailable, "Unavailable"},
+  {TextId::PresetNoCurrentStation, "NO STATION TO SAVE"},
+  {TextId::PresetSaveFailed, "SAVE FAILED"},
+  {TextId::PresetCountdownFormat, "HOLD TO SAVE • RETURN %d"},
+  {TextId::PresetSavedFormat, "PRESET %u SAVED"},
 }};
 
 }  // namespace i18n::locales::en

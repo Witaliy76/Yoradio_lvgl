@@ -17,6 +17,7 @@
 
 #include "lvgl.h"
 #include "../../core/config.h"
+#include "../../i18n/i18n.h"
 #include "../adapters/preset_store.h"
 #include "../adapters/station_list_adapter.h"
 #include "../fonts/lv_fonts.h"
@@ -29,36 +30,10 @@ namespace lvgl_ui {
 
 namespace {
 
-// ── UI strings (l10n readiness) / Строки UI ──────────────────────────────────
-
-static constexpr char kStrPresets[] =
-    "ПРЕСЕТЫ";
-
-static constexpr char kStrEmpty[] =
-    "Пусто";
-
-static constexpr char kStrUnavailable[] =
-    "Недоступно";
-
-static constexpr char kStrNoStation[] =
-    "НЕТ СТАНЦИИ ДЛЯ СОХРАНЕНИЯ";
-
-static constexpr char kStrSaveFailed[] =
-    "ОШИБКА СОХРАНЕНИЯ";
-
-static constexpr char kStrHelperDefault[] =
-    "УДЕРЖИВАТЬ ДЛЯ СОХРАНЕНИЯ \xE2\x80\xA2 ВОЗВРАТ 15";
-
 static constexpr char kStrEmptyText[] = "";
 static constexpr char kStrEmptyStationNumber[] = "--";
 
 // ── UI format strings / Форматные строки UI ──────────────────────────────────
-
-static constexpr char kFmtSaved[] =
-    "ПРЕСЕТ %u СОХРАНЕН";
-
-static constexpr char kFmtCountdown[] =
-    "УДЕРЖИВАТЬ ДЛЯ СОХРАНЕНИЯ \xE2\x80\xA2 ВОЗВРАТ %d";
 
 static constexpr char kFmtSlotNumber[] =
     "%d";
@@ -149,6 +124,31 @@ static void truncate_utf8_in_place(char* s, size_t max_bytes) {
     s[cut] = '\0';
 }
 
+// Formatted UI text is accepted only when complete; fallback is copied without UTF-8 truncation.
+// Форматированный UI-текст принимается только целиком; fallback копируется без усечения UTF-8.
+static bool preset_copy_complete(char* out, size_t cap, const char* text) {
+    if (!out || cap == 0u) return false;
+    out[0] = '\0';
+    if (!text) return false;
+    const size_t bytes = strlen(text) + 1u;
+    if (bytes > cap) return false;
+    memcpy(out, text, bytes);
+    return true;
+}
+
+template <typename... Args>
+static bool preset_format_checked(char* out, size_t cap, const char* fallback,
+                                  const char* format, Args... args) {
+    if (!out || cap == 0u) return false;
+    out[0] = '\0';
+    if (format) {
+        const int written = snprintf(out, cap, format, args...);
+        if (written >= 0 && static_cast<size_t>(written) < cap) return true;
+    }
+    preset_copy_complete(out, cap, fallback ? fallback : "");
+    return false;
+}
+
 static LvglPresetScreen* self_from_event(lv_event_t* e) {
     return e ? static_cast<LvglPresetScreen*>(lv_event_get_user_data(e)) : nullptr;
 }
@@ -176,7 +176,7 @@ void LvglPresetScreen::create_title(LvglPresetScreen& self, const YoRadioPalette
     lv_obj_set_height(self._title, LV_SIZE_CONTENT);
     lv_obj_set_style_pad_top(self._title, kTitlePadTop, LV_PART_MAIN);
     lv_obj_set_style_pad_bottom(self._title, kTitlePadBottom, LV_PART_MAIN);
-    lv_label_set_text(self._title, kStrPresets);
+    lv_label_set_text(self._title, i18n::text(i18n::TextId::PresetTitle));
     lv_obj_set_style_text_color(self._title, pal.text_primary, LV_PART_MAIN);
     lv_obj_set_style_text_align(self._title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_style_text_font(self._title, kFontTitle, LV_PART_MAIN);
@@ -214,7 +214,8 @@ void LvglPresetScreen::create_preset_row(LvglPresetScreen& self, uint8_t slot, c
         lv_obj_set_width(self._slot_labels[slot], kSlotW);
         lv_obj_set_height(self._slot_labels[slot], LV_SIZE_CONTENT);
         char buf[kSlotNumberBufferSize];
-        snprintf(buf, sizeof(buf), kFmtSlotNumber, static_cast<int>(slot) + 1);
+        preset_format_checked(buf, sizeof(buf), "", kFmtSlotNumber,
+                              static_cast<int>(slot) + 1);
         lv_label_set_text(self._slot_labels[slot], buf);
         lv_obj_set_style_text_color(self._slot_labels[slot], pal.text_secondary, LV_PART_MAIN);
         lv_obj_set_style_text_align(self._slot_labels[slot], LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
@@ -285,7 +286,10 @@ void LvglPresetScreen::create_footer(LvglPresetScreen& self, const YoRadioPalett
     lv_obj_set_flex_grow(self._helper, 1);
     lv_obj_set_style_min_width(self._helper, 0, LV_PART_MAIN);
     lv_label_set_long_mode(self._helper, LV_LABEL_LONG_DOT);
-    lv_label_set_text(self._helper, kStrHelperDefault);
+    char helper[kCountdownBufferSize];
+    preset_format_checked(helper, sizeof(helper), "",
+                          i18n::text(i18n::TextId::PresetCountdownFormat), 15);
+    lv_label_set_text(self._helper, helper);
     lv_obj_set_style_text_color(self._helper, pal.text_secondary, LV_PART_MAIN);
     lv_obj_set_style_text_align(self._helper, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_style_text_font(self._helper, kFontFooter, LV_PART_MAIN);
@@ -420,7 +424,9 @@ void LvglPresetScreen::_applyAllColors() {
             lv_obj_set_style_text_color(_helper, pal.text_secondary, LV_PART_MAIN);
         } else {
             const char* t = lv_label_get_text(_helper);
-            const bool err = t && (strcmp(t, kStrNoStation) == 0 || strcmp(t, kStrSaveFailed) == 0);
+            const bool err = t &&
+                (strcmp(t, i18n::text(i18n::TextId::PresetNoCurrentStation)) == 0 ||
+                 strcmp(t, i18n::text(i18n::TextId::PresetSaveFailed)) == 0);
             lv_obj_set_style_text_color(_helper, err ? pal.text_secondary : pal.accent, LV_PART_MAIN);
         }
     }
@@ -441,25 +447,30 @@ void LvglPresetScreen::_updateRowContent(uint8_t slot) {
             lv_label_set_text(_num_labels[slot], kStrEmptyStationNumber);
         } else {
             char nb[kStationNumberBufferSize];
-            snprintf(nb, sizeof(nb), kFmtStationNumber, static_cast<unsigned>(station_num));
+            preset_format_checked(nb, sizeof(nb), kStrEmptyStationNumber,
+                                  kFmtStationNumber, static_cast<unsigned>(station_num));
             lv_label_set_text(_num_labels[slot], nb);
         }
     }
 
     if (_name_labels[slot]) {
         if (!occupied) {
-            lv_label_set_text(_name_labels[slot], kStrEmpty);
+            lv_label_set_text(_name_labels[slot],
+                              i18n::text(i18n::TextId::PresetEmptySlot));
         } else if (!valid) {
-            lv_label_set_text(_name_labels[slot], kStrUnavailable);
+            lv_label_set_text(_name_labels[slot],
+                              i18n::text(i18n::TextId::PresetUnavailable));
         } else {
             char name_buf[kRowNameBytes];
             if (station_list_adapter::station_name(station_num, name_buf, sizeof(name_buf))) {
                 truncate_utf8_in_place(name_buf, kStationNameDisplayMaxBytes);
                 char full[kRowNameBytes + kDecoratedNameExtraBytes];
-                snprintf(full, sizeof(full), kFmtDecoratedStationName, kBulletPrefixUtf8, name_buf);
+                preset_format_checked(full, sizeof(full), name_buf,
+                                      kFmtDecoratedStationName, kBulletPrefixUtf8, name_buf);
                 lv_label_set_text(_name_labels[slot], full);
             } else {
-                lv_label_set_text(_name_labels[slot], kStrUnavailable);
+                lv_label_set_text(_name_labels[slot],
+                                  i18n::text(i18n::TextId::PresetUnavailable));
             }
         }
     }
@@ -478,7 +489,9 @@ void LvglPresetScreen::_updateCountdownHelper() {
     if (secs == _lastCountdownSecond) return;
     _lastCountdownSecond = secs;
     char buf[kCountdownBufferSize];
-    snprintf(buf, sizeof(buf), kFmtCountdown, static_cast<int>(secs > 0 ? secs : 1));
+    preset_format_checked(buf, sizeof(buf), "",
+                          i18n::text(i18n::TextId::PresetCountdownFormat),
+                          static_cast<int>(secs > 0 ? secs : 1));
     lv_label_set_text(_helper, buf);
     lv_obj_set_style_text_color(_helper, yoradio_palette().text_secondary, LV_PART_MAIN);
 }
@@ -562,7 +575,9 @@ void LvglPresetScreen::_onRowLongPressed(uint8_t slot) {
     if (preset_store::saveCurrentStation(slot)) {
         _updateRowContent(slot);
         char msg[kSavedMessageBufferSize];
-        snprintf(msg, sizeof(msg), kFmtSaved, static_cast<unsigned>(slot) + 1u);
+        preset_format_checked(msg, sizeof(msg), "",
+                              i18n::text(i18n::TextId::PresetSavedFormat),
+                              static_cast<unsigned>(slot) + 1u);
         _setHelperMessage(msg, /*success=*/true);
         refreshActiveTemporaryTimeout();
         _scheduleHelperRestore(kHelperRestoreMsSuccess);
@@ -571,9 +586,11 @@ void LvglPresetScreen::_onRowLongPressed(uint8_t slot) {
 
     const uint16_t cur = config.lastStation();
     if (!station_list_adapter::is_valid_station_num(cur)) {
-        _setHelperMessage(kStrNoStation, /*success=*/false);
+        _setHelperMessage(i18n::text(i18n::TextId::PresetNoCurrentStation),
+                          /*success=*/false);
     } else {
-        _setHelperMessage(kStrSaveFailed, /*success=*/false);
+        _setHelperMessage(i18n::text(i18n::TextId::PresetSaveFailed),
+                          /*success=*/false);
     }
     refreshActiveTemporaryTimeout();
     _scheduleHelperRestore(kHelperRestoreMsError);

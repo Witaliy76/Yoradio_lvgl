@@ -9,6 +9,7 @@
 #include "station_list_legacy_scroll.h"
 
 #include <cstdio>
+#include <cstring>
 
 #include "Arduino.h"
 #include <cstdint>
@@ -18,6 +19,7 @@
 #include "../adapters/station_list_adapter.h"
 #include "../control_glyph_utf8.h"
 #include "../fonts/lv_fonts.h"
+#include "../../i18n/i18n.h"
 #include "../profiles/lv_profile_select.h"
 #include "../theme/lv_theme_yoradio.h"
 
@@ -63,9 +65,6 @@ constexpr lv_coord_t kListTapMaxScrollYDeltaPx = 14;
 constexpr lv_coord_t kListTapMaxFingerTravelPx = 24;
 static constexpr uint32_t kStationRowSafetyLimit = UINT16_MAX - 10u;
 
-static constexpr char kStrListBufferAllocFailed[] = "Station list buffer allocation failed";
-static constexpr char kStrListReadFailed[]        = "Station list read failed\n";
-
 static const void* const kFontStationList =
     reinterpret_cast<const void*>(&lv_font_yora_montserrat_22_cyr);
 static const void* const kFontCurrentMarker =
@@ -101,6 +100,16 @@ static lv_coord_t row_y_for_station_row(uint16_t station_one_based) {
 static void station_set_font(lv_obj_t* obj, const void* font_slot) {
     if (!obj || !font_slot) return;
     lv_obj_set_style_text_font(obj, static_cast<const lv_font_t*>(font_slot), LV_PART_MAIN);
+}
+
+static bool copy_complete(char* out, size_t cap, const char* text) {
+    if (!out || cap == 0u) return false;
+    out[0] = '\0';
+    if (!text) return false;
+    const size_t bytes = strlen(text) + 1u;
+    if (bytes > cap) return false;
+    memcpy(out, text, bytes);
+    return true;
 }
 
 // ── Forward declarations for mutual recursion / forward для взаимных вызовов ──
@@ -219,7 +228,8 @@ static void clearStationListVisuals(Instance& instance) {
 static bool showStationListAllocationError(Instance& instance) {
     instance.lbl_list = lv_label_create(instance.list_area);
     if (!instance.lbl_list) return false;
-    lv_label_set_text(instance.lbl_list, kStrListBufferAllocFailed);
+    lv_label_set_text(instance.lbl_list,
+                      i18n::text(i18n::TextId::StationListUnavailable));
     station_set_font(instance.lbl_list, kFontStationList);
     lv_obj_set_style_text_color(instance.lbl_list, yoradio_palette().list_row_text, LV_PART_MAIN);
     lv_obj_set_style_pad_left(instance.lbl_list, list_label_pad_left_for_marker_gutter(), LV_PART_MAIN);
@@ -681,7 +691,8 @@ void populate(Instance& instance) {
     const size_t name_limit = (LV_ACTIVE_PROFILE.width >= kWideProfileMinWidth)
                               ? kStationNameLimitWide : kStationNameLimitCompact;
     if (!station_list_adapter::station_list_text(instance.list_text, instance.list_text_cap, name_limit)) {
-        strlcpy(instance.list_text, kStrListReadFailed, instance.list_text_cap);
+        copy_complete(instance.list_text, instance.list_text_cap,
+                      i18n::text(i18n::TextId::StationListUnavailable));
     }
 
     if (!createStationListLabelFromBuffer(instance)) {
