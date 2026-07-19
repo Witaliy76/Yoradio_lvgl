@@ -40,6 +40,11 @@ SPECTRUM*.md
 !/src/
 # LVGL screen design doc — must stay tracked / design-док экрана — не игнорировать
 !/src/src/lvgl_ui/screens/scr_weather_layout_tree.md
+# i18n docs — only the approved bilingual set is tracked / только принятый комплект
+/src/src/i18n/**/*.md
+!/src/src/i18n/LOCALIZATION.md
+!/src/src/i18n/README.md
+!/src/src/i18n/WORKFLOW.md
 !/library!/
 !/boards/
 
