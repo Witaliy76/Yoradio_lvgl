@@ -4,7 +4,6 @@
 
 #include "Arduino.h"
 #include "Arduino_GFX_Library.h"
-#include "tools/l10n.h"  // Transitive include for core/ (const_Pl*, weatherFmt, …) on ST7701 builds
 
 class DspCore {
 public:

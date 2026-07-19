@@ -13,6 +13,7 @@
 #include "../core/config.h"
 #include "../core/network.h"
 #include "../core/display.h"
+#include "../i18n/i18n.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/timers.h"
@@ -377,7 +378,7 @@ void DspCore::_clockDate(){
     gfx,
     width() - clockRightSpace - CHARWIDTH*4*2+13-20,
     clockTop-CHARHEIGHT+44,
-    dow[network.timeinfo.tm_wday],
+    i18n::dayShort(static_cast<uint8_t>(network.timeinfo.tm_wday)),
     config.theme.dow,
     config.theme.background,
     3,
@@ -409,7 +410,7 @@ void DspCore::_clockTime(){
   //gfxDrawLine(gfx, width()-clockRightSpace-CHARWIDTH*4*2-25, clockTop +5, width()-clockRightSpace-CHARWIDTH*4*2-25, clockTop +5 + clockTimeHeight-3, config.theme.div);
   // Горизонтальный разделитель
   //gfxDrawLine(gfx, width()-clockRightSpace-CHARWIDTH*4*2+10, clockTop+32, width()-clockRightSpace-CHARWIDTH*4*2+10+62-1, clockTop+32, config.theme.div);
-  sprintf(_buffordate, "%2d %s %d", network.timeinfo.tm_mday,mnths[network.timeinfo.tm_mon], network.timeinfo.tm_year+1900);
+  sprintf(_buffordate, "%2d %s %d", network.timeinfo.tm_mday,i18n::monthName(static_cast<uint8_t>(network.timeinfo.tm_mon)), network.timeinfo.tm_year+1900);
   strlcpy(_dateBuf, utf8Rus(_buffordate, true), sizeof(_dateBuf));
   _datewidth = strlen(_dateBuf) * CHARWIDTH*2;
   _dateleft = width() - clockRightSpace - _datewidth - 80;
