@@ -76,6 +76,11 @@
    GENERAL SETTINGS
    =============================================== */
 #define PLAYER_FORCE_MONO false           // Mono mode (disabled)
+
+// Compile-time interface language: RU, EN or PL.
+// Язык интерфейса во время компиляции: RU, EN или PL.
+#define L10N_LANGUAGE RU
+
 // Block 8.1F-B: config.store.vumeter / usespectrum kept for future LVGL widgets (WebUI toggles).
 // Block 8.1F-B: config.store.vumeter / usespectrum — будущие LVGL-виджеты (переключатели WebUI).
 #define EXT_WEATHER       false           // Extended weather (network.cpp)
@@ -133,6 +138,10 @@
 // Future Settings / ESP32-P4 may enable 1 at runtime; not stored in NVS yet.
 // Будущие Settings / быстрые платы — runtime; в NVS пока не сохраняется.
 #define YORADIO_LVGL_PAGE_TRANSITION_ANIM_DEFAULT 0
+
+// 1: paged Station list (accepted production renderer); 0/undefined: legacy continuous scroll.
+// 1: постраничный список Station (принятый production renderer); 0/не задано: старый непрерывный скролл.
+#define STATION_LIST_SIMPLE_PAGED 1
 
 // Day of week uppercase (true = uppercase, false = lowercase)
 //#define DOW_UPPERCASE true                     // Uncomment and set to true/false if needed
