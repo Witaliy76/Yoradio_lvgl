@@ -47,11 +47,12 @@ SPECTRUM*.md
 !/src/src/i18n/WORKFLOW.md
 !/library!/
 !/boards/
+# RELEASE-FOUNDATION-C: public release binaries tree — tracked / публичный каталог релизных бинарников — трекается
+!/build_bin/
 
 # --- Local-only trees at repo root / только локально (якорь /) ---
 /bg/
 /bootlogo/
-/build_bin/
 /docs/
 /test/
 /tools/
