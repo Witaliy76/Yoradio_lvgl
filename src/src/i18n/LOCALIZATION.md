@@ -1,3 +1,5 @@
+Author: Witaliy76 - https://github.com/Witaliy76
+
 # YoRadio localization — project overview
 
 This document is the user/developer entry point for the compile-time localization subsystem.

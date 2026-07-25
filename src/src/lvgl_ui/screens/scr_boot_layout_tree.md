@@ -1,3 +1,5 @@
+Author: Witaliy76 - https://github.com/Witaliy76
+
 # Boot screen — LVGL object tree (`scr_boot`)
 
 **Purpose / Назначение:**

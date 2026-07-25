@@ -1,3 +1,5 @@
+Author: Witaliy76 - https://github.com/Witaliy76
+
 # Station screen — LVGL object tree (`scr_station`)
 
 **Purpose / Назначение:**

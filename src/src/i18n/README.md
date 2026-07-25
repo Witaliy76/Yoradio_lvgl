@@ -1,3 +1,5 @@
+Author: Witaliy76 - https://github.com/Witaliy76
+
 # `src/src/i18n/` — technical reference
 
 - Project overview: [`LOCALIZATION.md`](LOCALIZATION.md)

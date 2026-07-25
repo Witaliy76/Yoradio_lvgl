@@ -1,3 +1,5 @@
+Author: Witaliy76 - https://github.com/Witaliy76
+
 # YoRadio localization — maintenance workflow
 
 - Project overview: [`LOCALIZATION.md`](LOCALIZATION.md)

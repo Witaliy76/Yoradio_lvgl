@@ -1,3 +1,5 @@
+Author: Witaliy76 - https://github.com/Witaliy76
+
 # Settings screen — LVGL object tree (`scr_settings`)
 
 **Purpose / Назначение:**

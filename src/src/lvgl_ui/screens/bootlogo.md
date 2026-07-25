@@ -1,3 +1,5 @@
+Author: Witaliy76 - https://github.com/Witaliy76
+
 # Boot logo & LVGL Boot screen — reference
 
 > **Language:** English. Russian version: [`bootlogo_rus.md`](bootlogo_rus.md).

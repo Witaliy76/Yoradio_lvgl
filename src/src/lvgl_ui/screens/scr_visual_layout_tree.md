@@ -1,3 +1,5 @@
+Author: Witaliy76 - https://github.com/Witaliy76
+
 # Visual screen — LVGL object tree (`scr_visual`)
 
 **Purpose / Назначение:**

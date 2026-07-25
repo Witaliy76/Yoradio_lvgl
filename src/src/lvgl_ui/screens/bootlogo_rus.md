@@ -1,3 +1,5 @@
+Author: Witaliy76 - https://github.com/Witaliy76
+
 # Логотип загрузки и экран LVGL Boot — справка
 
 > **Язык:** русский. English version: [`bootlogo.md`](bootlogo.md).

@@ -1,3 +1,5 @@
+Author: Witaliy76 - https://github.com/Witaliy76
+
 # Main screen — LVGL object tree (`scr_main`)
 
 **English:** Parent → child hierarchy for the Main screen object tree created by `LvglMainScreen::create()` and its private static layout builders in `scr_main.cpp`. Use when reasoning about layout, flex, and theme padding.  

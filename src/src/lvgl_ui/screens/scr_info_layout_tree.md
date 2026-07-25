@@ -1,3 +1,5 @@
+Author: Witaliy76 - https://github.com/Witaliy76
+
 # Info screen — LVGL object tree (`scr_info`)
 
 **Purpose / Назначение:**

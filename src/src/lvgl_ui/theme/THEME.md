@@ -1,3 +1,5 @@
+Author: Witaliy76 - https://github.com/Witaliy76
+
 # YoRadio Custom Theme Guide
 
 How to create and deploy `theme_custom.txt` for the **Custom** appearance preset on YoRadio LVGL devices.

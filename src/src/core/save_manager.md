@@ -1,4 +1,5 @@
 # SaveManager — developer guide
+Author: Witaliy76 - https://github.com/Witaliy76
 
 ---
 

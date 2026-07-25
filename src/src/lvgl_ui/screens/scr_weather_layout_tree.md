@@ -1,3 +1,5 @@
+Author: Witaliy76 - https://github.com/Witaliy76
+
 # Weather screen — LVGL object tree (`scr_weather`)
 
 **Purpose / Назначение:**

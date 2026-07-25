@@ -1,3 +1,5 @@
+Author: Witaliy76 - https://github.com/Witaliy76
+
 # Preset Temporary screen — LVGL object tree (`scr_preset`)
 
 ## Purpose / Назначение

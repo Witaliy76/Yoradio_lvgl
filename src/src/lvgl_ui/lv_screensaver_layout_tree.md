@@ -1,3 +1,5 @@
+Author: Witaliy76 - https://github.com/Witaliy76
+
 # LVGL Screensaver Overlay — layout tree (SSCLK production)
 
 > **Module:** `lv_screensaver.cpp` / `lv_screensaver.h`  
