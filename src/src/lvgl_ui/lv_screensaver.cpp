@@ -9,6 +9,7 @@
  * DspTask-only lv_* — see lv_touch_indev.cpp for wake path.
  */
 
+// Author: Witaliy76 - https://github.com/Witaliy76
 #include "lv_screensaver.h"
 
 #include "assets/ssclk_production_asset_pack.h"

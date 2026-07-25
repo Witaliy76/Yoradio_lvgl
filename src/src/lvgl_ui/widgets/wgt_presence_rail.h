@@ -1,3 +1,4 @@
+// Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef WGT_PRESENCE_RAIL_H
 #define WGT_PRESENCE_RAIL_H
 

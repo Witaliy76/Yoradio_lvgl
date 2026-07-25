@@ -1,3 +1,4 @@
+// Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef WGT_FOOTER_PILL_H
 #define WGT_FOOTER_PILL_H
 

@@ -2,6 +2,7 @@
  * Declarations for lcd-image-converter RGB565 boot assets (linked .c in this folder).
  * Объявления RGB565-ассетов boot из lcd-image-converter (.c в этой папке).
  */
+// Author: Witaliy76 - https://github.com/Witaliy76
 #pragma once
 
 #include <stdint.h>

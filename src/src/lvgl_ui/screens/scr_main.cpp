@@ -25,6 +25,7 @@
  * Дерево объектов: scr_main_layout_tree.md — обновлять при изменении разметки create().
  */
 
+// Author: Witaliy76 - https://github.com/Witaliy76
 #include "scr_main.h"
 
 

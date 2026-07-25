@@ -1,3 +1,5 @@
+// WeatherEdgeSession implementation (per-doSync transport edge state).
+// Author: Witaliy76 - https://github.com/Witaliy76
 #include "weather_edge_session.h"
 #include <string.h>
 

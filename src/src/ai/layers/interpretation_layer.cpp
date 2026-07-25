@@ -1,7 +1,7 @@
 /**
  * interpretation_layer.cpp - Music interpretation layer implementation
  * Description: Music interpretation layer via LLM, request submission, result processing
- * Author: W76W, 4pda.to
+ * Author: Witaliy76 - https://github.com/Witaliy76
  * Date: 21.12.2025
  * Version: Yoradio RGB Panel v0.9.434m-r2
  */

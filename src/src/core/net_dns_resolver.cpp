@@ -1,3 +1,5 @@
+// Selected-DNS A-record resolver implementation.
+// Author: Witaliy76 - https://github.com/Witaliy76
 #include "net_dns_resolver.h"
 
 #include <Arduino.h>

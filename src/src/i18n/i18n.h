@@ -4,6 +4,7 @@
  * RU: Возвращаемые данные статичны; runtime switching и heap allocation отсутствуют.
  * EN: Returned data is static; runtime switching and heap allocation are not supported.
  */
+// Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef YORADIO_I18N_H
 #define YORADIO_I18N_H
 

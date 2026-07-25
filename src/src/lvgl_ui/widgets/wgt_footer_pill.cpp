@@ -8,6 +8,7 @@
  * Users: scr_weather.cpp, scr_station.cpp, scr_preset.cpp.
  */
 
+// Author: Witaliy76 - https://github.com/Witaliy76
 #include "wgt_footer_pill.h"
 #include "../theme/lv_theme_yoradio.h"
 

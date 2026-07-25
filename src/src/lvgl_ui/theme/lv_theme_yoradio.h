@@ -1,13 +1,15 @@
 /**
- * YoRadio LVGL theme — presets, semantic palette (Theme Bible v1.2).
- * Тема LVGL YoRadio — пресеты и семантическая палитра (Theme Bible v1.2).
+ * YoRadio LVGL theme presets and semantic color palette (Theme Bible v1.2).
+ * Пресеты темы LVGL YoRadio и семантическая палитра (Theme Bible v1.2).
  *
  * Source of truth for LVGL colors lives here, not in config.theme / mytheme.h.
  * Источник цветов LVGL здесь, не в legacy theme.
  *
- * Stage 6.6R: Dark/Light = factory const; Custom = runtime file-backed (theme_custom.txt).
+ * Dark/Light = factory const; Custom = runtime file-backed (theme_custom.txt).
  * theme_dark is metadata in that file, NOT a struct field. Boot/Wi-Fi use fixed/service palettes.
- * Этап 6.6R: Custom — runtime из файла; theme_dark — metadata, не поле палитры.
+ * Custom — runtime из файла; theme_dark — metadata, не поле палитры.
+ *
+ * Author: Witaliy76 - https://github.com/Witaliy76
  */
 
 #ifndef LV_THEME_YORADIO_H

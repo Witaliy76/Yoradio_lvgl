@@ -7,7 +7,7 @@
 // - ST7701S RGB Panel
 // - Standard backlight (GPIO38)
 // - I2S pins: DOUT=40, BCLK=1, LRC=2
-//   by W76W, 4pda.to
+//   Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef myoptions_h
 #define myoptions_h
 

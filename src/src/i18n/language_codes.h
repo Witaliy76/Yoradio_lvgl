@@ -4,6 +4,7 @@
  * RU: Файл не владеет locale data и безопасен до подключения пользовательских options.
  * EN: This file owns no locale data and is safe before user options are included.
  */
+// Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef YORADIO_I18N_LANGUAGE_CODES_H
 #define YORADIO_I18N_LANGUAGE_CODES_H
 

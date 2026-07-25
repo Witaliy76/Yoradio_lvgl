@@ -1,3 +1,4 @@
+// Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef LV_PROFILE_AXS15231B_H
 #define LV_PROFILE_AXS15231B_H
 

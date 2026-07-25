@@ -1,3 +1,5 @@
+Author: Witaliy76 - https://github.com/Witaliy76
+
 # YoRadio Custom theme — Amber Hi-Fi / Tube Amp
 # WebUI Upload, max 4096 B. Affects Custom preset ONLY.
 # Upload file, then select Custom in Appearance.

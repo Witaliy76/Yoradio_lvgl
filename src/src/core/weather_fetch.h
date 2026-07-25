@@ -5,8 +5,8 @@
 #include "weather_state.h"  // A4.0: WeatherLocation, WeatherCurrentSource used by staging types
 
 /*
- * Weather W1 — OpenWeatherMap 5 day / 3 hour forecast fetch.
- * Weather W1 — загрузка прогноза OWM 5 дней / 3 часа.
+ * OpenWeatherMap forecast fetch into the shared WeatherState.
+ * Загрузка прогноза OWM в общий WeatherState.
  *
  * Transport: plain HTTP (api.openweathermap.org:80), NO TLS — deliberately, so the
  * forecast path does not spin up a second mbedTLS context competing with the AI HTTPS
@@ -28,6 +28,8 @@
  *
  * Fetch outcome — lets doSync distinguish deferred low-memory from other failures.
  * Результат fetch — doSync отличает отложенный low-memory от прочих ошибок.
+ *
+ * Author: Witaliy76 - https://github.com/Witaliy76
  */
 enum class WeatherForecastFetchResult : uint8_t {
     Published,            // parsed + published / разобран и опубликован

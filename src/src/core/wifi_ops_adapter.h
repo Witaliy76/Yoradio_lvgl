@@ -4,8 +4,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// Wi-Fi 2A+: ops adapter — manual Wi-Fi operations; 2B scan + 2C connect in one worker (command dispatch).
-// Wi-Fi 2A+: адаптер ручных Wi‑Fi операций; 2B scan + 2C connect в одном worker (dispatch команд).
+// Manual Wi-Fi operations adapter: scan and connect in one worker (command dispatch).
+// Адаптер ручных Wi-Fi операций: scan и connect в одном worker (dispatch команд).
+// Author: Witaliy76 - https://github.com/Witaliy76
 
 // Phase of the manual Wi-Fi ops state machine.
 // Фаза state machine ручных Wi‑Fi операций.

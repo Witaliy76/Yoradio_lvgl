@@ -1,3 +1,4 @@
+// Author: Witaliy76 - https://github.com/Witaliy76
 #include "preset_store.h"
 
 #include <cstring>

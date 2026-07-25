@@ -1,3 +1,5 @@
+// Sleep Timer implementation (stop radio or deep sleep).
+// Author: Witaliy76 - https://github.com/Witaliy76
 #include "sleep_timer.h"
 
 #include "config.h"

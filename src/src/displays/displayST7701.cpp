@@ -3,6 +3,7 @@
    Block 8-E17/E18B: LVGL product — output_display direct; no Canvas; no legacy draw APIs.
 ************************************************************************************************/
 
+// Adaptation: Witaliy76 - https://github.com/Witaliy76
 #include "../core/options.h"
 #if DSP_MODEL == DSP_ST7701
 

@@ -2,6 +2,8 @@
 
 # AI Layer prompt: how to read and change it
 
+Author: Witaliy76 - https://github.com/Witaliy76
+
 ## Why AI Layer needs a prompt
 The prompt defines AI Layer behavior and strictly limits the response format.
 Without these limits, the layer becomes talkative and starts competing with music.

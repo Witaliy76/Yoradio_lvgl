@@ -4,8 +4,8 @@
 #include <stdint.h>
 
 /*
- * Weather W1 — core-owned weather model (current + hourly + daily snapshot).
- * Погодная модель, владелец — core: срезы current / hourly / daily.
+ * Shared weather model (current + hourly + daily snapshot), owned by core.
+ * Погодная модель (current / hourly / daily), владелец — core.
  *
  * Ownership / lifecycle:
  *   - Writer: weather-sync context only (core, doSync on Core 0) via weatherPublishState().
@@ -17,9 +17,11 @@
  *   - Читатели: любая задача (позже DspTask/LVGL) — weatherGetStateSnapshot().
  *   - Здесь нет сетевого/JSON кода — только компактное хранилище состояния.
  *
- * W-R3: runtime metadata (fetch_in_progress, last_error, stale) lives in the same POD
+ * Runtime metadata (fetch_in_progress, last_error, stale) lives in the same POD
  * snapshot; UI derives Empty/Loading/Ready/Stale/Unavailable without a broad status enum.
- * W-R3: runtime-метаданные в том же POD-снапшоте; UI выводит состояния из фактов.
+ * Runtime-метаданные в том же POD-снапшоте; UI выводит состояния из фактов.
+ *
+ * Author: Witaliy76 - https://github.com/Witaliy76
  */
 
 // W-R3/W-R4: single compile-time regular refresh interval (seconds).

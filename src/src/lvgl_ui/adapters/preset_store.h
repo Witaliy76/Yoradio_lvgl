@@ -2,11 +2,13 @@
 #define PRESET_STORE_H
 
 /*
- * preset_store — Stage 6.4B: positional Preset slots (station number only, LittleFS).
- * preset_store — этап 6.4B: слоты Preset по номеру станции в плейлисте (только LittleFS).
+ * Positional Preset slots (station number only, LittleFS).
+ * Слоты Preset по номеру станции в плейлисте (только LittleFS).
  *
- * RAM cache: 8 × uint16_t (0 = empty). Loaded once via lazy begin(); no name/URL storage.
- * Кэш RAM: 8 × uint16_t; lazy begin(); без имён и URL.
+ * RAM cache: 8 x uint16_t (0 = empty). Loaded once via lazy begin(); no name/URL storage.
+ * Кэш RAM: 8 x uint16_t; lazy begin(); без имён и URL.
+ *
+ * Author: Witaliy76 - https://github.com/Witaliy76
  */
 
 #include <stdint.h>

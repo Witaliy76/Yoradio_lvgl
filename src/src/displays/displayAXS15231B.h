@@ -1,3 +1,4 @@
+// Adaptation: Witaliy76 - https://github.com/Witaliy76
 #ifndef displayAXS15231B_h
 #define displayAXS15231B_h
 #include "../core/options.h"

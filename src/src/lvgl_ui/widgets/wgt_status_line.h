@@ -1,3 +1,4 @@
+// Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef WGT_STATUS_LINE_H
 #define WGT_STATUS_LINE_H
 

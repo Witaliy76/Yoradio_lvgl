@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
+// Sleep Timer: countdown to stop radio or enter deep sleep (NVS-backed action).
+// Таймер сна: отсчёт до остановки радио или Deep Sleep (действие в NVS).
+// Author: Witaliy76 - https://github.com/Witaliy76
+
 // Persistent expiry action / постоянное действие по истечению (NVS via config).
 enum class SleepTimerAction : uint8_t {
     StopRadio = 0,

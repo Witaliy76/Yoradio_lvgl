@@ -1,6 +1,8 @@
 /**
- * MemWatchdog — fail-safe автоперезапуск при деградации внутренней RAM (TLS/фрагментация).
- * MEM_WATCHDOG_AUTOREBOOT: включение в myoptions.h (отключить: закомментировать define).
+ * MemWatchdog: fail-safe reboot when internal RAM degrades (TLS/fragmentation).
+ * MemWatchdog: автоперезапуск при деградации внутренней RAM (TLS/фрагментация).
+ * MEM_WATCHDOG_AUTOREBOOT: enable in myoptions.h (disable: comment out the define).
+ * Author: Witaliy76 - https://github.com/Witaliy76
  */
 #ifndef MEM_WATCHDOG_H
 #define MEM_WATCHDOG_H

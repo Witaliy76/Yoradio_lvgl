@@ -1,3 +1,4 @@
+// Author: Witaliy76 - https://github.com/Witaliy76
 #include "lv_page_chain.h"
 
 #include "lvgl.h"

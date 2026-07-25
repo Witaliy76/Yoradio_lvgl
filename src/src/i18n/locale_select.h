@@ -4,6 +4,7 @@
  * RU: Подключается только владельцем данных i18n.cpp, не экранными модулями.
  * EN: Included only by the i18n.cpp data owner, never directly by screen modules.
  */
+// Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef YORADIO_I18N_LOCALE_SELECT_H
 #define YORADIO_I18N_LOCALE_SELECT_H
 

@@ -5,6 +5,7 @@
    Features: Round 2.1" display, Active LOW backlight, CST826 touch, RGB→BGR swap
 ************************************************************************************************/
 
+// Adaptation: Witaliy76 - https://github.com/Witaliy76
 #include "../core/options.h"
 #if DSP_MODEL==DSP_UEDX48480021
 

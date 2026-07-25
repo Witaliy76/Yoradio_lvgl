@@ -6,6 +6,7 @@
  * Только DspTask; один label на страницу; короткий page buffer в heap/PSRAM.
  */
 
+// Author: Witaliy76 - https://github.com/Witaliy76
 #include "station_list_simple_paged.h"
 
 #include <cstdio>

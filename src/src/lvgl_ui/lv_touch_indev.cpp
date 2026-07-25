@@ -1,3 +1,4 @@
+// Author: Witaliy76 - https://github.com/Witaliy76
 #include "../core/options.h"
 #include "lv_touch_indev.h"
 #include "lvgl.h"

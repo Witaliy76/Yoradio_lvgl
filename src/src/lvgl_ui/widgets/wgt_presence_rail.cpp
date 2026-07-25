@@ -12,6 +12,7 @@
 //
 // E23A: мягкая VU-модуляция обоих профилей — read-only чтение player.get_VUlevel() из
 // таймера rail (DspTask), EMA-конверты в Instance. Без FFT / полос / изменений audio path.
+// Author: Witaliy76 - https://github.com/Witaliy76
 
 #include "wgt_presence_rail.h"
 

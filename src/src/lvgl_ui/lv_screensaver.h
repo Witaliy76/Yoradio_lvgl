@@ -1,5 +1,6 @@
-// Stage 5.6: full-screen screensaver overlay (lv_layer_top), not ILvglScreen / not PageChain.
-// Этап 5.6: полноэкранный оверлей screensaver (lv_layer_top), не ILvglScreen / не PageChain.
+// Full-screen analog clock screensaver overlay (lv_layer_top), not ILvglScreen / not PageChain.
+// Полноэкранный оверлей screensaver (lv_layer_top), не ILvglScreen / не PageChain.
+// Author: Witaliy76 - https://github.com/Witaliy76
 
 #ifndef LV_SCREENSAVER_H
 #define LV_SCREENSAVER_H

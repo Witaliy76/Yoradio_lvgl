@@ -1,3 +1,4 @@
+// Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef LV_TOUCH_INDEV_H
 #define LV_TOUCH_INDEV_H
 

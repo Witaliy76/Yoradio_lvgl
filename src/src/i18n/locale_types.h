@@ -4,6 +4,7 @@
  * RU: Файл не выбирает язык и не владеет переводами выбранного пакета.
  * EN: This file neither selects a language nor owns selected-package translations.
  */
+// Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef YORADIO_I18N_LOCALE_TYPES_H
 #define YORADIO_I18N_LOCALE_TYPES_H
 

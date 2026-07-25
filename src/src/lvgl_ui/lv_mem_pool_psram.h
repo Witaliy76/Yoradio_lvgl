@@ -8,6 +8,7 @@
  * LVGL 8.3 has no LV_MEM_POOL_FREE; backing block has process lifetime.
  * В LVGL 8.3 нет LV_MEM_POOL_FREE; backing block живёт весь процесс.
  */
+// Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef YORADIO_LV_MEM_POOL_PSRAM_H
 #define YORADIO_LV_MEM_POOL_PSRAM_H
 

@@ -3,6 +3,7 @@
  * Минимальный драйвер LVGL для LittleFS — тот же раздел, что WebUI/AI.
  */
 
+// Author: Witaliy76 - https://github.com/Witaliy76
 #include "lv_fs_littlefs.h"
 
 #include "../core/options.h"

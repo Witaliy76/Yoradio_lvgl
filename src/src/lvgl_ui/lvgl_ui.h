@@ -12,8 +12,9 @@ typedef struct _lv_obj_t lv_obj_t;
 }
 #endif
 
-// LVGL UI subsystem stub (Stage 0)
-// Заглушка UI подсистемы LVGL (Stage 0)
+// LVGL UI subsystem entry points and lifecycle integration.
+// Точки входа и интеграция жизненного цикла LVGL UI.
+// Author: Witaliy76 - https://github.com/Witaliy76
 
 namespace lvgl_ui {
 

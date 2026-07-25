@@ -1,3 +1,5 @@
+// Runtime Auto Dim implementation.
+// Author: Witaliy76 - https://github.com/Witaliy76
 #include "autodim.h"
 
 #include "config.h"

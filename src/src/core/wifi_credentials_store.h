@@ -5,8 +5,9 @@
 #include <stdint.h>
 
 // Thin credential-store adapter over legacy /data/wifi.csv + Config::ssids[5].
-// Wi‑Fi UI / scan / connect stay out of this module (Wi‑Fi 2+).
+// Wi-Fi UI / scan / connect stay out of this module.
 // Тонкий адаптер учётных данных поверх legacy wifi.csv и Config::ssids[5].
+// Author: Witaliy76 - https://github.com/Witaliy76
 
 constexpr uint8_t WIFI_CRED_STORE_CAPACITY = 5;
 // Mirrors struct neworkItem in config.h (ssid[30], password[40]) / как в config.h

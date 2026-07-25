@@ -3,8 +3,9 @@
 
 #include <stdint.h>
 
-// Runtime Auto Dim — temporary backlight reduction without overwriting config.store.brightness.
-// Runtime Auto Dim — временное снижение яркости без перезаписи config.store.brightness.
+// Runtime Auto Dim: temporary backlight reduction without overwriting config.store.brightness.
+// Runtime Auto Dim: временное снижение яркости без перезаписи config.store.brightness.
+// Author: Witaliy76 - https://github.com/Witaliy76
 
 void autodim_notify_activity(const char* source);
 

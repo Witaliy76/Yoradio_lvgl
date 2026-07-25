@@ -2,6 +2,7 @@
  * SSCLK-A3B screensaver clock asset pack.
  * Theme → LittleFS background path + approved Flash hand/cap descriptors.
  */
+// Author: Witaliy76 - https://github.com/Witaliy76
 #pragma once
 
 #include <cstdint>

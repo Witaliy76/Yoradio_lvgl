@@ -3,8 +3,9 @@
 
 #include <cstdint>
 
-// E5B: production pre-Gain PCM level source for Visual PPM (hybrid RMS body + transient peak).
-// E5B: production pre-Gain PCM level source для Visual PPM (RMS body + transient peak).
+// Pre-Gain PCM level source for Visual PPM (hybrid RMS body + transient peak).
+// Pre-Gain PCM level source для Visual PPM (RMS body + transient peak).
+// Author: Witaliy76 - https://github.com/Witaliy76
 
 struct PpmPcmLevelSnapshot {
     uint32_t block_id;

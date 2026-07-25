@@ -1,7 +1,7 @@
 /**
  * moment_layer.cpp - Moment layer implementation
  * Description: Autonomous moment layer with predefined phrases (no LLM)
- * Author: W76W, 4pda.to
+ * Author: Witaliy76 - https://github.com/Witaliy76
  * Date: 21.12.2025
  * Version: Yoradio RGB Panel v0.9.434m-r2
  */

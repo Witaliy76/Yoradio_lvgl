@@ -2,6 +2,8 @@
 
 # AI Layer in Yoradio
 
+Author: Witaliy76 - https://github.com/Witaliy76
+
 ## What is AI Layer
 AI Layer is the author's experiment in "bringing the device to life":
 a quiet semantic layer that can appear behind the music and add meaning when appropriate.

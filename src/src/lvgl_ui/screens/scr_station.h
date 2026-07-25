@@ -1,3 +1,4 @@
+// Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef SCR_STATION_H
 #define SCR_STATION_H
 

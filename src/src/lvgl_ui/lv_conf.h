@@ -1,10 +1,8 @@
 /**
  * @file lv_conf.h
- * LVGL v8.3.x configuration for YoRadio RGB Panel
- * 
- * Stage 0: minimal config for compilation only.
- * No runtime hooks, no demos, no logging.
- * Конфигурация Stage 0: только для компиляции.
+ * LVGL 8.3 compile-time configuration for YoRadio.
+ * Конфигурация компиляции LVGL 8.3 для YoRadio.
+ * Author: Witaliy76 - https://github.com/Witaliy76
  */
 
 #if 1 /* Set to "1" to enable content */

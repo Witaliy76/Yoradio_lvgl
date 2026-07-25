@@ -4,7 +4,7 @@
 /**
  * openai_compat_provider.h - OpenAI-compatible provider header
  * Description: Universal provider for OpenAI-compatible API (DeepSeek, OpenAI, Perplexity, etc.)
- * Author: W76W, 4pda.to
+ * Author: Witaliy76 - https://github.com/Witaliy76
  * Date: 02.01.2026
  * Version: Yoradio RGB Panel v0.9.434m-r2
  */

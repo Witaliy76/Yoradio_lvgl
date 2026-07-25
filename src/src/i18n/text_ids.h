@@ -4,6 +4,7 @@
  * RU: Переводы принадлежат locale-пакетам; порядок и placeholders общие для всех языков.
  * EN: Locale packages own translations; ordering and placeholders are shared by all languages.
  */
+// Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef YORADIO_I18N_TEXT_IDS_H
 #define YORADIO_I18N_TEXT_IDS_H
 

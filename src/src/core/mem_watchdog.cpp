@@ -1,5 +1,6 @@
 /**
- * MemWatchdog — реализация. / MEM_WATCHDOG_AUTOREBOOT
+ * MemWatchdog implementation. Enable via MEM_WATCHDOG_AUTOREBOOT in myoptions.h.
+ * Author: Witaliy76 - https://github.com/Witaliy76
  */
 #include "options.h"
 #include "mem_watchdog.h"

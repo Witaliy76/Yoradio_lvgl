@@ -1,7 +1,7 @@
 #pragma once
 /*
- * art_key.h — Station Art key normalization (Station Art MVP).
- * art_key.h — Нормализация ключа station art (MVP).
+ * Station artwork filename-key normalization shared by the Web UI and Main screen.
+ * Нормализация ключа имени файла station art для Web UI и экрана Main.
  *
  * Single source of truth: artNormalizeKey() must be used by BOTH netserver.cpp AND scr_main.cpp
  * to guarantee that the key computed for save/remove and for lookup are always identical.
@@ -28,12 +28,13 @@
  *
  * Backward compatibility note:
  *   Keys from the pre-hash format (e.g., "rock_fm.bin") are NOT compatible with the new format.
- *   Any art files saved before this change must be re-uploaded. This is expected for MVP
- *   (change applied before first device test).
+ *   Any art files saved before this change must be re-uploaded.
  *
  * Key length: max 42 chars (prefix 32 + "__" 2 + hash 8).
  * Path: "/logo/<key>.bin" — max 52 chars; well within LittleFS path limits.
  * Recommended dst_sz: 68 (covers max key + NUL + margin).
+ *
+ * Author: Witaliy76 - https://github.com/Witaliy76
  */
 
 #include <cstring>

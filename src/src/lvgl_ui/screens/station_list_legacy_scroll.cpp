@@ -6,6 +6,7 @@
  * Только DspTask; один multiline label + native scroll; буфер текста вне LVGL heap.
  */
 
+// Author: Witaliy76 - https://github.com/Witaliy76
 #include "station_list_legacy_scroll.h"
 
 #include <cstdio>

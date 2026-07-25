@@ -8,7 +8,7 @@
 // - RGB→BGR pin swap in Arduino_ESP32RGBPanel
 // - Active LOW backlight (GPIO7)
 // - I2S pins: DOUT=43, BCLK=44, LRC=4 (GPIO4 requires removing capacitor C9)
-//   by W76W, 4pda.to
+//   Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef myoptions_h
 #define myoptions_h
 

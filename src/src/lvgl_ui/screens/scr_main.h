@@ -2,14 +2,16 @@
 #define SCR_MAIN_H
 
 /*
- * scr_main.h — LVGL Main (now-playing) page: ILvglScreen implementation.
- * scr_main.h — главный экран плеера: реализация ILvglScreen.
+ * Main now-playing page with station metadata, controls, volume, backgrounds, and optional station artwork.
+ * Главный экран воспроизведения: метаданные, управление, громкость, фоны и опциональный station art.
  *
- * Stage 6.1: flex column on _screen; data only from config.station / config.store (no legacy display path).
- * Этап 6.1: flex-колонка; данные только из config — без привязки к legacy Display::_title.
+ * Data from config.station / config.store (no legacy display path).
+ * Данные из config.station / config.store (без legacy display path).
  *
- * Threading: all lv_* only from DspTask via PageChain + refreshMainScreen() → update().
+ * Threading: all lv_* only from DspTask via PageChain + refreshMainScreen() -> update().
  * Потоки: только DspTask для lv_*.
+ *
+ * Author: Witaliy76 - https://github.com/Witaliy76
  */
 
 #include "../lv_screen.h"

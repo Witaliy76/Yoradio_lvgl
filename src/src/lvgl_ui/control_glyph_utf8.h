@@ -1,3 +1,4 @@
+// Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef CONTROL_GLYPH_UTF8_H
 #define CONTROL_GLYPH_UTF8_H
 

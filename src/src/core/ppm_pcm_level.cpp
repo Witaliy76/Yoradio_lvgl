@@ -1,8 +1,10 @@
 /*
- * ppm_pcm_level — E5B production rolling PCM level source (Audio producer, Visual consumer).
- * ppm_pcm_level — E5B production rolling PCM level (producer Audio, consumer Visual).
+ * Rolling pre-Gain PCM level source for Visual PPM (Audio producer, Visual consumer).
+ * Rolling PCM level для Visual PPM (producer Audio, consumer Visual).
  *
  * Integer-only hot path; seqlock snapshot; no Config/station/ovol access.
+ *
+ * Author: Witaliy76 - https://github.com/Witaliy76
  */
 
 #include "ppm_pcm_level.h"

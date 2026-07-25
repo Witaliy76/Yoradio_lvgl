@@ -14,6 +14,7 @@
  * Два независимых cadence: PPM таймер 30 мс (сегменты), Display loop (status + metadata).
  */
 
+// Author: Witaliy76 - https://github.com/Witaliy76
 #include "scr_visual.h"
 
 #include "beocord_vu_asset_pack.h"

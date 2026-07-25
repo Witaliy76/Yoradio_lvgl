@@ -1,6 +1,8 @@
 #ifndef AXS15231B_TOUCH_H
 #define AXS15231B_TOUCH_H
 
+// Adaptation: Witaliy76 - https://github.com/Witaliy76
+
 #include "Arduino.h"
 #include <Wire.h>
 

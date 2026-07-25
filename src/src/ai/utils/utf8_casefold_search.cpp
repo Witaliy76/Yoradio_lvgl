@@ -1,7 +1,7 @@
 /**
  * utf8_casefold_search.cpp - Case-insensitive UTF-8 string search utilities implementation
  * Description: Case-insensitive pattern search in UTF-8 strings without memory allocation (RU+EN)
- * Author: W76W, 4pda.to
+ * Author: Witaliy76 - https://github.com/Witaliy76
  * Date: 21.12.2025
  * Version: Yoradio RGB Panel v0.9.434m-r2
  */

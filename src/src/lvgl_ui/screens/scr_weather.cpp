@@ -27,6 +27,7 @@
  * WEATHERREF-A: только структурная реорганизация — без изменения поведения/визуала/pipeline.
  */
 
+// Author: Witaliy76 - https://github.com/Witaliy76
 #include "scr_weather.h"
 #include "../widgets/wgt_footer_pill.h"
 

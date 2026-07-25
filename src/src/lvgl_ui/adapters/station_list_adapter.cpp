@@ -4,6 +4,7 @@
  * RU: Только application-owned empty/fallback text поступает из выбранного i18n-пакета.
  * EN: Only application-owned empty/fallback text comes from the selected i18n package.
  */
+// Author: Witaliy76 - https://github.com/Witaliy76
 #include "station_list_adapter.h"
 
 #include <cstdio>

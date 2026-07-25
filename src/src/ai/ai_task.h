@@ -4,7 +4,7 @@
 /**
  * ai_task.h - AI task manager header
  * Description: Data structures and interface for asynchronous AI request execution via FreeRTOS
- * Author: W76W, 4pda.to
+ * Author: Witaliy76 - https://github.com/Witaliy76
  * Date: 21.12.2025
  * Version: Yoradio RGB Panel v0.9.434m-r2
  */

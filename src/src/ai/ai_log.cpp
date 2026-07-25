@@ -1,7 +1,7 @@
 /**
  * ai_log.cpp - AI Layer logging implementation
  * Description: Implementation of global boot_done flag for AI debug logs
- * Author: W76W, 4pda.to
+ * Author: Witaliy76 - https://github.com/Witaliy76
  * Date: 20.01.2026
  * Version: Yoradio RGB Panel v0.9.434m-r2
  */

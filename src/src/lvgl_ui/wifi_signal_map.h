@@ -1,3 +1,4 @@
+// Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef WIFI_SIGNAL_MAP_H
 #define WIFI_SIGNAL_MAP_H
 

@@ -2,7 +2,8 @@
 #define weather_edge_session_h
 
 /*
- * WeatherEdgeSession — per-doSync-cycle Weather transport edge state.
+ * Per-doSync-cycle Weather transport edge state (preferred DNS IP and attempt tracking).
+ * Состояние транспортного края погоды на один цикл doSync.
  *
  * State is divided into two levels:
  *
@@ -27,6 +28,8 @@
  *
  * Threading: single-threaded by contract (doSync, Core 0 only).
  * Must NOT be stored as a global or static persistent object. No NVS writes.
+ *
+ * Author: Witaliy76 - https://github.com/Witaliy76
  */
 
 #include <IPAddress.h>

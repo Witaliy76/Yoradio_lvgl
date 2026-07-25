@@ -2,7 +2,7 @@
 #define net_dns_resolver_h
 
 /*
- * net_dns_resolver — generic reusable selected-DNS A-record resolver.
+ * Generic selected-DNS A-record resolver.
  * Resolves a hostname by querying a single caller-specified IPv4 DNS server
  * via bounded synchronous UDP/53, without touching global lwIP DNS config.
  *
@@ -16,6 +16,8 @@
  *
  * Responsibility boundary: no Weather, no HTTP, no scheduler, no API keys.
  * — только разрешение имён; без погоды, HTTP, ключей API.
+ *
+ * Author: Witaliy76 - https://github.com/Witaliy76
  */
 
 #include <cstdint>

@@ -4,7 +4,7 @@
 /**
  * ai_subsystem.h - AI subsystem facade for yoRadio (Stage 6.0)
  * Description: Explicit AI ownership; event adapter and display coordination (not a Plugin)
- * Author: W76W, 4pda.to
+ * Author: Witaliy76 - https://github.com/Witaliy76
  * Date: 21.12.2025
  * Version: Yoradio RGB Panel v0.9.434m-r2
  */

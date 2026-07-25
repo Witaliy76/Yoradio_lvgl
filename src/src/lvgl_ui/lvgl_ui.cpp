@@ -1,3 +1,4 @@
+// Author: Witaliy76 - https://github.com/Witaliy76
 #include "lvgl_ui.h"
 #include "lv_overlay.h"
 #include "lv_screensaver.h"

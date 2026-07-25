@@ -1,3 +1,4 @@
+// Adaptation: Witaliy76 - https://github.com/Witaliy76
 #ifndef displayUEDX48480021_h
 #define displayUEDX48480021_h
 #include "../core/options.h"

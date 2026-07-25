@@ -1,6 +1,7 @@
 /**
- * Stage 6.1F-d3 — Main background upload (Appearance): preview, RGB565 + LVGL header, POST /upload_bg
+ * Main background upload for Appearance: preview, RGB565 with LVGL header, and LittleFS slot upload, status, and removal.
  * Фон Main: превью, конвертация, загрузка в слоты LittleFS
+ * Author: Witaliy76 - https://github.com/Witaliy76
  */
 (function () {
   'use strict';

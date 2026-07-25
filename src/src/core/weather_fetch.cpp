@@ -1,3 +1,5 @@
+// OpenWeatherMap forecast fetch implementation.
+// Author: Witaliy76 - https://github.com/Witaliy76
 #include "weather_fetch.h"
 #include "weather_state.h"
 #include "config.h"          // config.store.*, options.h (HIDE_WEATHER), Config

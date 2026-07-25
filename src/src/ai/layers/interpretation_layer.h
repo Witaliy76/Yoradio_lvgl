@@ -4,7 +4,7 @@
 /**
  * interpretation_layer.h - Music interpretation layer header
  * Description: Music interpretation layer via LLM (facts and neutral phrases)
- * Author: W76W, 4pda.to
+ * Author: Witaliy76 - https://github.com/Witaliy76
  * Date: 21.12.2025
  * Version: Yoradio RGB Panel v0.9.434m-r2
  */

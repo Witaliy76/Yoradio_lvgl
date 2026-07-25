@@ -10,6 +10,7 @@
  * All LVGL access is DspTask-only. / Все lv_* только из DspTask.
  */
 
+// Author: Witaliy76 - https://github.com/Witaliy76
 #include "scr_preset.h"
 
 #include <cstdio>

@@ -2,6 +2,7 @@
  * SSCLK-A3B production hand/cap descriptors (TRUE_COLOR_ALPHA).
  * SSCLK-A3B production-дескрипторы стрелок/cap (TRUE_COLOR_ALPHA).
  */
+// Author: Witaliy76 - https://github.com/Witaliy76
 #pragma once
 
 #include <stdint.h>

@@ -1,7 +1,7 @@
 /**
  * utf8_truncate.cpp - UTF-8 string truncation utilities implementation
  * Description: Safe UTF-8 string copying to fixed buffers with character boundary awareness
- * Author: W76W, 4pda.to
+ * Author: Witaliy76 - https://github.com/Witaliy76
  * Date: 21.12.2025
  * Version: Yoradio RGB Panel v0.9.434m-r2
  */

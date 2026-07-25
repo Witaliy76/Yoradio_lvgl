@@ -4,6 +4,7 @@
  * RU: EN package владеет данными; размеры таблиц проверяются compile-time validators.
  * EN: The EN package owns the data; compile-time validators enforce table sizes.
  */
+// Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef YORADIO_I18N_LOCALES_EN_CALENDAR_H
 #define YORADIO_I18N_LOCALES_EN_CALENDAR_H
 

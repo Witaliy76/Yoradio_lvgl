@@ -18,6 +18,7 @@
  * ILvglScreen lifecycle: create → enter → update → exit → destroy (DspTask only).
  */
 
+// Author: Witaliy76 - https://github.com/Witaliy76
 #include "scr_info.h"
 #include "lvgl.h"
 #include "Arduino.h"

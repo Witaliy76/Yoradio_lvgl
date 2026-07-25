@@ -9,6 +9,7 @@
  * Object tree: scr_settings_layout_tree.md
  */
 
+// Author: Witaliy76 - https://github.com/Witaliy76
 #include "scr_settings.h"
 
 #include <stdio.h>

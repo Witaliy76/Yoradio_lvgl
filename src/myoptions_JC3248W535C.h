@@ -10,7 +10,7 @@
 // - SD card support (HSPI)
 // - Battery monitoring (ADC)
 // - I2S pins: DOUT=41, BCLK=42, LRC=2
-//   by W76W, 4pda.to
+//   Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef myoptions_h
 #define myoptions_h
 

@@ -9,8 +9,9 @@
 
 #if YORADIO_PPM_PCM_TELEMETRY_DIAG
 
-// E5A: pre-Gain decoded stereo PCM telemetry block (~4096 frames, ~86–93 ms).
-// E5A: блок телеметрии decoded stereo PCM до Gain (~4096 кадров).
+// Pre-Gain decoded stereo PCM telemetry block (~4096 frames), diagnostic build only.
+// Блок телеметрии decoded stereo PCM до Gain (~4096 кадров), только diagnostic build.
+// Author: Witaliy76 - https://github.com/Witaliy76
 struct PpmPcmTelemetryBlock {
     uint32_t block_id;
     uint32_t frame_count;

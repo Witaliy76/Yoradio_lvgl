@@ -5,6 +5,7 @@
  * See THEME.md for theme.dat vs theme_custom.txt, Boot/Wi-Fi boundaries.
  */
 
+// Author: Witaliy76 - https://github.com/Witaliy76
 #include "lv_theme_yoradio.h"
 
 

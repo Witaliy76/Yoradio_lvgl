@@ -5,6 +5,7 @@
  * DspTask-only lv_*; carousel gestures installed from lvgl_ui helper (not on Boot).
  */
 
+// Author: Witaliy76 - https://github.com/Witaliy76
 #include "scr_stub.h"
 
 

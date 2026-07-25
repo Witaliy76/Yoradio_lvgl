@@ -1,3 +1,4 @@
+// Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef LV_PROFILE_4848S040_H
 #define LV_PROFILE_4848S040_H
 

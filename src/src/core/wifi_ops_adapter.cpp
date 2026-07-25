@@ -1,5 +1,6 @@
-// Wi-Fi 2B+2C+2D + 5E: async scan + manual connect + try-saved; boot-fail AP uses AP_STA for STA begin. No network.cpp / persist / UI.
-// Wi-Fi 2B+2C+2D+5E: scan + connect + try-saved в worker; AP→AP_STA для connect при legacy AP. Без network.cpp / persist / UI.
+// Manual Wi-Fi ops worker: async scan, connect, and try-saved network.
+// Worker ручных Wi-Fi операций: scan, connect и try-saved.
+// Author: Witaliy76 - https://github.com/Witaliy76
 
 #include "wifi_ops_adapter.h"
 

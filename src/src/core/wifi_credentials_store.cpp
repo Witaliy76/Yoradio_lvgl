@@ -1,7 +1,6 @@
-// wifi_credentials_store.cpp — Credential store adapter for LVGL Wi‑Fi flow slices (Wi‑Fi 1+).
-// Wraps RAM mirror Config::ssids / SSIDS_PATH without changing CSV format or EEPROM lastSSID semantics.
-// wifi_credentials_store.cpp — адаптер хранилища учётных данных для слайсов LVGL Wi‑Fi (Wi‑Fi 1+).
-// Обёртка над RAM‑зеркалом Config::ssids и SSIDS_PATH без смены формата CSV и семантики lastSSID в EEPROM.
+// Credential store adapter for LVGL Wi-Fi flow over Config::ssids / wifi.csv.
+// Адаптер хранилища учётных данных для LVGL Wi-Fi поверх Config::ssids и wifi.csv.
+// Author: Witaliy76 - https://github.com/Witaliy76
 
 #include "wifi_credentials_store.h"
 

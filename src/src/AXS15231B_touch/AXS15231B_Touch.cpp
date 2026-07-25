@@ -1,7 +1,8 @@
 /**
  * @file AXS15231B_Touch.cpp
+ * @brief Touch driver for AXS15231B
  * @brief Драйвер для сенсорного экрана AXS15231B
- * @author W76W
+ * Adaptation: Witaliy76 - https://github.com/Witaliy76
  * @version 1.0
  * @date 2024
  * 

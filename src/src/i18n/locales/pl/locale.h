@@ -4,6 +4,7 @@
  * RU: PL folder владеет metadata/строками/calendar data; пакет выбирается только locale_select.h.
  * EN: The PL folder owns metadata, strings, and calendar data; only locale_select.h selects it.
  */
+// Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef YORADIO_I18N_LOCALES_PL_LOCALE_H
 #define YORADIO_I18N_LOCALES_PL_LOCALE_H
 

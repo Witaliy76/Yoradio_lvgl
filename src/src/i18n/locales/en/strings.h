@@ -4,6 +4,7 @@
  * RU: EN package владеет значениями; порядок и placeholders обязаны совпадать с TextId/TextSpec.
  * EN: The EN package owns values; ordering and placeholders must match TextId/TextSpec.
  */
+// Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef YORADIO_I18N_LOCALES_EN_STRINGS_H
 #define YORADIO_I18N_LOCALES_EN_STRINGS_H
 

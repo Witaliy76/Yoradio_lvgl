@@ -1,5 +1,6 @@
 // Stage 5.7: LOST / UPDATING overlays — centralized on lv_layer_top().
 // Этап 5.7: оверлеи LOST / UPDATING — централизованно на lv_layer_top().
+// Author: Witaliy76 - https://github.com/Witaliy76
 
 #include "lv_overlay.h"
 #include "lv_screensaver.h"

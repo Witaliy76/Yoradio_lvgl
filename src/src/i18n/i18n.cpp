@@ -4,6 +4,7 @@
  * RU: Только этот translation unit подключает locale_select.h, исключая дублирование пакетов.
  * EN: Only this translation unit includes locale_select.h, preventing package duplication.
  */
+// Author: Witaliy76 - https://github.com/Witaliy76
 #include "../core/options.h"
 
 #include "i18n.h"

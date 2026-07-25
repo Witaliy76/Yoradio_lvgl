@@ -1,5 +1,6 @@
 // wgt_status_line — top status strip for Main (Wi‑Fi + centered clock + weather on the right).
 // Три равные колонки: Wi‑Fi слева, часы по центру экрана, погода (иконка+°C) справа.
+// Author: Witaliy76 - https://github.com/Witaliy76
 
 #include "wgt_status_line.h"
 

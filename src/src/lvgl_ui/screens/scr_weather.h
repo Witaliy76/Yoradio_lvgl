@@ -1,3 +1,4 @@
+// Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef SCR_WEATHER_H
 #define SCR_WEATHER_H
 

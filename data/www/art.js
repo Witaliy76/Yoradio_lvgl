@@ -1,11 +1,8 @@
 /**
- * Station Art MVP — art.js
- * Manual station art upload: browse, preview (120×120), convert to LVGL TRUE_COLOR_ALPHA .bin,
- * POST /upload_art; remove via POST /remove_art; status via GET /art_status.
- *
- * Station Art MVP — ручная загрузка арта станции.
- * Превью 120×120, конвертация RGB565+alpha (CF=5), загрузка в LittleFS /logo/<key>.bin.
- * Key contract: server-side only (stationByNum → normalize). Client never computes the key.
+ * Station artwork upload for Appearance: preview, LVGL TRUE_COLOR_ALPHA conversion, and LittleFS upload, status, and removal.
+ * Ручная загрузка арта станции: превью, конвертация RGB565+alpha, LittleFS /logo/<key>.bin.
+ * Key contract: server-side only (stationByNum -> normalize). Client never computes the key.
+ * Author: Witaliy76 - https://github.com/Witaliy76
  */
 (function () {
   'use strict';

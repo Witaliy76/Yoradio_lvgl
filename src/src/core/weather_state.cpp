@@ -1,4 +1,6 @@
 #include "weather_state.h"
+// Shared WeatherState publish/snapshot helpers.
+// Author: Witaliy76 - https://github.com/Witaliy76
 
 #include <Arduino.h>
 #include <atomic>

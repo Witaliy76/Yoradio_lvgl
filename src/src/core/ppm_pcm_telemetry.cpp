@@ -1,10 +1,11 @@
 /*
- * ppm_pcm_telemetry — E5A real PCM station-level telemetry (diagnostic only).
- * ppm_pcm_telemetry — E5A телеметрия реального PCM станции (только diagnostic).
+ * Pre-Gain decoded stereo PCM telemetry (diagnostic builds only).
+ * Телеметрия реального PCM до Gain (только diagnostic builds).
  *
  * Producer: Audio::playChunk pre-Gain tap (Core 1), integer-only hot path.
  * Consumer: Display::loop (Core 0), float/log/Serial here only.
- * Visual E4 synthetic PPM is unchanged — no feed into scr_visual in E5A.
+ *
+ * Author: Witaliy76 - https://github.com/Witaliy76
  */
 
 #include "options.h"

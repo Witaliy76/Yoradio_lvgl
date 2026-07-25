@@ -6,11 +6,12 @@
 
 namespace lvgl_ui {
 
-// PageChain — Stage 4.6 frozen navigation (see docs/stage_4_6_spec_freeze.md).
+// PageChain: horizontal 6-page carousel plus Boot / Temporary / Wi-Fi special modes.
+// PageChain: горизонтальная карусель из 6 страниц плюс Boot / Temporary / Wi-Fi.
 // Six page slots: 0=Info, 1=Main, 2=Visual, 3=Station, 4=Weather, 5=Settings.
 // Wi-Fi (RebootRequired) is NOT a page slot — use showRebootRequired().
 // Horizontal swipe is blocked while Temporary / Boot / RebootRequired is active.
-// PageChain — навигация Stage 4.6 freeze. Wi-Fi не слот карусели — showRebootRequired.
+// Author: Witaliy76 - https://github.com/Witaliy76
 
 // Horizontal carousel + Boot / Temporary / Reboot-required full screens.
 // Горизонтальная карусель + полноэкранные Boot / Temporary / Reboot-required.
