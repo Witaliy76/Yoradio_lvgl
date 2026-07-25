@@ -259,7 +259,7 @@ Keyboard (`_kbd`) key labels use built-in LVGL Montserrat 18 (`LV_PART_ITEMS`); 
 - **Other body/status text:** YoRadio Montserrat 16 Cyr (`wifi_body_font_slot()` / `wifi_status_font_slot()`).
 - Keyboard does not use YoRadio Cyrillic ? special keys require LVGL symbol glyph coverage.
 - Keyboard width, flex behavior and 140 px minimum height on 480×480 remain unchanged.
-- Password textarea height/width unchanged ? M20 in existing field requires visual acceptance (mask glyph, cursor, clipping).
+- Password textarea height/width unchanged — M20 in existing field requires visual acceptance (mask glyph, cursor, clipping).
 - Shift, Backspace, OK and keyboard layout clipping require device acceptance.
 
 ---
