@@ -411,6 +411,7 @@ void lvgl_ui::onStationArtCommitted() {
 void lvgl_ui::onCustomThemeFileUpdated() {
     (void)yoradio_theme_load_custom_palette_file(nullptr);
     if (yoradio_theme_active_preset() != ThemePreset::Custom) {
+        yoradio_theme_mark_custom_reload_complete();
         return;
     }
     yoradio_theme_reinit(s_disp);
@@ -425,6 +426,9 @@ void lvgl_ui::onCustomThemeFileUpdated() {
     // 6.6R-GB2: Custom-файл мог изменить text_primary → обновить цвет perf-оверлея.
     applyPerfMonitorThemeTextColor();
 #endif
+    // WebUI acknowledgement is published only after the active Custom UI is reapplied.
+    // Ack для WebUI публикуется только после полного reapply активного Custom UI.
+    yoradio_theme_mark_custom_reload_complete();
 }
 
 void lvgl_ui::onThemePresetChanged(uint8_t preset_id) {

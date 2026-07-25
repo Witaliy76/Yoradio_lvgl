@@ -8,155 +8,233 @@
   <link rel="apple-touch-icon" type="image/png" href="elogo.png">
   <link rel="icon" type="image/png" href="elogo.png">
   <link rel="stylesheet" title="base" href="style.css?%VERSION%" type="text/css">
-  <!-- Same layout shell as settings.html — pagetitle, settingsirwrap, section / Как settings: иначе «пустая» вёрстка -->
+  <!-- Same layout shell as settings.html / Тот же общий layout shell, что у Settings -->
   <link rel="stylesheet" title="base" href="settings.css?%VERSION%" type="text/css">
   <title>ёRadio - Appearance</title>
   <style>
-    .appearance-section { margin: 16px 0; padding: 12px 0; }
-    .appearance-section .title { font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: #999; padding-bottom: 8px; border-bottom: 1px solid #333; margin-bottom: 12px; }
-    .appearance-section .title span { display: inline-block; }
-    .appearance-placeholder { color: #666; font-size: 13px; padding: 10px 0; }
-    /* Stage 6.1F-d3: Main background slots / Слоты фона Main */
-    #bg-upload-root { max-width: 480px; margin: 0 auto; }
-    .bg-device-dim { font-size: 13px; color: #888; margin-bottom: 16px; }
-    .bg-slots { display: flex; flex-direction: column; gap: 20px; }
-    .bg-slot { border: 1px solid #333; border-radius: 8px; padding: 12px; background: #0a0a0a; }
-    .bg-slot-label { font-size: 15px; font-weight: bold; color: #e3d25f; margin-bottom: 8px; }
-    .bg-slot-preview-wrap { margin: 8px 0; }
-    /* avoid literal percent in CSS — breaks chunked template processor / без символа процента в CSS */
-    .bg-slot-preview { display: block; width: auto; height: auto; border: 1px solid #444; background: #111; border-radius: 4px; }
-    .bg-slot-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
-    .bg-slot-actions button { cursor: pointer; padding: 6px 12px; border-radius: 4px; border: 1px solid #e3d25f; background: #1a1a1a; color: #e3d25f; font-size: 13px; }
-    .bg-slot-actions button.bg-slot-remove { border-color: #666; color: #aaa; }
-    .bg-slot-actions button:disabled { opacity: 0.45; cursor: not-allowed; }
-    /* Stage 6.6R-B: theme shell — interactive runtime selector (no persistence yet) */
+    #appearancecontent { align-self: stretch; box-sizing: border-box; padding: 18px 10px 0; }
+    #appearancedone { font-family: inherit; }
+    .appearance-intro { align-self: stretch; margin: 0 10px 12px; color: #aaa; font-size: 14px; line-height: 1.5; }
+    .appearance-section { margin: 12px 0 28px; padding: 20px; }
+    .appearance-section .title { margin: 0 0 8px; padding: 0 0 10px; border-bottom: 1px solid #3b3b3b; text-align: left; }
+    .appearance-section .title span { padding: 0; background: transparent; color: #d2d2d2; font-size: 17px; letter-spacing: 1px; }
+    .appearance-helper { margin: 0 0 16px; color: #8e8e8e; font-size: 13px; line-height: 1.5; }
+    .appearance-note { margin: 12px 0 0; color: #777; font-size: 12px; line-height: 1.5; }
+    .appearance-status { margin-top: 10px; color: #aaa; font-size: 12px; line-height: 1.45; }
+    .appearance-status.success { color: #8c8; }
+    .appearance-status.warning { color: #d8b75d; }
+    .appearance-status.error { color: #d88; }
+
+    /* Color theme selector / Единый доступный выбор темы */
     .appearance-theme-shell { margin-top: 4px; }
-    .appearance-theme-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-    .appearance-theme-opt { display: inline-block; padding: 8px 14px; border-radius: 6px; border: 1px solid #444; color: #666; font-size: 13px; cursor: pointer; user-select: none; transition: border-color 0.15s, color 0.15s; }
-    .appearance-theme-opt:hover { border-color: #888; color: #aaa; }
-    .appearance-theme-opt.is-active { border-color: #e3d25f; color: #e3d25f; background: #141208; }
-    .appearance-theme-opt.is-busy { opacity: 0.55; cursor: not-allowed; }
-    .appearance-theme-hint { font-size: 12px; color: #555; margin-top: 10px; line-height: 1.35; }
-    /* Stage 6.6R-F1: custom palette file upload / Загрузка theme_custom.txt */
-    .appearance-custom-theme { margin-top: 12px; }
-    .appearance-custom-theme-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
-    .appearance-custom-theme-actions button { cursor: pointer; padding: 6px 12px; border-radius: 4px; border: 1px solid #e3d25f; background: #1a1a1a; color: #e3d25f; font-size: 13px; }
-    .appearance-custom-theme-actions button.custom-theme-remove { border-color: #666; color: #aaa; }
-    .appearance-custom-theme-actions button:disabled { opacity: 0.45; cursor: not-allowed; }
-    .appearance-custom-theme-fs { font-size: 12px; color: #777; margin-top: 8px; }
-    .appearance-custom-theme-status { font-size: 12px; color: #aaa; margin-top: 4px; line-height: 1.4; }
-    .appearance-custom-theme-status.error { color: #c88; }
-    .appearance-custom-theme-hint { font-size: 12px; color: #555; margin-top: 6px; line-height: 1.35; }
-    .bg-slot-fs { font-size: 12px; color: #777; margin-top: 6px; }
-    .bg-slot-state { font-size: 12px; margin-top: 4px; color: #aaa; }
-    .bg-slot-state.uploaded { color: #8c8; }
-    .bg-slot-state.error { color: #c88; }
-    /* Station Art MVP / Арт станции */
-    #art-upload-root { max-width: 480px; margin: 0 auto; }
-    .art-station-label { font-size: 13px; color: #999; margin-bottom: 10px; }
-    .art-station-name { color: #e3d25f; }
-    .art-dim { font-size: 12px; color: #666; margin-bottom: 12px; }
-    .art-slot { border: 1px solid #333; border-radius: 8px; padding: 12px; background: #0a0a0a; }
-    .art-preview { display: block; width: auto; height: auto; border: 1px solid #444; background: #111; border-radius: 4px; margin: 8px 0; }
-    .art-fs { font-size: 12px; color: #777; margin-top: 6px; }
-    .art-state { font-size: 12px; margin-top: 4px; color: #aaa; }
-    .art-state.uploaded { color: #8c8; }
-    .art-state.error { color: #c88; }
+    .appearance-theme-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .appearance-theme-opt { position: relative; min-width: 0; min-height: 118px; padding: 14px; border: 1px solid #444; border-radius: 8px; background: #0a0a0a; color: #aaa; cursor: pointer; font: inherit; text-align: left; transition: border-color 0.15s, background-color 0.15s, color 0.15s; }
+    .appearance-theme-opt:hover { border-color: #777; background: #111; }
+    .appearance-theme-opt.is-active { border-color: #e3d25f; background: #171407; color: #e3d25f; }
+    .appearance-theme-opt.is-busy { opacity: 0.55; cursor: wait; }
+    .appearance-theme-name { display: block; margin-bottom: 8px; font-size: 15px; font-weight: bold; }
+    .appearance-theme-description { display: block; color: #888; font-size: 12px; line-height: 1.4; }
+    .appearance-theme-opt.is-active .appearance-theme-description { color: #b9ad66; }
+    .appearance-theme-state { display: block; margin-top: 10px; color: #e3d25f; font-size: 12px; font-weight: bold; visibility: hidden; }
+    .appearance-theme-opt.is-active .appearance-theme-state { visibility: visible; }
+    .appearance-theme-opt:focus-visible,
+    .appearance-actions button:focus-visible,
+    .appearance-details summary:focus-visible { outline: 2px solid #e3d25f; outline-offset: 3px; }
+
+    /* Custom palette belongs to Custom theme / Custom palette вложена в тему Custom */
+    .appearance-subpanel { margin-top: 18px; padding: 16px; border: 1px solid #383838; border-radius: 8px; background: #090909; }
+    .appearance-subtitle { margin: 0 0 6px; color: #ccc; font-size: 14px; letter-spacing: 0.8px; }
+    .appearance-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+    .appearance-actions button { padding: 8px 13px; border: 1px solid #e3d25f; border-radius: 5px; background: #1a1a1a; color: #e3d25f; cursor: pointer; font: inherit; font-size: 13px; }
+    .appearance-actions button:hover:not(:disabled) { background: #272727; }
+    .appearance-actions button.primary-action { background: #e3d25f; color: #111; font-weight: bold; }
+    .appearance-actions button.secondary-action { border-color: #666; color: #aaa; }
+    .appearance-actions button:disabled { opacity: 0.42; cursor: not-allowed; }
+    .appearance-file-name { margin-top: 10px; color: #aaa; font-size: 12px; overflow-wrap: anywhere; }
+    .appearance-device-status { margin-top: 7px; color: #777; font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+    .appearance-details { margin-top: 14px; border-top: 1px solid #333; padding-top: 12px; color: #888; font-size: 12px; line-height: 1.5; }
+    .appearance-details summary { display: list-item; width: fit-content; color: #c7c7c7; cursor: pointer; font-weight: bold; }
+    .appearance-details p { margin: 9px 0; }
+    .appearance-details pre { margin: 10px 0 0; padding: 10px; border: 1px solid #333; border-radius: 5px; background: #050505; color: #cfcfcf; font-family: Consolas, Monaco, monospace; font-size: 11px; line-height: 1.45; overflow-x: auto; }
+
+    /* Main screen background cards / Карточки фона Main */
+    #bg-upload-root, #art-upload-root { max-width: 480px; margin: 0 auto; }
+    .bg-device-dim, .art-dim { margin: 0 0 14px; color: #777; font-size: 12px; line-height: 1.45; }
+    .bg-slots { display: flex; flex-direction: column; gap: 16px; }
+    .bg-slot, .art-slot { min-width: 0; padding: 14px; border: 1px solid #333; border-radius: 8px; background: #0a0a0a; }
+    .bg-slot-label { color: #e3d25f; font-size: 15px; font-weight: bold; }
+    .bg-slot-description { margin: 5px 0 10px; color: #777; font-size: 12px; line-height: 1.4; }
+    .bg-slot-preview-wrap { margin: 8px 0; }
+    .bg-slot-preview, .art-preview { display: block; max-width: calc(100vw - 120px); height: auto; border: 1px solid #444; border-radius: 4px; background: #111; }
+    .bg-slot-state, .art-state { margin-top: 7px; color: #aaa; font-size: 12px; line-height: 1.45; }
+    .bg-slot-state.success, .art-state.success { color: #8c8; }
+    .bg-slot-state.error, .art-state.error { color: #d88; }
+
+    /* Current station artwork / Арт текущей станции */
+    .art-station-label { margin: 0 0 7px; color: #aaa; font-size: 14px; }
+    .art-station-name { color: #e3d25f; font-weight: bold; }
+    .art-explanation { margin: 0 0 12px; color: #888; font-size: 12px; line-height: 1.45; }
+    .art-empty { margin: 0 0 12px; padding: 9px 10px; border-left: 3px solid #d8b75d; background: #171308; color: #d8b75d; font-size: 12px; line-height: 1.4; }
+    .art-empty[hidden] { display: none; }
+
+    @media screen and (max-width: 560px) {
+      .appearance-theme-row { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+      .appearance-theme-opt { min-height: 72px; padding: 8px 6px; }
+      .appearance-theme-name { margin-bottom: 0; font-size: 13px; white-space: nowrap; }
+      .appearance-theme-description { display: none; }
+      .appearance-theme-state { margin-top: 6px; font-size: 11px; white-space: nowrap; }
+      .appearance-section { padding: 16px; }
+      .appearance-actions button { min-width: 0; flex: 1 1 145px; }
+    }
+    @media screen and (max-width: 480px) {
+      #appearancecontent, #appearancedone { zoom: 1; -moz-transform: none; }
+      #appearancecontent { padding-right: 0; padding-left: 0; }
+      .appearance-intro { margin-right: 0; margin-left: 0; }
+      .appearance-section { margin-bottom: 22px; }
+    }
+    @media screen and (max-width: 340px) {
+      .appearance-theme-row { grid-template-columns: minmax(0, 1fr); }
+      .appearance-theme-opt { min-height: 56px; padding: 8px 10px; }
+    }
   </style>
 </head>
 <body>
   <div class="content">
     <h2 class="pagetitle">APPEARANCE</h2>
+    <p class="appearance-intro">Upload artwork for the current station, choose the color theme and set Main screen backgrounds.</p>
     <div class="playerwrap">
       <div class="settingsirwrap" id="appearancecontent">
+        <section class="appearance-section" id="section_station_art">
+          <div class="title" role="heading" aria-level="2"><span>CURRENT STATION ARTWORK</span></div>
+          <p class="appearance-helper">Upload artwork for the station that is currently playing.</p>
+          <div id="art-upload-root" data-art-api-status="/art_status" data-art-api-upload="/upload_art" data-art-api-remove="/remove_art">
+            <p class="art-station-label">Current station: <span class="art-station-name" aria-live="polite">&hellip;</span></p>
+            <p class="art-explanation">The image is saved for this station and shown on the Main screen.</p>
+            <p class="art-empty" aria-live="polite" hidden>Start a station before uploading artwork.</p>
+            <p class="art-dim">Checking the artwork size…</p>
+            <div class="art-slot">
+              <div><canvas class="art-preview" width="120" height="120" role="img" aria-label="Preview for the current station artwork"></canvas></div>
+              <input type="file" class="art-file" accept="image/*" hidden>
+              <div class="appearance-actions">
+                <button type="button" class="art-choose">Choose image</button>
+                <button type="button" class="art-upload primary-action" disabled>Upload to device</button>
+                <button type="button" class="art-remove secondary-action" disabled>Remove artwork</button>
+              </div>
+              <div class="appearance-file-name art-selected" aria-live="polite">Selected image: none</div>
+              <div class="appearance-device-status art-fs" aria-live="polite">Artwork on device: checking…</div>
+              <div class="art-state" aria-live="polite" aria-atomic="true">No image selected.</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="appearance-section" id="section_theme">
+          <div class="title" role="heading" aria-level="2"><span>COLOR THEME</span></div>
+          <p class="appearance-helper">Changes apply immediately and are saved for the next boot.</p>
+          <div class="appearance-theme-shell" id="appearance-theme-shell">
+            <div class="appearance-theme-row" role="group" aria-label="Color theme">
+              <button type="button" class="appearance-theme-opt" data-theme-preset="dark" aria-pressed="false">
+                <span class="appearance-theme-name">Dark</span>
+                <span class="appearance-theme-description">Dark interface for low-light listening.</span>
+                <span class="appearance-theme-state" aria-hidden="true">✓ Active</span>
+              </button>
+              <button type="button" class="appearance-theme-opt" data-theme-preset="light" aria-pressed="false">
+                <span class="appearance-theme-name">Light</span>
+                <span class="appearance-theme-description">Bright interface for daytime use.</span>
+                <span class="appearance-theme-state" aria-hidden="true">✓ Active</span>
+              </button>
+              <button type="button" class="appearance-theme-opt" data-theme-preset="custom" aria-pressed="false">
+                <span class="appearance-theme-name">Custom</span>
+                <span class="appearance-theme-description">Uses uploaded colors or the built-in Amber Hi-Fi palette.</span>
+                <span class="appearance-theme-state" aria-hidden="true">✓ Active</span>
+              </button>
+            </div>
+            <div class="appearance-status" id="theme-selector-status" aria-live="polite" aria-atomic="true">Checking the active theme…</div>
+
+            <div class="appearance-subpanel appearance-custom-theme" id="appearance-custom-theme"
+                 data-theme-upload="/upload_theme" data-theme-remove="/remove_theme">
+              <h3 class="appearance-subtitle">CUSTOM PALETTE</h3>
+              <p class="appearance-helper">Upload a theme_custom.txt file to replace the built-in Custom colors.</p>
+              <input type="file" id="custom-theme-file" accept=".txt,text/plain" hidden>
+              <div class="appearance-actions">
+                <button type="button" id="custom-theme-choose">Choose file</button>
+                <button type="button" id="custom-theme-upload" class="primary-action" disabled>Upload &amp; Apply</button>
+                <button type="button" id="custom-theme-remove" class="secondary-action" disabled>Remove custom palette</button>
+              </div>
+              <div class="appearance-file-name" id="custom-theme-selected" aria-live="polite">Selected file: none</div>
+              <div class="appearance-device-status appearance-custom-theme-fs" id="custom-theme-fs" aria-live="polite">Custom palette on device: checking…</div>
+              <div class="appearance-status appearance-custom-theme-status" id="custom-theme-status" aria-live="polite" aria-atomic="true">Ready to choose a file.</div>
+
+              <details class="appearance-details">
+                <summary>Theme file format</summary>
+                <p>Use a plain-text file named <strong>theme_custom.txt</strong>, no larger than 4096 bytes. Put one <code>key=value</code> record on each line. Color values use six hex digits; a leading <code>#</code> is accepted and recommended.</p>
+                <p>Keys are case-insensitive. <code>theme_dark</code> accepts <code>true</code> or <code>false</code>; <code>rail_opa_scale</code> accepts 0–200. Blank lines and comments beginning with <code>#</code> are ignored.</p>
+                <p>Unknown keys and malformed lines are skipped and reported after upload. Missing color keys keep their built-in Amber Hi-Fi values.</p>
+                <pre aria-label="Custom theme file example">theme_dark=true
+device_background=#0D0806
+panel_border=#5A422B
+text_primary=#F4E7D2
+accent=#D89A2B</pre>
+              </details>
+            </div>
+          </div>
+        </section>
+
         <section class="appearance-section" id="section_background">
-          <div class="title"><span>background</span></div>
+          <div class="title" role="heading" aria-level="2"><span>MAIN SCREEN BACKGROUNDS</span></div>
+          <p class="appearance-helper">Each color theme can use its own background image on the Main screen.</p>
           <div id="bg-upload-root" data-bg-api-status="/bg_status" data-bg-api-upload="/upload_bg" data-bg-api-remove="/remove_bg">
-            <p class="bg-device-dim" id="bg-device-dim">…</p>
+            <p class="bg-device-dim" id="bg-device-dim">Checking the Main screen image size…</p>
             <div class="bg-slots">
               <div class="bg-slot" data-slot="dark">
-                <div class="bg-slot-label">Dark</div>
-                <div class="bg-slot-preview-wrap"><canvas class="bg-slot-preview" width="200" height="200" aria-label="Dark preview"></canvas></div>
-                <input type="file" class="bg-slot-file" accept="image/*" hidden />
-                <div class="bg-slot-actions">
+                <div class="bg-slot-label">Dark theme background</div>
+                <p class="bg-slot-description">Used on Main when the Dark color theme is active.</p>
+                <div class="bg-slot-preview-wrap"><canvas class="bg-slot-preview" width="200" height="200" role="img" aria-label="Preview for the Dark theme background"></canvas></div>
+                <input type="file" class="bg-slot-file" accept="image/*" hidden>
+                <div class="appearance-actions">
                   <button type="button" class="bg-slot-choose">Choose image</button>
-                  <button type="button" class="bg-slot-upload" disabled>Upload</button>
-                  <button type="button" class="bg-slot-remove">Remove</button>
+                  <button type="button" class="bg-slot-upload primary-action" disabled>Upload to device</button>
+                  <button type="button" class="bg-slot-remove secondary-action" disabled>Remove image</button>
                 </div>
-                <div class="bg-slot-fs">FS: —</div>
-                <div class="bg-slot-state">ready</div>
+                <div class="appearance-file-name bg-slot-selected" aria-live="polite">Selected image: none</div>
+                <div class="appearance-device-status bg-slot-fs" aria-live="polite">On-device background: checking…</div>
+                <div class="bg-slot-state" aria-live="polite" aria-atomic="true">No image selected.</div>
               </div>
               <div class="bg-slot" data-slot="light">
-                <div class="bg-slot-label">Light</div>
-                <div class="bg-slot-preview-wrap"><canvas class="bg-slot-preview" width="200" height="200" aria-label="Light preview"></canvas></div>
-                <input type="file" class="bg-slot-file" accept="image/*" hidden />
-                <div class="bg-slot-actions">
+                <div class="bg-slot-label">Light theme background</div>
+                <p class="bg-slot-description">Used on Main when the Light color theme is active.</p>
+                <div class="bg-slot-preview-wrap"><canvas class="bg-slot-preview" width="200" height="200" role="img" aria-label="Preview for the Light theme background"></canvas></div>
+                <input type="file" class="bg-slot-file" accept="image/*" hidden>
+                <div class="appearance-actions">
                   <button type="button" class="bg-slot-choose">Choose image</button>
-                  <button type="button" class="bg-slot-upload" disabled>Upload</button>
-                  <button type="button" class="bg-slot-remove">Remove</button>
+                  <button type="button" class="bg-slot-upload primary-action" disabled>Upload to device</button>
+                  <button type="button" class="bg-slot-remove secondary-action" disabled>Remove image</button>
                 </div>
-                <div class="bg-slot-fs">FS: —</div>
-                <div class="bg-slot-state">ready</div>
+                <div class="appearance-file-name bg-slot-selected" aria-live="polite">Selected image: none</div>
+                <div class="appearance-device-status bg-slot-fs" aria-live="polite">On-device background: checking…</div>
+                <div class="bg-slot-state" aria-live="polite" aria-atomic="true">No image selected.</div>
               </div>
               <div class="bg-slot" data-slot="custom">
-                <div class="bg-slot-label">Custom</div>
-                <div class="bg-slot-preview-wrap"><canvas class="bg-slot-preview" width="200" height="200" aria-label="Custom preview"></canvas></div>
-                <input type="file" class="bg-slot-file" accept="image/*" hidden />
-                <div class="bg-slot-actions">
+                <div class="bg-slot-label">Custom theme background</div>
+                <p class="bg-slot-description">Used on Main when the Custom color theme is active.</p>
+                <div class="bg-slot-preview-wrap"><canvas class="bg-slot-preview" width="200" height="200" role="img" aria-label="Preview for the Custom theme background"></canvas></div>
+                <input type="file" class="bg-slot-file" accept="image/*" hidden>
+                <div class="appearance-actions">
                   <button type="button" class="bg-slot-choose">Choose image</button>
-                  <button type="button" class="bg-slot-upload" disabled>Upload</button>
-                  <button type="button" class="bg-slot-remove">Remove</button>
+                  <button type="button" class="bg-slot-upload primary-action" disabled>Upload to device</button>
+                  <button type="button" class="bg-slot-remove secondary-action" disabled>Remove image</button>
                 </div>
-                <div class="bg-slot-fs">FS: —</div>
-                <div class="bg-slot-state">ready</div>
+                <div class="appearance-file-name bg-slot-selected" aria-live="polite">Selected image: none</div>
+                <div class="appearance-device-status bg-slot-fs" aria-live="polite">On-device background: checking…</div>
+                <div class="bg-slot-state" aria-live="polite" aria-atomic="true">No image selected.</div>
               </div>
             </div>
+            <p class="appearance-note">Choosing an image only prepares the preview. Upload writes the processed image to this theme slot. Remove deletes only that slot's custom image and does not change the active color theme.</p>
           </div>
         </section>
-        <section class="appearance-section" id="section_station_art">
-          <div class="title"><span>station art</span></div>
-          <div id="art-upload-root" data-art-api-status="/art_status" data-art-api-upload="/upload_art" data-art-api-remove="/remove_art">
-            <p class="art-station-label">Current station: <span class="art-station-name">&hellip;</span></p>
-            <p class="art-dim" id="art-dim"></p>
-            <div class="art-slot">
-              <div><canvas class="art-preview" width="120" height="120" aria-label="Art preview"></canvas></div>
-              <input type="file" class="art-file" accept="image/*" hidden />
-              <div class="bg-slot-actions">
-                <button type="button" class="art-choose">Choose image</button>
-                <button type="button" class="art-upload" disabled>Upload</button>
-                <button type="button" class="art-remove">Remove</button>
-              </div>
-              <div class="art-fs">FS: &mdash;</div>
-              <div class="art-state">ready</div>
-            </div>
-          </div>
-        </section>
-        <section class="appearance-section" id="section_theme">
-          <div class="title"><span>theme</span></div>
-          <div class="appearance-theme-shell" id="appearance-theme-shell" aria-readonly="true">
-            <div class="appearance-theme-row">
-              <span class="appearance-theme-opt" data-theme-preset="dark">Dark</span>
-              <span class="appearance-theme-opt" data-theme-preset="light">Light</span>
-              <span class="appearance-theme-opt" data-theme-preset="custom">Custom</span>
-            </div>
-            <p class="appearance-theme-hint">Applies immediately and is saved for next boot.</p>
-            <div class="appearance-custom-theme" id="appearance-custom-theme"
-                 data-theme-upload="/upload_theme" data-theme-remove="/remove_theme">
-              <div class="appearance-custom-theme-actions">
-                <input type="file" id="custom-theme-file" accept=".txt,text/plain" hidden>
-                <button type="button" id="custom-theme-choose">Choose file</button>
-                <button type="button" id="custom-theme-upload" disabled>Upload</button>
-                <button type="button" id="custom-theme-remove" class="custom-theme-remove">Remove from device</button>
-              </div>
-              <div class="appearance-custom-theme-fs" id="custom-theme-fs">On device: —</div>
-              <div class="appearance-custom-theme-status" id="custom-theme-status">Choose a .txt file, then Upload.</div>
-              <p class="appearance-custom-theme-hint">Plain text key=#RRGGBB (max 4 KB). Does not switch preset — select Custom above to apply colors.</p>
-            </div>
-          </div>
-        </section>
+
       </div>
     </div>
-    <div class="button apply done" data-name="appearancedone" id="appearancedone">done</div>
+    <button type="button" class="button apply done" data-name="appearancedone" id="appearancedone">Done</button>
     <div id="copy">powered by <a target="_blank" href="https://github.com/Witaliy76/Yoradio_RGB_Panel">ёRadio</a> | v%VERSION%</div>
   </div>
   <script src="bg.js?%VERSION%" defer></script>

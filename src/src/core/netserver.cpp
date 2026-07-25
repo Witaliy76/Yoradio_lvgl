@@ -1783,7 +1783,7 @@ void handleBgStatusHttp(AsyncWebServerRequest* request) {
       active_theme = "dark";
       break;
   }
-  const lvgl_ui::ThemeCustomParseStats& cst = lvgl_ui::yoradio_theme_custom_parse_stats();
+  const lvgl_ui::ThemeCustomParseStats cst = lvgl_ui::yoradio_theme_custom_parse_stats();
   const bool custom_exists = lvgl_ui::yoradio_theme_custom_file_exists();
   // FS size for WebUI — stats may lag until DspTask parses after upload (F2 dedupe).
   // Размер с диска: applied_keys обновляется в DspTask, не в NetServer.
@@ -1805,6 +1805,7 @@ void handleBgStatusHttp(AsyncWebServerRequest* request) {
            "\"bg_dark_size\":%lu,\"bg_light_size\":%lu,\"bg_custom_size\":%lu,"
            "\"custom_theme_exists\":%s,"
            "\"custom_theme_size\":%lu,"
+           "\"custom_theme_reload_generation\":%lu,"
            "\"custom_theme_applied_keys\":%u,"
            "\"custom_theme_invalid_lines\":%u,"
            "\"custom_theme_unknown_keys\":%u}",
@@ -1816,6 +1817,7 @@ void handleBgStatusHttp(AsyncWebServerRequest* request) {
            (unsigned long)bgSz[0], (unsigned long)bgSz[1], (unsigned long)bgSz[2],
            custom_exists ? "true" : "false",
            (unsigned long)custom_report_size,
+           (unsigned long)cst.reload_generation,
            (unsigned)cst.applied_keys,
            (unsigned)cst.invalid_lines,
            (unsigned)cst.unknown_keys);

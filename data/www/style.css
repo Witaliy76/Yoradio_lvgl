@@ -490,7 +490,16 @@ input[type=range]::-moz-range-track {
   background-image: url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2024%2024%22%20stroke%3D%22%23e3d25f%22%20stroke-width%3D%222%22%3E%3Cpath%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20d%3D%22M10.325%204.317c.426-1.756%202.924-1.756%203.35%200a1.724%201.724%200%20002.573%201.066c1.543-.94%203.31.826%202.37%202.37a1.724%201.724%200%20001.065%202.572c1.756.426%201.756%202.924%200%203.35a1.724%201.724%200%2000-1.066%202.573c.94%201.543-.826%203.31-2.37%202.37a1.724%201.724%200%2000-2.572%201.065c-.426%201.756-2.924%201.756-3.35%200a1.724%201.724%200%2000-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724%201.724%200%2000-1.065-2.572c-1.756-.426-1.756-2.924%200-3.35a1.724%201.724%200%20001.066-2.573c-.94-1.543.826-3.31%202.37-2.37.996.608%202.296.07%202.572-1.065z%22/%3E%3Cpath%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20d%3D%22M15%2012a3%203%200%2011-6%200%203%203%200%20016%200z%22/%3E%3C/svg%3E');
 }
 #appearancebutton {
-  background-image: url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2024%2024%22%20stroke%3D%22%23e3d25f%22%20stroke-width%3D%222%22%3E%3Cpath%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20d%3D%22M12%203v1m0%2016v1m9-9h-1M4%2012H3m15.364%206.364l-.707-.707M6.343%206.343l-.707-.707m12.728%200l-.707.707M6.343%2017.657l-.707.707M16%2012a4%204%200%2011-8%200%204%204%200%20018%200z%22/%3E%3C/svg%3E');
+  background-image: url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20fill%3D%22none%22%20viewBox%3D%220%200%2024%2024%22%20stroke%3D%22%23e3d25f%22%20stroke-width%3D%222%22%3E%3Cpath%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20d%3D%22M12%2022a10%2010%200%201%201%200-20%2010%2010%200%200%201%200%2020zm0%200c-1.105%200-2-.895-2-2s.895-2%202-2h2.5a2.5%202.5%200%200%200%200-5H12%22/%3E%3Ccircle%20cx%3D%228.5%22%20cy%3D%227.5%22%20r%3D%221%22%20fill%3D%22%23e3d25f%22%20stroke%3D%22none%22/%3E%3Ccircle%20cx%3D%2213.5%22%20cy%3D%226.5%22%20r%3D%221%22%20fill%3D%22%23e3d25f%22%20stroke%3D%22none%22/%3E%3Ccircle%20cx%3D%2217.5%22%20cy%3D%2210.5%22%20r%3D%221%22%20fill%3D%22%23e3d25f%22%20stroke%3D%22none%22/%3E%3Ccircle%20cx%3D%226.5%22%20cy%3D%2212.5%22%20r%3D%221%22%20fill%3D%22%23e3d25f%22%20stroke%3D%22none%22/%3E%3C/svg%3E');
+  padding: 0;
+  font: inherit;
+  box-sizing: content-box;
+  appearance: none;
+  -webkit-appearance: none;
+}
+#appearancebutton:focus-visible {
+  outline: #e3d25f 2px solid;
+  outline-offset: 2px;
 }
 #settingsbutton,
 #appearancebutton {
@@ -875,4 +884,3 @@ input[type=range]::-moz-range-track {
     -moz-transform: scale(0.5);
   }
 }
-

@@ -15,6 +15,7 @@
 
 #include <FS.h>
 #include <LittleFS.h>
+#include <freertos/portmacro.h>
 #include "lvgl.h"
 #include "../../core/config.h"
 
@@ -208,9 +209,23 @@ static const YoRadioPalette kPaletteCustomBuiltin = {
 
 static YoRadioPalette s_customPalette = kPaletteCustomBuiltin;
 static ThemeCustomParseStats s_customStats{};
+static portMUX_TYPE s_customStatsMux = portMUX_INITIALIZER_UNLOCKED;
 // Stage 6.6R-F2: Custom metadata — LVGL dark/light widget states (not a color key).
 // Этап 6.6R-F2: metadata theme_dark для Custom (не поле YoRadioPalette).
 static bool s_customThemeDark = true;
+
+static ThemeCustomParseStats custom_stats_snapshot() {
+    portENTER_CRITICAL(&s_customStatsMux);
+    const ThemeCustomParseStats snapshot = s_customStats;
+    portEXIT_CRITICAL(&s_customStatsMux);
+    return snapshot;
+}
+
+static void publish_custom_stats(const ThemeCustomParseStats& stats) {
+    portENTER_CRITICAL(&s_customStatsMux);
+    s_customStats = stats;
+    portEXIT_CRITICAL(&s_customStatsMux);
+}
 
 static bool s_theme_inited = false;
 
@@ -552,9 +567,9 @@ bool yoradio_theme_save_persisted_preset(ThemePreset preset) {
 
 void yoradio_theme_reset_custom_palette() {
     copy_builtin_custom_palette();
-    s_customStats = ThemeCustomParseStats{};
-    s_customStats.file_exists = false;
-    s_customStats.file_size   = 0;
+    ThemeCustomParseStats reset_stats{};
+    reset_stats.reload_generation = custom_stats_snapshot().reload_generation;
+    publish_custom_stats(reset_stats);
     s_customThemeDark         = true;
 }
 
@@ -562,22 +577,29 @@ bool yoradio_theme_custom_file_exists() {
     return fsIsReady() && LittleFS.exists(kThemeCustomPath);
 }
 
-const ThemeCustomParseStats& yoradio_theme_custom_parse_stats() {
-    return s_customStats;
+ThemeCustomParseStats yoradio_theme_custom_parse_stats() {
+    return custom_stats_snapshot();
+}
+
+void yoradio_theme_mark_custom_reload_complete() {
+    portENTER_CRITICAL(&s_customStatsMux);
+    ++s_customStats.reload_generation;
+    portEXIT_CRITICAL(&s_customStatsMux);
 }
 
 bool yoradio_theme_load_custom_palette_file(ThemeCustomParseStats* out) {
     copy_builtin_custom_palette();
     ThemeCustomParseStats st{};
+    st.reload_generation = custom_stats_snapshot().reload_generation;
     if (!fsIsReady()) {
-        s_customStats = st;
+        publish_custom_stats(st);
         if (out) {
             *out = st;
         }
         return false;
     }
     if (!LittleFS.exists(kThemeCustomPath)) {
-        s_customStats = st;
+        publish_custom_stats(st);
         if (out) {
             *out = st;
         }
@@ -585,7 +607,7 @@ bool yoradio_theme_load_custom_palette_file(ThemeCustomParseStats* out) {
     }
     File f = LittleFS.open(kThemeCustomPath, "r");
     if (!f) {
-        s_customStats = st;
+        publish_custom_stats(st);
         if (out) {
             *out = st;
         }
@@ -606,9 +628,9 @@ bool yoradio_theme_load_custom_palette_file(ThemeCustomParseStats* out) {
         parse_custom_theme_line(line, st);
     }
     f.close();
-    s_customStats = st;
+    publish_custom_stats(st);
     if (out) {
-        *out = s_customStats;
+        *out = st;
     }
     return true;
 }

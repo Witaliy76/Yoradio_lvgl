@@ -109,6 +109,9 @@ struct ThemeCustomParseStats {
     uint16_t unknown_keys   = 0;
     bool     file_exists    = false;
     uint32_t file_size      = 0;
+    // Completed queued reloads, published after any active Custom UI reapply.
+    // Завершённые reload из очереди, после reapply активного Custom UI.
+    uint32_t reload_generation = 0;
 };
 
 ThemePreset yoradio_theme_active_preset();
@@ -157,7 +160,8 @@ bool yoradio_theme_save_persisted_preset(ThemePreset preset);
 void yoradio_theme_reset_custom_palette();
 bool yoradio_theme_load_custom_palette_file(ThemeCustomParseStats* out);
 bool yoradio_theme_custom_file_exists();
-const ThemeCustomParseStats& yoradio_theme_custom_parse_stats();
+ThemeCustomParseStats yoradio_theme_custom_parse_stats();
+void yoradio_theme_mark_custom_reload_complete();
 
 } // namespace lvgl_ui
 
