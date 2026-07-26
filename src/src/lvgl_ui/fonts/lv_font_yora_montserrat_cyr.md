@@ -1,7 +1,7 @@
-# `lv_font_yora_montserrat_*_cyr` — shared Montserrat text family (Latin + Cyrillic + Polish)
+# `lv_font_yora_montserrat_*_cyr` — shared Montserrat text family (Latin + Cyrillic + Polish + Slovak)
 
-**English:** YoRadio LVGL shared text font family — Montserrat Medium subset with basic Latin, Cyrillic, degree/bullet/ellipsis, and full Polish diacritics. One set of C symbols for RU/EN/PL; no locale-specific font assets or runtime language routing.
-**Русский:** Общая текстовая семья шрифтов YoRadio LVGL — подмножество Montserrat Medium: базовая латиница, кириллица, degree/bullet/ellipsis и полный польский алфавит с диакритикой. Одни и те же C-символы для RU/EN/PL; без отдельных PL-assets и без runtime-выбора языка для шрифтов.
+**English:** YoRadio LVGL shared text font family — Montserrat Medium subset with basic Latin, Cyrillic, degree/bullet/ellipsis, and full explicit Polish + Slovak diacritics. One set of C symbols for RU/EN/PL/SK; no locale-specific font assets or runtime language routing.
+**Русский:** Общая текстовая семья шрифтов YoRadio LVGL — подмножество Montserrat Medium: базовая латиница, кириллица, degree/bullet/ellipsis и полные явные польский + словацкий наборы с диакритикой. Одни и те же C-символы для RU/EN/PL/SK; без отдельных PL/SK-assets и без runtime-выбора языка для шрифтов.
 
 | Generated file | Size | LVGL symbol | Typical role (4848S040) |
 |----------------|------|-------------|-------------------------|
@@ -25,9 +25,9 @@ All ten sizes share the **same Unicode coverage**; only rasterization size diffe
 ### Назначение семьи / Family purpose
 
 - Общая текстовая семья YoRadio на базе **Montserrat Medium**.
-- Покрытие: basic Latin + Cyrillic + полный польский набор + `°` / `•` / `…`.
-- RU/EN/PL используют **одни и те же** `lv_font_yora_montserrat_*_cyr` symbols.
-- Нет PL-specific `.c`, нет compile-time/runtime font routing по языку.
+- Покрытие: basic Latin + Cyrillic + полные явные польский и словацкий наборы + `°` / `•` / `…`.
+- RU/EN/PL/SK используют **одни и те же** `lv_font_yora_montserrat_*_cyr` symbols.
+- Нет PL/SK-specific `.c`, нет compile-time/runtime font routing по языку.
 - Экраны и profile slots не меняются при добавлении польских глифов.
 
 ### Unicode contract
@@ -60,6 +60,26 @@ All ten sizes share the **same Unicode coverage**; only rasterization size diffe
 | Ź ź | U+0179 U+017A |
 | Ż ż | U+017B U+017C |
 
+**Полный словацкий набор (34 символа / 17 пар, во всех размерах):**
+
+```text
+Áá Ää Čč Ďď Éé Íí Ĺĺ Ľľ Ňň Óó Ôô Ŕŕ Šš Ťť Úú Ýý Žž
+```
+
+```text
+U+00C1 U+00E1 U+00C4 U+00E4 U+010C U+010D U+010E U+010F
+U+00C9 U+00E9 U+00CD U+00ED U+0139 U+013A U+013D U+013E
+U+0147 U+0148 U+00D3 U+00F3 U+00D4 U+00F4 U+0154 U+0155
+U+0160 U+0161 U+0164 U+0165 U+00DA U+00FA U+00DD U+00FD
+U+017D U+017E
+```
+
+**Полный deduplicated PL+SK union (50 codepoints):**
+
+```text
+ĄąĆćĘęŁłŃńÓóŚśŹźŻżÁáÄäČčĎďÉéÍíĹĺĽľŇňÔôŔŕŠšŤťÚúÝýŽž
+```
+
 **Правило семьи:** все размеры этой shared family должны иметь **одинаковый Unicode coverage**. Различается только raster size. Не расширять отдельный размер вручную и не добавлять широкий `U+0100`–`U+017F` без доказанной необходимости.
 
 ### Generation / Генерация
@@ -76,7 +96,7 @@ PowerShell (from repo root; ensure UTF-8 for `--symbols`):
 
 ```powershell
 $ttf = (Resolve-Path "tools\fonts\Montserrat-Medium.ttf").Path
-$sym = "ĄąĆćĘęŁłŃńÓóŚśŹźŻż"
+$sym = "ĄąĆćĘęŁłŃńÓóŚśŹźŻżÁáÄäČčĎďÉéÍíĹĺĽľŇňÔôŔŕŠšŤťÚúÝýŽž"
 $range = "0x20-0x7F,0x400-0x4FF,0xB0,0x2022,0x2026"
 foreach ($sz in 12,14,16,18,20,22,28,32,40,48) {
   npx --yes lv_font_conv@1.5.2 `
@@ -97,7 +117,7 @@ C symbol name is taken from the `-o` basename (`lv_font_yora_montserrat_<N>_cyr`
 
 - Existing C symbols preserved (`lv_fonts.h` / `LV_FONT_CUSTOM_DECLARE` unchanged).
 - Existing font pointers and profile slots preserved.
-- No PL-specific font assets.
+- No PL/SK-specific font assets.
 - No runtime language selection for fonts.
 - No screen routing changes for this font update.
 - Built-in `lv_font_montserrat_*` and all icon fonts are out of scope.
@@ -106,9 +126,9 @@ C symbol name is taken from the `-o` basename (`lv_font_yora_montserrat_<N>_cyr`
 
 | Class | Policy |
 |-------|--------|
-| Fixed RU/EN/PL UI catalog | Must render without missing-glyph boxes |
-| Provider Weather condition text (`lang=pl`) | Full Polish alphabet required on display fonts (esp. 16 px condition line) |
-| Station names / SSID / artist-title metadata | Best-effort; Polish alphabet covered; arbitrary Unicode outside this set is not guaranteed |
+| Fixed RU/EN/PL/SK UI catalog | Must render without missing-glyph boxes |
+| Provider Weather condition text (`lang=pl` / `lang=sk`) | Full explicit Polish + Slovak sets required on display fonts (esp. 16 px condition line) |
+| Station names / SSID / artist-title metadata | Best-effort; Polish + Slovak sets covered; arbitrary Unicode outside these sets is not guaranteed |
 | Missing arbitrary Unicode | Does **not** justify expanding to all of Latin Extended or full Unicode |
 
 ### Verification (PLFONT-IMPLEMENTATION)
@@ -137,6 +157,28 @@ Do not treat `.c` source size as Flash. Linked contribution is what matters (`pi
 
 Общие польские glyph bitmaps присутствуют в font assets независимо от `L10N_LANGUAGE`; это **не** означает линковку PL locale package в RU-сборке.
 
+### Verification (SK implementation)
+
+| Check | Result |
+|-------|--------|
+| Source TTF | `tools/fonts/Montserrat-Medium.ttf` |
+| `lv_font_conv` | **1.5.2** |
+| Slovak explicit set in source TTF | **34/34 PASS** |
+| Slovak-only additions beyond existing `Óó` | **32/32 PASS** |
+| Slovak cmap on all 10 generated sizes | **34/34 PASS** |
+| Polish cmap retained on all 10 sizes | **18/18 PASS** |
+| Deduplicated PL+SK union | **50/50 PASS** |
+| Base ASCII / Cyrillic / `°` / `•` / `…` retained | **PASS** |
+| Regenerated sizes | 12, 14, 16, 18, 20, 22, 28, 32, 40, 48 |
+| Filenames / C symbols / bpp / compression / fallback | **UNCHANGED** |
+| Generated C source-size delta | **+181,568 B** total (not a Flash measurement) |
+| SK device status | **DEVICE VISUAL ACCEPTANCE: PASS** (`4848S040` / ST7701) |
+| Native Slovak linguistic review | **PENDING EXTERNAL REVIEW** |
+
+Shared Slovak glyph bitmaps exist in font assets for every `L10N_LANGUAGE`; this does **not** mean the SK locale package is linked into other language builds.
+
+На `4848S040` / ST7701 технически приняты словацкий каталог `125/125 TextId`, Weather mapping `sk`, SK `34/34`, сохранённое PL `18/18` и union `50/50` во всех десяти shared sizes (12/14/16/18/20/22/28/32/40/48). Missing-glyph boxes, clipping/wrapping regressions и runtime/navigation regressions не наблюдались; selector после smoke восстановлен в `RU`. Техническая приёмка рендеринга и layout пройдена. Лингвистическая проверка словацкого текста носителями языка ожидается (`PENDING EXTERNAL REVIEW`).
+
 ### Maintenance rule
 
 When adding a new language or a new mandatory alphabet set:
@@ -145,7 +187,7 @@ When adding a new language or a new mandatory alphabet set:
 2. Regenerate the **entire** family with the same Unicode contract.
 3. Do not hand-edit a single size.
 4. Measure Flash / RAM (`pio` size) and update this Markdown.
-5. Re-run PL (and RU/EN) visual text-fit smoke for affected screens.
+5. Re-run PL/SK (and RU/EN) visual text-fit smoke for affected screens.
 
 ---
 
@@ -153,11 +195,11 @@ When adding a new language or a new mandatory alphabet set:
 
 ### Family purpose
 
-Shared YoRadio Montserrat Medium text family used by LVGL UI. Latin + Cyrillic + full Polish diacritics live in the same generated assets. RU/EN/PL share the same symbols; language selection does not switch fonts.
+Shared YoRadio Montserrat Medium text family used by LVGL UI. Latin + Cyrillic + full explicit Polish and Slovak diacritics live in the same generated assets. RU/EN/PL/SK share the same symbols; language selection does not switch fonts.
 
 ### Unicode contract
 
-Keep the base ranges listed above and the exact Polish set `ĄąĆćĘęŁłŃńÓóŚśŹźŻż` on **every** size. Do not add the whole `U+0100`–`U+017F` block without a measured need. All sizes must keep identical coverage; only pixel size changes.
+Keep the base ranges listed above, the exact Polish set `ĄąĆćĘęŁłŃńÓóŚśŹźŻż`, and the exact Slovak set `ÁáÄäČčĎďÉéÍíĹĺĽľŇňÓóÔôŔŕŠšŤťÚúÝýŽž` on **every** size. Their deduplicated union has 50 codepoints. Do not add the whole `U+0100`–`U+017F` block without a measured need. All sizes must keep identical coverage; only pixel size changes.
 
 ### Generation
 
@@ -165,11 +207,11 @@ Use `tools/fonts/Montserrat-Medium.ttf` with `lv_font_conv@1.5.2`, `--bpp 4`, de
 
 ### Architecture
 
-Symbols, pointers, screens, and locale catalogs stay unchanged. No separate PL fonts and no language-dependent font routing.
+Symbols, pointers, screens, and locale catalogs stay unchanged. No separate PL/SK fonts and no language-dependent font routing.
 
 ### Coverage policy
 
-Fixed UI and Polish provider Weather text must be covered. Station names / SSID / metadata remain best-effort beyond the defined Polish alphabet.
+Fixed UI and Polish/Slovak provider Weather text must be covered. Station names / SSID / metadata remain best-effort beyond the defined PL+SK union.
 
 ### Verification
 
@@ -181,6 +223,8 @@ Glyph rendering, text integrity and layout were visually accepted; linguistic re
 
 Shared Polish glyph bitmaps exist in the font assets regardless of `L10N_LANGUAGE`; that does **not** mean the PL locale package is linked into a RU build.
 
+For the SK implementation, all ten sizes (12/14/16/18/20/22/28/32/40/48) statically retain Polish `18/18`, add Slovak `34/34`, and contain the exact deduplicated PL+SK union `50/50`. The source TTF covers every required codepoint. **SK DEVICE VISUAL ACCEPTANCE: PASS** on `4848S040` / ST7701 for the `125/125 TextId` catalog and Weather mapping `sk`; no missing-glyph boxes, clipping/wrapping regressions, or runtime/navigation regressions were observed. The selector was restored to `RU` after smoke. Technical rendering and layout acceptance passed. Native Slovak linguistic review is pending (`PENDING EXTERNAL REVIEW`).
+
 ### Maintenance
 
-Always regenerate the full ten-size family together; measure Flash; update this document.
+Always regenerate the full ten-size family together with the same PL+SK codepoints; measure Flash; update this document.

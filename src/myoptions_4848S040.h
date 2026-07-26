@@ -77,8 +77,8 @@
    =============================================== */
 #define PLAYER_FORCE_MONO false           // Mono mode (disabled)
 
-// Compile-time interface language: RU, EN or PL.
-// Язык интерфейса во время компиляции: RU, EN или PL.
+// Compile-time interface language: RU, EN, PL or SK.
+// Язык интерфейса во время компиляции: RU, EN, PL или SK.
 #define L10N_LANGUAGE RU
 
 // Block 8.1F-B: config.store.vumeter / usespectrum kept for future LVGL widgets (WebUI toggles).

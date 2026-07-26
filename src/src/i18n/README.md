@@ -13,7 +13,7 @@ Author: Witaliy76 - https://github.com/Witaliy76
 
 `src/src/i18n/` реализует статическую compile-time локализацию YoRadio:
 
-- один selector `EN` / `RU` / `PL`;
+- один selector `EN` / `RU` / `PL` / `SK`;
 - один linked locale package;
 - semantic `TextId` вместо string keys;
 - O(1) lookup без map, heap и Arduino `String`;
@@ -44,7 +44,11 @@ i18n/
     │   ├── locale.h
     │   ├── strings.h
     │   └── calendar.h
-    └── pl/
+    ├── pl/
+        ├── locale.h
+        ├── strings.h
+        └── calendar.h
+    └── sk/
         ├── locale.h
         ├── strings.h
         └── calendar.h
@@ -57,7 +61,7 @@ i18n/
 | `LOCALIZATION.md` | Обзор локализации для пользователя и разработчика проекта. |
 | `README.md` | Техническая карта i18n subsystem и назначение файлов/API. |
 | `WORKFLOW.md` | Практические процедуры изменения строк, добавления ID/языка и проверки. |
-| `language_codes.h` | Preprocessor codes `EN=1`, `RU=2`, `PL=3`; безопасен до подключения `myoptions.h`; locale data не содержит. |
+| `language_codes.h` | Preprocessor codes `EN=1`, `RU=2`, `PL=3`, `SK=4`; безопасен до подключения `myoptions.h`; locale data не содержит. |
 | `text_ids.h` | `TextId`, `TextSpec`, printf-signature parser, supported-format self-tests и central ordered specification table. |
 | `locale_types.h` | `TextEntry`, `LocaleMetadata`, `CalendarData`, table views и constexpr validators. |
 | `locale_select.h` | Fail-closed compile-time dispatch: подключает ровно один `locales/<lang>/locale.h` и создаёт alias `selected_locale`. |
@@ -72,7 +76,7 @@ Git отслеживает ровно `src/src/i18n/LOCALIZATION.md`, `src/src/i
 
 ### 4. Назначение locale-папки
 
-Каждая `locales/en`, `locales/ru` и `locales/pl` содержит одинаковые роли:
+Каждая `locales/en`, `locales/ru`, `locales/pl` и `locales/sk` содержит одинаковые роли:
 
 | Файл | Назначение |
 |---|---|
@@ -116,7 +120,7 @@ struct TextSpec {
 {TextId::WifiRemoveConfirmFormat, "Удалить \"%s\" навсегда?"},
 ```
 
-Нельзя менять порядок только в одном locale. Добавление ID требует синхронного изменения enum, `kTextSpecs` и трёх `kStrings`.
+Нельзя менять порядок только в одном locale. Добавление ID требует синхронного изменения enum, `kTextSpecs` и четырёх `kStrings`.
 
 ### 6. Calendar data
 
@@ -153,7 +157,7 @@ struct LocaleMetadata {
 };
 ```
 
-Оба значения — двухбуквенные lowercase codes. Текущие packages используют `en/en`, `ru/ru`, `pl/pl`. `weatherApiLanguage` управляет locale запроса провайдера; единицы `metric` являются общей network policy и не хранятся в locale package.
+Оба значения — двухбуквенные lowercase codes. Текущие packages используют `en/en`, `ru/ru`, `pl/pl`, `sk/sk`. `weatherApiLanguage` управляет locale запроса провайдера; единицы `metric` являются общей network policy и не хранятся в locale package.
 
 ### 8. Public typed API
 
@@ -210,6 +214,8 @@ Locale `static_assert` проверяет:
 
 Compile-time `maxBytes` не доказывает pixel fit. Runtime caller обязан использовать рассчитанный fixed buffer, проверить результат `snprintf`, а UI acceptance — проверить фактический font/layout на устройстве.
 
+**SK DEVICE VISUAL ACCEPTANCE: PASS.** На `4848S040` / ST7701 приняты каталог `125/125 TextId`, Weather code `sk`, SK glyphs `34/34`, сохранённые PL glyphs `18/18` и union `50/50` во всех десяти shared sizes (12/14/16/18/20/22/28/32/40/48). Missing-glyph boxes, clipping/wrapping и runtime/navigation regressions не наблюдались; selector восстановлен в `RU`. Техническая приёмка рендеринга и layout пройдена. Лингвистическая проверка словацкого текста носителями языка ожидается (`PENDING EXTERNAL REVIEW`).
+
 ---
 
 ## English
@@ -218,7 +224,7 @@ Compile-time `maxBytes` не доказывает pixel fit. Runtime caller об
 
 `src/src/i18n/` implements YoRadio's static compile-time localization:
 
-- one `EN` / `RU` / `PL` selector;
+- one `EN` / `RU` / `PL` / `SK` selector;
 - exactly one linked locale package;
 - semantic `TextId` values instead of string keys;
 - O(1) lookup without maps, heap allocation, or Arduino `String`;
@@ -243,7 +249,8 @@ i18n/
 └── locales/
     ├── en/{locale.h,strings.h,calendar.h}
     ├── ru/{locale.h,strings.h,calendar.h}
-    └── pl/{locale.h,strings.h,calendar.h}
+    ├── pl/{locale.h,strings.h,calendar.h}
+    └── sk/{locale.h,strings.h,calendar.h}
 ```
 
 ### 3. Core files
@@ -253,7 +260,7 @@ i18n/
 | `LOCALIZATION.md` | Localization overview for project users and developers. |
 | `README.md` | Technical map of the i18n subsystem and its files/API. |
 | `WORKFLOW.md` | Practical procedures for changing strings, adding IDs/languages, and verification. |
-| `language_codes.h` | Preprocessor codes `EN=1`, `RU=2`, `PL=3`; safe before `myoptions.h`; owns no locale data. |
+| `language_codes.h` | Preprocessor codes `EN=1`, `RU=2`, `PL=3`, `SK=4`; safe before `myoptions.h`; owns no locale data. |
 | `text_ids.h` | `TextId`, `TextSpec`, printf-signature parser, supported-format self-tests, and the central ordered specification table. |
 | `locale_types.h` | `TextEntry`, `LocaleMetadata`, `CalendarData`, table views, and constexpr validators. |
 | `locale_select.h` | Fail-closed compile-time dispatch that includes exactly one `locales/<lang>/locale.h` and defines `selected_locale`. |
@@ -268,7 +275,7 @@ Git tracks exactly `src/src/i18n/LOCALIZATION.md`, `src/src/i18n/README.md`, and
 
 ### 4. Locale folders
 
-Every `locales/en`, `locales/ru`, and `locales/pl` folder has the same roles:
+Every `locales/en`, `locales/ru`, `locales/pl`, and `locales/sk` folder has the same roles:
 
 | File | Responsibility |
 |---|---|
@@ -288,7 +295,7 @@ Each locale catalog has one ordered `TextEntry` per ID:
 {TextId::WifiRemoveConfirmFormat, "Remove \"%s\" permanently?"},
 ```
 
-Do not reorder only one locale. Adding an ID requires synchronized updates to the enum, `kTextSpecs`, and all three `kStrings` arrays.
+Do not reorder only one locale. Adding an ID requires synchronized updates to the enum, `kTextSpecs`, and all four `kStrings` arrays.
 
 ### 6. Calendar data
 
@@ -306,7 +313,7 @@ Consumers do not index locale arrays directly. They use `dayFull`, `dayShort`, `
 
 ### 7. Locale metadata
 
-`LocaleMetadata` stores `languageCode` and `weatherApiLanguage`. Both are validated two-letter lowercase codes. Current packages use `en/en`, `ru/ru`, and `pl/pl`. Shared `metric` weather units remain network policy, not locale data.
+`LocaleMetadata` stores `languageCode` and `weatherApiLanguage`. Both are validated two-letter lowercase codes. Current packages use `en/en`, `ru/ru`, `pl/pl`, and `sk/sk`. Shared `metric` weather units remain network policy, not locale data.
 
 ### 8. Public typed API
 
@@ -356,3 +363,5 @@ Locale `static_assert` checks prove:
 The parser supports integer/string/character conversions, numeric/dynamic width and precision, plus `hh`, `h`, `l`, `ll`, and `z` integer modifiers. Positional arguments and floating-point conversions fail closed.
 
 Compile-time byte validation does not prove pixel fit. The caller must use a justified fixed buffer, check `snprintf`, and validate the actual font/layout during device acceptance.
+
+**SK DEVICE VISUAL ACCEPTANCE: PASS.** On `4848S040` / ST7701, the `125/125 TextId` catalog, Weather code `sk`, SK glyphs `34/34`, retained PL glyphs `18/18`, and union `50/50` passed across all ten shared sizes (12/14/16/18/20/22/28/32/40/48). No missing-glyph boxes, clipping/wrapping regressions, or runtime/navigation regressions were observed; the selector was restored to `RU`. Technical rendering and layout acceptance passed. Native Slovak linguistic review is pending (`PENDING EXTERNAL REVIEW`).

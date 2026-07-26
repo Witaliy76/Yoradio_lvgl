@@ -12,5 +12,6 @@
 #define EN 1
 #define RU 2
 #define PL 3
+#define SK 4
 
 #endif

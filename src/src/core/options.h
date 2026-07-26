@@ -366,7 +366,7 @@ The connection tables are located here https://github.com/e2002/yoradio#connecti
 #ifndef L10N_LANGUAGE
   #define L10N_LANGUAGE EN
 #endif
-#if L10N_LANGUAGE != EN && L10N_LANGUAGE != RU && L10N_LANGUAGE != PL
+#if L10N_LANGUAGE != EN && L10N_LANGUAGE != RU && L10N_LANGUAGE != PL && L10N_LANGUAGE != SK
   #error "Unsupported L10N_LANGUAGE"
 #endif
 

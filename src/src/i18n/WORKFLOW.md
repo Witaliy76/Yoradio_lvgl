@@ -19,9 +19,9 @@ Author: Witaliy76 - https://github.com/Witaliy76
 4. не подключайте `locales/*` из consumer code — только `i18n.h`;
 5. не добавляйте runtime language state, maps, heap lookup или Arduino `String`;
 6. не переводите external/user/provider data;
-7. сохраняйте native UTF-8, включая польскую диакритику.
+7. сохраняйте native UTF-8, включая польскую и словацкую диакритику.
 
-Catalog changes должны оставаться синхронными для EN, RU и PL даже если правится только один экран.
+Catalog changes должны оставаться синхронными для EN, RU, PL и SK даже если правится только один экран.
 
 ### 2. Изменение существующей фразы
 
@@ -51,6 +51,7 @@ Catalog changes должны оставаться синхронными для 
    locales/en/strings.h
    locales/ru/strings.h
    locales/pl/strings.h
+   locales/sk/strings.h
    ```
 
 4. Используйте новый ID в consumer через public API:
@@ -62,7 +63,7 @@ Catalog changes должны оставаться синхронными для 
    ```
 
 5. Удалите заменённый inline literal только в owning scope.
-6. Выполните три clean builds: unselected catalogs намеренно не проверяются одной сборкой.
+6. Выполните четыре clean builds: unselected catalogs намеренно не проверяются одной сборкой.
 
 Пример non-formatted spec:
 
@@ -101,7 +102,7 @@ makeTextSpec("", 48),  // ExampleTitle
    ```
 
 7. External data всегда является argument, никогда format string.
-8. Проверьте maximum representative values и pixel fit на всех трёх языках.
+8. Проверьте maximum representative values и pixel fit на всех четырёх языках.
 
 ### 5. Работа с calendar data
 
@@ -124,7 +125,7 @@ monthsFull:      empty / no current consumer
 - не исправляйте product wording/index mapping в cleanup patch;
 - consumer вызывает `monthName`, `dayFull`, `dayShort` или `windDirection`, а не индексирует locale arrays;
 - при добавлении реально нового table contract обновите `CalendarData`, `kCalendarCountsExpected`, все locale packages и public accessor только если он нужен consumer;
-- после правки выполните RU/EN/PL builds и screen-specific date/weather smoke.
+- после правки выполните RU/EN/PL/SK builds и screen-specific date/weather smoke.
 
 ### 6. Изменение locale metadata
 
@@ -157,6 +158,8 @@ inline constexpr LocaleMetadata kMetadata{"pl", "pl"};
 9. Выполните clean build, selected-package binary proof и полную device text-fit matrix для нового языка.
 10. Восстановите agreed default selector перед commit.
 
+Словацкий пакет использует selector `L10N_LANGUAGE SK`, путь `locales/sk` и Weather provider code `sk`.
+
 Добавление языка считается полным только когда его catalog содержит ровно `TextId::Count` entries и не требует fallback на другой package.
 
 ### 8. Placeholder и buffer validation
@@ -182,7 +185,7 @@ Compile-time validators проверяют catalog literal, но caller оста
 ```bash
 git diff --check
 rg -n "TextId::NewId" src/src/i18n src/src/lvgl_ui src/src/core
-rg -n "i18n::locales::(en|ru|pl)" src/src --glob '!src/src/i18n/**'
+rg -n "i18n::locales::(en|ru|pl|sk)" src/src --glob '!src/src/i18n/**'
 ```
 
 Последний поиск должен быть пуст: consumers не обращаются к locale internals.
@@ -195,7 +198,7 @@ rg -n "legacy_compat|tools/l10n\.h|\bmnths\b" src
 
 `config.theme.dow` — поле цвета темы, не legacy localization alias.
 
-### 10. RU/EN/PL build matrix
+### 10. RU/EN/PL/SK build matrix
 
 Для каждой строки matrix меняйте только `L10N_LANGUAGE` в `src/myoptions.h`:
 
@@ -203,6 +206,7 @@ rg -n "legacy_compat|tools/l10n\.h|\bmnths\b" src
 RU → clean → build → record evidence
 EN → clean → build → record evidence
 PL → clean → build → record evidence
+SK → clean → build → record evidence
 RU → restore → final clean build
 ```
 
@@ -242,6 +246,7 @@ git diff -- src/myoptions.h
 rg -a -F "Не удалось обновить пароль" .pio/build/4848S040/firmware.bin
 rg -a -F "Could not update password" .pio/build/4848S040/firmware.bin
 rg -a -F "Nie udało się zaktualizować hasła" .pio/build/4848S040/firmware.bin
+rg -a -F "Heslo sa nepodarilo aktualizovať" .pio/build/4848S040/firmware.bin
 ```
 
 В каждой build должна присутствовать только selected phrase.
@@ -259,27 +264,29 @@ rg -a -F "Nie udało się zaktualizować hasła" .pio/build/4848S040/firmware.bi
 Smoke формируется из реально изменённых consumers. Минимум:
 
 - открыть затронутый экран/состояние;
-- проверить RU/EN/PL fixed text, maximum formatted sample и external data;
+- проверить RU/EN/PL/SK fixed text, maximum formatted sample и external data;
 - проверить glyphs, clipping, wrapping, alignment и intended ellipsis;
 - повторить navigation away/back и theme repaint, если они затронуты;
 - проверить callbacks, timers и state transitions без изменения поведения;
 - убедиться в отсутствии reboot, Guru Meditation, OOM и audio regression;
 - сохранить concise observations и relevant logs.
 
-Missing Polish glyph — отдельный font defect. Он не разрешает transliteration и не скрывает buffer/layout/state regressions.
+Missing Polish/Slovak glyph — отдельный font defect. Он не разрешает transliteration и не скрывает buffer/layout/state regressions.
+
+**SK DEVICE VISUAL ACCEPTANCE: PASS.** На `4848S040` / ST7701 проверены `125/125 TextId`, Weather mapping `sk`, SK `34/34`, сохранённое PL `18/18` и union `50/50` во всех десяти shared font sizes (12/14/16/18/20/22/28/32/40/48). Missing-glyph boxes, clipping/wrapping regressions и runtime/navigation regressions не наблюдались; selector после smoke восстановлен в `RU`. Техническая приёмка рендеринга и layout пройдена. Лингвистическая проверка словацкого текста носителями языка ожидается (`PENDING EXTERNAL REVIEW`).
 
 ### 13. Checklist перед commit
 
 ```text
 [ ] Scope соответствует owning localization slice
 [ ] Изменены только разрешённые files
-[ ] EN/RU/PL catalogs имеют одинаковый TextId order
+[ ] EN/RU/PL/SK catalogs имеют одинаковый TextId order
 [ ] TextSpec signatures и maxBytes обоснованы
 [ ] Все snprintf results проверены
 [ ] External data не переведены и не используются как format string
 [ ] Direct locale-package access from consumers = 0
 [ ] Legacy bridge refs/symbols = 0
-[ ] RU/EN/PL clean builds PASS
+[ ] RU/EN/PL/SK clean builds PASS
 [ ] Selected-package binary proof PASS
 [ ] Final selector RU; src/myoptions.h без diff
 [ ] Device smoke принят для изменённых consumers
@@ -305,9 +312,9 @@ Before any localization change:
 4. consumers include only `i18n.h`, never `locales/*`;
 5. do not add runtime language state, maps, heap lookup, or Arduino `String`;
 6. do not translate external/user/provider data;
-7. preserve native UTF-8, including Polish diacritics.
+7. preserve native UTF-8, including Polish and Slovak diacritics.
 
-Catalog changes must stay synchronized across EN, RU, and PL even when only one screen is being changed.
+Catalog changes must stay synchronized across EN, RU, PL, and SK even when only one screen is being changed.
 
 ### 2. Editing an existing phrase
 
@@ -331,10 +338,10 @@ Perform the complete ordered update in one patch:
 
 1. Add the semantic value before `TextId::Count` in `text_ids.h`.
 2. Add its `TextSpec` at the same position in `kTextSpecs`.
-3. Add a same-position `TextEntry` to EN, RU, and PL `strings.h`.
+3. Add a same-position `TextEntry` to EN, RU, PL, and SK `strings.h`.
 4. Include `i18n.h` explicitly in the consumer and use `i18n::text(TextId::...)`.
 5. Remove the replaced inline literal only within the owning scope.
-6. Run three clean builds because an unselected catalog is intentionally not compiled.
+6. Run four clean builds because an unselected catalog is intentionally not compiled.
 
 For a plain label:
 
@@ -368,7 +375,7 @@ makeTextSpec("", 48),  // ExampleTitle
    ```
 
 7. External data is always an argument, never the format string.
-8. Test maximum representative values and pixel fit in all three languages.
+8. Test maximum representative values and pixel fit in all four languages.
 
 ### 5. Calendar data
 
@@ -384,7 +391,7 @@ monthsFull:      empty / no current consumer
 
 Keep ordering/counts stable, preserve accepted date forms, and use public accessors instead of direct locale-array indexing. A new table contract requires synchronized type/count/package updates and a public accessor only when a real consumer needs it.
 
-After calendar edits, run RU/EN/PL builds and the affected date/weather smoke.
+After calendar edits, run RU/EN/PL/SK builds and the affected date/weather smoke.
 
 ### 6. Locale metadata
 
@@ -409,6 +416,8 @@ Both fields must be valid two-letter lowercase codes. Verify the provider contra
 9. Run a clean build, selected-package proof, and full device text-fit matrix.
 10. Restore the agreed default selector before committing.
 
+The Slovak package uses selector `L10N_LANGUAGE SK`, path `locales/sk`, and Weather provider code `sk`.
+
 A language is complete only when it owns exactly `TextId::Count` entries without falling back to another package.
 
 ### 8. Placeholder and buffer validation
@@ -432,13 +441,13 @@ Byte count does not replace visual measurement.
 ```bash
 git diff --check
 rg -n "TextId::NewId" src/src/i18n src/src/lvgl_ui src/src/core
-rg -n "i18n::locales::(en|ru|pl)" src/src --glob '!src/src/i18n/**'
+rg -n "i18n::locales::(en|ru|pl|sk)" src/src --glob '!src/src/i18n/**'
 rg -n "legacy_compat|tools/l10n\.h|\bmnths\b" src
 ```
 
 Direct locale-package consumer access and active legacy bridge matches must remain zero. `config.theme.dow` is a theme-color field, not a localization alias.
 
-### 10. RU/EN/PL build matrix
+### 10. RU/EN/PL/SK build matrix
 
 Change only `L10N_LANGUAGE` in `src/myoptions.h`:
 
@@ -446,6 +455,7 @@ Change only `L10N_LANGUAGE` in `src/myoptions.h`:
 RU → clean/build/evidence
 EN → clean/build/evidence
 PL → clean/build/evidence
+SK → clean/build/evidence
 RU → restore/final clean build
 ```
 
@@ -466,6 +476,7 @@ Use existing unique phrases; do not add test-only UI strings:
 rg -a -F "Не удалось обновить пароль" .pio/build/4848S040/firmware.bin
 rg -a -F "Could not update password" .pio/build/4848S040/firmware.bin
 rg -a -F "Nie udało się zaktualizować hasła" .pio/build/4848S040/firmware.bin
+rg -a -F "Heslo sa nepodarilo aktualizovať" .pio/build/4848S040/firmware.bin
 ```
 
 Only the selected phrase should be present in each build. Then inspect symbols:
@@ -488,20 +499,22 @@ Derive smoke coverage from the actual consumers changed:
 - confirm no reboot, Guru Meditation, OOM, or audio regression;
 - record concise observations and relevant logs.
 
-A missing Polish glyph is a separate font defect. It does not permit transliteration or hide buffer/layout/state regressions.
+A missing Polish/Slovak glyph is a separate font defect. It does not permit transliteration or hide buffer/layout/state regressions.
+
+**SK DEVICE VISUAL ACCEPTANCE: PASS.** On `4848S040` / ST7701, `125/125 TextId`, Weather mapping `sk`, SK `34/34`, retained PL `18/18`, and union `50/50` passed across all ten shared font sizes (12/14/16/18/20/22/28/32/40/48). No missing-glyph boxes, clipping/wrapping regressions, or runtime/navigation regressions were observed; the selector was restored to `RU` after smoke. Technical rendering and layout acceptance passed. Native Slovak linguistic review is pending (`PENDING EXTERNAL REVIEW`).
 
 ### 13. Pre-commit checklist
 
 ```text
 [ ] Patch stays inside the owning localization scope
 [ ] Only explicitly allowed files changed
-[ ] EN/RU/PL catalogs have identical TextId order
+[ ] EN/RU/PL/SK catalogs have identical TextId order
 [ ] TextSpec signatures and maxBytes are justified
 [ ] Every snprintf result is checked
 [ ] External data remains untranslated and is never a format string
 [ ] Direct locale-package consumer access = 0
 [ ] Legacy bridge refs/symbols = 0
-[ ] RU/EN/PL clean builds PASS
+[ ] RU/EN/PL/SK clean builds PASS
 [ ] Selected-package binary proof PASS
 [ ] Final selector RU; no src/myoptions.h diff
 [ ] Device smoke accepted for changed consumers
