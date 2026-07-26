@@ -1,7 +1,7 @@
-# `lv_font_yora_montserrat_*_cyr` — shared Montserrat text family (Latin + Cyrillic + Polish + Slovak)
+# `lv_font_yora_montserrat_*_cyr` — shared Montserrat text family (UI locales + Western metadata)
 
-**English:** YoRadio LVGL shared text font family — Montserrat Medium subset with basic Latin, Cyrillic, degree/bullet/ellipsis, and full explicit Polish + Slovak diacritics. One set of C symbols for RU/EN/PL/SK; no locale-specific font assets or runtime language routing.
-**Русский:** Общая текстовая семья шрифтов YoRadio LVGL — подмножество Montserrat Medium: базовая латиница, кириллица, degree/bullet/ellipsis и полные явные польский + словацкий наборы с диакритикой. Одни и те же C-символы для RU/EN/PL/SK; без отдельных PL/SK-assets и без runtime-выбора языка для шрифтов.
+**English:** YoRadio LVGL shared text font family — Montserrat Medium subset with basic Latin, Cyrillic, degree/bullet/ellipsis, complete explicit Polish + Slovak UI coverage, and German/French letters plus Western punctuation for external station/artist/track metadata. One C-symbol family is shared by RU/EN/PL/SK; German and French UI locales are **not** implemented.
+**Русский:** Общая текстовая семья шрифтов YoRadio LVGL — подмножество Montserrat Medium: базовая латиница, кириллица, degree/bullet/ellipsis, полные явные польский + словацкий наборы интерфейса, а также немецкие/французские буквы и западноевропейская типографика для внешних station/artist/track metadata. Одна семья C-символов используется RU/EN/PL/SK; немецкая и французская локализации интерфейса **не** реализованы.
 
 | Generated file | Size | LVGL symbol | Typical role (4848S040) |
 |----------------|------|-------------|-------------------------|
@@ -25,10 +25,11 @@ All ten sizes share the **same Unicode coverage**; only rasterization size diffe
 ### Назначение семьи / Family purpose
 
 - Общая текстовая семья YoRadio на базе **Montserrat Medium**.
-- Покрытие: basic Latin + Cyrillic + полные явные польский и словацкий наборы + `°` / `•` / `…`.
-- RU/EN/PL/SK используют **одни и те же** `lv_font_yora_montserrat_*_cyr` symbols.
-- Нет PL/SK-specific `.c`, нет compile-time/runtime font routing по языку.
-- Экраны и profile slots не меняются при добавлении польских глифов.
+- **Compile-time UI locale coverage:** RU, EN, PL, SK; RU/EN/PL/SK используют одни и те же `lv_font_yora_montserrat_*_cyr` symbols.
+- **External metadata coverage:** немецкие и французские названия станций, исполнители, треки, Icecast/Shoutcast metadata и Western European punctuation.
+- Покрытие: basic Latin + Cyrillic + полные явные PL/SK/DE/FR letter sets + metadata typography + `°` / `•` / `…`.
+- DE/FR glyphs включены для station names, artists и track metadata; `L10N_LANGUAGE DE/FR` и locale packages DE/FR отсутствуют.
+- Нет language-specific `.c`, compile-time/runtime font routing или fallback chain; экраны и profile slots не меняются.
 
 ### Unicode contract
 
@@ -80,6 +81,24 @@ U+017D U+017E
 ĄąĆćĘęŁłŃńÓóŚśŹźŻżÁáÄäČčĎďÉéÍíĹĺĽľŇňÔôŔŕŠšŤťÚúÝýŽž
 ```
 
+**External metadata letters:**
+
+```text
+German 8: ÄäÖöÜüẞß
+French 32: ÀàÂâÆæÇçÉéÈèÊêËëÎîÏïÔôŒœÙùÛûÜüŸÿ
+```
+
+Overlap DE/FR с существующим PL+SK: `ÄäÉéÔô` (`6`). Новых буквенных codepoints: `32`. Полный deduplicated PL+SK+DE+FR union: **82/82**.
+
+**External metadata typography (10 codepoints):**
+
+```text
+U+00A0 NBSP   U+00AB «   U+00BB »   U+2013 –   U+2014 —
+U+2018 ‘      U+2019 ’   U+201C “   U+201D ”   U+201E „
+```
+
+Примеры покрываемого metadata: `München`, `Straße`, `Groß`, `Été`, `Cœur`, `François`, `L’amour`, `«Musique»`, `Künstler — Titel`.
+
 **Правило семьи:** все размеры этой shared family должны иметь **одинаковый Unicode coverage**. Различается только raster size. Не расширять отдельный размер вручную и не добавлять широкий `U+0100`–`U+017F` без доказанной необходимости.
 
 ### Generation / Генерация
@@ -96,13 +115,11 @@ PowerShell (from repo root; ensure UTF-8 for `--symbols`):
 
 ```powershell
 $ttf = (Resolve-Path "tools\fonts\Montserrat-Medium.ttf").Path
-$sym = "ĄąĆćĘęŁłŃńÓóŚśŹźŻżÁáÄäČčĎďÉéÍíĹĺĽľŇňÔôŔŕŠšŤťÚúÝýŽž"
-$range = "0x20-0x7F,0x400-0x4FF,0xB0,0x2022,0x2026"
+$range = "0x20-0x7F,0x400-0x4FF,0xB0,0x2022,0x2026,<explicit PL+SK+DE+FR codepoints>,0xA0,0xAB,0xBB,0x2013-0x2014,0x2018-0x2019,0x201C-0x201E"
 foreach ($sz in 12,14,16,18,20,22,28,32,40,48) {
   npx --yes lv_font_conv@1.5.2 `
     --font $ttf `
     -r $range `
-    --symbols $sym `
     --size $sz `
     --bpp 4 `
     --format lvgl `
@@ -111,13 +128,15 @@ foreach ($sz in 12,14,16,18,20,22,28,32,40,48) {
 }
 ```
 
+Передавайте non-ASCII letter contract как ASCII-only explicit codepoints в `-r`, чтобы PowerShell encoding не мог повредить Unicode. Не объединяйте его в широкие Latin-1 / Latin Extended ranges. Разбиение `0x2018-0x2019,0x201C-0x201E` намеренно исключает незапрошенные U+201A/U+201B и сохраняет точный typography set `10/10`.
+
 C symbol name is taken from the `-o` basename (`lv_font_yora_montserrat_<N>_cyr`). Keep filenames and symbols stable.
 
 ### Architecture
 
 - Existing C symbols preserved (`lv_fonts.h` / `LV_FONT_CUSTOM_DECLARE` unchanged).
 - Existing font pointers and profile slots preserved.
-- No PL/SK-specific font assets.
+- No PL/SK/DE/FR-specific font assets.
 - No runtime language selection for fonts.
 - No screen routing changes for this font update.
 - Built-in `lv_font_montserrat_*` and all icon fonts are out of scope.
@@ -128,7 +147,8 @@ C symbol name is taken from the `-o` basename (`lv_font_yora_montserrat_<N>_cyr`
 |-------|--------|
 | Fixed RU/EN/PL/SK UI catalog | Must render without missing-glyph boxes |
 | Provider Weather condition text (`lang=pl` / `lang=sk`) | Full explicit Polish + Slovak sets required on display fonts (esp. 16 px condition line) |
-| Station names / SSID / artist-title metadata | Best-effort; Polish + Slovak sets covered; arbitrary Unicode outside these sets is not guaranteed |
+| Station names / artist-title / Icecast/Shoutcast metadata | Explicit PL + SK + German + French letters and Western punctuation are covered |
+| German/French UI catalogs | **Not implemented**; glyph coverage does not create DE/FR interface localization |
 | Missing arbitrary Unicode | Does **not** justify expanding to all of Latin Extended or full Unicode |
 
 ### Verification (PLFONT-IMPLEMENTATION)
@@ -179,6 +199,24 @@ Shared Slovak glyph bitmaps exist in font assets for every `L10N_LANGUAGE`; this
 
 На `4848S040` / ST7701 технически приняты словацкий каталог `125/125 TextId`, Weather mapping `sk`, SK `34/34`, сохранённое PL `18/18` и union `50/50` во всех десяти shared sizes (12/14/16/18/20/22/28/32/40/48). Missing-glyph boxes, clipping/wrapping regressions и runtime/navigation regressions не наблюдались; selector после smoke восстановлен в `RU`. Техническая приёмка рендеринга и layout пройдена. Лингвистическая проверка словацкого текста носителями языка ожидается (`PENDING EXTERNAL REVIEW`).
 
+### Verification (Western European metadata implementation)
+
+| Check | Result |
+|-------|--------|
+| Source TTF DE / FR / typography | **8/8 / 32/32 / 10/10 PASS** |
+| PL retained / SK retained | **18/18 / 34/34 PASS** |
+| Deduplicated PL+SK+DE+FR union | **82/82 PASS** |
+| Metadata typography | **10/10 PASS** |
+| Base ASCII / Cyrillic / `°` / `•` / `…` retained | **PASS** |
+| Regenerated shared sizes | 12, 14, 16, 18, 20, 22, 28, 32, 40, 48 |
+| Filenames / C symbols / bpp / compression / fallback | **UNCHANGED** |
+| DE/FR UI locales or locale packages | **NOT ADDED** |
+| Device status | **WESTERN EUROPEAN METADATA VISUAL ACCEPTANCE: PASS** (`4848S040` / ST7701) |
+
+На `4848S040` / ST7701 с selector `RU` визуально приняты German `8/8`, French `32/32` и metadata typography `10/10`; сохранены PL `18/18`, SK `34/34`, letter union `82/82` и одинаковый cmap всех десяти shared sizes (12/14/16/18/20/22/28/32/40/48). Немецкие и французские station/track metadata отображались корректно; missing-glyph boxes, clipping и scrolling regressions не наблюдались. Audio, navigation и metadata updates оставались стабильными. Редкие `ẞ`, NBSP и отдельные quotation marks приняты по static cmap proof.
+
+Это font-only расширение: немецкие и французские glyphs предоставлены только для внешних station, artist и track metadata. DE/FR UI locales не реализованы; selector остаётся `RU`, locale catalogs, Weather mapping, screens и layout не меняются.
+
 ### Maintenance rule
 
 When adding a new language or a new mandatory alphabet set:
@@ -195,23 +233,25 @@ When adding a new language or a new mandatory alphabet set:
 
 ### Family purpose
 
-Shared YoRadio Montserrat Medium text family used by LVGL UI. Latin + Cyrillic + full explicit Polish and Slovak diacritics live in the same generated assets. RU/EN/PL/SK share the same symbols; language selection does not switch fonts.
+Shared YoRadio Montserrat Medium text family used by LVGL UI. **Compile-time UI locale coverage** is RU/EN/PL/SK. **External metadata coverage** adds explicit German/French letters and Western punctuation for station names, artists, track titles, and Icecast/Shoutcast metadata. German and French UI locales are **not implemented**. All coverage lives in the same generated assets; language selection does not switch fonts.
 
 ### Unicode contract
 
-Keep the base ranges listed above, the exact Polish set `ĄąĆćĘęŁłŃńÓóŚśŹźŻż`, and the exact Slovak set `ÁáÄäČčĎďÉéÍíĹĺĽľŇňÓóÔôŔŕŠšŤťÚúÝýŽž` on **every** size. Their deduplicated union has 50 codepoints. Do not add the whole `U+0100`–`U+017F` block without a measured need. All sizes must keep identical coverage; only pixel size changes.
+Keep the base ranges listed above, exact Polish `18/18`, Slovak `34/34`, German `8/8`, French `32/32`, and metadata typography `10/10` on **every** size. The deduplicated PL+SK+DE+FR letter union is `82/82`; the German/French overlap with PL+SK is six codepoints. Preserve bullet and ellipsis. Do not add broad Latin-1 or `U+0100`–`U+017F` ranges. All sizes must keep identical coverage; only pixel size changes.
+
+Metadata examples: `München`, `Straße`, `Groß`, `Été`, `Cœur`, `François`, `L’amour`, `«Musique»`, and `Künstler — Titel`.
 
 ### Generation
 
-Use `tools/fonts/Montserrat-Medium.ttf` with `lv_font_conv@1.5.2`, `--bpp 4`, default compression, `--format lvgl`. Never hand-edit generated `.c` files — regenerate and replace.
+Use `tools/fonts/Montserrat-Medium.ttf` with `lv_font_conv@1.5.2`, `--bpp 4`, default compression, `--format lvgl`. Pass non-ASCII coverage as ASCII-only explicit codepoints, never as broad Latin ranges. Never hand-edit generated `.c` files — regenerate and replace the full ten-size family.
 
 ### Architecture
 
-Symbols, pointers, screens, and locale catalogs stay unchanged. No separate PL/SK fonts and no language-dependent font routing.
+Symbols, pointers, screens, and locale catalogs stay unchanged. No separate PL/SK/DE/FR fonts, fallback chain, or language-dependent font routing. DE/FR glyphs do not imply DE/FR locale packages.
 
 ### Coverage policy
 
-Fixed UI and Polish/Slovak provider Weather text must be covered. Station names / SSID / metadata remain best-effort beyond the defined PL+SK union.
+Fixed RU/EN/PL/SK UI and Polish/Slovak provider Weather text remain covered. External station/artist/track metadata is guaranteed for the explicit German/French sets and ten punctuation codepoints; arbitrary Unicode outside the contract remains best-effort.
 
 ### Verification
 
@@ -225,6 +265,10 @@ Shared Polish glyph bitmaps exist in the font assets regardless of `L10N_LANGUAG
 
 For the SK implementation, all ten sizes (12/14/16/18/20/22/28/32/40/48) statically retain Polish `18/18`, add Slovak `34/34`, and contain the exact deduplicated PL+SK union `50/50`. The source TTF covers every required codepoint. **SK DEVICE VISUAL ACCEPTANCE: PASS** on `4848S040` / ST7701 for the `125/125 TextId` catalog and Weather mapping `sk`; no missing-glyph boxes, clipping/wrapping regressions, or runtime/navigation regressions were observed. The selector was restored to `RU` after smoke. Technical rendering and layout acceptance passed. Native Slovak linguistic review is pending (`PENDING EXTERNAL REVIEW`).
 
+For the Western metadata extension, all ten sizes (12/14/16/18/20/22/28/32/40/48) statically retain PL `18/18` and SK `34/34`, add DE `8/8`, FR `32/32`, the exact letter union `82/82`, and metadata typography `10/10`. Base cmaps, symbols, bpp, compression, and implicit NULL fallback are retained. **WESTERN EUROPEAN METADATA VISUAL ACCEPTANCE: PASS** on `4848S040` / ST7701 with selector `RU`. German and French station/track metadata rendered correctly; missing-glyph boxes and clipping/scrolling regressions were not observed. Audio, navigation, and metadata updates remained stable. Rare `ẞ`, NBSP, and individual quotation marks were accepted through static cmap proof.
+
+German and French glyphs are provided for external station, artist and track metadata only. German and French UI locales were not added.
+
 ### Maintenance
 
-Always regenerate the full ten-size family together with the same PL+SK codepoints; measure Flash; update this document.
+Always regenerate the full ten-size family together with the exact PL+SK+DE+FR and metadata-typography contract; measure Flash; update this document.
