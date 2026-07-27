@@ -35,18 +35,13 @@ constexpr uint32_t kWideProfileMinWidth     = 480u;
 constexpr size_t   kStationNameLimitWide    = 64u;
 constexpr size_t   kStationNameLimitCompact = 42u;
 
-constexpr lv_coord_t kStationListFontLineHeight = 25;
-constexpr lv_coord_t kStationListLineSpace      = 16;
-constexpr lv_coord_t kStationLinePitch =
-    kStationListFontLineHeight + kStationListLineSpace;
+// Product layout: keep 8 rows on 480×480 by fixing target pitch; line_space follows real font lh.
+// Продуктовый layout: 8 строк на 480×480 через target pitch; line_space от реального font lh.
+static constexpr lv_coord_t kStationTargetRowPitch = 41;
 
 constexpr lv_coord_t kRowOverlayTopPad  = 8;
-constexpr lv_coord_t kRowOverlayHeight  = kStationListFontLineHeight + 2 * kRowOverlayTopPad;
 constexpr lv_coord_t kRowAccentY        = -2;
 constexpr lv_coord_t kRowAccentH        = 29;
-constexpr lv_coord_t kMarkerIconLineHeight = 17;
-constexpr lv_coord_t kMarkerY =
-    (kStationListFontLineHeight - kMarkerIconLineHeight) / 2;
 
 static constexpr lv_coord_t kFocusBgRadius     = 8;
 static constexpr lv_coord_t kFocusAccentRadius = 2;
@@ -75,6 +70,40 @@ static int32_t abs_i32(int32_t v) { return v < 0 ? -v : v; }
 
 static int32_t max_i32(int32_t a, int32_t b) { return a > b ? a : b; }
 
+static const lv_font_t* station_list_font() {
+    return &lv_font_yora_montserrat_22_cyr;
+}
+
+static const lv_font_t* station_marker_font() {
+    return &lv_font_yora_station_icons_22;
+}
+
+// Shared row metrics: label, overlay, hit-test, and rows_per_page must use the same values.
+// Общая геометрия строки: label, overlay, hit-test и rows_per_page — одни и те же значения.
+static lv_coord_t station_line_height() {
+    return lv_font_get_line_height(station_list_font());
+}
+
+static lv_coord_t station_line_space() {
+    const lv_coord_t lh = station_line_height();
+    const int32_t gap = static_cast<int32_t>(kStationTargetRowPitch) - static_cast<int32_t>(lh);
+    return static_cast<lv_coord_t>(gap > 0 ? gap : 0);
+}
+
+static lv_coord_t station_row_pitch() {
+    return static_cast<lv_coord_t>(station_line_height() + station_line_space());
+}
+
+static lv_coord_t row_overlay_height() {
+    return static_cast<lv_coord_t>(station_line_height() + 2 * kRowOverlayTopPad);
+}
+
+static lv_coord_t marker_y_offset() {
+    const int32_t text_h = static_cast<int32_t>(station_line_height());
+    const int32_t icon_h = static_cast<int32_t>(lv_font_get_line_height(station_marker_font()));
+    return static_cast<lv_coord_t>((text_h - icon_h) / 2);
+}
+
 static lv_coord_t marker_left_x_in_list() {
     return -kListPadLeft + 1 + kFocusAccentStripW + kMarkerGutterAfterAccent;
 }
@@ -88,7 +117,8 @@ static lv_coord_t list_label_pad_left_for_marker_gutter() {
 
 static lv_coord_t row_y_for_local_row(uint16_t local_row_zero_based) {
     return static_cast<lv_coord_t>(
-        static_cast<uint32_t>(local_row_zero_based) * static_cast<uint32_t>(kStationLinePitch));
+        static_cast<uint32_t>(local_row_zero_based)
+        * static_cast<uint32_t>(station_row_pitch()));
 }
 
 static void station_set_font(lv_obj_t* obj, const void* font_slot) {
@@ -246,15 +276,17 @@ static void computeRowsPerPage(Instance& instance) {
     // LVGL content height already excludes list_area pad_top/pad_bottom.
     // content height LVGL уже без pad_top/pad_bottom list_area.
     const lv_coord_t content_h = lv_obj_get_content_height(instance.list_area);
-    if (content_h < kStationListFontLineHeight) {
+    const lv_coord_t line_h = station_line_height();
+    const lv_coord_t pitch = station_row_pitch();
+    if (content_h < line_h || pitch <= 0) {
         instance.rows_per_page = 1u;
         return;
     }
     // N rows need (N-1)*pitch + line_height; last row has no trailing line_space.
     // N строк = (N-1)*pitch + line_height; у последней нет line_space снизу.
     instance.rows_per_page = static_cast<uint16_t>(
-        1u + static_cast<uint32_t>(content_h - kStationListFontLineHeight)
-            / static_cast<uint32_t>(kStationLinePitch));
+        1u + static_cast<uint32_t>(content_h - line_h)
+            / static_cast<uint32_t>(pitch));
     if (instance.rows_per_page == 0u) {
         instance.rows_per_page = 1u;
     }
@@ -329,7 +361,7 @@ static void ensurePageLabel(Instance& instance) {
     lv_label_set_long_mode(instance.lbl_page, LV_LABEL_LONG_CLIP);
     station_set_font(instance.lbl_page, kFontStationList);
     lv_obj_set_style_text_color(instance.lbl_page, yoradio_palette().list_row_text, LV_PART_MAIN);
-    lv_obj_set_style_text_line_space(instance.lbl_page, kStationListLineSpace, LV_PART_MAIN);
+    lv_obj_set_style_text_line_space(instance.lbl_page, station_line_space(), LV_PART_MAIN);
     lv_obj_set_style_pad_left(instance.lbl_page, list_label_pad_left_for_marker_gutter(), LV_PART_MAIN);
     make_child_passive(instance.lbl_page);
 }
@@ -368,7 +400,7 @@ static void styleFocusRowOverlays(Instance& instance, const YoRadioPalette& pal)
     if (instance.focus_row_bg) {
         lv_obj_set_width(instance.focus_row_bg,
             static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.width - (LV_ACTIVE_PROFILE.frame_padding * 2u)));
-        lv_obj_set_height(instance.focus_row_bg, kRowOverlayHeight);
+        lv_obj_set_height(instance.focus_row_bg, row_overlay_height());
         lv_obj_set_style_bg_color(instance.focus_row_bg, pal.list_row_selected_bg, LV_PART_MAIN);
         lv_obj_set_style_bg_opa(instance.focus_row_bg, kFocusBgOpa, LV_PART_MAIN);
         lv_obj_set_style_border_width(instance.focus_row_bg, 0, LV_PART_MAIN);
@@ -442,7 +474,7 @@ static void positionCurrentMarker(Instance& instance, uint16_t local_row) {
     if (!instance.current_marker) return;
     const lv_coord_t y = row_y_for_local_row(local_row);
     const lv_coord_t mx = marker_left_x_in_list();
-    lv_obj_set_pos(instance.current_marker, mx, y + kMarkerY);
+    lv_obj_set_pos(instance.current_marker, mx, y + marker_y_offset());
 }
 
 static void layoutCurrentMarker(Instance& instance, uint16_t current_station) {
@@ -582,7 +614,9 @@ static bool candidateStationFromScreenPoint(Instance& instance, lv_coord_t scree
         - static_cast<int32_t>(pad_top);
     if (local_y < 0) return false;
 
-    const uint32_t pitch_u = static_cast<uint32_t>(kStationLinePitch);
+    const lv_coord_t pitch = station_row_pitch();
+    if (pitch <= 0) return false;
+    const uint32_t pitch_u = static_cast<uint32_t>(pitch);
     const uint32_t row_idx = static_cast<uint32_t>(local_y) / pitch_u;
     if (row_idx > kStationRowSafetyLimit) return false;
 

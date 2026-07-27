@@ -98,7 +98,7 @@ _list.list_area                    NOT scrollable; pad_left=16; pad_top/bottom=8
 rows_per_page = 1 + (content_height - line_height) / row_pitch
 ```
 
-480×480 profile: **8 rows**, `row_pitch = 41` (25 + 16), `content_height ≈ 321`.
+480×480 profile: **8 rows**, `row_pitch = 41` (font_lh 27 + line_space 14), `content_height ≈ 321`.
 
 **Input:**
 - Vertical swipe on RELEASED → ±1 page (`tryPageStep`), no pixel scroll, no momentum
@@ -135,16 +135,25 @@ _list.list_area                    SCROLLABLE VER; SCROLL_MOMENTUM; scrollbar
 ## Shared row geometry (both renderers)
 
 ```
-kStationListFontLineHeight = 25 px
-kStationListLineSpace      = 16 px
-kStationLinePitch          = 41 px
-
 kListPadLeft = 16; kListPadTop = kListPadBottom = 8
 
 Left gutter: accent (3) | gap (5) | marker (32) | gap (5) | text
 ```
 
-Paged: row Y = `local_row × 41` (page-local). Legacy: document Y = `(station − 1) × 41`.
+**SimplePaged (STATIONPAGED-GEOM-A):** row metrics from real font + target pitch (keep 8 rows):
+
+```
+line_height = lv_font_get_line_height(montserrat_22_cyr)   // currently 27
+target_pitch = 41
+line_space   = target_pitch - line_height                  // currently 14
+row_pitch    = line_height + line_space                    // 41
+```
+
+Label `text_line_space`, overlay Y, tap hit-test, and `rows_per_page` share these metrics.
+
+**Legacy scroll:** still uses hardcoded `25 + 16 = 41` (unchanged in GEOM-A).
+
+Paged: row Y = `local_row × row_pitch` (page-local). Legacy: document Y = `(station − 1) × 41`.
 
 ---
 
