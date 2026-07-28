@@ -147,16 +147,16 @@ Parameters on the screen:
 - **Apply** — saves parameters and applies them.  
   - Without pressing it, parameters are not saved.
 
-Output language is defined by the prompt text: use RU prompt for Russian output, EN prompt for English.
+Output language is defined by the prompt text: choose an RU / EN / PL / SK template from the `ai/` directory.
 Start the prompt in the target language — that will be the response language.
-Interface language affects only the Moment / Context lines.
+Interface language (`L10N_LANGUAGE`) affects only the Moment / Context lines and does not select the prompt automatically.
 
 ## Prompt file
 The prompt defines the rules and tone of the output.
 It is uploaded via the **Upload Prompt File** button in WebUI.
-Example prompt files from `ai/`: [ai/ai_prompt_ru.txt](ai/ai_prompt_ru.txt), [ai/ai_prompt_en.txt](ai/ai_prompt_en.txt).
+Example prompt files from `ai/`: [ai/ai_prompt_ru.txt](ai/ai_prompt_ru.txt), [ai/ai_prompt_en.txt](ai/ai_prompt_en.txt), [ai/ai_prompt_pl.txt](ai/ai_prompt_pl.txt), [ai/ai_prompt_sk.txt](ai/ai_prompt_sk.txt). Catalog notes: [ai/README.md](ai/README.md).
 Prompt structure details: [readme_ai_prompt_explained_eng.md](readme_ai_prompt_explained_eng.md).
-If you pre-flash SPIFFS, place the prompt at `data/ai/ai_prompt.txt`
+If you pre-flash LittleFS, place the prompt at `data/ai/ai_prompt.txt`
 (you can simply copy one of the files from `ai/`).
 Or upload the prompt later via WebUI — the result is the same.
 

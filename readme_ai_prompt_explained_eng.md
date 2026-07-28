@@ -82,7 +82,7 @@ Typically safe:
 - adjust tone (more neutral or more restrained);
 - make `listen` slightly more poetic or more plain;
 - tighten fact selection;
-- switch language (RU/EN) when using the corresponding prompt.
+- switch language (RU/EN/PL/SK) when using the corresponding prompt from the `ai/` directory.
 
 ## What is NOT recommended to change
 These elements define the behavior and should remain intact.

@@ -147,16 +147,16 @@ OpenRouter может предоставлять небольшой беспла
 - **Apply** — сохраняет параметры и применяет их.  
   - Без нажатия параметры не сохраняются.
 
-Язык вывода задаётся текстом prompt: если нужен русский вывод, используйте RU‑prompt, для английского — EN‑prompt.
+Язык вывода задаётся текстом prompt: выберите шаблон RU / EN / PL / SK из каталога `ai/`.
 Начинайте prompt на нужном языке — это и будет языком ответа.
-Язык интерфейса влияет только на строки Moment / Context.
+Язык интерфейса (`L10N_LANGUAGE`) влияет только на строки Moment / Context и не подставляет prompt автоматически.
 
 ## Prompt-файл
 Prompt задаёт правила и тональность вывода.
 Он загружается через кнопку **Upload Prompt File** в WebUI.
-Примеры prompt‑файлов из каталога `ai/`: [ai/ai_prompt_ru.txt](ai/ai_prompt_ru.txt), [ai/ai_prompt_en.txt](ai/ai_prompt_en.txt).
+Примеры prompt‑файлов из каталога `ai/`: [ai/ai_prompt_ru.txt](ai/ai_prompt_ru.txt), [ai/ai_prompt_en.txt](ai/ai_prompt_en.txt), [ai/ai_prompt_pl.txt](ai/ai_prompt_pl.txt), [ai/ai_prompt_sk.txt](ai/ai_prompt_sk.txt). Описание каталога: [ai/README.md](ai/README.md).
 Подробнее о структуре prompt: [readme_ai_prompt_explained_rus.md](readme_ai_prompt_explained_rus.md).
-Если вы прошиваете SPIFFS заранее, поместите prompt в `data/ai/ai_prompt.txt`
+Если вы прошиваете LittleFS заранее, поместите prompt в `data/ai/ai_prompt.txt`
 (можно просто скопировать один из файлов из `ai/`).
 Либо загрузите prompt позже через WebUI — результат будет тем же.
 
