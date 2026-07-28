@@ -1,56 +1,39 @@
 ## Русская часть
 
-# build_bin — готовые прошивки YoRadio
+# build_bin — готовые прошивки YoRadio LVGL
 
-Этот каталог содержит готовые (pre-built) прошивки YoRadio RGB Panel для официально
-поддерживаемых плат публичной LVGL beta.
+- **Проект:** [YoRadio LVGL](https://github.com/Witaliy76/Yoradio_lvgl)
+- **Версия:** `0.9.434m-r2-lvgl-beta.2`
+- **Дата:** 28 июля 2026
+- **Source commit:** `cc37df814fef36a40578e08a6b4ce0ce2d059d6c`
+- **Поддерживаемая плата:** ESP32-4848S040
+- **Языки:** [`RU`](4848S040/RU/) / [`EN`](4848S040/EN/) / [`PL`](4848S040/PL/) / [`SK`](4848S040/SK/)
+- **Файловая система:** LittleFS
 
-- **Поддерживаемая плата beta:** только `4848S040`. Другие board-профили (JC3248W535C,
-  UEDX48480021) остаются в исходниках проекта, но их готовые бинарники в этот каталог
-  не включаются.
-- **Языковые варианты интерфейса:** прошивки собираются в трёх compile-time вариантах —
-  `RU`, `EN`, `PL`. Язык фиксируется на этапе компиляции (`L10N_LANGUAGE` в
-  `src/myoptions.h`) и не переключается во время работы устройства.
-- **Текущая release-версия:** `0.9.434m-r2-lvgl-beta.1`.
-- Каждая языковая папка (`4848S040/RU/`, `4848S040/EN/`, `4848S040/PL/`) будет содержать
-  полный самостоятельный набор файлов, необходимых для прошивки платы с нуля (bootloader,
-  таблица партиций, firmware, образ файловой системы) — без зависимости от файлов из
-  других языковых папок.
-- **До появления реальных `.bin`-файлов** README-файлы в этом каталоге являются только
-  структурным placeholder'ом и не считаются готовым релизом.
-- Финальные бинарники будут собраны и добавлены отдельным release-build этапом. На этом
-  этапе точный commit сборки (source commit) будет записан в соответствующий README.
-- **Файловая система: LittleFS**. Образ файловой системы, поставляемый в этом
-  каталоге, — LittleFS image.
+Каждая языковая папка содержит согласованный комплект из пяти файлов
+(`bootloader.bin`, `partitions.bin`, `boot_app0.bin`, `firmware.bin`, `littlefs.bin`).
+**Не смешивайте** `firmware.bin` и `littlefs.bin` из разных языковых пакетов.
 
-Инструкция по прошивке конкретной платы — в `4848S040/README.md`.
+Полная карта адресов, настройки Espressif Flash Download Tool и screenshot:
+
+→ [`4848S040/README.md`](4848S040/README.md)
 
 ---
 
 ## English section
 
-# build_bin — pre-built YoRadio firmware
+# build_bin — pre-built YoRadio LVGL firmware
 
-This directory holds pre-built YoRadio RGB Panel firmware for the boards officially
-supported by the public LVGL beta.
+- **Project:** [YoRadio LVGL](https://github.com/Witaliy76/Yoradio_lvgl)
+- **Version:** `0.9.434m-r2-lvgl-beta.2`
+- **Date:** 2026-07-28
+- **Source commit:** `cc37df814fef36a40578e08a6b4ce0ce2d059d6c`
+- **Supported board:** ESP32-4848S040
+- **Languages:** [`RU`](4848S040/RU/) / [`EN`](4848S040/EN/) / [`PL`](4848S040/PL/) / [`SK`](4848S040/SK/)
+- **Filesystem:** LittleFS
 
-- **Supported beta board:** `4848S040` only. Other board profiles (JC3248W535C,
-  UEDX48480021) remain in the project sources, but their pre-built binaries are not
-  included in this directory.
-- **UI language variants:** firmware is built in three compile-time variants — `RU`,
-  `EN`, `PL`. The language is fixed at compile time (`L10N_LANGUAGE` in
-  `src/myoptions.h`) and cannot be switched at runtime.
-- **Current release version:** `0.9.434m-r2-lvgl-beta.1`.
-- Each language folder (`4848S040/RU/`, `4848S040/EN/`, `4848S040/PL/`) will contain a
-  complete, self-contained set of files needed to flash the board from scratch
-  (bootloader, partition table, firmware, filesystem image) — independent of files in
-  other language folders.
-- **Until real `.bin` files are added**, the README files in this directory are a
-  structural placeholder only and do not represent a ready release.
-- Final binaries will be built and added by a separate release-build stage. At that
-  point, the exact source commit used for the build will be recorded in the
-  corresponding README.
-- **Filesystem: LittleFS**. The filesystem image shipped in this directory
-  is a LittleFS image.
+Do not mix `firmware.bin` and `littlefs.bin` across language packages.
 
-See `4848S040/README.md` for board-specific flashing instructions.
+Full flash map, Espressif Flash Download Tool settings, and screenshot:
+
+→ [`4848S040/README.md`](4848S040/README.md)
