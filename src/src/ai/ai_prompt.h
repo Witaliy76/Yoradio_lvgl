@@ -3,7 +3,7 @@
 
 /**
  * ai_prompt.h - AI prompt loader header
- * Description: AI prompt loader from SPIFFS with RAM caching
+ * Description: AI prompt loader from LittleFS with RAM caching
  * Author: Witaliy76 - https://github.com/Witaliy76
  * Date: 02.01.2026
  * Version: Yoradio RGB Panel v0.9.434m-r2
@@ -12,24 +12,24 @@
 #include <Arduino.h>
 
 /**
- * Get AI prompt from SPIFFS
- * Получить AI промпт из SPIFFS
- * 
- * Uses RAM cache - reads from SPIFFS only once
- * Использует RAM кеш - читает из SPIFFS только один раз
- * 
+ * Get AI prompt from LittleFS (`/ai/ai_prompt.txt`)
+ * Получить AI промпт из LittleFS (`/ai/ai_prompt.txt`)
+ *
+ * Uses RAM cache - reads from LittleFS only once
+ * Использует RAM кеш - читает из LittleFS только один раз
+ *
  * STRICT MODE: Returns true ONLY if prompt loaded from file / СТРОГИЙ РЕЖИМ: Возвращает true ТОЛЬКО если промпт загружен из файла
- * 
+ *
  * @param outPrompt Output string for prompt / Выходная строка для промпта
  * @return true if prompt loaded successfully from file, false otherwise / true если промпт успешно загружен из файла, false иначе
  */
 bool aiPromptGet(String& outPrompt);
 
 /**
- * Reset prompt cache (forces reload from SPIFFS on next request)
- * Сбросить кеш промпта (принудительно перезагрузить из SPIFFS при следующем запросе)
- * 
- * Useful after SPIFFS files are updated / Полезно после обновления файлов SPIFFS
+ * Reset prompt cache (forces reload from LittleFS on next request)
+ * Сбросить кеш промпта (принудительно перезагрузить из LittleFS при следующем запросе)
+ *
+ * Useful after LittleFS files are updated / Полезно после обновления файлов LittleFS
  */
 void aiPromptResetCache();
 

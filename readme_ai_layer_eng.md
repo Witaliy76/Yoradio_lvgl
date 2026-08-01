@@ -168,7 +168,7 @@ Rules:
 - Missing prompt is not an error.  
 - No fallback texts are used.
 
-Maximum prompt file size: 8192 bytes (8 KB).
+Maximum prompt file size: 20480 bytes (20 KB).
 
 ## Output examples
 - Facts: `Alphaville — Forever Young (1984).`  

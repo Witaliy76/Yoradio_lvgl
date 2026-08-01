@@ -72,8 +72,8 @@ Also required:
 - one line;  
 - only quotes `"` and hyphen `-` (no em dash).
 
-Maximum prompt file size: 8192 bytes (8 KB).
-If needed, the limit can be changed in `src/src/plugins/ai/ai_prompt.cpp` (variable `AI_PROMPT_MAX_LEN`).
+Maximum prompt file size: 20480 bytes (20 KB).
+If needed, the limit can be changed in `src/src/ai/ai_prompt.cpp` (variable `AI_PROMPT_MAX_LEN`).
 
 ## What you can change safely
 Safe changes are those that keep the rules and the response contract intact.

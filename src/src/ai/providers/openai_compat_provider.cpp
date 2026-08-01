@@ -9,7 +9,7 @@
 #include "openai_compat_provider.h"
 #include "../ai_log.h"  // AI Layer logging macros
 #include "../../core/config.h"  // Для aiGetRuntimeConfig / For aiGetRuntimeConfig
-#include "../ai_prompt.h"  // Для загрузки промптов из SPIFFS / For loading prompts from SPIFFS (aiPromptGet, aiPromptIsAvailable)
+#include "../ai_prompt.h"  // Prompt loader from LittleFS / Загрузка промпта из LittleFS (aiPromptGet, aiPromptIsAvailable)
 #include <ArduinoJson.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
@@ -106,7 +106,7 @@ String OpenAICompatProvider::_buildPrompt(
         return "";  // Пустой промпт → запрос не должен отправляться / Empty prompt → request should not be sent
     }
     
-    // Загружаем system prompt из SPIFFS (строгий режим: только из файла) / Load system prompt from SPIFFS (strict mode: only from file)
+    // Load system prompt from LittleFS (strict mode: file only) / Загрузка system prompt из LittleFS (строгий режим: только из файла)
     String system_prompt;
     bool prompt_loaded = aiPromptGet(system_prompt);  // Автоматически определяет язык из L10N_LANGUAGE / Automatically determines language from L10N_LANGUAGE
     
