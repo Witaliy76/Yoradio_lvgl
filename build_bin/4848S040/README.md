@@ -6,8 +6,9 @@
 `[env:4848S040]`, board `esp32s3_n16r8` (16 MB Flash / 8 MB PSRAM).
 
 Проект: **YoRadio LVGL** — https://github.com/Witaliy76/Yoradio_lvgl
-Версия: `0.9.434m-r2-lvgl-beta.2` (28 июля 2026).
-Source commit: `cc37df814fef36a40578e08a6b4ce0ce2d059d6c`.
+Версия: `0.9.434m-r2-lvgl-beta.2` (1 августа 2026).
+Source commit: `538b95553db44884ad0d75e92f3e8970a78e770c`.
+Firmware source commit: `538b95553db44884ad0d75e92f3e8970a78e770c`.
 Файловая система: **LittleFS**.
 
 Выберите ровно одну языковую папку — [`RU/`](RU/), [`EN/`](EN/), [`PL/`](PL/) или [`SK/`](SK/)
@@ -122,8 +123,9 @@ Board: **ESP32-4848S040** (ST7701S RGB, 480×480, 4.0"), PlatformIO `[env:4848S0
 board `esp32s3_n16r8` (16 MB Flash / 8 MB PSRAM).
 
 Project: **YoRadio LVGL** — https://github.com/Witaliy76/Yoradio_lvgl
-Version: `0.9.434m-r2-lvgl-beta.2` (2026-07-28).
-Source commit: `cc37df814fef36a40578e08a6b4ce0ce2d059d6c`.
+Version: `0.9.434m-r2-lvgl-beta.2` (2026-08-01).
+Source commit: `538b95553db44884ad0d75e92f3e8970a78e770c`.
+Firmware source commit: `538b95553db44884ad0d75e92f3e8970a78e770c`.
 Filesystem: **LittleFS**.
 
 Pick exactly one language folder — `RU/`, `EN/`, `PL/`, or `SK/` — and flash only
