@@ -460,7 +460,7 @@ static void info_reapply_tree_colors(lv_obj_t* obj, const YoRadioPalette& pal, l
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Compile-time display product-line string — determined by DSP_MODEL and panel resolution.
-// Hardware identifiers ("ST7701", "AXS15231B", …) are not localizable user-facing text.
+// Hardware identifiers ("ST7701", …) are not localizable user-facing text.
 // Compile-time строка панели — определяется DSP_MODEL и разрешением.
 static void info_format_display_product_line(char* buf, size_t cap) {
     if (!buf || cap == 0u) {
@@ -470,10 +470,6 @@ static void info_format_display_product_line(char* buf, size_t cap) {
     const unsigned rh = static_cast<unsigned>(LV_ACTIVE_PROFILE.height);
 #if DSP_MODEL == DSP_ST7701
     snprintf(buf, cap, "ST7701 %ux%u", rw, rh);
-#elif DSP_MODEL == DSP_AXS15231B
-    snprintf(buf, cap, "AXS15231B %ux%u", rw, rh);
-#elif DSP_MODEL == DSP_UEDX48480021
-    snprintf(buf, cap, "UEDX %ux%u", rw, rh);
 #else
     snprintf(buf, cap, "Panel %ux%u", rw, rh);
 #endif
