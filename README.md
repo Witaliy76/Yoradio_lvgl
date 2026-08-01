@@ -1,4 +1,4 @@
-[English version](readme_english.md) — *English documentation, may lag behind this file.*
+[English version](readme_english.md)
 
 # YoRadio LVGL
 
