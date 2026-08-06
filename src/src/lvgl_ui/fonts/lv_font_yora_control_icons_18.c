@@ -1,11 +1,7 @@
 /*******************************************************************************
  * Size: 18 px
  * Bpp: 4
- * Source: Tabler Icons webfont (MIT); Main control band subset, Tabler 3.26 PUA.
- * Glyphs: player-skip-back, player-play, player-stop, player-skip-forward, list, settings,
- *   chevron-left, chevron-right, playlist, settings-2 — see lv_font_yora_control_icons.md.
- * Same pipeline as lv_font_yora_status_icons_22.c (strip OT tables → lv_font_conv).
- * Opts: --font tabler-stripped.ttf --size 18 --bpp 4 --format lvgl --no-compress -o ... -r 0xEA60-0xEA61 -r 0xEB20 -r 0xEB6B -r 0xED46 -r 0xED48-0xED4A -r 0xEEC0 -r 0xF5AC --lv-include lvgl.h
+ * Opts: --font G:\Github\Yoradio_RGB_Panel-1\tools\fonts\tabler-stripped.ttf --size 18 --bpp 4 --format lvgl --no-compress -o src\src\lvgl_ui\fonts\lv_font_yora_control_icons_18.c -r 0xEA60-0xEA61 -r 0xEB20 -r 0xEB6B -r 0xED46 -r 0xED48-0xED4A -r 0xEEC0 -r 0xF5AC --lv-include lvgl.h
  ******************************************************************************/
 
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE
@@ -92,7 +88,7 @@ static LV_ATTRIBUTE_LARGE_CONST const uint8_t glyph_bitmap[] = {
     0x0, 0x6e, 0xf8, 0xaf, 0x8f, 0x0, 0x0, 0x4d,
     0xfb, 0x20, 0x8f, 0x8f, 0x0, 0x2a, 0xfd, 0x40,
     0x0, 0x8f, 0x8f, 0x4, 0xff, 0x70, 0x0, 0x0,
-    0x8f, 0x8f, 0x2, 0xdf, 0xa2, 0x0, 0x0, 0x8f,
+    0x8f, 0x8f, 0x2, 0xdf, 0xb2, 0x0, 0x0, 0x8f,
     0x8f, 0x0, 0x7, 0xff, 0x80, 0x0, 0x8f, 0x8f,
     0x0, 0x0, 0x1a, 0xfe, 0x50, 0x8f, 0x8f, 0x0,
     0x0, 0x0, 0x3c, 0xfc, 0xbf, 0x8f, 0x0, 0x0,
@@ -146,7 +142,7 @@ static LV_ATTRIBUTE_LARGE_CONST const uint8_t glyph_bitmap[] = {
     0x0, 0x0, 0x2, 0xbf, 0xfd, 0x40, 0x0, 0x0,
     0x0, 0x0, 0x8f, 0xe6, 0x5d, 0xfb, 0x20, 0x0,
     0x0, 0x6e, 0xf9, 0x10, 0x0, 0x7f, 0xf8, 0x0,
-    0xa, 0xfc, 0x20, 0x0, 0x0, 0x1, 0x9f, 0xc0,
+    0xa, 0xfc, 0x30, 0x0, 0x0, 0x1, 0x9f, 0xc0,
     0x3f, 0x70, 0x0, 0x0, 0x0, 0x0, 0x4, 0xf6,
     0x5f, 0x20, 0x0, 0x9f, 0xfb, 0x10, 0x0, 0xf8,
     0x5f, 0x20, 0x8, 0xf9, 0x8f, 0xb0, 0x0, 0xf8,
@@ -205,9 +201,12 @@ static const lv_font_fmt_txt_cmap_t cmaps[] =
  *  ALL CUSTOM DATA
  *--------------------*/
 
-#if LV_VERSION_CHECK(8, 0, 0)
+#if LVGL_VERSION_MAJOR == 8
 /*Store all the custom data of the font*/
 static  lv_font_fmt_txt_glyph_cache_t cache;
+#endif
+
+#if LVGL_VERSION_MAJOR >= 8
 static const lv_font_fmt_txt_dsc_t font_dsc = {
 #else
 static lv_font_fmt_txt_dsc_t font_dsc = {
@@ -221,10 +220,11 @@ static lv_font_fmt_txt_dsc_t font_dsc = {
     .bpp = 4,
     .kern_classes = 0,
     .bitmap_format = 0,
-#if LV_VERSION_CHECK(8, 0, 0)
+#if LVGL_VERSION_MAJOR == 8
     .cache = &cache
 #endif
 };
+
 
 
 /*-----------------
@@ -232,7 +232,7 @@ static lv_font_fmt_txt_dsc_t font_dsc = {
  *----------------*/
 
 /*Initialize a public general font descriptor*/
-#if LV_VERSION_CHECK(8, 0, 0)
+#if LVGL_VERSION_MAJOR >= 8
 const lv_font_t lv_font_yora_control_icons_18 = {
 #else
 lv_font_t lv_font_yora_control_icons_18 = {
@@ -248,7 +248,11 @@ lv_font_t lv_font_yora_control_icons_18 = {
     .underline_position = 0,
     .underline_thickness = 0,
 #endif
-    .dsc = &font_dsc           /*The custom font data. Will be accessed by `get_glyph_bitmap/dsc` */
+    .dsc = &font_dsc,          /*The custom font data. Will be accessed by `get_glyph_bitmap/dsc` */
+#if LV_VERSION_CHECK(8, 2, 0) || LVGL_VERSION_MAJOR >= 9
+    .fallback = NULL,
+#endif
+    .user_data = NULL,
 };
 
 

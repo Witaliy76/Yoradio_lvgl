@@ -520,7 +520,7 @@ void LvglPresetScreen::_cancelFeedbackTimer() {
 
 void LvglPresetScreen::_feedbackTimerCb(lv_timer_t* timer) {
     if (!timer) return;
-    auto* self = static_cast<LvglPresetScreen*>(timer->user_data);
+    auto* self = static_cast<LvglPresetScreen*>(lv_timer_get_user_data(timer));
     if (!self) return;
     self->_feedback_timer = nullptr;
     self->_setHelperDefault();
@@ -546,7 +546,7 @@ void LvglPresetScreen::_startCountdownTimer() {
 
 void LvglPresetScreen::_countdownTimerCb(lv_timer_t* timer) {
     if (!timer) return;
-    auto* self = static_cast<LvglPresetScreen*>(timer->user_data);
+    auto* self = static_cast<LvglPresetScreen*>(lv_timer_get_user_data(timer));
     if (!self || self->_feedbackActive) return;
     self->_updateCountdownHelper();
 }

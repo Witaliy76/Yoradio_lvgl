@@ -131,11 +131,13 @@ static const uint8_t kBeocordSegmentA8Map[] = {
 
 const lv_img_dsc_t img_beocord_segment_a8 = {
     .header = {
-        .cf = LV_IMG_CF_ALPHA_8BIT,
-        .always_zero = 0,
-        .reserved = 0,
+        .magic = LV_IMAGE_HEADER_MAGIC,
+        .cf = LV_COLOR_FORMAT_A8,
+        .flags = 0,
         .w = BEOCORD_SEGMENT_A8_W,
         .h = BEOCORD_SEGMENT_A8_H,
+        .stride = BEOCORD_SEGMENT_A8_W,
+        .reserved_2 = 0,
     },
     .data_size = BEOCORD_SEGMENT_A8_DATA_SIZE,
     .data = kBeocordSegmentA8Map,

@@ -559,7 +559,11 @@ void tick_full_wave(Instance& inst, const RailProfileConfig& cfg) {
         inst.wave_points[j] = make_point(x, y);
     }
     if (inst.wave_line) {
-        lv_line_set_points(inst.wave_line, inst.wave_points, kPointCount);
+        // BASE-LVGL9-MIGRATION C7: lv_line_set_points now takes lv_point_precise_t (x/y are
+        // lv_value_precise_t). With LV_USE_FLOAT=0 that's int32_t, identical layout to lv_point_t,
+        // so the existing lv_point_t geometry buffer can be reinterpreted without a copy/conversion.
+        lv_line_set_points(inst.wave_line, reinterpret_cast<const lv_point_precise_t*>(inst.wave_points),
+                           kPointCount);
     }
 
     // Opacity = gate × (base + scope_act punch + peak punch); clamped to 95%.
@@ -649,7 +653,9 @@ void tick_fence(Instance& inst, const RailProfileConfig& cfg) {
         if (half > rail_half) half = rail_half;
         inst.seg_points[i][0] = make_point(x, clampf(cy - half, y_lo, y_hi));
         inst.seg_points[i][1] = make_point(x, clampf(cy + half, y_lo, y_hi));
-        lv_line_set_points(inst.seg_line[i], inst.seg_points[i], 2);
+        // BASE-LVGL9-MIGRATION C7: see tick_full_wave — lv_point_t/lv_point_precise_t are layout
+        // identical here (LV_USE_FLOAT=0).
+        lv_line_set_points(inst.seg_line[i], reinterpret_cast<const lv_point_precise_t*>(inst.seg_points[i]), 2);
         if (opa_changed) {
             int col_op = static_cast<int>(static_cast<float>(field_opa) * fence_vignette(u) + 0.5f);
             if (col_op < kFenceOpacityMin) col_op = kFenceOpacityMin;
@@ -782,7 +788,7 @@ static void rail_perf_account(const Instance& inst, uint32_t dt_us) {
 #endif
 
 void rail_timer_cb(lv_timer_t* t) {
-    Instance* inst = static_cast<Instance*>(t->user_data);
+    Instance* inst = static_cast<Instance*>(lv_timer_get_user_data(t));
     if (!inst || !inst->root) return;
 
     const bool vu = config.store.vumeter;

@@ -242,7 +242,11 @@ static void wx_format_hero_date(char* buf, size_t cap, const struct tm* tm, lv_c
 
     const lv_font_t* cap_font = static_cast<const lv_font_t*>(k_font_caption);
     if (max_text_w > 0) {
-        const lv_coord_t fw = lv_txt_get_width(full, strlen(full), cap_font, 0, LV_TEXT_FLAG_NONE);
+        // BASE-LVGL9-MIGRATION C7: lv_txt_get_width's v8-compat alias target (lv_text_get_width)
+        // is a private v9 API; use the public lv_text_get_size (unwrapped: max_width=LV_COORD_MAX).
+        lv_point_t full_sz;
+        lv_text_get_size(&full_sz, full, cap_font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        const lv_coord_t fw = full_sz.x;
         if (fw > max_text_w) {
             wx_format_checked(buf, cap, today,
                               i18n::text(i18n::TextId::WeatherHeroDateCompactFormat),
@@ -908,9 +912,11 @@ static void wx_footer_maybe_add_trailing_sep(char* buf, size_t cap, lv_obj_t* la
     const lv_coord_t letter_space = lv_obj_get_style_text_letter_space(label, LV_PART_MAIN);
     const lv_coord_t avail = lv_obj_get_content_width(label);
     if (avail <= 0) return;  // layout not yet valid — skip, no trailing sep
-    const size_t len = strlen(buf);
-    const lv_coord_t text_w = lv_txt_get_width(
-        buf, static_cast<uint32_t>(len), font, letter_space, LV_TEXT_FLAG_NONE);
+    // BASE-LVGL9-MIGRATION C7: see wx_format_hero_date — public lv_text_get_size replaces the
+    // private-API-only lv_txt_get_width compat alias target.
+    lv_point_t text_sz;
+    lv_text_get_size(&text_sz, buf, font, letter_space, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    const lv_coord_t text_w = text_sz.x;
     if (text_w > avail) {
         wx_append_complete(buf, cap, kStrFooterSep);
     }

@@ -14,7 +14,7 @@
 
 // Pointer indev for LVGL; read_cb runs from lv_timer_handler() on DspTask (Core 0).
 // Pointer indev; read_cb из lv_timer_handler() на DspTask.
-static lv_indev_drv_t s_touch_indev_drv;
+// BASE-LVGL9-MIGRATION C3: no lv_indev_drv_t in LVGL 9 — lv_indev_t is created/configured directly.
 static lv_indev_t* s_touch_indev = nullptr;
 
 #if (TS_MODEL!=TS_MODEL_UNDEFINED)
@@ -111,8 +111,8 @@ static void lv_touch_debug_on_feed(bool raw_down, uint16_t x, uint16_t y, lv_ind
 }
 #endif
 
-static void lv_touch_read_cb(lv_indev_drv_t* drv, lv_indev_data_t* data) {
-    (void)drv;
+static void lv_touch_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
+    (void)indev;
 #if (TS_MODEL!=TS_MODEL_UNDEFINED)
     static bool s_prev_touch_down = false;
     uint16_t x = 0;
@@ -190,14 +190,15 @@ void lvgl_ui::initTouchIndev() {
     if (s_touch_indev) {
         return;
     }
-    if (!lv_disp_get_default()) {
+    if (!lv_display_get_default()) {
         return;
     }
 #if (TS_MODEL!=TS_MODEL_UNDEFINED)
-    lv_indev_drv_init(&s_touch_indev_drv);
-    s_touch_indev_drv.type = LV_INDEV_TYPE_POINTER;
-    s_touch_indev_drv.read_cb = lv_touch_read_cb;
-    s_touch_indev = lv_indev_drv_register(&s_touch_indev_drv);
-    (void)s_touch_indev;
+    s_touch_indev = lv_indev_create();
+    if (!s_touch_indev) {
+        return;
+    }
+    lv_indev_set_type(s_touch_indev, LV_INDEV_TYPE_POINTER);
+    lv_indev_set_read_cb(s_touch_indev, lv_touch_read_cb);
 #endif
 }

@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Size: 24 px
  * Bpp: 4
- * Opts: --font G:\Github\Yoradio_RGB_Panel-1\.fontwork\tabler-stripped.ttf --size 24 --bpp 4 --format lvgl --no-compress -o src\src\lvgl_ui\fonts\lv_font_yora_wifi_flow_icons_24.c -r 0xEA61 -r 0xEA6B -r 0xEAE1-0xEAE2 -r 0xEB52 -r 0xEB6B -r 0xEBA3-0xEBA5 -r 0xECFA --lv-include lvgl.h
+ * Opts: --font G:\Github\Yoradio_RGB_Panel-1\tools\fonts\tabler-stripped.ttf --size 24 --bpp 4 --format lvgl --no-compress -o src\src\lvgl_ui\fonts\lv_font_yora_wifi_flow_icons_24.c -r 0xEA61 -r 0xEA6B -r 0xEAE1-0xEAE2 -r 0xEB52 -r 0xEB6B -r 0xEBA3-0xEBA5 -r 0xECFA --lv-include lvgl.h
  ******************************************************************************/
 
 #ifdef LV_LVGL_H_INCLUDE_SIMPLE
@@ -81,7 +81,7 @@ static LV_ATTRIBUTE_LARGE_CONST const uint8_t glyph_bitmap[] = {
     0xef, 0x10, 0x0, 0x3, 0x20, 0x0, 0x0, 0xff,
     0xef, 0x10, 0x0, 0x9f, 0xf9, 0x0, 0x0, 0xff,
     0xef, 0x10, 0x0, 0xef, 0xff, 0x0, 0x0, 0xff,
-    0xef, 0x10, 0x0, 0x7f, 0xf9, 0x0, 0x0, 0xff,
+    0xef, 0x10, 0x0, 0x8f, 0xf9, 0x0, 0x0, 0xff,
     0xef, 0x10, 0x0, 0x2, 0x10, 0x0, 0x0, 0xff,
     0xdf, 0x30, 0x0, 0x0, 0x0, 0x0, 0x2, 0xfe,
     0x9f, 0xec, 0xcc, 0xcc, 0xcc, 0xcc, 0xce, 0xfa,
@@ -245,9 +245,12 @@ static const lv_font_fmt_txt_cmap_t cmaps[] =
  *  ALL CUSTOM DATA
  *--------------------*/
 
-#if LV_VERSION_CHECK(8, 0, 0)
+#if LVGL_VERSION_MAJOR == 8
 /*Store all the custom data of the font*/
 static  lv_font_fmt_txt_glyph_cache_t cache;
+#endif
+
+#if LVGL_VERSION_MAJOR >= 8
 static const lv_font_fmt_txt_dsc_t font_dsc = {
 #else
 static lv_font_fmt_txt_dsc_t font_dsc = {
@@ -261,10 +264,11 @@ static lv_font_fmt_txt_dsc_t font_dsc = {
     .bpp = 4,
     .kern_classes = 0,
     .bitmap_format = 0,
-#if LV_VERSION_CHECK(8, 0, 0)
+#if LVGL_VERSION_MAJOR == 8
     .cache = &cache
 #endif
 };
+
 
 
 /*-----------------
@@ -272,7 +276,7 @@ static lv_font_fmt_txt_dsc_t font_dsc = {
  *----------------*/
 
 /*Initialize a public general font descriptor*/
-#if LV_VERSION_CHECK(8, 0, 0)
+#if LVGL_VERSION_MAJOR >= 8
 const lv_font_t lv_font_yora_wifi_flow_icons_24 = {
 #else
 lv_font_t lv_font_yora_wifi_flow_icons_24 = {
@@ -288,7 +292,11 @@ lv_font_t lv_font_yora_wifi_flow_icons_24 = {
     .underline_position = 0,
     .underline_thickness = 0,
 #endif
-    .dsc = &font_dsc           /*The custom font data. Will be accessed by `get_glyph_bitmap/dsc` */
+    .dsc = &font_dsc,          /*The custom font data. Will be accessed by `get_glyph_bitmap/dsc` */
+#if LV_VERSION_CHECK(8, 2, 0) || LVGL_VERSION_MAJOR >= 9
+    .fallback = NULL,
+#endif
+    .user_data = NULL,
 };
 
 

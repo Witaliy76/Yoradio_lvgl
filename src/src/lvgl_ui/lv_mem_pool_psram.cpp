@@ -1,10 +1,10 @@
 /**
  * @file lv_mem_pool_psram.cpp
- * One-shot PSRAM backing for LVGL built-in TLSF pool (LV_MEM_CUSTOM=0 path).
- * One-shot PSRAM backing для встроенного TLSF pool LVGL (путь LV_MEM_CUSTOM=0).
+ * One-shot PSRAM backing for LVGL built-in TLSF pool (LV_USE_STDLIB_MALLOC=LV_STDLIB_BUILTIN path).
+ * One-shot PSRAM backing для встроенного TLSF pool LVGL (путь LV_USE_STDLIB_MALLOC=LV_STDLIB_BUILTIN).
  *
- * LVGL 8.3 has no LV_MEM_POOL_FREE; backing block has process lifetime.
- * В LVGL 8.3 нет LV_MEM_POOL_FREE; backing block живёт весь процесс.
+ * LVGL 9.5 (like 8.3) has no LV_MEM_POOL_FREE; backing block has process lifetime.
+ * В LVGL 9.5 (как и в 8.3) нет LV_MEM_POOL_FREE; backing block живёт весь процесс.
  */
 // Author: Witaliy76 - https://github.com/Witaliy76
 #include "lv_mem_pool_psram.h"

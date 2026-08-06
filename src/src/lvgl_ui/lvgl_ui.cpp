@@ -11,9 +11,6 @@
 #include <cstdarg>
 
 #include "lvgl.h"
-#if LV_USE_PERF_MONITOR
-#include <cstring>
-#endif
 #include "esp_timer.h"
 #include "Arduino.h"
 #include "lv_page_chain.h"
@@ -206,10 +203,10 @@ static void lvgl_tick_cb(void *arg) {
 static esp_timer_handle_t s_lv_tick_timer = nullptr;
 
 // LVGL display driver state / Состояние драйвера дисплея LVGL
-static lv_disp_draw_buf_t s_disp_draw_buf;
-static lv_color_t*        s_disp_buf1 = nullptr;
-static lv_disp_drv_t      s_disp_drv;
-static lv_disp_t*         s_disp = nullptr;
+// BASE-LVGL9-MIGRATION C2: lv_disp_draw_buf_t / lv_disp_drv_t removed in LVGL 9 — a single
+// lv_display_t owns buffer + flush registration now (lv_display_create/set_buffers/set_flush_cb).
+static uint8_t*       s_disp_buf1 = nullptr;
+static lv_display_t*  s_disp = nullptr;
 
 #if DSP_MODEL == DSP_ST7701
 // Block 8-E5: partial PSRAM stripe height for diag (0 until initDisplayDriver).
@@ -225,10 +222,12 @@ static uint32_t s_lvgl_last_flush_ms = 0;
 #if DSP_MODEL == DSP_ST7701
 // Block 8-E3/E17/E18C (4848S040): LVGL → output_display directly; no Arduino_Canvas on product path.
 // Block 8-E3/E17/E18C: LVGL → output_display; Canvas снят (E17), legacy dirty flush отключён (E18C).
-static void lvgl_flush_direct_panel(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *color_p) {
+// BASE-LVGL9-MIGRATION C2: flush_cb signature is now (lv_display_t*, area, uint8_t* px_map);
+// px_map cast to uint16_t* only at this hardware boundary (RGB565, no byte swap).
+static void lvgl_flush_direct_panel(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
     Arduino_G* panel_g = dsp.getOutputDisplay();
-    if (!panel_g || !color_p || !area) {
-        lv_disp_flush_ready(drv);
+    if (!panel_g || !px_map || !area) {
+        lv_display_flush_ready(disp);
         return;
     }
     Arduino_GFX* panel = static_cast<Arduino_GFX*>(panel_g);
@@ -238,14 +237,14 @@ static void lvgl_flush_direct_panel(lv_disp_drv_t *drv, const lv_area_t *area, l
     int32_t x2 = area->x2;
     int32_t y2 = area->y2;
     if (x2 < x1 || y2 < y1) {
-        lv_disp_flush_ready(drv);
+        lv_display_flush_ready(disp);
         return;
     }
 
-    const int32_t hor = static_cast<int32_t>(drv->hor_res);
-    const int32_t ver = static_cast<int32_t>(drv->ver_res);
+    const int32_t hor = lv_display_get_horizontal_resolution(disp);
+    const int32_t ver = lv_display_get_vertical_resolution(disp);
     if (x1 >= hor || y1 >= ver) {
-        lv_disp_flush_ready(drv);
+        lv_display_flush_ready(disp);
         return;
     }
     if (x2 >= hor) x2 = hor - 1;
@@ -254,7 +253,7 @@ static void lvgl_flush_direct_panel(lv_disp_drv_t *drv, const lv_area_t *area, l
     const int32_t w = x2 - x1 + 1;
     const int32_t h = y2 - y1 + 1;
     const int32_t src_stride = area->x2 - area->x1 + 1;
-    uint16_t* px = reinterpret_cast<uint16_t*>(color_p);
+    uint16_t* px = reinterpret_cast<uint16_t*>(px_map);
     if (x1 != area->x1 || y1 != area->y1) {
         px += static_cast<int32_t>(y1 - area->y1) * src_stride + (x1 - area->x1);
     }
@@ -268,21 +267,21 @@ static void lvgl_flush_direct_panel(lv_disp_drv_t *drv, const lv_area_t *area, l
     s_lvgl_last_flush_ms = millis();
     lvgl_ui::recordLvglDirectPanelFlush();
 
-    lv_disp_flush_ready(drv);
+    lv_display_flush_ready(disp);
 }
 #endif
 
 // Flush callback: LVGL product path → output_display direct only (E5C). Canvas fallback removed (E18D).
 // Flush callback: только прямой вывод на panel (E5C); Canvas fallback удалён (E18D).
-static void lvgl_flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *color_p) {
+static void lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
 #if DSP_MODEL == DSP_ST7701
-    lvgl_flush_direct_panel(drv, area, color_p);
+    lvgl_flush_direct_panel(disp, area, px_map);
 #else
     // Non-ST7701 envs: legacy Canvas LVGL flush not supported on this fork (E18D).
     // Иные env: Canvas LVGL flush не поддерживается на этом форке (E18D).
     (void)area;
-    (void)color_p;
-    lv_disp_flush_ready(drv);
+    (void)px_map;
+    lv_display_flush_ready(disp);
 #endif
 }
 
@@ -292,60 +291,6 @@ static bool lvgl_page_refresh_allowed() {
     const displayMode_e m = display.mode();
     return m != SCREENBLANK && m != SCREENSAVER && m != WIFI;
 }
-
-#if LV_USE_PERF_MONITOR
-// Stock LVGL perf label: TOP_RIGHT + auto width → we pin left of a fixed box + right text (no digit jump).
-// Встроенный perf label: фикс. ширина + текст справа — левый край блока не смещается при 4%↔10% CPU.
-static constexpr lv_coord_t kLvglPerfMonitorLabelW = 76; // fits "50 FPS\n100% CPU" / под двузначные FPS/CPU
-
-// Stage 6.6R-GB2: cached perf-label so theme switches can recolor it without rescanning sys layer.
-// Этап 6.6R-GB2: кэш perf-label — перекраска при смене темы без повторного скана sys-слоя.
-static lv_obj_t* s_perf_label = nullptr;
-
-// Apply theme-aware text color to the debug perf overlay (transparent bg → text must read on any theme).
-// Light → graphite text_primary; Dark/Custom-dark → their light text_primary. Always readable by palette design.
-// Тема-зависимый цвет текста debug-оверлея: на Light графит, на Dark светлый — по палитре всегда читаемо.
-static void applyPerfMonitorThemeTextColor() {
-    if (!s_perf_label) return;
-    lv_obj_set_style_text_color(s_perf_label, yoradio_palette().text_primary, LV_PART_MAIN);
-}
-
-static void repositionBuiltinLvglPerfMonitorOnce() {
-    static bool s_done = false;
-    if (s_done) return;
-    lv_obj_t* sys = lv_layer_sys();
-    if (!sys) return;
-    const uint32_t n = lv_obj_get_child_cnt(sys);
-    for (uint32_t i = 0; i < n; ++i) {
-        lv_obj_t* ch = lv_obj_get_child(sys, i);
-        if (!ch || lv_obj_get_class(ch) != &lv_label_class) continue;
-        const char* txt = lv_label_get_text(ch);
-        if (!txt || std::strstr(txt, "FPS") == nullptr) continue;
-
-        lv_disp_t* d = lv_disp_get_default();
-        const lv_coord_t w =
-            d ? static_cast<lv_coord_t>(lv_disp_get_hor_res(d)) : static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.width);
-        const lv_coord_t x_est = (w * 12) / 100;
-        const lv_coord_t x0   = x_est > 40 ? x_est : 40;
-
-        lv_obj_set_width(ch, kLvglPerfMonitorLabelW);
-        lv_obj_set_style_text_align(ch, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
-        lv_label_set_long_mode(ch, LV_LABEL_LONG_CLIP);
-        lv_obj_align(ch, LV_ALIGN_TOP_LEFT, x0, 2);
-        // Stage 6.6R-GB1: perf monitor is a debug overlay — drop its default grey pill so it does not
-        // clash with the Light theme. Background stays transparent.
-        // 6.6R-GB1: убираем серую подложку debug-оверлея — фон прозрачный.
-        lv_obj_set_style_bg_opa(ch, LV_OPA_TRANSP, LV_PART_MAIN);
-        lv_obj_set_style_border_width(ch, 0, LV_PART_MAIN);
-        // Stage 6.6R-GB2: theme-aware text color (white default washed out on Light ivory).
-        // 6.6R-GB2: тема-зависимый цвет текста (белый сливался на Light).
-        s_perf_label = ch;
-        applyPerfMonitorThemeTextColor();
-        s_done = true;
-        break;
-    }
-}
-#endif
 
 void lvgl_ui::refreshInfoScreen() {
     if (!lvgl_page_refresh_allowed()) return;
@@ -422,11 +367,6 @@ void lvgl_ui::onCustomThemeFileUpdated() {
         screensaverHide();
         screensaverShow();
     }
-#if LV_USE_PERF_MONITOR
-    // 6.6R-GB2: Custom (file) may change text_primary → refresh perf overlay color.
-    // 6.6R-GB2: Custom-файл мог изменить text_primary → обновить цвет perf-оверлея.
-    applyPerfMonitorThemeTextColor();
-#endif
     // WebUI acknowledgement is published only after the active Custom UI is reapplied.
     // Ack для WebUI публикуется только после полного reapply активного Custom UI.
     yoradio_theme_mark_custom_reload_complete();
@@ -463,12 +403,6 @@ void lvgl_ui::onThemePresetChanged(uint8_t preset_id) {
         screensaverHide();
         screensaverShow();
     }
-
-#if LV_USE_PERF_MONITOR
-    // 6.6R-GB2: keep debug perf overlay text readable after theme switch.
-    // 6.6R-GB2: сохранить читаемость текста debug-оверлея после смены темы.
-    applyPerfMonitorThemeTextColor();
-#endif
 }
 
 // Stage 0: stub — confirms LVGL library is compiled into the build
@@ -515,50 +449,50 @@ void lvgl_ui::initDisplayDriver(uint16_t hor_res, uint16_t ver_res) {
     if (s_disp) return;
     if (hor_res == 0 || ver_res == 0) return;
 
+    // BASE-LVGL9-MIGRATION C2: lv_display_t owns buffer + flush registration directly —
+    // no separate lv_disp_draw_buf_t / lv_disp_drv_t. E5C topology unchanged: one PSRAM buffer.
 #if DSP_MODEL == DSP_ST7701
     // Block 8-E5B (4848S040): partial stripe 480×160 (was 80 in 8-E5A); 3 full-screen chunks.
     // Block 8-E5B: полоса 160 строк — тест chunk count для переходов/Station (без UI redesign).
     constexpr uint32_t kPartialLines = 160;
-    const uint32_t px_count = static_cast<uint32_t>(hor_res) * kPartialLines;
+    const uint32_t buf_bytes = static_cast<uint32_t>(hor_res) * kPartialLines * sizeof(uint16_t);
     s_disp_buf_partial_h = static_cast<uint16_t>(kPartialLines);
-    s_disp_buf1 = static_cast<lv_color_t*>(ps_malloc(px_count * sizeof(lv_color_t)));
+    s_disp_buf1 = static_cast<uint8_t*>(ps_malloc(buf_bytes));
     if (!s_disp_buf1) {
         s_disp_buf_partial_h = 0;
         Serial.println("[LVGL] partial draw buffer PSRAM alloc failed, LVGL display disabled");
         return;
     }
-    lv_disp_draw_buf_init(&s_disp_draw_buf, s_disp_buf1, nullptr, px_count);
+
+    s_disp = lv_display_create(hor_res, ver_res);
+    if (!s_disp) {
+        Serial.println("[LVGL] lv_display_create failed, LVGL display disabled");
+        return;
+    }
+    lv_display_set_color_format(s_disp, LV_COLOR_FORMAT_RGB565);
+    lv_display_set_flush_cb(s_disp, lvgl_flush_cb);
+    lv_display_set_buffers(s_disp, s_disp_buf1, nullptr, buf_bytes, LV_DISPLAY_RENDER_MODE_PARTIAL);
 #else
-    // Full-frame draw buffer + full_refresh: partial stripes on a shared Arduino_Canvas caused
-    // visible “black rectangles” / tearing during Boot→Main (M0 Canvas path; not ST7701 post-8-E3).
-    // Полный кадр + full_refresh: на старом Canvas-пути полосы давали артефакты (не ST7701 после 8-E3).
-    const uint32_t lines = ver_res;
-    const uint32_t px_count = static_cast<uint32_t>(hor_res) * lines;
-    s_disp_buf1 = static_cast<lv_color_t*>(ps_malloc(px_count * sizeof(lv_color_t)));
+    // Full-frame draw buffer + FULL render mode: partial stripes on a shared Arduino_Canvas caused
+    // visible "black rectangles" / tearing during Boot->Main (M0 Canvas path; not ST7701 post-8-E3).
+    // Полный кадр + FULL: на старом Canvas-пути полосы давали артефакты (не ST7701 после 8-E3).
+    const uint32_t buf_bytes = static_cast<uint32_t>(hor_res) * ver_res * sizeof(uint16_t);
+    s_disp_buf1 = static_cast<uint8_t*>(ps_malloc(buf_bytes));
     if (!s_disp_buf1) {
         Serial.println("[LVGL] draw buffer PSRAM alloc failed, LVGL display disabled");
         return;
     }
-    lv_disp_draw_buf_init(&s_disp_draw_buf, s_disp_buf1, nullptr, px_count);
-#endif
 
-    lv_disp_drv_init(&s_disp_drv);
-    s_disp_drv.hor_res = hor_res;
-    s_disp_drv.ver_res = ver_res;
-    s_disp_drv.flush_cb = lvgl_flush_cb;
-    s_disp_drv.draw_buf = &s_disp_draw_buf;
-#if DSP_MODEL == DSP_ST7701
-    s_disp_drv.full_refresh = 0;
-#else
-    s_disp_drv.full_refresh = 1;
-#endif
-    s_disp_drv.direct_mode = 0;
-
-    s_disp = lv_disp_drv_register(&s_disp_drv);
+    s_disp = lv_display_create(hor_res, ver_res);
     if (!s_disp) {
-        Serial.println("[LVGL] lv_disp_drv_register failed, LVGL display disabled");
+        Serial.println("[LVGL] lv_display_create failed, LVGL display disabled");
         return;
     }
+    lv_display_set_color_format(s_disp, LV_COLOR_FORMAT_RGB565);
+    lv_display_set_flush_cb(s_disp, lvgl_flush_cb);
+    lv_display_set_buffers(s_disp, s_disp_buf1, nullptr, buf_bytes, LV_DISPLAY_RENDER_MODE_FULL);
+#endif
+
     // Stage 6.6A: LVGL base theme + YoRadio palette — single init point after valid display.
     // Этап 6.6A: базовая тема LVGL + палитра YoRadio — одна точка после валидного дисплея.
     yoradio_theme_init(s_disp);
@@ -571,9 +505,6 @@ void lvgl_ui::taskHandler() {
     // Poll after lv_timer_handler so we read the just-processed indev state.
     // После lv_timer_handler — читаем свежеобработанное состояние indev.
     poll_top_edge_swipe();
-#if LV_USE_PERF_MONITOR
-    repositionBuiltinLvglPerfMonitorOnce();
-#endif
 }
 
 // 8-E19B: createTestOverlay triggers initial PageChain registration (DspTask / init only).
@@ -946,24 +877,29 @@ size_t lvgl_ui::appendDisplayDiag(char* out, size_t len, size_t offset, bool* tr
     append_line("lvgl.mem.used_pct: %u\n", (unsigned)mon.used_pct);
     append_line("lvgl.mem.frag_pct: %u\n", (unsigned)mon.frag_pct);
 
-    append_line("lvgl.flush.full_refresh: %d\n", s_disp_drv.full_refresh ? 1 : 0);
-    append_line("lvgl.flush.direct_mode: %d\n", s_disp_drv.direct_mode ? 1 : 0);
+    // BASE-LVGL9-MIGRATION C2: no lv_disp_drv_t.full_refresh/direct_mode fields in v9 — derive the
+    // same diag keys from lv_display_get_render_mode() so the diag text contract is unchanged.
+    const lv_display_render_mode_t render_mode = lv_display_get_render_mode(s_disp);
+    append_line("lvgl.flush.full_refresh: %d\n", render_mode == LV_DISPLAY_RENDER_MODE_FULL ? 1 : 0);
+    append_line("lvgl.flush.direct_mode: %d\n", render_mode == LV_DISPLAY_RENDER_MODE_DIRECT ? 1 : 0);
 #if DSP_MODEL == DSP_ST7701
     append_line("lvgl.flush_target: output_display_direct\n");
 #else
     append_line("lvgl.flush_target: canvas_mark_dirty\n");
 #endif
-    if (s_disp_buf1 && s_disp_drv.hor_res > 0) {
+    const int32_t disp_hor_res = lv_display_get_horizontal_resolution(s_disp);
+    const int32_t disp_ver_res = lv_display_get_vertical_resolution(s_disp);
+    if (s_disp_buf1 && disp_hor_res > 0) {
 #if DSP_MODEL == DSP_ST7701
         if (s_disp_buf_partial_h > 0) {
             append_line("lvgl.draw_buf: partial_psram_single (%ux%u)\n",
-                        (unsigned)s_disp_drv.hor_res, (unsigned)s_disp_buf_partial_h);
+                        (unsigned)disp_hor_res, (unsigned)s_disp_buf_partial_h);
         } else {
             append_line("lvgl.draw_buf: partial_psram_single (uninitialized)\n");
         }
 #else
         append_line("lvgl.draw_buf: full_frame_psram_single (%ux%u)\n",
-                    (unsigned)s_disp_drv.hor_res, (unsigned)s_disp_drv.ver_res);
+                    (unsigned)disp_hor_res, (unsigned)disp_ver_res);
 #endif
     } else {
         append_line("lvgl.draw_buf: unknown\n");

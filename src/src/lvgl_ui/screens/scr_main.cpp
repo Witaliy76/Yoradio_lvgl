@@ -44,6 +44,7 @@
 #include "../../core/network.h"
 #include "../../core/player.h"
 #include "../../core/art_key.h"  // Station Art MVP: artNormalizeKey()
+#include "../lv_img_disk_header.h"
 #include <LittleFS.h>
 
 namespace lvgl_ui {
@@ -384,28 +385,39 @@ static void vol_popup_update_position(lv_obj_t* popup, lv_obj_t* bar, int32_t vo
 // Background helpers / Вспомогательные функции фона
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Load a .bin (4-byte lv_img_header_t + RGB565 pixels) from LittleFS into PSRAM.
+// Load a .bin (4-byte on-disk header + RGB565 pixels) from LittleFS into PSRAM.
 // On success: out_buf is ps_malloc'd buffer, out_dsc is ready for lv_img_set_src().
 // Caller owns out_buf and must free() it.
 // Загрузить .bin из LittleFS в PSRAM; out_buf — ps_malloc, освобождать через free().
+// BASE-LVGL9-MIGRATION C5: the on-disk header is still the YoRadio 4-byte v8 packed layout
+// (unchanged); translate it into the LVGL 9 12-byte lv_image_header_t via lv_img_disk_header.
 static bool bg_load_into_psram(const char* fs_path, uint8_t*& out_buf, lv_img_dsc_t& out_dsc) {
     out_buf = nullptr;
     File f = LittleFS.open(fs_path, "r");
     if (!f) return false;
 
     const size_t file_sz = static_cast<size_t>(f.size());
-    if (file_sz <= sizeof(lv_img_header_t)) {
+    if (file_sz <= 4) {
         f.close();
         return false;
     }
 
-    lv_img_header_t hdr;
-    if (f.read(reinterpret_cast<uint8_t*>(&hdr), sizeof(hdr)) != sizeof(hdr)) {
+    uint8_t hdr_raw[4];
+    if (f.read(hdr_raw, sizeof(hdr_raw)) != sizeof(hdr_raw)) {
         f.close();
         return false;
     }
 
-    const uint32_t data_size = static_cast<uint32_t>(file_sz - sizeof(hdr));
+    ImgDiskHeader disk_hdr;
+    imgDiskHeaderParse(hdr_raw, disk_hdr);
+    lv_image_header_t lv_hdr;
+    if (!imgDiskHeaderToLvHeader(disk_hdr, lv_hdr)) {
+        f.close();
+        Serial.printf("[BG] unsupported on-disk cf=%u for %s\n", (unsigned)disk_hdr.cf, fs_path);
+        return false;
+    }
+
+    const uint32_t data_size = static_cast<uint32_t>(file_sz - sizeof(hdr_raw));
     uint8_t* buf = static_cast<uint8_t*>(ps_malloc(data_size));
     if (!buf) {
         f.close();
@@ -423,7 +435,7 @@ static bool bg_load_into_psram(const char* fs_path, uint8_t*& out_buf, lv_img_ds
     }
 
     out_buf           = buf;
-    out_dsc.header    = hdr;
+    out_dsc.header    = lv_hdr;
     out_dsc.data_size = data_size;
     out_dsc.data      = buf;
 
@@ -583,7 +595,7 @@ static void vol_touch_cb(lv_event_t* e) {
     lv_event_code_t code = lv_event_get_code(e);
     LvglMainScreen* self = static_cast<LvglMainScreen*>(lv_event_get_user_data(e));
     if (!self) return;
-    lv_obj_t* touch_zone = lv_event_get_target(e);
+    lv_obj_t* touch_zone = lv_event_get_target_obj(e);
     lv_obj_t* bar = static_cast<lv_obj_t*>(lv_obj_get_user_data(touch_zone));
     if (!bar) return;
     lv_obj_t* popup = static_cast<lv_obj_t*>(lv_obj_get_user_data(bar));
@@ -1065,7 +1077,8 @@ void LvglMainScreen::create_bottom_zone(LvglMainScreen& self, const YoRadioPalet
                     lv_grad_dsc_t* const gd = &s_cb_rim_glow_grad[gi];
                     std::memset(gd, 0, sizeof(*gd));
                     gd->dir = LV_GRAD_DIR_HOR;
-                    gd->dither = LV_DITHER_NONE;
+                    // BASE-LVGL9-MIGRATION C7: lv_grad_dsc_t.dither / LV_DITHER_NONE removed in v9
+                    // (no per-gradient dither toggle; memset above already zero-inits the struct).
                     gd->stops_count = 4;
                     gd->stops[0].frac = 0;
                     gd->stops[1].frac = 108; // peak left of centre — long gentle falloff to the right / длинный спад вправо

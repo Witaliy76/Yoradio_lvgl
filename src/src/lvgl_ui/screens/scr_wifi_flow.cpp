@@ -608,7 +608,7 @@ static LvglWifiFlowScreen* wifi_flow_self_from_event(lv_event_t* e) {
 // WIFIREF-D2: Timer adapter — screen instance from lv_timer user_data (baseline cast only).
 // WIFIREF-D2: адаптер таймера — instance экрана из user_data таймера.
 static LvglWifiFlowScreen* wifi_flow_self_from_timer(lv_timer_t* t) {
-    return static_cast<LvglWifiFlowScreen*>(t->user_data);
+    return static_cast<LvglWifiFlowScreen*>(lv_timer_get_user_data(t));
 }
 
 // Local action-row baseline: transparent flex ROW, given column gap.
@@ -2699,7 +2699,7 @@ void LvglWifiFlowScreen::on_keyboard_event(lv_event_t* e) {
 
 void LvglWifiFlowScreen::on_scan_row_click(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    lv_obj_t* tgt = lv_event_get_target(e);
+    lv_obj_t* tgt = lv_event_get_target_obj(e);
     lv_obj_t* o   = tgt;
     while (o && lv_obj_get_user_data(o) == nullptr) {
         o = lv_obj_get_parent(o);
@@ -2724,7 +2724,7 @@ void LvglWifiFlowScreen::on_scan_row_click(lv_event_t* e) {
 // Wi-Fi 6B: тап по строке сохранённой сети — открыть Saved Network panel.
 void LvglWifiFlowScreen::on_saved_row_click(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    lv_obj_t* tgt = lv_event_get_target(e);
+    lv_obj_t* tgt = lv_event_get_target_obj(e);
     lv_obj_t* o   = tgt;
     // Climb from child label to the list row button that holds user_data / поднимаемся до кнопки со slot+1.
     while (o && lv_obj_get_user_data(o) == nullptr) {

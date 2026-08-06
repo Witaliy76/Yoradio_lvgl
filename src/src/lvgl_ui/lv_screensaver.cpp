@@ -14,6 +14,7 @@
 
 #include "assets/ssclk_production_asset_pack.h"
 #include "lvgl.h"
+#include "lv_img_disk_header.h"
 #include "profiles/lv_profile_select.h"
 #include "theme/lv_theme_yoradio.h"
 #include "../core/network.h"
@@ -64,7 +65,7 @@ static constexpr uint32_t kSsclkBgPixelBytes = 480u * 480u * 2u;
 struct SsclkBgCache {
     char         path[64] = {};
     uint8_t*     data     = nullptr;
-    lv_img_header_t hdr   = {};
+    lv_image_header_t hdr = {};
     uint32_t     data_size = 0;
     bool         valid    = false;
 };
@@ -198,29 +199,34 @@ static bool bgCacheLoadFromLittlefs(const char* fs_path) {
     }
 
     const size_t file_sz = static_cast<size_t>(f.size());
-    if (file_sz <= sizeof(lv_img_header_t)) {
+    if (file_sz <= 4) {
         f.close();
         Serial.printf("[SSCLK] file too small: %s (%u bytes)\n", fs_path, static_cast<unsigned>(file_sz));
         ssclkBgCacheInvalidate();
         return false;
     }
 
-    lv_img_header_t hdr;
-    if (f.read(reinterpret_cast<uint8_t*>(&hdr), sizeof(hdr)) != sizeof(hdr)) {
+    // BASE-LVGL9-MIGRATION C5: on-disk header still the YoRadio 4-byte v8 packed layout
+    // (unchanged); translate into the LVGL 9 12-byte lv_image_header_t via lv_img_disk_header.
+    uint8_t hdr_raw[4];
+    if (f.read(hdr_raw, sizeof(hdr_raw)) != sizeof(hdr_raw)) {
         f.close();
         Serial.printf("[SSCLK] header read failed: %s\n", fs_path);
         ssclkBgCacheInvalidate();
         return false;
     }
 
-    if (hdr.cf != LV_IMG_CF_TRUE_COLOR) {
+    ImgDiskHeader disk_hdr;
+    imgDiskHeaderParse(hdr_raw, disk_hdr);
+    lv_image_header_t hdr;
+    if (!imgDiskHeaderToLvHeader(disk_hdr, hdr) || hdr.cf != LV_COLOR_FORMAT_RGB565) {
         f.close();
-        Serial.printf("[SSCLK] unexpected CF=%u for %s\n", static_cast<unsigned>(hdr.cf), fs_path);
+        Serial.printf("[SSCLK] unexpected CF=%u for %s\n", static_cast<unsigned>(disk_hdr.cf), fs_path);
         ssclkBgCacheInvalidate();
         return false;
     }
 
-    const uint32_t data_size = static_cast<uint32_t>(file_sz - sizeof(hdr));
+    const uint32_t data_size = static_cast<uint32_t>(file_sz - sizeof(hdr_raw));
 
     if (data_size != kSsclkBgPixelBytes) {
         f.close();

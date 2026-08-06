@@ -32,6 +32,7 @@
 #include "../profiles/lv_profile_select.h"
 #include "../theme/lv_theme_yoradio.h"
 #include "../widgets/wgt_status_line.h"
+#include "../lv_img_disk_header.h"
 #include "lvgl_ui.h"
 
 namespace lvgl_ui {
@@ -252,6 +253,8 @@ static float hybrid_target_db(uint16_t short_peak,
 // Background helpers / Вспомогательные функции фона
 // ─────────────────────────────────────────────────────────────────────────────
 
+// BASE-LVGL9-MIGRATION C5: on-disk header still the YoRadio 4-byte v8 packed layout (unchanged);
+// translate into the LVGL 9 12-byte lv_image_header_t via lv_img_disk_header.
 static bool bg_load_into_psram(const char* fs_path, uint8_t*& out_buf, lv_img_dsc_t& out_dsc) {
     out_buf = nullptr;
     if (!fs_path || fs_path[0] == '\0') return false;
@@ -260,18 +263,27 @@ static bool bg_load_into_psram(const char* fs_path, uint8_t*& out_buf, lv_img_ds
     if (!f) return false;
 
     const size_t file_sz = static_cast<size_t>(f.size());
-    if (file_sz <= sizeof(lv_img_header_t)) {
+    if (file_sz <= 4) {
         f.close();
         return false;
     }
 
-    lv_img_header_t hdr;
-    if (f.read(reinterpret_cast<uint8_t*>(&hdr), sizeof(hdr)) != sizeof(hdr)) {
+    uint8_t hdr_raw[4];
+    if (f.read(hdr_raw, sizeof(hdr_raw)) != sizeof(hdr_raw)) {
         f.close();
         return false;
     }
 
-    const uint32_t data_size = static_cast<uint32_t>(file_sz - sizeof(hdr));
+    ImgDiskHeader disk_hdr;
+    imgDiskHeaderParse(hdr_raw, disk_hdr);
+    lv_image_header_t lv_hdr;
+    if (!imgDiskHeaderToLvHeader(disk_hdr, lv_hdr)) {
+        f.close();
+        Serial.printf("[VISUAL_BG] unsupported on-disk cf=%u for %s\n", (unsigned)disk_hdr.cf, fs_path);
+        return false;
+    }
+
+    const uint32_t data_size = static_cast<uint32_t>(file_sz - sizeof(hdr_raw));
     uint8_t* buf = static_cast<uint8_t*>(ps_malloc(data_size));
     if (!buf) {
         f.close();
@@ -289,7 +301,7 @@ static bool bg_load_into_psram(const char* fs_path, uint8_t*& out_buf, lv_img_ds
     }
 
     out_buf           = buf;
-    out_dsc.header    = hdr;
+    out_dsc.header    = lv_hdr;
     out_dsc.data_size = data_size;
     out_dsc.data      = buf;
 
@@ -477,7 +489,7 @@ void LvglVisualPage::create_ppm_timer(LvglVisualPage& self) {
 
 void LvglVisualPage::_ppmTimerCallback(lv_timer_t* timer) {
     if (!timer) return;
-    auto* self = static_cast<LvglVisualPage*>(timer->user_data);
+    auto* self = static_cast<LvglVisualPage*>(lv_timer_get_user_data(timer));
     if (self) self->_onPpmTimerTick();
 }
 

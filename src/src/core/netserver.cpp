@@ -1305,7 +1305,9 @@ namespace {
 
 static const char kBgTmpPath[] = "/bg/.upload_bg.tmp";
 
-// LVGL 8.x lv_img_header_t (4 bytes LE) / Заголовок изображения LVGL 8.x
+// YoRadio on-disk image header (4 bytes LE, unchanged since LVGL 8.x; BASE-LVGL9-MIGRATION keeps
+// this contract — see lv_img_disk_header.h for the LVGL 9 in-memory translation).
+// Заголовок изображения на диске (4 байта LE, не менялся с LVGL 8.x; контракт сохранён).
 static bool bgParseImgHeader(const uint8_t* b, uint8_t* outCf, uint16_t* outW, uint16_t* outH) {
   uint32_t v = (uint32_t)b[0] | ((uint32_t)b[1] << 8) | ((uint32_t)b[2] << 16) | ((uint32_t)b[3] << 24);
   uint8_t az = (uint8_t)((v >> 5) & 7u);

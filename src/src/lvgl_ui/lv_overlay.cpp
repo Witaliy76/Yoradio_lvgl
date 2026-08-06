@@ -6,6 +6,7 @@
 #include "lv_screensaver.h"
 
 #include "lvgl.h"
+#include <cstring>
 #include "profiles/lv_profile_select.h"
 #include "theme/lv_theme_yoradio.h"
 #include "../i18n/i18n.h"
