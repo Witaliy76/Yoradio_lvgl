@@ -76,8 +76,13 @@ bool formatLocalizedTextS(char* destination, size_t capacity,
 
 DspCore dsp;
 
+// BASE-LVGL9-MIGRATION EXEC-01B: raised 6 KiB -> 10 KiB for LVGL 9.
+// LVGL 9's software draw path is deeper than 8.3's: measured DspTask peak usage
+// during Main construction is ~6760 B, which overflowed the old 6144 B stack
+// (canary panic). 10240 B leaves ~3.4 KiB measured margin.
+// EXEC-01B: 6 KiB -> 10 KiB для LVGL 9 (пик ~6760 B при построении Main).
 #ifndef CORE_STACK_SIZE
-  #define CORE_STACK_SIZE  (1024*6)
+  #define CORE_STACK_SIZE  (1024*10)
 #endif
 #ifndef DSP_TASK_DELAY
   #define DSP_TASK_DELAY  pdMS_TO_TICKS(5)
