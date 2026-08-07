@@ -94,6 +94,16 @@ static bool preset_open_gesture_allowed() {
     return preset_carousel_slot_allowed(s_page_chain.currentIndex());
 }
 
+// EXEC-01D: pending carousel direction, applied from taskHandler() AFTER lv_timer_handler()
+// returns. LV_DIR_NONE = nothing pending. DspTask-owned only (set in the gesture callback,
+// consumed in taskHandler(), both on DspTask) — no queue/mutex/cross-task state.
+// One pending direction is sufficient and deterministic: the request is consumed on the very
+// same DspTask iteration that dispatched the gesture, so a second gesture cannot arrive in
+// between; a later gesture simply overwrites a (by then already consumed) slot.
+// EXEC-01D: отложенное направление карусели; применяется в taskHandler() ПОСЛЕ возврата из
+// lv_timer_handler(). Только DspTask — без очередей и мьютексов.
+static lv_dir_t s_deferred_carousel_dir = LV_DIR_NONE;
+
 // Horizontal carousel: direct mapping from LVGL gesture dir.
 // X normalization is now in lv_touch_read_cb — no per-board swap needed here.
 // Горизонтальная карусель: прямой маппинг из gesture dir (нормализация X теперь в lv_touch_read_cb).
@@ -128,7 +138,20 @@ static void carousel_gesture_event_cb(lv_event_t* e) {
     if (isLvglCarouselOnSettingsSlot() && s_settings_page.isSettingsDetailBlockingCarousel()) return;
 
     s_page_chain.onActivity();
-    map_horizontal_gesture_to_carousel(dir);
+    // EXEC-01D (BASE-LVGL9-MIGRATION): do NOT switch pages from inside LVGL's event dispatch.
+    // This callback is registered on the screen ROOT (see installCarouselGesturesOnPageRoot),
+    // and PageChain::goTo() ends in lv_scr_load_anim(..., auto_del=true) with ANIM_NONE/0/0,
+    // which makes LVGL synchronously lv_obj_delete() that same screen root while lv_event_send()
+    // is still iterating this root's event list. LVGL then frees the object's spec_attr — the
+    // block physically containing that event list — and the dispatch unwind releases the
+    // descriptor array a second time from a stale snapshot: a double free that corrupts the
+    // TLSF pool (surfacing later as StoreProhibited in insert_free_block).
+    // Defer instead: taskHandler() applies this once lv_timer_handler() has returned, i.e. the
+    // same out-of-dispatch lifecycle poll_top_edge_swipe() already uses safely for Preset.
+    // EXEC-01D: не переключаем страницу изнутри диспетчеризации событий LVGL — callback висит на
+    // КОРНЕ экрана, а goTo() синхронно удаляет этот же корень (auto_del) во время обхода его
+    // списка событий → double free и порча пула TLSF. Откладываем до taskHandler().
+    s_deferred_carousel_dir = dir;
     // Consume so child widgets don't receive click/SHORT_CLICKED for the same stroke.
     // Поглощаем, чтобы дочерние виджеты не получали click за тот же жест.
     lv_indev_wait_release(indev);
@@ -505,6 +528,17 @@ void lvgl_ui::taskHandler() {
     // Poll after lv_timer_handler so we read the just-processed indev state.
     // После lv_timer_handler — читаем свежеобработанное состояние indev.
     poll_top_edge_swipe();
+    // EXEC-01D: apply the carousel switch requested by carousel_gesture_event_cb. Placed after
+    // lv_timer_handler() so LVGL has completely finished dispatching the gesture event before
+    // PageChain::goTo() is allowed to delete the (formerly active) screen root. Clearing the
+    // request before the call keeps it consumed even if goTo() early-returns.
+    // EXEC-01D: применяем отложенное переключение карусели — уже вне диспетчеризации событий
+    // LVGL, поэтому goTo() может безопасно удалить прежний активный экран.
+    if (s_deferred_carousel_dir != LV_DIR_NONE) {
+        const lv_dir_t dir = s_deferred_carousel_dir;
+        s_deferred_carousel_dir = LV_DIR_NONE;
+        map_horizontal_gesture_to_carousel(dir);
+    }
 }
 
 // 8-E19B: createTestOverlay triggers initial PageChain registration (DspTask / init only).
