@@ -171,8 +171,13 @@ bool create(lv_obj_t* parent, Instance& out) {
         lv_label_set_long_mode(out.lbl_sleep_timer, LV_LABEL_LONG_CLIP);
         set_font_slot(out.lbl_sleep_timer, wx_temp_f);
         lv_obj_set_style_text_color(out.lbl_sleep_timer, pal.status_line_text, LV_PART_MAIN);
-        lv_obj_set_style_text_align(out.lbl_sleep_timer, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
-        lv_obj_align(out.lbl_sleep_timer, LV_ALIGN_RIGHT_MID, -76, 0);
+        // EXEC-01B-PERF: moved left (was RIGHT_MID -76) to the spot the sys-layer perf-monitor
+        // overlay vacated when that moved to the right of the clock; text now grows rightward
+        // away from the Wi‑Fi icon in col_left, so left-align replaces the old right-align.
+        // Перенесено влево (было RIGHT_MID -76) — на место, освобождённое perf-монитором;
+        // текст растёт вправо от иконки Wi‑Fi, поэтому выравнивание тоже сменено на левое.
+        lv_obj_set_style_text_align(out.lbl_sleep_timer, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
+        lv_obj_align(out.lbl_sleep_timer, LV_ALIGN_LEFT_MID, 76, 0);
         lv_obj_add_flag(out.lbl_sleep_timer, LV_OBJ_FLAG_HIDDEN);
     }
 

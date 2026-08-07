@@ -11,6 +11,9 @@
 #include <cstdarg>
 
 #include "lvgl.h"
+#if LV_USE_PERF_MONITOR
+#include <cstring>
+#endif
 #include "esp_timer.h"
 #include "Arduino.h"
 #include "lv_page_chain.h"
@@ -315,6 +318,68 @@ static bool lvgl_page_refresh_allowed() {
     return m != SCREENBLANK && m != SCREENSAVER && m != WIFI;
 }
 
+#if LV_USE_PERF_MONITOR
+// Stage EXEC-01B-PERF: positioned right of the status-line clock, not screen-left — v9's label text
+// ("NN FPS, NN% CPU" / "NN ms (NN | NN)") is wider than v8's two short lines, so the box now grows
+// dynamically to the right screen edge instead of using a fixed width (avoids left-side clipping).
+// Оверлей — справа от часов в статус-строке; ширина считается динамически до края экрана (v9-текст
+// шире v8), чтобы не обрезался слева, как при фиксированной ширине под старый формат.
+
+// Stage 6.6R-GB2: cached perf-label so theme switches can recolor it without rescanning sys layer.
+// Этап 6.6R-GB2: кэш perf-label — перекраска при смене темы без повторного скана sys-слоя.
+static lv_obj_t* s_perf_label = nullptr;
+
+// Apply theme-aware text color to the debug perf overlay (transparent bg → text must read on any theme).
+// Light → graphite text_primary; Dark/Custom-dark → their light text_primary. Always readable by palette design.
+// Тема-зависимый цвет текста debug-оверлея: на Light графит, на Dark светлый — по палитре всегда читаемо.
+static void applyPerfMonitorThemeTextColor() {
+    if (!s_perf_label) return;
+    lv_obj_set_style_text_color(s_perf_label, yoradio_palette().text_primary, LV_PART_MAIN);
+}
+
+static void repositionBuiltinLvglPerfMonitorOnce() {
+    static bool s_done = false;
+    if (s_done) return;
+    lv_obj_t* sys = lv_layer_sys();
+    if (!sys) return;
+    const uint32_t n = lv_obj_get_child_count(sys);
+    for (uint32_t i = 0; i < n; ++i) {
+        lv_obj_t* ch = lv_obj_get_child(sys, i);
+        if (!ch || lv_obj_get_class(ch) != &lv_label_class) continue;
+        const char* txt = lv_label_get_text(ch);
+        if (!txt || std::strstr(txt, "FPS") == nullptr) continue;
+
+        lv_display_t* d = lv_display_get_default();
+        const int32_t w =
+            d ? static_cast<int32_t>(lv_display_get_horizontal_resolution(d)) : static_cast<int32_t>(LV_ACTIVE_PROFILE.width);
+        // wgt_status_line centers the clock in the screen's middle third (status line = 3 equal flex
+        // columns), so the clock's right edge sits well left of screen-center + 40. Anchor there and
+        // grow to a right margin, so the box is "right of the clock" and never clips regardless of
+        // exact clock glyph width.
+        // Часы центрированы в средней трети статус-строки; их правый край — левее center+40. Бокс
+        // растёт до правого края экрана, поэтому не обрезается вне зависимости от ширины часов.
+        const int32_t x0    = (w / 2) + 40;
+        const int32_t box_w = w - x0 - 8;
+
+        lv_obj_set_width(ch, box_w > 0 ? box_w : LV_SIZE_CONTENT);
+        lv_obj_set_style_text_align(ch, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
+        lv_label_set_long_mode(ch, LV_LABEL_LONG_MODE_CLIP);
+        lv_obj_align(ch, LV_ALIGN_TOP_LEFT, x0, 2);
+        // Stage 6.6R-GB1: perf monitor is a debug overlay — drop its default grey pill so it does not
+        // clash with the Light theme. Background stays transparent.
+        // 6.6R-GB1: убираем серую подложку debug-оверлея — фон прозрачный.
+        lv_obj_set_style_bg_opa(ch, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_border_width(ch, 0, LV_PART_MAIN);
+        // Stage 6.6R-GB2: theme-aware text color (white default washed out on Light ivory).
+        // 6.6R-GB2: тема-зависимый цвет текста (белый сливался на Light).
+        s_perf_label = ch;
+        applyPerfMonitorThemeTextColor();
+        s_done = true;
+        break;
+    }
+}
+#endif
+
 void lvgl_ui::refreshInfoScreen() {
     if (!lvgl_page_refresh_allowed()) return;
     s_info_page.update();
@@ -390,6 +455,11 @@ void lvgl_ui::onCustomThemeFileUpdated() {
         screensaverHide();
         screensaverShow();
     }
+#if LV_USE_PERF_MONITOR
+    // 6.6R-GB2: Custom (file) may change text_primary → refresh perf overlay color.
+    // 6.6R-GB2: Custom-файл мог изменить text_primary → обновить цвет perf-оверлея.
+    applyPerfMonitorThemeTextColor();
+#endif
     // WebUI acknowledgement is published only after the active Custom UI is reapplied.
     // Ack для WebUI публикуется только после полного reapply активного Custom UI.
     yoradio_theme_mark_custom_reload_complete();
@@ -426,6 +496,12 @@ void lvgl_ui::onThemePresetChanged(uint8_t preset_id) {
         screensaverHide();
         screensaverShow();
     }
+
+#if LV_USE_PERF_MONITOR
+    // 6.6R-GB2: keep debug perf overlay text readable after theme switch.
+    // 6.6R-GB2: сохранить читаемость текста debug-оверлея после смены темы.
+    applyPerfMonitorThemeTextColor();
+#endif
 }
 
 // Stage 0: stub — confirms LVGL library is compiled into the build
@@ -539,6 +615,9 @@ void lvgl_ui::taskHandler() {
         s_deferred_carousel_dir = LV_DIR_NONE;
         map_horizontal_gesture_to_carousel(dir);
     }
+#if LV_USE_PERF_MONITOR
+    repositionBuiltinLvglPerfMonitorOnce();
+#endif
 }
 
 // 8-E19B: createTestOverlay triggers initial PageChain registration (DspTask / init only).

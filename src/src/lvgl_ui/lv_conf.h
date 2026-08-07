@@ -493,11 +493,25 @@
 
 #define LV_USE_SNAPSHOT 0
 
-/* BASE-LVGL9-MIGRATION C6 (DIAG-001/DIAG-002): perf monitor disabled for production. Do not enable
- * LV_USE_SYSMON solely for this — the old custom FPS-label scan/reposition path in lvgl_ui.cpp is
- * removed, not reimplemented for v9. / Perf-монитор отключён для production; LV_USE_SYSMON не
- * включаем ради него — старый custom FPS-оверлей удалён, не переписан под v9. */
-#define LV_USE_SYSMON   0
+/* Perf monitor restored to its pre-migration production behaviour. In v9 the FPS/CPU overlay lives
+ * under LV_USE_SYSMON, so that parent must be on (it also needs LV_USE_OBSERVER, enabled below).
+ * POS stays TOP_RIGHT as in production; lvgl_ui.cpp then pins the label to its production spot.
+ * Perf-монитор возвращён как в продакшне: в v9 он внутри LV_USE_SYSMON, поэтому родитель включён. */
+#define LV_USE_SYSMON   1
+#if LV_USE_SYSMON
+    #define LV_SYSMON_GET_IDLE lv_os_get_idle_percent
+    #define LV_SYSMON_PROC_IDLE_AVAILABLE 0
+    #define LV_USE_PERF_MONITOR 1
+    #if LV_USE_PERF_MONITOR
+        #define LV_USE_PERF_MONITOR_POS LV_ALIGN_TOP_RIGHT
+        /* 0 = draw on screen (production behaviour), 1 = print to log. */
+        #define LV_USE_PERF_MONITOR_LOG_MODE 0
+    #endif
+    #define LV_USE_MEM_MONITOR 0
+    #if LV_USE_MEM_MONITOR
+        #define LV_USE_MEM_MONITOR_POS LV_ALIGN_BOTTOM_LEFT
+    #endif
+#endif /*LV_USE_SYSMON*/
 #define LV_USE_PROFILER 0
 #define LV_USE_MONKEY 0
 #define LV_USE_GRIDNAV 0
