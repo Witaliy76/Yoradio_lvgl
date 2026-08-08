@@ -1,7 +1,8 @@
-// ST7701 Type9 init — YoRadio-owned exact Arduino_GFX opcode stream.
-// ST7701 Type9 init — точный opcode-поток Arduino_GFX во владении YoRadio.
+// YoRadio integration header for the exact Arduino_GFX ST7701 Type9 opcode stream.
+// Интеграционный заголовок YoRadio для точного ST7701 Type9 opcode-потока Arduino_GFX.
+// Author: Witaliy76 - https://github.com/Witaliy76
 //
-// Provenance / Происхождение (parity authority — do not substitute):
+// Technical data provenance / Происхождение технических данных (do not substitute):
 //   Dependency: moononournation/Arduino_GFX
 //   Commit:     00dcd6842c4fe10026468dee83511a4e8bfff50a
 //   Symbol:     st7701_type9_init_operations

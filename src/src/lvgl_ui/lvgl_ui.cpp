@@ -246,10 +246,9 @@ static uint32_t s_lvgl_last_flush_ms = 0;
 
 #if DSP_MODEL == DSP_ST7701
 // LVGL clip/pointer prep → DisplayPort::flush → active physical backend.
-// BASE-DISP-ESPLCD-PARITY Slice 3 changed that backend to direct esp_lcd/ST7701;
-// this callback is backend-agnostic and must stay that way.
+// The callback is backend-agnostic and must stay that way.
 // clip/pointer LVGL → DisplayPort::flush → активный физический backend.
-// Slice 3 сменил backend на direct esp_lcd/ST7701; callback остаётся backend-agnostic.
+// Callback остаётся backend-agnostic.
 // Diagnostics + flush_ready run in done(ctx) so order matches the pre-cutover path.
 // Диагностика + flush_ready в done(ctx), чтобы порядок совпал с pre-cutover.
 static void lvgl_display_port_flush_done(void* ctx) {
@@ -1009,7 +1008,7 @@ size_t lvgl_ui::appendDisplayDiag(char* out, size_t len, size_t offset, bool* tr
     append_line("lvgl.flush.full_refresh: %d\n", render_mode == LV_DISPLAY_RENDER_MODE_FULL ? 1 : 0);
     append_line("lvgl.flush.direct_mode: %d\n", render_mode == LV_DISPLAY_RENDER_MODE_DIRECT ? 1 : 0);
 #if DSP_MODEL == DSP_ST7701
-    append_line("lvgl.flush_target: output_display_direct\n");
+    append_line("lvgl.flush_target: physical_display_direct\n");
 #else
     append_line("lvgl.flush_target: canvas_mark_dirty\n");
 #endif

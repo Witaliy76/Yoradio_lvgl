@@ -4,6 +4,7 @@
 // Владелец: слой дисплея YoRadio; конкретный backend — в активном DSP TU.
 // Public API: no backend / UI library types.
 // Публичный API: без типов backend / UI-библиотек.
+// Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef YORADIO_DISPLAY_PORT_H
 #define YORADIO_DISPLAY_PORT_H
 

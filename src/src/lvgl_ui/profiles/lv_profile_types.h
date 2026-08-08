@@ -36,8 +36,9 @@ struct LvglDisplayProfile {
     bool touch_swap_horizontal_carousel;
 
     // --- LVGL draw buffer / Полосовой буфер отрисовки LVGL ---
-    // a) Strip height in lines (partial buffer). b) USED: lvgl_ui::initDisplayDriver reads buf_lines.
-    // c) Centralizes former magic constant (40). d) Profile foundation, active.
+    // a) Strip height metadata. b) Not read by initDisplayDriver yet; live ST7701 value is 160.
+    // c) Keeps profile metadata aligned for a future driver-policy move. d) Future-facing.
+    // a) Metadata высоты полосы. b) Пока не читается initDisplayDriver; live ST7701 = 160.
     uint16_t buf_lines;
     // a) If true, buffer should live in PSRAM. b) Not read; code always allocates via ps_malloc today.
     // c) Documents intent; future: SRAM fallback or policy switch. d) Future-facing / documentation.

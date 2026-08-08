@@ -1,9 +1,10 @@
-// Direct esp_lcd ST7701 RGB backend (BASE-DISP-ESPLCD-PARITY Slice 2/3).
-// Прямой esp_lcd ST7701 RGB backend (BASE-DISP-ESPLCD-PARITY Slice 2/3).
-// Ownership: display TU; Slice 3 makes this the active DisplayPort backend.
-// Владелец: display TU; в Slice 3 это активный backend DisplayPort.
+// Direct esp_lcd ST7701 RGB backend behind DisplayPort.
+// Прямой esp_lcd ST7701 RGB backend за интерфейсом DisplayPort.
+// Ownership: display TU; active 4848S040 DisplayPort backend.
+// Владелец: display TU; активный backend DisplayPort для 4848S040.
 // Hardware: ESP32-S3 4848S040; Arduino_GFX retained as parity reference only.
 // Железо: ESP32-S3 4848S040; Arduino_GFX остаётся только эталоном паритета.
+// Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef YORADIO_ESP_LCD_ST7701_BACKEND_H
 #define YORADIO_ESP_LCD_ST7701_BACKEND_H
 
@@ -16,10 +17,6 @@ namespace yoradio_esp_lcd_st7701 {
 constexpr uint16_t kWidth = 480;
 constexpr uint16_t kHeight = 480;
 constexpr size_t kFramebufferBytes = static_cast<size_t>(kWidth) * kHeight * sizeof(uint16_t);  // 460800
-
-// True when this TU is linked into the firmware image (Slice 2 compile proof).
-// true, если этот TU слинкован в прошивку (доказательство сборки Slice 2).
-bool backendPresent();
 
 // Direct panel bring-up: Type9 + esp_lcd RGB + single PSRAM FB.
 // Прямой bring-up: Type9 + esp_lcd RGB + один PSRAM FB.

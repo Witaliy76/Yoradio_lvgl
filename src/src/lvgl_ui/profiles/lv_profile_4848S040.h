@@ -24,7 +24,7 @@ static const LvglDisplayProfile LvglProfile_4848S040{
     false,
     false,
     true,
-    40u,
+    160u,
     true,
     reinterpret_cast<const void*>(&lv_font_yora_montserrat_12_cyr),
     reinterpret_cast<const void*>(&lv_font_yora_montserrat_16_cyr),

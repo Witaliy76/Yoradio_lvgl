@@ -1,7 +1,8 @@
-// Direct esp_lcd ST7701 RGB backend implementation (BASE-DISP-ESPLCD-PARITY Slice 2/3).
-// Реализация прямого esp_lcd ST7701 RGB backend (BASE-DISP-ESPLCD-PARITY Slice 2/3).
+// Direct esp_lcd ST7701 RGB backend implementation behind DisplayPort.
+// Реализация прямого esp_lcd ST7701 RGB backend за интерфейсом DisplayPort.
 // Parity authority: Arduino_GFX @ 00dcd684 (type9 + ESP32RGBPanel config).
 // Эталон паритета: Arduino_GFX @ 00dcd684 (type9 + конфиг ESP32RGBPanel).
+// Author: Witaliy76 - https://github.com/Witaliy76
 
 #include "../core/options.h"
 #if DSP_MODEL == DSP_ST7701
@@ -278,10 +279,6 @@ bool createRgbPanel() {
 }
 
 }  // namespace
-
-bool backendPresent() {
-    return true;
-}
 
 bool begin() {
     Serial.println("[esp_lcd_st7701] begin enter");

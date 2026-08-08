@@ -35,14 +35,14 @@ extern const uint8_t st7701_type9_init_operations[];
 #define TAKE_MUTEX() sdog.takeMutex()
 #define GIVE_MUTEX() sdog.giveMutex()
 
-// BASE-DISP-ESPLCD-PARITY Slice 3: compile-time physical backend selection.
+// Compile-time physical backend selection.
 // Strictly internal to this display TU — no runtime/UI/Settings/WebUI exposure,
 // LVGL and the DisplayPort callers never know which backend is active.
-//   1 = direct esp_lcd/ST7701 (accepted Slice-3 normal runtime)
+//   1 = direct esp_lcd/ST7701 (accepted normal runtime)
 //   0 = Arduino_GFX (retained parity reference / rollback build)
 // Exactly ONE of the two may own the RGB peripheral and the physical
 // framebuffer; the inactive backend is never constructed or begun.
-// BASE-DISP-ESPLCD-PARITY Slice 3: выбор физического backend на этапе компиляции.
+// Выбор физического backend на этапе компиляции.
 // Только внутри этого TU дисплея; ровно один владелец RGB-периферии и FB.
 #ifndef YORADIO_ST7701_BACKEND_DIRECT
 #define YORADIO_ST7701_BACKEND_DIRECT 1
@@ -132,13 +132,11 @@ DspCore::DspCore() {
 bool DisplayPort::begin() {
     Serial.println("[ST7701] initDisplay start");
 #if YORADIO_ST7701_BACKEND_DIRECT
-    // Slice 3: direct esp_lcd is the sole RGB peripheral + framebuffer owner.
+    // Direct esp_lcd is the sole RGB peripheral + framebuffer owner.
     // Arduino_GFX bus/panel/display objects are deliberately never constructed here.
-    // Slice 3: direct esp_lcd — единственный владелец RGB-периферии и FB.
+    // Direct esp_lcd — единственный владелец RGB-периферии и FB.
     // Объекты Arduino_GFX здесь намеренно не создаются.
     Serial.println("[ST7701] backend: direct esp_lcd (Arduino_GFX not initialized)");
-    (void)yoradio_esp_lcd_st7701::backendPresent();
-
     // Direct init failure must surface through the existing DisplayPort/init path;
     // never continue with a null/uninitialized framebuffer, no silent GFX fallback.
     // Сбой прямой инициализации возвращается через существующий путь init;
@@ -154,8 +152,6 @@ bool DisplayPort::begin() {
 #else
     // Retained Arduino_GFX reference/rollback runtime (not active by default).
     // Сохранённый reference/rollback runtime Arduino_GFX (по умолчанию не активен).
-    (void)yoradio_esp_lcd_st7701::backendPresent();
-
     if (!bus) {
         Serial.println("[ST7701] Initializing bus...");
         bus = new Arduino_SWSPI(
@@ -361,7 +357,7 @@ void DspCore::loop(bool force) {
     (void)force;
 }
 
-// Slice 4 lifecycle parity: inversion is live on the direct backend. This panel
+// Inversion is live on the direct backend. This panel
 // accepts its 180-degree scan commands only before the RGB stream starts, so
 // direct orientation is the fixed ST7701_BOOT_ORIENTATION_180 board option.
 // Touch orientation remains an independent runtime option.
