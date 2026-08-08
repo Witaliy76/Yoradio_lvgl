@@ -245,8 +245,11 @@ static uint32_t s_lvgl_flush_count = 0;
 static uint32_t s_lvgl_last_flush_ms = 0;
 
 #if DSP_MODEL == DSP_ST7701
-// BASE-DISP-PORT Slice 3: LVGL clip/pointer prep → DisplayPort::flush → Arduino_GFX backend.
-// BASE-DISP-PORT Slice 3: clip/pointer LVGL → DisplayPort::flush → backend Arduino_GFX.
+// LVGL clip/pointer prep → DisplayPort::flush → active physical backend.
+// BASE-DISP-ESPLCD-PARITY Slice 3 changed that backend to direct esp_lcd/ST7701;
+// this callback is backend-agnostic and must stay that way.
+// clip/pointer LVGL → DisplayPort::flush → активный физический backend.
+// Slice 3 сменил backend на direct esp_lcd/ST7701; callback остаётся backend-agnostic.
 // Diagnostics + flush_ready run in done(ctx) so order matches the pre-cutover path.
 // Диагностика + flush_ready в done(ctx), чтобы порядок совпал с pre-cutover.
 static void lvgl_display_port_flush_done(void* ctx) {

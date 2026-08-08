@@ -35,9 +35,35 @@ extern const uint8_t st7701_type9_init_operations[];
 #define TAKE_MUTEX() sdog.takeMutex()
 #define GIVE_MUTEX() sdog.giveMutex()
 
+// BASE-DISP-ESPLCD-PARITY Slice 3: compile-time physical backend selection.
+// Strictly internal to this display TU — no runtime/UI/Settings/WebUI exposure,
+// LVGL and the DisplayPort callers never know which backend is active.
+//   1 = direct esp_lcd/ST7701 (accepted Slice-3 normal runtime)
+//   0 = Arduino_GFX (retained parity reference / rollback build)
+// Exactly ONE of the two may own the RGB peripheral and the physical
+// framebuffer; the inactive backend is never constructed or begun.
+// BASE-DISP-ESPLCD-PARITY Slice 3: выбор физического backend на этапе компиляции.
+// Только внутри этого TU дисплея; ровно один владелец RGB-периферии и FB.
+#ifndef YORADIO_ST7701_BACKEND_DIRECT
+#define YORADIO_ST7701_BACKEND_DIRECT 1
+#endif
+
+#if !YORADIO_ST7701_BACKEND_DIRECT
 static Arduino_DataBus* bus = nullptr;
 static Arduino_ESP32RGBPanel* rgbpanel = nullptr;
 static Arduino_RGB_Display* output_display = nullptr;
+#endif
+
+// Backend-independent "physical panel is up" test for the log-only lifecycle
+// paths below. Replaces the raw `output_display` null test at those call sites.
+// Backend-независимая проверка «панель поднята» для log-only путей ниже.
+static inline bool physicalBackendReady() {
+#if YORADIO_ST7701_BACKEND_DIRECT
+    return yoradio_esp_lcd_st7701::isReady();
+#else
+    return output_display != nullptr;
+#endif
+}
 
 #ifndef BATTERY_OFF
 
@@ -105,8 +131,29 @@ DspCore::DspCore() {
 // DspCore::initDisplay остаётся продуктовой точкой входа без смены call-site.
 bool DisplayPort::begin() {
     Serial.println("[ST7701] initDisplay start");
-    // Slice 2: keep direct esp_lcd backend TU in the link set; runtime still Arduino_GFX.
-    // Slice 2: TU direct esp_lcd остаётся в линковке; runtime по-прежнему Arduino_GFX.
+#if YORADIO_ST7701_BACKEND_DIRECT
+    // Slice 3: direct esp_lcd is the sole RGB peripheral + framebuffer owner.
+    // Arduino_GFX bus/panel/display objects are deliberately never constructed here.
+    // Slice 3: direct esp_lcd — единственный владелец RGB-периферии и FB.
+    // Объекты Arduino_GFX здесь намеренно не создаются.
+    Serial.println("[ST7701] backend: direct esp_lcd (Arduino_GFX not initialized)");
+    (void)yoradio_esp_lcd_st7701::backendPresent();
+
+    // Direct init failure must surface through the existing DisplayPort/init path;
+    // never continue with a null/uninitialized framebuffer, no silent GFX fallback.
+    // Сбой прямой инициализации возвращается через существующий путь init;
+    // работа с null/неинициализированным FB запрещена, тихого fallback на GFX нет.
+    if (!yoradio_esp_lcd_st7701::begin()) {
+        Serial.println("[ST7701] Direct esp_lcd backend begin FAILED");
+        return false;
+    }
+    if (!yoradio_esp_lcd_st7701::isReady() || !yoradio_esp_lcd_st7701::framebuffer()) {
+        Serial.println("[ST7701] Direct esp_lcd backend not ready / no framebuffer!");
+        return false;
+    }
+#else
+    // Retained Arduino_GFX reference/rollback runtime (not active by default).
+    // Сохранённый reference/rollback runtime Arduino_GFX (по умолчанию не активен).
     (void)yoradio_esp_lcd_st7701::backendPresent();
 
     if (!bus) {
@@ -165,6 +212,7 @@ bool DisplayPort::begin() {
         s_rgb_output_begun = true;
         delay(100);
     }
+#endif  // YORADIO_ST7701_BACKEND_DIRECT
 
     pinMode(ST7701_BL, OUTPUT);
     delay(50);
@@ -174,10 +222,17 @@ bool DisplayPort::begin() {
 
     Serial.println("[ST7701] initDisplay completed successfully");
 
+#if YORADIO_ST7701_BACKEND_DIRECT
+    // Direct backend already cleared the FB to black inside begin() (before the
+    // backlight came up); keep the accepted log line for boot-evidence parity.
+    // Прямой backend уже очистил FB в begin() (до включения подсветки).
+    Serial.println("[ST7701] Panel cleared to BLACK (esp_lcd framebuffer)");
+#else
     if (s_rgb_output_begun && output_display) {
         output_display->fillScreen(0);
         Serial.println("[ST7701] Panel cleared to BLACK (output_display)");
     }
+#endif
 
     Serial.println("[ST7701] Display ready for normal operation");
     return true;
@@ -193,22 +248,36 @@ void DisplayPort::flush(const DisplayArea& area, const uint16_t* pixels,
                         void (*done)(void* ctx), void* ctx) {
     // Backend-only: no LVGL types, no clip policy, no flush_ready.
     // Только backend: без типов LVGL, без clip-политики, без flush_ready.
-    if (!output_display || !pixels) {
+    if (!physicalBackendReady() || !pixels) {
         if (done) {
             done(ctx);
         }
         return;
     }
 
+    // Rectangle geometry is the accepted contract: inclusive area, source treated
+    // as packed with stride = w — identical to what draw16bitRGBBitmap consumed.
+    // Геометрия по принятому контракту: inclusive-область, stride источника = w.
     const int16_t w = static_cast<int16_t>(area.x2 - area.x1 + 1);
     const int16_t h = static_cast<int16_t>(area.y2 - area.y1 + 1);
 
     TAKE_MUTEX();
+#if YORADIO_ST7701_BACKEND_DIRECT
+    // CPU blit of the invalidated rectangle only into the esp_lcd-owned FB, then
+    // the accepted conservative full-FB C2M writeback. Mirrors the GFX pair
+    // draw16bitRGBBitmap() + flush() at auto_flush=false (writeback is
+    // unconditional there too, so it stays unconditional here).
+    // CPU-блит только изменённого прямоугольника в FB esp_lcd, затем принятый
+    // консервативный полный C2M writeback — зеркало пары GFX при auto_flush=false.
+    yoradio_esp_lcd_st7701::blitRgb565(area.x1, area.y1, pixels, w, h);
+    yoradio_esp_lcd_st7701::cacheWritebackFull();
+#else
     // Arduino_GFX draw API is non-const; pixels are not mutated by the blit path.
     // API Arduino_GFX non-const; blit путь пиксели не меняет.
     output_display->draw16bitRGBBitmap(
         area.x1, area.y1, const_cast<uint16_t*>(pixels), w, h);
     output_display->flush();
+#endif
     GIVE_MUTEX();
 
     if (done) {
@@ -225,9 +294,9 @@ void DisplayPort::setBrightness(uint8_t percent) {
 void DisplayPort::sleep() {
     Serial.println("[ST7701] sleep");
     TAKE_MUTEX();
-    // displayOff is currently log-only when panel object exists — preserve exactly.
-    // displayOff сейчас только лог при наличии панели — сохраняем точно.
-    if (output_display) {
+    // displayOff is currently log-only when the panel is up — preserve exactly.
+    // displayOff сейчас только лог при поднятой панели — сохраняем точно.
+    if (physicalBackendReady()) {
         Serial.println("[ST7701] Display OFF");
     }
     analogWrite(ST7701_BL, 0);
@@ -237,9 +306,9 @@ void DisplayPort::sleep() {
 void DisplayPort::wake() {
     Serial.println("[ST7701] wake");
     TAKE_MUTEX();
-    // displayOn is currently log-only when panel object exists — preserve exactly.
-    // displayOn сейчас только лог при наличии панели — сохраняем точно.
-    if (output_display) {
+    // displayOn is currently log-only when the panel is up — preserve exactly.
+    // displayOn сейчас только лог при поднятой панели — сохраняем точно.
+    if (physicalBackendReady()) {
         Serial.println("[ST7701] Display ON");
     }
 #if defined(ENABLE_BRIGHTNESS_CONTROL)
@@ -255,13 +324,13 @@ bool DspCore::initDisplay() {
 }
 
 void DspCore::displayOn() {
-    if (output_display) {
+    if (physicalBackendReady()) {
         Serial.println("[ST7701] Display ON");
     }
 }
 
 void DspCore::displayOff() {
-    if (output_display) {
+    if (physicalBackendReady()) {
         Serial.println("[ST7701] Display OFF");
     }
 }
@@ -278,19 +347,36 @@ void DspCore::loop(bool force) {
     (void)force;
 }
 
+// DEFERRED TO SLICE 4 (LIFECYCLE PARITY): rotation/inversion are not implemented
+// for the direct esp_lcd backend yet. Under the GFX runtime both bodies were
+// already null-guarded no-ops whenever the panel object was absent, so the direct
+// build keeps the same bounded no-op behaviour — no invalid dereference, no crash.
+// Not exercised by the Slice-3 flush proof: only netserver/WebUI reaches them and
+// both config defaults are false. Functional parity is Slice-4 work.
+// ОТЛОЖЕНО ДО SLICE 4: поворот/инверсия для direct esp_lcd ещё не реализованы;
+// поведение — ограниченный no-op без разыменования, как и раньше при отсутствии
+// объекта панели. Достижимы только из WebUI; оба значения по умолчанию false.
 void DspCore::flip() {
     TAKE_MUTEX();
+#if YORADIO_ST7701_BACKEND_DIRECT
+    (void)config.store.flipscreen;
+#else
     if (output_display) {
         output_display->setRotation(config.store.flipscreen ? 2 : 0);
     }
+#endif
     GIVE_MUTEX();
 }
 
 void DspCore::invert() {
     TAKE_MUTEX();
+#if YORADIO_ST7701_BACKEND_DIRECT
+    (void)config.store.invertdisplay;
+#else
     if (bus) {
         bus->sendCommand(config.store.invertdisplay ? 0x21 : 0x20);
     }
+#endif
     GIVE_MUTEX();
 }
 

@@ -1,5 +1,5 @@
-// Direct esp_lcd ST7701 RGB backend implementation (BASE-DISP-ESPLCD-PARITY Slice 2).
-// Реализация прямого esp_lcd ST7701 RGB backend (BASE-DISP-ESPLCD-PARITY Slice 2).
+// Direct esp_lcd ST7701 RGB backend implementation (BASE-DISP-ESPLCD-PARITY Slice 2/3).
+// Реализация прямого esp_lcd ST7701 RGB backend (BASE-DISP-ESPLCD-PARITY Slice 2/3).
 // Parity authority: Arduino_GFX @ 00dcd684 (type9 + ESP32RGBPanel config).
 // Эталон паритета: Arduino_GFX @ 00dcd684 (type9 + конфиг ESP32RGBPanel).
 
@@ -278,7 +278,7 @@ bool begin() {
     }
 
     s_ready = true;
-    Serial.println("[esp_lcd_st7701] begin PASS (not selected by DisplayPort)");
+    Serial.println("[esp_lcd_st7701] begin PASS (active DisplayPort backend)");
     return true;
 }
 
@@ -320,43 +320,53 @@ bool fillRgb565(uint16_t color) {
     return cacheWritebackFull();
 }
 
-bool drawBringupPattern() {
-    if (!s_fb) {
+bool blitRgb565(int16_t x, int16_t y, const uint16_t* src, int16_t w, int16_t h) {
+    if (!s_fb || !src || w <= 0 || h <= 0) {
         return false;
     }
-    // Simple 480×480 diagnostic: quadrants + RGB bars + W/B strip.
-    // Простая диагностика 480×480: квадранты + RGB полосы + W/B.
-    // RGB565: R=0xF800, G=0x07E0, B=0x001F, W=0xFFFF, K=0x0000
-    for (uint16_t y = 0; y < kHeight; ++y) {
-        for (uint16_t x = 0; x < kWidth; ++x) {
-            uint16_t c;
-            if (y < 40) {
-                // Top orientation bar: white→black left-to-right marker at y=0 edge.
-                // Верхняя полоса ориентации.
-                c = (x < 40) ? 0xFFFF : ((x >= (kWidth - 40)) ? 0x0000 : 0x8430);
-            } else if (y >= (kHeight - 40)) {
-                // Bottom bar: black→white (opposite of top corners).
-                c = (x < 40) ? 0x0000 : ((x >= (kWidth - 40)) ? 0xFFFF : 0x8430);
-            } else if (y < 160) {
-                c = 0xF800;  // red band
-            } else if (y < 280) {
-                c = 0x07E0;  // green band
-            } else if (y < 400) {
-                c = 0x001F;  // blue band
-            } else {
-                // Lower field: left black / right white
-                c = (x < (kWidth / 2)) ? 0x0000 : 0xFFFF;
-            }
-            // Left/right edge ticks for horizontal orientation.
-            if (x < 4) {
-                c = 0xFFFF;
-            } else if (x >= (kWidth - 4)) {
-                c = 0x0000;
-            }
-            s_fb[static_cast<size_t>(y) * kWidth + x] = c;
-        }
+
+    // Clip exactly like gfx_draw_bitmap_to_framebuffer (Arduino_G.cpp @ 00dcd684):
+    // same reject test, same source-pointer rewind, same x_skip source stride.
+    // Отсечение точно как в gfx_draw_bitmap_to_framebuffer: тот же reject,
+    // та же перемотка указателя источника, тот же x_skip (stride источника).
+    constexpr int16_t kMaxX = static_cast<int16_t>(kWidth) - 1;
+    constexpr int16_t kMaxY = static_cast<int16_t>(kHeight) - 1;
+    if (((x + w - 1) < 0) || ((y + h - 1) < 0) || (x > kMaxX) || (y > kMaxY)) {
+        return false;
     }
-    return cacheWritebackFull();
+
+    int16_t x_skip = 0;
+    if ((y + h - 1) > kMaxY) {
+        h -= (y + h - 1) - kMaxY;
+    }
+    if (y < 0) {
+        src -= static_cast<int32_t>(y) * w;
+        h += y;
+        y = 0;
+    }
+    if ((x + w - 1) > kMaxX) {
+        x_skip = (x + w - 1) - kMaxX;
+        w -= x_skip;
+    }
+    if (x < 0) {
+        src -= x;
+        x_skip -= x;
+        w += x;
+        x = 0;
+    }
+
+    // Destination stride is the physical framebuffer width; RGB565 copied verbatim
+    // (no byte swap, no RGB/BGR conversion) — parity with the GFX row loop.
+    // Stride приёмника = физическая ширина FB; RGB565 копируется как есть.
+    uint16_t* row = s_fb + (static_cast<size_t>(y) * kWidth) + x;
+    const size_t row_bytes = static_cast<size_t>(w) * sizeof(uint16_t);
+    const int16_t src_stride = static_cast<int16_t>(w + x_skip);
+    for (int16_t j = 0; j < h; ++j) {
+        memcpy(row, src, row_bytes);
+        src += src_stride;
+        row += kWidth;
+    }
+    return true;
 }
 
 void setBrightnessPercent(uint8_t percent) {
