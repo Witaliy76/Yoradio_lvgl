@@ -40,7 +40,7 @@ Each page has a distinct role: Main is for listening, Visual for atmosphere, Inf
 
 ## Change history
 
-### 08 August 2026 — migration to LVGL 9.5.0
+### 08 August 2026 — 0.9.434m-r2-lvgl-beta.2-s0.4
 
 YoRadio migrated from LVGL 8.3.11 to LVGL 9.5.0. The ESP32-4848S040 product UI and behaviour were preserved.
 
