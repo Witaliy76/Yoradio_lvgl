@@ -36,7 +36,7 @@ There is **no** separate `wifi-3` / `wifi-4` in Tabler; stronger levels reuse th
 
 ## Why strip the TTF?
 
-`lv_font_conv` (v1.5.x) may fail on the stock Tabler TTF with errors such as *Coverage format must be 1 or 2*.  
+`lv_font_conv` may fail on the stock Tabler TTF with errors such as *Coverage format must be 1 or 2*. Use `lv_font_conv@1.5.3` for the current LVGL 9 ABI; 1.5.2 can emit the removed v8 `.cache` field under LVGL 9.
 **Fix:** remove OpenType tables that confuse the converter (safe for a pure-icon PUA subset).
 
 Strip script (Python, **fontTools**):
@@ -60,7 +60,7 @@ font.save(dst)
 Prerequisites: Node.js (`npx`), `tabler-stripped.ttf` in the working directory.
 
 ```bash
-npx --yes lv_font_conv@1.5.2 ^
+npx --yes lv_font_conv@1.5.3 ^
   --font tabler-stripped.ttf ^
   --size 22 ^
   --bpp 4 ^

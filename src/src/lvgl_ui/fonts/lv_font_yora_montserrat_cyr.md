@@ -104,7 +104,7 @@ U+2018 ‘      U+2019 ’   U+201C “   U+201D ”   U+201E „
 ### Generation / Генерация
 
 - **Source TTF:** `tools/fonts/Montserrat-Medium.ttf` (local tooling tree; not a runtime asset).
-- **Tool:** `npx lv_font_conv@1.5.2`
+- **Tool:** `npx lv_font_conv@1.5.3` (required for the current LVGL 9 ABI)
 - **bpp:** `4`
 - **Compression:** enabled (default RLE; matches `LV_USE_FONT_COMPRESSED 1` in `lv_conf.h`)
 - **Format:** LVGL C (`--format lvgl --lv-include lvgl.h`)
@@ -117,7 +117,7 @@ PowerShell (from repo root; ensure UTF-8 for `--symbols`):
 $ttf = (Resolve-Path "tools\fonts\Montserrat-Medium.ttf").Path
 $range = "0x20-0x7F,0x400-0x4FF,0xB0,0x2022,0x2026,<explicit PL+SK+DE+FR codepoints>,0xA0,0xAB,0xBB,0x2013-0x2014,0x2018-0x2019,0x201C-0x201E"
 foreach ($sz in 12,14,16,18,20,22,28,32,40,48) {
-  npx --yes lv_font_conv@1.5.2 `
+  npx --yes lv_font_conv@1.5.3 `
     --font $ttf `
     -r $range `
     --size $sz `
@@ -131,6 +131,11 @@ foreach ($sz in 12,14,16,18,20,22,28,32,40,48) {
 Передавайте non-ASCII letter contract как ASCII-only explicit codepoints в `-r`, чтобы PowerShell encoding не мог повредить Unicode. Не объединяйте его в широкие Latin-1 / Latin Extended ranges. Разбиение `0x2018-0x2019,0x201C-0x201E` намеренно исключает незапрошенные U+201A/U+201B и сохраняет точный typography set `10/10`.
 
 C symbol name is taken from the `-o` basename (`lv_font_yora_montserrat_<N>_cyr`). Keep filenames and symbols stable.
+
+All ten files were regenerated as part of the LVGL 9 migration. `lv_font_conv@1.5.2`
+is not valid for that regeneration because its version guard can keep the removed v8
+`.cache` field when compiling against LVGL 9. Version 1.5.3 excludes that field and emits
+the valid v9 `fallback` member; the current generated family keeps it `NULL`.
 
 ### Architecture
 
@@ -177,7 +182,7 @@ Do not treat `.c` source size as Flash. Linked contribution is what matters (`pi
 
 Общие польские glyph bitmaps присутствуют в font assets независимо от `L10N_LANGUAGE`; это **не** означает линковку PL locale package в RU-сборке.
 
-### Verification (SK implementation)
+### Verification (SK implementation — historical pre-LVGL9 record)
 
 | Check | Result |
 |-------|--------|
@@ -243,7 +248,7 @@ Metadata examples: `München`, `Straße`, `Groß`, `Été`, `Cœur`, `François`
 
 ### Generation
 
-Use `tools/fonts/Montserrat-Medium.ttf` with `lv_font_conv@1.5.2`, `--bpp 4`, default compression, `--format lvgl`. Pass non-ASCII coverage as ASCII-only explicit codepoints, never as broad Latin ranges. Never hand-edit generated `.c` files — regenerate and replace the full ten-size family.
+Use `tools/fonts/Montserrat-Medium.ttf` with `lv_font_conv@1.5.3`, `--bpp 4`, default compression, `--format lvgl`. Version 1.5.3 is required for the current LVGL 9 font ABI; 1.5.2 can retain the removed v8 `.cache` member. Pass non-ASCII coverage as ASCII-only explicit codepoints, never as broad Latin ranges. Never hand-edit generated `.c` files — regenerate and replace the full ten-size family.
 
 ### Architecture
 

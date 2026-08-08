@@ -41,7 +41,7 @@ Same Unicode codepoints in all sizes; only rasterization size differs.
 
 ## Why strip the TTF?
 
-Same as Wi‑Fi subset: `lv_font_conv` (v1.5.x) may fail on the stock Tabler TTF (*Coverage format must be 1 or 2*).  
+Same as Wi‑Fi subset: `lv_font_conv` may fail on the stock Tabler TTF (*Coverage format must be 1 or 2*). Use `lv_font_conv@1.5.3` for the current LVGL 9 ABI; 1.5.2 can emit the removed v8 `.cache` field under LVGL 9.
 Strip OpenType tables that confuse the converter (safe for a pure-icon PUA subset).
 
 Strip script (Python, **fontTools**) — identical to `lv_font_yora_status_icons_22.md`:
@@ -65,7 +65,7 @@ font.save(dst)
 Prerequisites: Node.js (`npx`), `tabler-stripped.ttf` in the working directory.
 
 ```bash
-npx --yes lv_font_conv@1.5.2 ^
+npx --yes lv_font_conv@1.5.3 ^
   --font tabler-stripped.ttf ^
   --size 22 ^
   --bpp 4 ^

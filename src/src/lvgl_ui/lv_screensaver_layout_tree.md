@@ -19,7 +19,7 @@ Production analog clock: theme-mapped Flash sprites + one LittleFS background in
 
 | Owner | Objects / state |
 |-------|-----------------|
-| `lv_screensaver.cpp` | `s_ss_root`, `s_clock_layer`, `s_background`, three `lv_img` hands, `s_center_cap`, angle cache, `s_clock_center_x/y` |
+| `lv_screensaver.cpp` | `s_ss_root`, `s_clock_layer`, `s_background`, three `lv_image` hands, `s_center_cap`, angle cache, `s_clock_center_x/y` |
 | `lv_screensaver.cpp` (retained) | `SsclkBgCache s_bg_cache` — one 460800-byte PSRAM buffer + path key; survives hide/show |
 | Flash (assets) | `ssclk_production_assets.cpp` — 12 approved sprites (Dark C, Light A, Custom C + cap17) |
 | PSRAM (module) | **One retained** decoded background buffer (`s_bg_cache.data`, 460800 B) for the last successfully loaded theme; runtime `s_bg_runtime_dsc` per show |
@@ -52,7 +52,7 @@ Tails (all themes): hour 8 px, minute 10 px, second 18 px.
 | Light | `/screensaver_clock/ssclk_light_bg_480.bin` |
 | Custom | `/screensaver_clock/ssclk_custom_bg_480.bin` |
 
-Format: 4-byte LVGL header (`LV_IMG_CF_TRUE_COLOR`) + RGB565 LE pixels, 480×480, 460804 bytes/file.
+Disk format is unchanged: a 4-byte little-endian YoRadio header (legacy color-format value 4) followed by RGB565 LE pixels, 480×480, 460804 bytes/file. The loader translates that metadata to an LVGL 9 `lv_image_header_t` / `lv_image_dsc_t` in memory; the file itself is not an LVGL 9 binary-image container.
 
 **SSCLK-A4B1 (accepted):** Light and Custom runtime `.bin` files replaced from approved fitted complete-source PNGs. Dark unchanged. Custom uses **current-size** fit (apparent outer radius **208.733 px @480**). Light uses approved fitted complete source. Both themes visually retain four minor ticks between major hour indices. No runtime code, hands, pivot, or cache changes. A4A/A4A-R1 inpainting experiments are **not** production sources (review history only).
 
@@ -66,16 +66,16 @@ Source tree: `data/screensaver_clock/*.bin` → `pio run -t buildfs`.
 lv_layer_top()
 └── s_ss_root                    [lv_obj, full-screen, palette fallback bg]
     └── s_clock_layer            [lv_obj, full viewport W×H, transparent]
-        ├── s_background         [lv_img, PSRAM RGB565 — first child, z-bottom]
-        ├── s_hand_hour            [lv_img, production descriptor]
-        ├── s_hand_minute          [lv_img, production descriptor]
-        ├── s_hand_second          [lv_img, production descriptor]
-        └── s_center_cap           [lv_img cap17, fixed center, topmost, no rotation]
+        ├── s_background         [lv_image, PSRAM RGB565 — first child, z-bottom]
+        ├── s_hand_hour            [lv_image, production descriptor]
+        ├── s_hand_minute          [lv_image, production descriptor]
+        ├── s_hand_second          [lv_image, production descriptor]
+        └── s_center_cap           [lv_image cap17, fixed center, topmost, no rotation]
 ```
 
 **Z-order:** creation order = paint order (background → hour → minute → second → cap).
 
-**One-cap rule:** exactly **one** `lv_img` cap17; hand sprites must not embed hub dots.
+**One-cap rule:** exactly **one** `lv_image` cap17; hand sprites must not embed hub dots.
 
 ### Exact overlay geometry (A3C)
 
@@ -120,11 +120,11 @@ s_clock_center_y = viewport_height / 2
 
 For each hand:
 
-1. `lv_img_set_src(hand, descriptor)`
+1. `lv_image_set_src(hand, descriptor)`
 2. `lv_obj_set_pos(hand, 240 - pivot_x, 240 - pivot_y)`
-3. `lv_img_set_pivot(hand, pivot_x, pivot_y)`
-4. `lv_img_set_antialias(hand, true)`
-5. Initial `lv_img_set_angle(hand, 0)` — updated via angle cache
+3. `lv_image_set_pivot(hand, pivot_x, pivot_y)`
+4. `lv_image_set_antialias(hand, true)`
+5. Initial `lv_image_set_rotation(hand, 0)` — updated via angle cache
 
 ### Approved pivots (sprite space)
 
@@ -141,7 +141,7 @@ For each hand:
 | Custom | second | (9, 174) |
 | All | cap17 | (8, 8) |
 
-Hand format: `LV_IMG_CF_TRUE_COLOR_ALPHA`, RGB565 LE + alpha, suitable for `lv_img_set_angle()`.
+Hand format: LVGL 9 `LV_COLOR_FORMAT_RGB565A8`: the complete RGB565 LE color plane is followed by the complete A8 alpha plane, suitable for `lv_image_set_rotation()`. This two-plane representation applies to the static hands/cap, not to ordinary RGB565 background files.
 
 ---
 
@@ -153,7 +153,7 @@ Hand format: `LV_IMG_CF_TRUE_COLOR_ALPHA`, RGB565 LE + alpha, suitable for `lv_i
 - **Hit:** same path + `valid` → no LittleFS open/read; rebuild per-show `s_bg_runtime_dsc` only.
 - **Miss / theme change:** after `screensaverHide()` removed LVGL tree → read new file into retained buffer → update key + `valid` only on full success.
 - **Failure:** `valid = false`; partial buffer not used; palette fallback; error logs; retry allowed on next show.
-- **Hide:** `lv_obj_del(s_ss_root)` → `detachRuntimeBackgroundDescriptor()` — **does not** `free()` retained buffer; cache key/`valid` preserved.
+- **Hide:** `lv_obj_delete(s_ss_root)` → `detachRuntimeBackgroundDescriptor()` — **does not** `free()` retained buffer; cache key/`valid` preserved.
 - **Lifetime:** retained until reboot (no module deinit API); same pattern as Main `BG_CACHE` module retention.
 - **Not in hot path:** no file read on `screensaverRefreshClock()` or same-theme re-entry.
 
@@ -185,12 +185,12 @@ Same-theme re-entry ~7–8× faster than cold miss. Production code emits error/
 
 ### `screensaverHide()` — strict order
 
-1. `lv_obj_del(s_ss_root)` — destroy LVGL tree (no lv_img refs to cache buffer)
+1. `lv_obj_delete(s_ss_root)` — destroy LVGL tree (no `lv_image` refs to cache buffer)
 2. `detachRuntimeBackgroundDescriptor()` — reset per-show descriptor only
 3. `nullAllHandles()` + `resetAngleCache()`
 4. **Retained** `s_bg_cache.data` stays allocated; `path` + `valid` unchanged
 
-**Not touched:** PageChain, `lv_scr_act()`, `lv_layer_sys()`.
+**Not touched:** PageChain, `lv_screen_active()`, `lv_layer_sys()`.
 
 ---
 
@@ -219,7 +219,7 @@ If background load fails (missing file, bad header, `ps_malloc` fail):
 | Minute | `tm_min * 60 + tm_sec` |
 | Second | `tm_sec * 60` |
 
-Update: `lv_img_set_angle()` only when angle changed.
+Update: `lv_image_set_rotation()` only when angle changed.
 
 ---
 

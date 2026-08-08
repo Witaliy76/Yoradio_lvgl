@@ -20,13 +20,15 @@ Both fonts embed the **same** Tabler codepoint range (historical batch); runtime
 
 ## Generate (24 and 36 only)
 
+Use `lv_font_conv@1.5.3` for the current LVGL 9 ABI. Version 1.5.2 can emit the removed v8 `.cache` field under LVGL 9.
+
 PowerShell from repo root; requires `\.fontwork\tabler-stripped.ttf` locally.
 
 ```powershell
 $f = (Resolve-Path ".fontwork\tabler-stripped.ttf").Path
 foreach ($sz in @(24, 36)) {
   $out = "src\src\lvgl_ui\fonts\lv_font_yora_wifi_flow_icons_$sz.c"
-  npx --yes lv_font_conv@1.5.2 --font $f --size $sz --bpp 4 --format lvgl --no-compress `
+  npx --yes lv_font_conv@1.5.3 --font $f --size $sz --bpp 4 --format lvgl --no-compress `
     -o $out -r 0xEA61 -r 0xEA6B -r 0xEAE1-0xEAE2 -r 0xEB52 -r 0xEB6B -r 0xEBA3-0xEBA5 -r 0xECFA `
     --lv-include lvgl.h
 }

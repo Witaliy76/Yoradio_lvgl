@@ -28,6 +28,8 @@ Same two codepoints in all sizes; only rasterization size differs — for 320×4
 
 ## Generate (batch)
 
+Use `lv_font_conv@1.5.3` for the current LVGL 9 ABI. Version 1.5.2 can emit the removed v8 `.cache` field under LVGL 9.
+
 From a directory containing `tabler-stripped.ttf` (see `lv_font_yora_status_icons_22.md` for strip script).  
 **PowerShell** (paths relative to repo root):
 
@@ -36,7 +38,7 @@ $font = (Resolve-Path ".fontwork\tabler-stripped.ttf").Path
 $outBase = "src\src\lvgl_ui\fonts"
 foreach ($s in 14..24) {
   $out = Join-Path $outBase "lv_font_yora_station_icons_$s.c"
-  npx --yes lv_font_conv@1.5.2 `
+  npx --yes lv_font_conv@1.5.3 `
     --font $font --size $s --bpp 4 --format lvgl --no-compress `
     -o $out -r 0xEB4F,0xEF4F --lv-include lvgl.h
 }
@@ -45,7 +47,7 @@ foreach ($s in 14..24) {
 Single file example:
 
 ```bash
-npx --yes lv_font_conv@1.5.2 ^
+npx --yes lv_font_conv@1.5.3 ^
   --font tabler-stripped.ttf ^
   --size 20 ^
   --bpp 4 ^

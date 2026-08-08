@@ -38,12 +38,12 @@ This file lives next to `scr_boot.cpp`. It documents the **LVGL Boot** screen (S
 
 - **Names vs size:** lcd-image-converter keeps its **project/image name** in comments (e.g. `yoradio_240`). That is **not** the pixel width. Real size is in code: **`170 × 149`** for medium (`YORADIO_BOOTLOGO_MEDIUM_*`), **114 × 97** for small.
 - **Encoding:** RGB565 (`uint16_t` per pixel), **no RLE** for the embedded array path.
-- **LVGL:** `LV_IMG_CF_TRUE_COLOR`, `LV_COLOR_DEPTH 16`, byte order per `LV_COLOR_16_SWAP` in `lv_conf.h`.
+- **LVGL 9:** static `lv_image_dsc_t` descriptors use `LV_COLOR_FORMAT_RGB565`, `magic = LV_IMAGE_HEADER_MAGIC`, and `stride = width × 2`; the display is explicitly configured as unswapped RGB565.
 - **Tool:** [lcd-image-converter](https://github.com/riuson/lcd-image-converter) — preset **Color R5G6B5**, C array output.
 
-**PNG from LittleFS:** possible with LVGL decoders + `lv_img_set_src("S:/...")`, but needs FS ready and decode RAM — not the default boot path here.
+**PNG from LittleFS:** not supported by the current LVGL configuration; runtime PNG/JPEG/SVG decoders are disabled. Boot uses static C descriptors and does not depend on LittleFS.
 
-**Zoom instead of a second file:** `lv_img_set_zoom(img, z)` — in LVGL 8, **256 = 100%**, **128 ≈ 50%**, **77 ≈ 30%**. Set pivot with `lv_img_set_pivot(img, w/2, h/2)` (source pixel coords) so scaling stays visually centered. Trade-off: extra draw cost and softer edges vs. a dedicated downscaled bitmap.
+**Scale instead of a second file:** LVGL 9 `lv_image_set_scale(img, z)` uses **256 = 100%**, **128 ≈ 50%**, **77 ≈ 30%**. Set the pivot with `lv_image_set_pivot(img, w/2, h/2)` (source pixel coordinates) so scaling stays visually centered. Trade-off: extra draw cost and softer edges vs. a dedicated downscaled bitmap.
 
 ---
 
@@ -92,7 +92,7 @@ After edits: rebuild and verify on hardware.
 
 ## 5. Behaviour notes
 
-- **Boot → Main visual glitches (stripes / black wipes):** largely **mitigated** by a **full-frame** LVGL draw buffer and **`full_refresh = 1`** in `lvgl_ui::initDisplayDriver()` (shared `Arduino_Canvas` + partial flush was the root cause). If artifacts return, re-check buffer policy before blaming `PageChain::dismissBoot()` alone.
+- **Historical Boot → Main artifact note:** the older shared-`Arduino_Canvas` path was stabilized with a full-frame buffer and `full_refresh = 1`. That is not the current 4848S040 topology. Current LVGL 9 uses one 480×160 PSRAM draw buffer (153600 B), `LV_DISPLAY_RENDER_MODE_PARTIAL`, and a synchronous direct flush through Arduino_GFX. Treat the old full-frame observation as migration history, not current troubleshooting guidance.
 - **Min visible time:** at least **3 s** before Main after `DSP_START` if the network was fast — see §0.7.
 - **Shuttle:** indeterminate only; **not** real progress.
 - **`onBootSignal()`:** temporary stub — see §0.3.

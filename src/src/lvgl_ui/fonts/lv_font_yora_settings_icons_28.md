@@ -40,7 +40,7 @@ Glyph order in generated font (by codepoint): U+EA89, U+EB18, U+ECD4, U+ECE7, U+
 
 ## Why strip the TTF?
 
-Same as other YoRadio Tabler subsets: `lv_font_conv` (v1.5.x) may fail on stock Tabler TTF (*Coverage format must be 1 or 2*). Strip OpenType tables with **fontTools** (see `lv_font_yora_status_icons_22.md`).
+Same as other YoRadio Tabler subsets: `lv_font_conv` may fail on stock Tabler TTF (*Coverage format must be 1 or 2*). Strip OpenType tables with **fontTools** (see `lv_font_yora_status_icons_22.md`). For the current LVGL 9 ABI use `lv_font_conv@1.5.3`; 1.5.2 can emit the removed v8 `.cache` field under LVGL 9.
 
 ---
 
@@ -50,7 +50,7 @@ Prerequisites: Node.js (`npx`), `\.fontwork\tabler-stripped.ttf` (not committed)
 
 ```powershell
 $f = (Resolve-Path ".fontwork\tabler-stripped.ttf").Path
-npx --yes lv_font_conv@1.5.2 `
+npx --yes lv_font_conv@1.5.3 `
   --font $f `
   --size 28 `
   --bpp 4 `
@@ -65,7 +65,7 @@ npx --yes lv_font_conv@1.5.2 `
   --lv-include lvgl.h
 ```
 
-- **`lv_font_conv`:** `1.5.2`
+- **`lv_font_conv`:** `1.5.3` (LVGL 9 ABI)
 - **`--no-compress`:** matches project `LV_USE_FONT_COMPRESSED` expectations.
 - Refresh the file header comment after generation if the tool overwrites it.
 

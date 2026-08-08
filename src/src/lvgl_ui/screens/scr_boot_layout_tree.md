@@ -91,7 +91,7 @@ kBootLogoSmallAssetMaxScreenW = 320
 kBootLogoForceSmallAsset      = false  (set true for small-asset preview)
 ```
 
-Both descriptors are compile-time constants in `scr_boot.cpp`. No runtime scaling (`lv_img_set_zoom`) is applied.
+Both descriptors are compile-time constants in `scr_boot.cpp`. No runtime scaling (`lv_image_set_scale`) is applied.
 
 ---
 
@@ -116,7 +116,7 @@ _prog_track (bar_w × kBarHeight px; layout=0)
 
 `layout=0` on `_prog_track`: theme default flex would center children and fight `lv_obj_set_x()`. With `layout=0` the animator controls x directly.
 
-LVGL 8.3 clips children to parent bounds; glow/shuttle exit the track completely at x = bar_w before the infinite repeat resets to x = 0.
+LVGL 9 clips children to parent bounds; glow/shuttle exit the track completely at x = bar_w before the infinite repeat resets to x = 0.
 
 ### Geometry formulas
 
@@ -186,14 +186,14 @@ Dark/Light/Custom runtime theme preset changes do **not** affect Boot. `liveReap
 
 ## Auto-delete and destroy contract
 
-Boot screen is loaded via `lv_scr_load_anim(..., auto_del=true)` during PageChain handoff to Main. LVGL will free the object tree automatically.
+Boot screen is loaded via `lv_screen_load_anim(..., auto_del=true)` during PageChain handoff to Main. LVGL will free the object tree automatically.
 
 `destroy()` therefore:
 1. Calls `lv_anim_del(this, shuttleAnimExec)` — stops animation before handles become stale.
 2. Calls `_nullHandles()` — detaches all stored pointers.
-3. **Never** calls `lv_obj_del(_screen)` or any LVGL deletion.
+3. **Never** calls `lv_obj_delete(_screen)` or any LVGL deletion.
 
-This is a load-bearing contract — calling `lv_obj_del(_screen)` here would double-free.
+This is a load-bearing contract — calling `lv_obj_delete(_screen)` here would double-free.
 
 ---
 

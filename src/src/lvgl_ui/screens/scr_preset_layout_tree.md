@@ -219,7 +219,7 @@ create()     → build tree (builders)
 enter()      → preset_store::begin(), countdown, refresh 8 rows
 update()     → no-op
 exit()       → cancel timers
-destroy()    → lv_obj_del(_screen), _nullHandles()
+destroy()    → lv_obj_delete(_screen), _nullHandles()
 ```
 
 Dismiss paths:

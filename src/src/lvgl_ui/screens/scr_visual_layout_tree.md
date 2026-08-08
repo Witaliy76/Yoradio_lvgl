@@ -175,7 +175,7 @@ ps_malloc(data_size)                   → _bg_psram_buf
         ↓
 _bg_psram_dsc  { header, data_size, data=_bg_psram_buf }
         ↓
-lv_img_set_src(_bg_img, &_bg_psram_dsc)
+lv_image_set_src(_bg_img, &_bg_psram_dsc)
 ```
 
 **Ownership invariants:**
@@ -368,7 +368,7 @@ _refreshMetadata(true);
 | `prepareForAutoDelete()` | Deletes PPM timer; disables PCM source — before LVGL deletes object tree |
 | LVGL deletes tree | (automatic via PageChain auto-delete) |
 | `releaseAfterAutoDelete()` | Nulls all handles + frees PSRAM buffer |
-| `destroy()` | Explicit destroy: same as prepareForAutoDelete + lv_obj_del + null/free |
+| `destroy()` | Explicit destroy: same as prepareForAutoDelete + `lv_obj_delete` + null/free |
 
 **Critical invariant:** PPM timer must be deleted before LVGL deletes `_segment_img` objects.
 `prepareForAutoDelete()` guarantees `_deletePpmTimer()` runs **before** the object tree is freed.

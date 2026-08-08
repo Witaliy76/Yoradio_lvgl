@@ -227,11 +227,11 @@ create():
     → create_home_panel() …         — styled buttons/list rows reference shared styles
 
 destroy():
-    lv_obj_del(_screen)             — LVGL frees all objects that reference styles
+    lv_obj_delete(_screen)          — LVGL frees all objects that reference styles
     → wifi_flow_style_drop()        — reset shared lv_style_t objects
 ```
 
-**Load-bearing invariant:** `wifi_flow_style_drop()` must be called **after** `lv_obj_del(_screen)`. Resetting styles while live objects reference them would corrupt rendering.
+**Load-bearing invariant:** `wifi_flow_style_drop()` must be called **after** `lv_obj_delete(_screen)`. Resetting styles while live objects reference them would corrupt rendering.
 
 **14 shared `lv_style_t` objects:**
 `s_wf_btn_base`, `s_wf_btn_pri_d/p`, `s_wf_btn_sec_d/p`, `s_wf_btn_gho_d/p`, `s_wf_btn_des_d/p`, `s_wf_btn_dis`, `s_wf_lr_base`, `s_wf_lr_row_d/p`, `s_wf_lr_empty`.
@@ -363,7 +363,7 @@ Both timers are guarded with `if (!_timer)` before creation to prevent duplicate
 destroy():
     exit()                  — clear secrets, delete timers, cancel ops
     clear_password_secrets() — explicit zeroing (belt-and-suspenders)
-    lv_obj_del(_screen)     — LVGL frees all child objects
+    lv_obj_delete(_screen)  — LVGL frees all child objects
     wifi_flow_style_drop()  — reset 14 shared lv_style_t (AFTER object deletion)
     null all handles
 ```
@@ -1004,7 +1004,7 @@ create()  → static object tree, styles, default Home
 enter()   → state reset, entry context, poll timer start
 active    → callbacks + pollOpsSnapshot
 exit()    → timers deleted, secrets/password cleanup, wifiOpsCancel
-destroy() → exit(), lv_obj_del, style drop, handle nulling
+destroy() → exit(), `lv_obj_delete`, style drop, handle nulling
 ```
 
 ## create() ownership
@@ -1028,7 +1028,7 @@ Does not call `recoveryStopSoftAP()` (Hotspot Back owns that).
 
 ## destroy() ownership
 
-Order: `exit()` → `clear_password_secrets()` → `lv_obj_del(_screen)` → `wifi_flow_style_drop()` → member nulling.
+Order: `exit()` → `clear_password_secrets()` → `lv_obj_delete(_screen)` → `wifi_flow_style_drop()` → member nulling.
 
 Style drop after object deletion (baseline order preserved).
 
@@ -1043,7 +1043,7 @@ No pause/resume in baseline.
 
 ## Style teardown boundary
 
-`wifi_flow_style_drop()` called only in `destroy()` after `lv_obj_del(_screen)`.
+`wifi_flow_style_drop()` called only in `destroy()` after `lv_obj_delete(_screen)`.
 
 ## Deferred hardening boundary
 

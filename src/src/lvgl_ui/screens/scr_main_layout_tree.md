@@ -17,9 +17,9 @@ Author: Witaliy76 - https://github.com/Witaliy76
 
 1. `wgt_status_line.root`  
 2. `status_divider`
-3. `spacer_top` (flex grow; Mode A: **1** / Mode B: **1** — paired with `spacer_bottom` **5** to lift `cont_mid` higher)
+3. `_spacer_top` (flex grow; Mode A: **1** / Mode B: **1** — paired with `_spacer_bottom` **5** to lift `cont_mid` higher)
 4. `cont_mid` (outer COLUMN wrapper — 6.1E-visual)
-5. `spacer_bottom` (flex grow; Mode A: **1** / Mode B: **5**)
+5. `_spacer_bottom` (flex grow; Mode A: **1** / Mode B: **5**)
 6. `zone_visual` (Presence Rail host; 36 px fixed height; transparent/non-interactive)
 7. `zone_bottom_sym_spacer` (symmetry, height may be set after layout)
 8. `zone_bottom`
@@ -35,30 +35,33 @@ _screen
 ├── _bg_img  (optional LVGL .bin from LittleFS; FLOATING — under all content; 6.1F-b)
 ├── _bg_scrim  (optional black LV_OPA_50; FLOATING; only Dark + bg present; F-c)
 ├── wgt_status_line.root  (see ../widgets/wgt_status_line.cpp)
-│   ├── lbl_wifi
-│   ├── spacer (flex grow)
-│   ├── cont_weather
-│   │   ├── lbl_weather_glyph
-│   │   └── lbl_weather_temp
-│   └── lbl_clock
+│   ├── col_left  (one of three equal flex columns)
+│   │   └── lbl_wifi
+│   ├── col_center  (one of three equal flex columns)
+│   │   └── lbl_clock
+│   ├── col_right  (one of three equal flex columns)
+│   │   └── cont_weather
+│   │       ├── lbl_weather_glyph
+│   │       └── lbl_weather_temp
+│   └── lbl_sleep_timer  (FLOATING; hidden when OFF; left-aligned at LEFT_MID +76)
 ├── status_divider
-├── spacer_top
+├── _spacer_top
 ├── cont_mid  (COLUMN wrapper; 6.1E-visual)
 │   └── cont_mid_row  (ROW; art_slot + cont_text; 6.1E-visual)
 │       ├── _art_slot  (120×120; LV_OBJ_FLAG_HIDDEN when no art file — Mode A; visible when station art present — Mode B)
-│       │   └── _art_img  (lv_img; L:/logo/<normalized_key>.bin — TRUE_COLOR_ALPHA CF=5, 120×120)
+│       │   └── _art_img  (lv_image; L:/logo/<normalized_key>.bin — YoRadio disk CF=5, 120×120; header translated to LVGL 9 at load)
 │       └── cont_text  (flex_grow=1; Mode A: CENTER flex + LV_TEXT_ALIGN_CENTER; Mode B: START flex + LV_TEXT_ALIGN_LEFT)
 │           ├── _lbl_station_name
 │           ├── _lbl_track
 │           └── _lbl_artist
-├── spacer_bottom
+├── _spacer_bottom
 ├── zone_visual  (Presence Rail host; h=36px; transparent, non-interactive)
 │   └── wgt_presence_rail.root  (full-size transparent lv_obj; see ../widgets/wgt_presence_rail.cpp)
 │       ├── wave_line  (lv_line; OscilloscopeLine mode — active when vumeter off)
 │       └── seg_line[0..29]  (lv_line ×30; FenceTremor mode — active when vumeter on)
 ├── zone_bottom_sym_spacer
 ├── zone_bottom
-│   ├── control_band (shared shelf underlay; flex row; chrome colors = pal.main_chrome_* tokens — 6.6R-GA)
+│   ├── _control_band (shared shelf underlay; flex row; chrome colors = pal.main_chrome_* tokens — 6.6R-GA)
 │   │   ├── _edge_glow_top (FLOATING; rim highlight top edge, not in flex; gradient stops from pal.main_chrome_glow_top — 6.6R-GA)
 │   │   ├── _edge_glow_bot (FLOATING; rim highlight bottom edge, not in flex; gradient stops from pal.main_chrome_glow_bottom — 6.6R-GA)
 │   │   ├── utility_left (list; width balanced with utility_right — centers transport triad)
@@ -91,19 +94,22 @@ flowchart TB
   subgraph screen["_screen"]
     SL[wgt_status_line.root]
     SD[status_divider]
-    ST[spacer_top]
+    ST[_spacer_top]
     CM[cont_mid]
-    SB[spacer_bottom]
+    SB[_spacer_bottom]
     ZV[zone_visual]
     ZSS[zone_bottom_sym_spacer]
     ZB[zone_bottom]
   end
 
   subgraph sl["wgt_status_line.root"]
+    CL[col_left]
+    CC[col_center]
+    CR[col_right]
     WIFI[lbl_wifi]
-    SP[spacer]
-    CWX[cont_weather]
     CLK[lbl_clock]
+    CWX[cont_weather]
+    SLEEP[lbl_sleep_timer FLOATING]
   end
 
   subgraph cwx["cont_weather"]
@@ -114,7 +120,7 @@ flowchart TB
   subgraph zv["zone_visual (Presence Rail host)"]
     PRR["wgt_presence_rail.root"]
     WL["wave_line (lv_line; OscilloscopeLine)"]
-    SL["seg_line[0..29] (lv_line ×30; FenceTremor)"]
+    SEGS["seg_line[0..29] (lv_line ×30; FenceTremor)"]
   end
 
   subgraph cm["cont_mid"]
@@ -133,14 +139,14 @@ flowchart TB
   end
 
   subgraph zb["zone_bottom"]
-    CB[control_band]
+    CB[_control_band]
     RMS[row_meta_stream]
     CV[col_vol]
     BUF[_bar_buffer]
     AI[_lbl_ai_line]
   end
 
-  subgraph cb["control_band"]
+  subgraph cb["_control_band"]
     GTOP[_edge_glow_top FLOATING]
     GBOT[_edge_glow_bot FLOATING]
     UL[utility_left list]
@@ -159,11 +165,14 @@ flowchart TB
 
   ZV --> PRR
   PRR --> WL
-  PRR --> SL
-  SL --> WIFI
-  SL --> SP
-  SL --> CWX
-  SL --> CLK
+  PRR --> SEGS
+  SL --> CL
+  SL --> CC
+  SL --> CR
+  SL --> SLEEP
+  CL --> WIFI
+  CC --> CLK
+  CR --> CWX
   CWX --> WG
   CWX --> WT
   CM --> CMR

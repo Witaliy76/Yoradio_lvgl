@@ -39,7 +39,7 @@ Glyph order in generated font (by codepoint): U+EA88, U+EA89, U+EB18, U+EF8E.
 
 ## Why strip the TTF?
 
-Same as Wi‑Fi / weather / control subsets: `lv_font_conv` (v1.5.x) may fail on stock Tabler TTF (*Coverage format must be 1 or 2*). Strip OpenType tables with **fontTools**:
+Same as Wi‑Fi / weather / control subsets: `lv_font_conv` may fail on stock Tabler TTF (*Coverage format must be 1 or 2*). Strip OpenType tables with **fontTools**. For the current LVGL 9 ABI use `lv_font_conv@1.5.3`; 1.5.2 can emit the removed v8 `.cache` field under LVGL 9.
 
 ```python
 from fontTools.ttLib import TTFont
@@ -64,7 +64,7 @@ Prerequisites: Node.js (`npx`), `tabler-stripped.ttf` in the working directory.
 ```powershell
 $sizes = 24,28,32,36,40,44
 foreach ($s in $sizes) {
-  npx --yes lv_font_conv@1.5.2 `
+  npx --yes lv_font_conv@1.5.3 `
     --font tabler-stripped.ttf `
     --size $s `
     --bpp 4 `

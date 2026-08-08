@@ -5,7 +5,7 @@ Author: Witaliy76 - https://github.com/Witaliy76
 All LVGL-related product UI lives exclusively in `src/src/lvgl_ui/`.
 Do not mix LVGL screen/widget code with legacy drivers in `src/src/displays/`.
 
-This directory hosts the LVGL 8.3 UI for YoRadio: PageChain navigation, product
+This directory hosts the LVGL 9.5.0 UI for YoRadio: PageChain navigation, product
 screens, shared widgets, display profiles, theme, adapters, and assets.
 All `lv_*` calls run only on **DspTask** (via `Display::loop` / `lvgl_ui` entry points).
 Cross-task UI updates arrive through `display.putRequest()` and are applied on DspTask.
@@ -44,7 +44,7 @@ Special modes (not carousel slots):
 
 ```
 lvgl_ui/
-├── lv_conf.h                 - LVGL 8.3 compile-time configuration
+├── lv_conf.h                 - LVGL 9.5.0 compile-time configuration
 ├── lvgl_ui.h / lvgl_ui.cpp   - Public entry points and lifecycle integration
 ├── lv_page_chain.*           - Carousel + Boot / Temporary / Wi-Fi special modes
 ├── lv_screen.h               - ILvglScreen contract
@@ -67,11 +67,37 @@ lvgl_ui/
 | Concern | Owner |
 |---------|--------|
 | `lv_*` API | DspTask only |
-| Framebuffer / flush | Display pipeline (Canvas path until later rendering stages) |
+| Display / draw buffer | LVGL 9 `lv_display_t`; RGB565; one 480x160 PSRAM buffer (153600 B) in `LV_DISPLAY_RENDER_MODE_PARTIAL` on 4848S040 |
+| Flush | Synchronous LVGL -> Arduino_GFX panel path; `lv_display_flush_ready()` exactly once on every callback path |
+| Touch | GT911 registered as an LVGL 9 pointer indev; its read callback runs from `lv_timer_handler()` on DspTask |
+| LVGL heap | Fixed 128 KiB built-in TLSF pool backed by one process-lifetime PSRAM allocation |
+| LVGL task stack | DspTask, 10240 B |
 | Theme preset / Custom file | Theme module + WebUI Appearance; live reapply on DspTask |
 | Station art / Main backgrounds | LittleFS + Main reload hooks on DspTask |
 | Weather data | Core `WeatherState` (fetch off UI); Weather page is read-only consumer |
 | Presets | `adapters/preset_store` on LittleFS |
+
+`lvgl_ui::initRuntime()` initializes LVGL and registers the custom `lv_fs_drv_t`
+LittleFS bridge as drive `L:`. `initDisplayDriver()` creates the display, installs the
+buffer and flush callback, initializes the theme, and registers the pointer indev.
+`taskHandler()` is the DspTask-owned LVGL pump.
+
+PageChain loads the next carousel screen with LVGL 9 screen auto-delete semantics.
+Before a previous tree is deleted, `prepareForAutoDelete()` stops page-owned resources
+that could still touch LVGL objects; after deletion, `releaseAfterAutoDelete()` clears
+handles and releases non-LVGL resources. A gesture callback installed on an active screen
+root must not synchronously load another screen: `carousel_gesture_event_cb` records the
+direction, and `taskHandler()` consumes it only after `lv_timer_handler()` returns and the
+LVGL event-dispatch stack has unwound. Some child callbacks still navigate synchronously;
+they are safe in the current object/event layout and remain a defensive hardening follow-up.
+
+File-backed Main, Visual, and screensaver RGB565 backgrounds keep the existing YoRadio
+4-byte little-endian disk header followed by RGB565 bytes. Loaders translate that header
+to an in-memory LVGL 9 `lv_image_header_t` / `lv_image_dsc_t`; the files were not converted
+to a new disk format. Static RGB565A8 screensaver sprites are different: they use the
+LVGL 9 color-plane-then-alpha-plane representation. All 48 generated fonts use the LVGL 9
+ABI and must be regenerated with `lv_font_conv@1.5.3`; the 1.5.2 output can retain the
+removed v8 `.cache` field, while the v9 `fallback` field is valid.
 
 ## Related tracked docs
 

@@ -300,8 +300,8 @@ No additional handles are stored solely for theme recoloring.
 | `update()` | refreshes value labels from runtime sources |
 | `exit()` | no-op |
 | `liveReapplyTheme()` | recolors without rebuild |
-| `destroy()` | `lv_obj_del(_screen)` + `_nullHandles()` |
-| `releaseAfterAutoDelete()` | LVGL tree already freed by PageChain; `_nullHandles()` only — **never** `lv_obj_del` |
+| `destroy()` | `lv_obj_delete(_screen)` + `_nullHandles()` |
+| `releaseAfterAutoDelete()` | LVGL tree already freed by PageChain; `_nullHandles()` only — **never** `lv_obj_delete` |
 
 `_nullHandles()` clears `_screen`, `_status_line`, `_lbl_info_title`, all `_val_*` pointers, and Wi-Fi cache members (`_wifi_sample_ms`, `_wifi_rssi_cached`, `_wifi_ch_cached`, `_wifi_was_connected`).
 

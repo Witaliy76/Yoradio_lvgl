@@ -88,7 +88,7 @@ This is **metadata only** — not a color. It does not affect Dark or Light pres
 | Light | `/bg/main_light.bin` | `data/bg/main_light.bin` |
 | Custom | `/bg/main_custom.bin` | `data/bg/main_custom.bin` |
 
-Format: LVGL v8 **RGB565** `.bin` (4-byte header + pixels). Resolution must match your board (480×480 on 4848S040). Upload via WebUI Appearance or place under `data/bg/` before `uploadfs`.
+Disk format is the existing YoRadio **RGB565** `.bin`: a 4-byte little-endian custom header followed by RGB565 pixels. Resolution must match your board (480×480 on 4848S040). LVGL 9 loaders translate the disk metadata to an in-memory `lv_image_header_t` / `lv_image_dsc_t`; the files were not converted to a new LVGL 9 disk format. Upload via WebUI Appearance or place under `data/bg/` before `uploadfs`.
 
 Converter (developers): `tools/lvgl_png_to_rgb565_bin.py`
 

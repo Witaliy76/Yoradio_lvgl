@@ -42,7 +42,7 @@ Codepoints are taken from `dist/tabler-icons.css` in the same package version.
 
 ## Why strip the TTF?
 
-Same as Wi‑Fi subset: `lv_font_conv` may fail on stock Tabler TTF (*Coverage format must be 1 or 2*). Strip OpenType tables with **fontTools** (see `lv_font_yora_status_icons_22.md`).
+Same as Wi‑Fi subset: `lv_font_conv` may fail on stock Tabler TTF (*Coverage format must be 1 or 2*). Strip OpenType tables with **fontTools** (see `lv_font_yora_status_icons_22.md`). For the current LVGL 9 ABI use `lv_font_conv@1.5.3`; 1.5.2 can emit the removed v8 `.cache` field under LVGL 9.
 
 ---
 
@@ -51,7 +51,7 @@ Same as Wi‑Fi subset: `lv_font_conv` may fail on stock Tabler TTF (*Coverage f
 Prerequisites: Node.js (`npx`), `tabler-stripped.ttf` in the working directory.
 
 ```bash
-npx --yes lv_font_conv@1.5.2 ^
+npx --yes lv_font_conv@1.5.3 ^
   --font tabler-stripped.ttf ^
   --size 24 ^
   --bpp 4 ^

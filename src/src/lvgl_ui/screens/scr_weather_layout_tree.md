@@ -310,8 +310,8 @@ These are documentation of existing behavior; neither WEATHERREF-A nor WEATHERRE
 - `create()` — builds the object tree via the four `create_*` builders, then installs carousel gestures on `_screen`. No initial `update()` and no cache reset here.
 - `enter()` — invalidates the render cache and calls `update()` (initial full render).
 - `exit()` — diagnostics only; no teardown (PageChain may auto-delete on the next switch).
-- `destroy()` — manual delete path: `lv_obj_del(_screen)` then `_nullHandles()`.
-- `releaseAfterAutoDelete()` — LVGL already deleted the tree (`auto_del`); only `_nullHandles()` (never `lv_obj_del`).
+- `destroy()` — manual delete path: `lv_obj_delete(_screen)` then `_nullHandles()`.
+- `releaseAfterAutoDelete()` — LVGL already deleted the tree (`auto_del`); only `_nullHandles()` (never `lv_obj_delete`).
 - `_nullHandles()` — resets the render cache and nulls every member handle so the next recreate starts clean.
 - PageChain recreate: data lives in core `WeatherState`, so a fresh `create()` + `enter()` rebuilds the screen with no UI-side persistence.
 
