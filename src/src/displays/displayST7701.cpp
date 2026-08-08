@@ -9,6 +9,7 @@
 
 #include "displayST7701.h"
 #include "display_port.h"
+#include "esp_lcd_st7701_backend.h"
 #include <cstring>
 #include "../core/spidog.h"
 #include "../core/config.h"
@@ -104,6 +105,9 @@ DspCore::DspCore() {
 // DspCore::initDisplay остаётся продуктовой точкой входа без смены call-site.
 bool DisplayPort::begin() {
     Serial.println("[ST7701] initDisplay start");
+    // Slice 2: keep direct esp_lcd backend TU in the link set; runtime still Arduino_GFX.
+    // Slice 2: TU direct esp_lcd остаётся в линковке; runtime по-прежнему Arduino_GFX.
+    (void)yoradio_esp_lcd_st7701::backendPresent();
 
     if (!bus) {
         Serial.println("[ST7701] Initializing bus...");
