@@ -2,7 +2,7 @@
 
 # YoRadio LVGL
 
-YoRadio LVGL is an ESP32-S3 Wi-Fi radio with a square touchscreen. Its interface is built on LVGL 8.3 and uses a six-page PageChain, with dedicated Wi-Fi Setup / Recovery, Preset Temporary, and Screensaver screens.
+YoRadio LVGL is an ESP32-S3 Wi-Fi radio with a square touchscreen. Its interface is built on LVGL 9.5 and uses a six-page PageChain, with dedicated Wi-Fi Setup / Recovery, Preset Temporary, and Screensaver screens.
 
 The device is accompanied by a Web UI for playback, stations, behavior settings, and Appearance controls for themes, Main screen backgrounds, and station artwork. The default audio configuration uses an external I2S DAC or amplifier.
 
@@ -27,7 +27,7 @@ Each page has a distinct role: Main is for listening, Visual for atmosphere, Inf
 ## Main features
 
 - Internet radio playback: MP3, AAC, FLAC, OGG/Vorbis, and Opus.
-- Six-page LVGL 8.3 touchscreen interface: Info, Main, Visual, Stations, Weather, and Settings.
+- Six-page LVGL 9.5 touchscreen interface: Info, Main, Visual, Stations, Weather, and Settings.
 - Paged station list with eight visible rows.
 - Weather with current conditions and a forecast from OpenWeatherMap.
 - Beocord-inspired Visual with two channels and eight signal segments per channel.
@@ -39,6 +39,19 @@ Each page has a distinct role: Main is for listening, Visual for atmosphere, Inf
 - Optional AI Layer as a quiet information layer over music.
 
 ## Change history
+
+### 08 August 2026 — migration to LVGL 9.5.0
+
+YoRadio migrated from LVGL 8.3.11 to LVGL 9.5.0. The ESP32-4848S040 product UI and behaviour were preserved.
+
+Arduino_GFX remains the current temporary display bridge; direct `esp_lcd` migration is a separate following stage. Generated fonts were migrated to the LVGL9 ABI. Image/runtime descriptor handling and RGB565A8 screensaver assets were adapted for LVGL9.
+
+Two migration regressions were found and fixed: display-task stack sizing and carousel event/screen lifecycle. Device smoke and full functional validation passed. Internal LVGL UI/layout documentation was synchronized.
+
+Public baseline remains `0.9.434m-r2-lvgl-beta.2`.
+
+Current internal development build at migration closeout: `0.9.434m-r2-lvgl-beta.2-s0.4`.
+Development builds during the current master plan use the `-s<stage>.<slice>` suffix. `beta.3` is reserved for the next explicitly approved preproduction/public-facing milestone.
 
 ### 28 July 2026 — 0.9.434m-r2-lvgl-beta.2
 
