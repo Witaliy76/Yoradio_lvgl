@@ -15,18 +15,12 @@
 #include "../core/config.h"
 #include "../core/network.h"
 #include "../core/display.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 
 #include "Arduino_GFX_Library.h"
 
 extern const uint8_t st7701_type9_init_operations[];
 #if defined(ARDUINO_ARCH_ESP32)
 #include "esp32-hal-ledc.h"
-#endif
-
-#if YORADIO_USE_LVGL && (YORADIO_LVGL_STAGE >= 2)
-#include "../lvgl_ui/lvgl_ui.h"
 #endif
 
 #include "driver/adc.h"
