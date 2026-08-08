@@ -30,9 +30,8 @@
 #include "../core/autodim.h"
 #include "../core/display.h"
 #include "../core/options.h"
-#include "../core/spidog.h"
 #if DSP_MODEL == DSP_ST7701
-#include <Arduino_GFX.h>  // flush() on Arduino_GFX; getOutputDisplay() returns Arduino_G*
+#include "../displays/display_port.h"
 #endif
 #include "../core/network.h"
 #include "../core/wifi_ops_adapter.h"
@@ -246,17 +245,27 @@ static uint32_t s_lvgl_flush_count = 0;
 static uint32_t s_lvgl_last_flush_ms = 0;
 
 #if DSP_MODEL == DSP_ST7701
-// Block 8-E3/E17/E18C (4848S040): LVGL → output_display directly; no Arduino_Canvas on product path.
-// Block 8-E3/E17/E18C: LVGL → output_display; Canvas снят (E17), legacy dirty flush отключён (E18C).
-// BASE-LVGL9-MIGRATION C2: flush_cb signature is now (lv_display_t*, area, uint8_t* px_map);
-// px_map cast to uint16_t* only at this hardware boundary (RGB565, no byte swap).
+// BASE-DISP-PORT Slice 3: LVGL clip/pointer prep → DisplayPort::flush → Arduino_GFX backend.
+// BASE-DISP-PORT Slice 3: clip/pointer LVGL → DisplayPort::flush → backend Arduino_GFX.
+// Diagnostics + flush_ready run in done(ctx) so order matches the pre-cutover path.
+// Диагностика + flush_ready в done(ctx), чтобы порядок совпал с pre-cutover.
+static void lvgl_display_port_flush_done(void* ctx) {
+    lv_display_t* disp = static_cast<lv_display_t*>(ctx);
+    s_lvgl_flush_count++;
+    s_lvgl_last_flush_ms = millis();
+    lvgl_ui::recordLvglDirectPanelFlush();
+    lv_display_flush_ready(disp);
+}
+
+// BASE-LVGL9-MIGRATION C2: flush_cb signature is (lv_display_t*, area, uint8_t* px_map);
+// px_map cast to uint16_t* only at this boundary (RGB565, no byte swap).
 static void lvgl_flush_direct_panel(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
-    Arduino_G* panel_g = dsp.getOutputDisplay();
-    if (!panel_g || !px_map || !area) {
+    // Early no-op paths: ready without hardware-flush diagnostics (unchanged).
+    // Ранние no-op: ready без диагностики hardware-flush (без изменений).
+    if (!px_map || !area) {
         lv_display_flush_ready(disp);
         return;
     }
-    Arduino_GFX* panel = static_cast<Arduino_GFX*>(panel_g);
 
     int32_t x1 = area->x1;
     int32_t y1 = area->y1;
@@ -283,22 +292,23 @@ static void lvgl_flush_direct_panel(lv_display_t *disp, const lv_area_t *area, u
     if (x1 != area->x1 || y1 != area->y1) {
         px += static_cast<int32_t>(y1 - area->y1) * src_stride + (x1 - area->x1);
     }
+    (void)w;
+    (void)h;
 
-    sdog.takeMutex();
-    panel_g->draw16bitRGBBitmap(x1, y1, px, w, h);
-    panel->flush();
-    sdog.giveMutex();
+    const DisplayArea port_area{
+        static_cast<int16_t>(x1),
+        static_cast<int16_t>(y1),
+        static_cast<int16_t>(x2),
+        static_cast<int16_t>(y2)};
 
-    s_lvgl_flush_count++;
-    s_lvgl_last_flush_ms = millis();
-    lvgl_ui::recordLvglDirectPanelFlush();
-
-    lv_display_flush_ready(disp);
+    // Stable ctx: lv_display_t* (not stack-local). Backend still completes synchronously today.
+    // Стабильный ctx: lv_display_t* (не stack-local). Backend пока синхронный.
+    DisplayPort::flush(port_area, px, lvgl_display_port_flush_done, disp);
 }
 #endif
 
-// Flush callback: LVGL product path → output_display direct only (E5C). Canvas fallback removed (E18D).
-// Flush callback: только прямой вывод на panel (E5C); Canvas fallback удалён (E18D).
+// Flush callback: LVGL → DisplayPort (E5C topology unchanged). Canvas fallback removed (E18D).
+// Flush callback: LVGL → DisplayPort (топология E5C без изменений). Canvas fallback удалён (E18D).
 static void lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
 #if DSP_MODEL == DSP_ST7701
     lvgl_flush_direct_panel(disp, area, px_map);

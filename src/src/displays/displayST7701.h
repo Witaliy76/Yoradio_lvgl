@@ -4,12 +4,12 @@
 #include "../core/options.h"
 
 #include "Arduino.h"
-#include "Arduino_GFX_Library.h"
 
 class DspCore {
 public:
     DspCore();
-    void initDisplay();
+    // Returns DisplayPort::begin() success / Возвращает успех DisplayPort::begin().
+    bool initDisplay();
     void displayOn();
     void displayOff();
     void loop(bool force = false);
@@ -20,7 +20,6 @@ public:
     void sleep();
     void wake();
     void setBrightness(uint8_t brightness);
-    Arduino_G* getOutputDisplay();
 #ifndef BATTERY_OFF
     void readBattery();
 #endif

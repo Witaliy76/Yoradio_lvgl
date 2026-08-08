@@ -130,10 +130,10 @@ void Display::init() {
   _bootStep = 0;
   _suspendFlush = true;
 
-  dsp.initDisplay();
+  const bool display_ok = dsp.initDisplay();
   sleep_timer_init();
 
-  if (!dsp.getOutputDisplay()) {
+  if (!display_ok) {
     Serial.println("[Display] Failed to initialize display (no output_display)!");
     return;
   }

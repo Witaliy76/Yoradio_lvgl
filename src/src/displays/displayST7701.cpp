@@ -246,8 +246,8 @@ void DisplayPort::wake() {
     GIVE_MUTEX();
 }
 
-void DspCore::initDisplay() {
-    (void)DisplayPort::begin();
+bool DspCore::initDisplay() {
+    return DisplayPort::begin();
 }
 
 void DspCore::displayOn() {
@@ -308,14 +308,6 @@ uint16_t DspCore::width() {
 
 uint16_t DspCore::height() {
     return DisplayPort::geometry().height;
-}
-
-// BASE-DISP-PORT Slice 2: intentional temporary coupling for lvgl_ui direct path.
-// Scheduled for removal in Slice 3 (DISPLAY-PORT-LVGL-CUTOVER).
-// BASE-DISP-PORT Slice 2: намеренная временная связка для прямого пути lvgl_ui.
-// Снятие запланировано в Slice 3 (DISPLAY-PORT-LVGL-CUTOVER).
-Arduino_G* DspCore::getOutputDisplay() {
-    return output_display;
 }
 
 #ifndef BATTERY_OFF
