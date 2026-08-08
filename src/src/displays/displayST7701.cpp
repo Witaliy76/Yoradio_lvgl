@@ -8,6 +8,7 @@
 #if DSP_MODEL == DSP_ST7701
 
 #include "displayST7701.h"
+#include "display_port.h"
 #include <cstring>
 #include "../core/spidog.h"
 #include "../core/config.h"
@@ -97,7 +98,11 @@ DspCore::DspCore() {
 #endif
 }
 
-void DspCore::initDisplay() {
+// BASE-DISP-PORT Slice 2: physical bring-up lives behind DisplayPort::begin();
+// DspCore::initDisplay remains the product entry and preserves call-site parity.
+// BASE-DISP-PORT Slice 2: физический bring-up — за DisplayPort::begin();
+// DspCore::initDisplay остаётся продуктовой точкой входа без смены call-site.
+bool DisplayPort::begin() {
     Serial.println("[ST7701] initDisplay start");
 
     if (!bus) {
@@ -107,7 +112,7 @@ void DspCore::initDisplay() {
             ST7701_SCK, ST7701_SDA, GFX_NOT_DEFINED);
         if (!bus) {
             Serial.println("[ST7701] Failed to initialize bus!");
-            return;
+            return false;
         }
     }
 
@@ -126,7 +131,7 @@ void DspCore::initDisplay() {
             0, 0, 0);
         if (!rgbpanel) {
             Serial.println("[ST7701] Failed to initialize RGB panel!");
-            return;
+            return false;
         }
     }
 
@@ -138,20 +143,20 @@ void DspCore::initDisplay() {
             sizeof(st7701_type9_init_operations));
         if (!output_display) {
             Serial.println("[ST7701] Failed to initialize RGB display!");
-            return;
+            return false;
         }
     }
 
     static bool s_rgb_output_begun = false;
     if (!output_display) {
         Serial.println("[ST7701] RGB display object missing!");
-        return;
+        return false;
     }
     if (!s_rgb_output_begun) {
         Serial.println("[ST7701] Initializing RGB display output...");
         if (!output_display->begin()) {
             Serial.println("[ST7701] Failed to begin RGB display!");
-            return;
+            return false;
         }
         s_rgb_output_begun = true;
         delay(100);
@@ -171,6 +176,78 @@ void DspCore::initDisplay() {
     }
 
     Serial.println("[ST7701] Display ready for normal operation");
+    return true;
+}
+
+DisplayGeometry DisplayPort::geometry() {
+    // Proven physical facts only; no new geometry architecture.
+    // Только доказанные физические факты; без новой geometry-архитектуры.
+    return DisplayGeometry{480u, 480u, PixelFormat::Rgb565};
+}
+
+void DisplayPort::flush(const DisplayArea& area, const uint16_t* pixels,
+                        void (*done)(void* ctx), void* ctx) {
+    // Backend-only: no LVGL types, no clip policy, no flush_ready.
+    // Только backend: без типов LVGL, без clip-политики, без flush_ready.
+    if (!output_display || !pixels) {
+        if (done) {
+            done(ctx);
+        }
+        return;
+    }
+
+    const int16_t w = static_cast<int16_t>(area.x2 - area.x1 + 1);
+    const int16_t h = static_cast<int16_t>(area.y2 - area.y1 + 1);
+
+    TAKE_MUTEX();
+    // Arduino_GFX draw API is non-const; pixels are not mutated by the blit path.
+    // API Arduino_GFX non-const; blit путь пиксели не меняет.
+    output_display->draw16bitRGBBitmap(
+        area.x1, area.y1, const_cast<uint16_t*>(pixels), w, h);
+    output_display->flush();
+    GIVE_MUTEX();
+
+    if (done) {
+        done(ctx);
+    }
+}
+
+void DisplayPort::setBrightness(uint8_t percent) {
+    TAKE_MUTEX();
+    analogWrite(ST7701_BL, map(percent, 0, 100, 0, 255));
+    GIVE_MUTEX();
+}
+
+void DisplayPort::sleep() {
+    Serial.println("[ST7701] sleep");
+    TAKE_MUTEX();
+    // displayOff is currently log-only when panel object exists — preserve exactly.
+    // displayOff сейчас только лог при наличии панели — сохраняем точно.
+    if (output_display) {
+        Serial.println("[ST7701] Display OFF");
+    }
+    analogWrite(ST7701_BL, 0);
+    GIVE_MUTEX();
+}
+
+void DisplayPort::wake() {
+    Serial.println("[ST7701] wake");
+    TAKE_MUTEX();
+    // displayOn is currently log-only when panel object exists — preserve exactly.
+    // displayOn сейчас только лог при наличии панели — сохраняем точно.
+    if (output_display) {
+        Serial.println("[ST7701] Display ON");
+    }
+#if defined(ENABLE_BRIGHTNESS_CONTROL)
+    analogWrite(ST7701_BL, map(config.store.brightness, 0, 100, 0, 255));
+#else
+    analogWrite(ST7701_BL, 255);
+#endif
+    GIVE_MUTEX();
+}
+
+void DspCore::initDisplay() {
+    (void)DisplayPort::begin();
 }
 
 void DspCore::displayOn() {
@@ -214,39 +291,29 @@ void DspCore::invert() {
 }
 
 void DspCore::sleep(void) {
-    Serial.println("[ST7701] sleep");
-    TAKE_MUTEX();
-    displayOff();
-    analogWrite(ST7701_BL, 0);
-    GIVE_MUTEX();
+    DisplayPort::sleep();
 }
 
 void DspCore::wake(void) {
-    Serial.println("[ST7701] wake");
-    TAKE_MUTEX();
-    displayOn();
-#if defined(ENABLE_BRIGHTNESS_CONTROL)
-    analogWrite(ST7701_BL, map(config.store.brightness, 0, 100, 0, 255));
-#else
-    analogWrite(ST7701_BL, 255);
-#endif
-    GIVE_MUTEX();
+    DisplayPort::wake();
 }
 
 void DspCore::setBrightness(uint8_t brightness) {
-    TAKE_MUTEX();
-    analogWrite(ST7701_BL, map(brightness, 0, 100, 0, 255));
-    GIVE_MUTEX();
+    DisplayPort::setBrightness(brightness);
 }
 
 uint16_t DspCore::width() {
-    return 480;
+    return DisplayPort::geometry().width;
 }
 
 uint16_t DspCore::height() {
-    return 480;
+    return DisplayPort::geometry().height;
 }
 
+// BASE-DISP-PORT Slice 2: intentional temporary coupling for lvgl_ui direct path.
+// Scheduled for removal in Slice 3 (DISPLAY-PORT-LVGL-CUTOVER).
+// BASE-DISP-PORT Slice 2: намеренная временная связка для прямого пути lvgl_ui.
+// Снятие запланировано в Slice 3 (DISPLAY-PORT-LVGL-CUTOVER).
 Arduino_G* DspCore::getOutputDisplay() {
     return output_display;
 }
