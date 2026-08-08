@@ -214,6 +214,20 @@ bool DisplayPort::begin() {
     }
 #endif  // YORADIO_ST7701_BACKEND_DIRECT
 
+    // Apply persisted inversion after panel init and before backlight. Direct
+    // orientation is a fixed board option applied before the RGB stream starts.
+    // Инверсия применяется до подсветки; orientation direct-backend фиксируется
+    // board-опцией до запуска RGB stream.
+#if YORADIO_ST7701_BACKEND_DIRECT
+    if (!yoradio_esp_lcd_st7701::setInverted(config.store.invertdisplay)) {
+        Serial.println("[ST7701] Failed to apply saved display inversion");
+        return false;
+    }
+#else
+    output_display->setRotation(config.store.flipscreen ? 2 : 0);
+    bus->sendCommand(config.store.invertdisplay ? 0x21 : 0x20);
+#endif
+
     pinMode(ST7701_BL, OUTPUT);
     delay(50);
     analogWrite(ST7701_BL, 255);
@@ -347,19 +361,15 @@ void DspCore::loop(bool force) {
     (void)force;
 }
 
-// DEFERRED TO SLICE 4 (LIFECYCLE PARITY): rotation/inversion are not implemented
-// for the direct esp_lcd backend yet. Under the GFX runtime both bodies were
-// already null-guarded no-ops whenever the panel object was absent, so the direct
-// build keeps the same bounded no-op behaviour — no invalid dereference, no crash.
-// Not exercised by the Slice-3 flush proof: only netserver/WebUI reaches them and
-// both config defaults are false. Functional parity is Slice-4 work.
-// ОТЛОЖЕНО ДО SLICE 4: поворот/инверсия для direct esp_lcd ещё не реализованы;
-// поведение — ограниченный no-op без разыменования, как и раньше при отсутствии
-// объекта панели. Достижимы только из WebUI; оба значения по умолчанию false.
+// Slice 4 lifecycle parity: inversion is live on the direct backend. This panel
+// accepts its 180-degree scan commands only before the RGB stream starts, so
+// direct orientation is the fixed ST7701_BOOT_ORIENTATION_180 board option.
+// Touch orientation remains an independent runtime option.
 void DspCore::flip() {
     TAKE_MUTEX();
 #if YORADIO_ST7701_BACKEND_DIRECT
     (void)config.store.flipscreen;
+    Serial.println("[ST7701] Runtime flip unavailable; use ST7701_BOOT_ORIENTATION_180");
 #else
     if (output_display) {
         output_display->setRotation(config.store.flipscreen ? 2 : 0);
@@ -371,7 +381,9 @@ void DspCore::flip() {
 void DspCore::invert() {
     TAKE_MUTEX();
 #if YORADIO_ST7701_BACKEND_DIRECT
-    (void)config.store.invertdisplay;
+    if (!yoradio_esp_lcd_st7701::setInverted(config.store.invertdisplay)) {
+        Serial.println("[ST7701] Runtime inversion command FAILED");
+    }
 #else
     if (bus) {
         bus->sendCommand(config.store.invertdisplay ? 0x21 : 0x20);

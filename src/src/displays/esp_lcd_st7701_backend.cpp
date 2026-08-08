@@ -25,6 +25,19 @@ namespace {
 esp_lcd_panel_handle_t s_panel = nullptr;
 uint16_t* s_fb = nullptr;
 bool s_ready = false;
+// Type9 does not write MADCTL; ST7701S reset default is 0x00. Track the full
+// value so changing ML never clobbers BGR or another unrelated MADCTL bit.
+// Type9 не пишет MADCTL; reset default ST7701S = 0x00. Храним весь байт,
+// чтобы изменение ML не затронуло BGR и прочие биты.
+uint8_t s_madctl = 0x00;
+
+constexpr uint8_t kCmdCommand2BankSelect = 0xFF;
+constexpr uint8_t kCmdSourceDirection = 0xC7;
+constexpr uint8_t kCmdMadctl = 0x36;
+constexpr uint8_t kSourceDirectionReverse = 0x04;  // SDIR.SS, bit 2
+constexpr uint8_t kMadctlMl = 0x10;                // MADCTL.ML, bit 4
+constexpr uint8_t kCommand2Bank0[] = {0x77, 0x01, 0x00, 0x00, 0x10};
+constexpr uint8_t kCommand2Disable[] = {0x77, 0x01, 0x00, 0x00, 0x00};
 
 // --- 9-bit software SPI (Arduino_SWSPI semantics, DC undefined) ---
 // --- Программный 9-bit SPI (семантика Arduino_SWSPI, DC нет) ---
@@ -80,6 +93,34 @@ bool initControlBusPins() {
     spiSckLow();
     spiMosiLow();
     return true;
+}
+
+bool writeControlCommand(uint8_t command, const uint8_t* data = nullptr, size_t data_size = 0) {
+    csLow();
+    write9BitCommand(command);
+    for (size_t i = 0; i < data_size; ++i) {
+        write9BitData(data[i]);
+    }
+    csHigh();
+    return true;
+}
+
+bool applyPanelOrientation180(bool flipped) {
+    const uint8_t sdir = flipped ? kSourceDirectionReverse : 0x00;
+    if (!writeControlCommand(kCmdCommand2BankSelect, kCommand2Bank0,
+                             sizeof(kCommand2Bank0)) ||
+        !writeControlCommand(kCmdSourceDirection, &sdir, 1) ||
+        !writeControlCommand(kCmdCommand2BankSelect, kCommand2Disable,
+                             sizeof(kCommand2Disable))) {
+        return false;
+    }
+
+    if (flipped) {
+        s_madctl |= kMadctlMl;
+    } else {
+        s_madctl &= static_cast<uint8_t>(~kMadctlMl);
+    }
+    return writeControlCommand(kCmdMadctl, &s_madctl, 1);
 }
 
 // Mirror Arduino_DataBus::batchOperation for the Type9 opcode subset used here.
@@ -266,6 +307,17 @@ bool begin() {
     }
     Serial.println("[esp_lcd_st7701] Type9 replay PASS");
 
+    // Some 4848S040 panels accept orientation commands only before the RGB
+    // pixel stream starts. Keep this a fixed board option; touch is separate.
+    if (ST7701_BOOT_ORIENTATION_180) {
+        Serial.println("[esp_lcd_st7701] applying fixed boot orientation 180");
+        if (!applyPanelOrientation180(true)) {
+            Serial.println("[esp_lcd_st7701] fixed boot orientation FAIL");
+            end();
+            return false;
+        }
+    }
+
     if (!createRgbPanel()) {
         end();
         return false;
@@ -284,6 +336,28 @@ bool begin() {
 
 bool isReady() {
     return s_ready && s_panel && s_fb;
+}
+
+bool setInverted(bool inverted) {
+    if (!isReady()) {
+        return false;
+    }
+
+    // The documented ST7701 INVOFF/INVON path was accepted by the write-only
+    // 9-bit transport but produced no physical change on ESP32-4848S040.
+    // ESP-IDF's native RGB panel operation performs the same visible bitwise
+    // inversion at the RGB output GPIO matrix, without touching framebuffer,
+    // flush/cache topology, or adding a second command transport.
+    // На 4848S040 контроллер проигнорировал документированные 0x20/0x21.
+    // Штатная операция esp_lcd инвертирует RGB-линии в GPIO matrix, не меняя
+    // framebuffer и принятый flush/cache path.
+    const esp_err_t err = esp_lcd_panel_invert_color(s_panel, inverted);
+    if (err != ESP_OK) {
+        Serial.printf("[esp_lcd_st7701] RGB output inversion failed: %s\n",
+                      esp_err_to_name(err));
+        return false;
+    }
+    return true;
 }
 
 uint16_t* framebuffer() {
@@ -377,6 +451,7 @@ void setBrightnessPercent(uint8_t percent) {
 void end() {
     s_ready = false;
     s_fb = nullptr;
+    s_madctl = 0x00;
     if (s_panel) {
         esp_lcd_panel_del(s_panel);
         s_panel = nullptr;

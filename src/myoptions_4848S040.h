@@ -25,6 +25,9 @@
 #define ST7701_CS   39       // Chip Select
 #define ST7701_SCK  48       // Serial Clock
 #define ST7701_SDA  47       // Serial Data
+// Fixed panel orientation applied during ST7701 init, before the RGB stream starts.
+// Runtime WebUI flip is not reliable on this panel; touch remains configured separately.
+#define ST7701_BOOT_ORIENTATION_180 false
 // RGB sync signals
 #define ST7701_DE     18     // Data Enable
 #define ST7701_VSYNC  17     // Vertical Sync

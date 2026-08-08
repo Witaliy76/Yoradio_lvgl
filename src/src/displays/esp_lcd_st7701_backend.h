@@ -29,6 +29,10 @@ bool begin();
 
 bool isReady();
 
+// Semantic runtime inversion through the native esp_lcd RGB output operation.
+// Runtime-инверсия через штатную RGB-операцию esp_lcd.
+bool setInverted(bool inverted);
+
 uint16_t* framebuffer();
 size_t framebufferBytes();
 

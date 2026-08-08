@@ -712,10 +712,9 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
         return;
       }
       if (strcmp(cmd, "invertdisplay") == 0) {
-        // Wi-Fi 3B: dev/test entry — same WebUI/API cmd "invertdisplay", opens LVGL Wi-Fi shell; no invert, no NVS write (DspTask via queue).
-        // Wi‑Fi 3B: временный вход в Wi‑Fi shell через тот же invertdisplay; без invert и без сохранения в store.
-        (void)val;
-        display.putRequest(NEWMODE, WIFI);
+        bool valb = static_cast<bool>(atoi(val));
+        config.saveValue(&config.store.invertdisplay, valb);
+        display.invert();
         return;
       }
       if (strcmp(cmd, "numplaylist") == 0) {
