@@ -10,6 +10,8 @@ The project is based on [e2002/yoradio](https://github.com/e2002/yoradio). The c
 
 > Public beta: `0.9.434m-r2-lvgl-beta.2`. Supported board: **ESP32-4848S040**.
 
+> **Note for ESP32-S3 4848S040:** while data is being written to internal flash — for example during a large playlist upload, background or Station Art upload, or when settings are persisted — the display may briefly shift horizontally. After the write operation finishes, the firmware automatically resynchronizes the RGB scanout and the image returns to normal. This is an expected characteristic of the current display configuration; no reboot is required.
+
 <p align="center">
   <img src="readme/english/device-front.jpg" alt="YoRadio LVGL device" width="450">
 </p>
@@ -39,6 +41,16 @@ Each page has a distinct role: Main is for listening, Visual for atmosphere, Inf
 - Optional AI Layer as a quiet information layer over music.
 
 ## Change history
+
+### 11 August 2026 — 0.9.434m-r2-lvgl-beta.2-s2.12
+
+Hardening stage for the direct `esp_lcd` display path on the ESP32-4848S040.
+
+The firmware no longer relies on continuous automatic RGB panel restart on VSYNC. RGB scanout synchronization is now owned by the Display layer: recovery runs once, after the operation that wrote to internal flash has completed — a playlist, Main background or Station Art upload, or a settings or Wi-Fi save. Two startup recovery points were added: an early one before the Boot screen is first presented, and a later one after the Boot → Main transition.
+
+Station Art rendering was repaired after the LVGL 9 migration: station artwork is visible again, is correctly replaced by a new image for the same station without a reboot, and is correctly removed.
+
+Public baseline remains `0.9.434m-r2-lvgl-beta.2`.
 
 ### 08 August 2026 — 0.9.434m-r2-lvgl-beta.2-s0.4
 

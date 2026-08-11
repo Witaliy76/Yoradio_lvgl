@@ -25,6 +25,12 @@ static const char kTmpPath[] = "/data/.preset_slots.tmp";
 
 static uint16_t s_slots[kSlotCount] = {};
 static bool s_loaded = false;
+// Set by every helper that actually mutates LittleFS; consumed by the caller after the whole
+// save/recovery finishes. Tracked here rather than inferred from return values because a failed
+// transaction can still have written the temp file.
+// Ставится каждым помощником, который реально меняет LittleFS; снимается вызывающим после
+// завершения всей операции. Неуспешная транзакция тоже могла записать временный файл.
+static bool s_storage_mutated = false;
 
 // CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF) over arbitrary bytes.
 // CRC-16/CCITT-FALSE для проверки целостности файла.
@@ -120,6 +126,7 @@ static void serialize_to_buffer(uint8_t* buf) {
 static bool copy_file_fallback(const char* src_path, const char* dst_path) {
     File src = LittleFS.open(src_path, "r");
     if (!src) return false;
+    s_storage_mutated = true;
     File dst = LittleFS.open(dst_path, "w");
     if (!dst) {
         src.close();
@@ -140,6 +147,7 @@ static bool copy_file_fallback(const char* src_path, const char* dst_path) {
 static bool commit_tmp_to_final() {
     if (!validate_file_path(kTmpPath)) return false;
 
+    s_storage_mutated = true;
     if (LittleFS.exists(kFinalPath)) {
         LittleFS.remove(kFinalPath);
     }
@@ -157,6 +165,11 @@ static bool write_slots_file() {
     uint8_t buf[kFileSize];
     serialize_to_buffer(buf);
 
+    // From here the whole temp/verify/rename sequence is a single logical transaction: mark once,
+    // never per primitive, so the caller issues exactly one resync however this ends.
+    // Дальше вся последовательность tmp/verify/rename — одна логическая транзакция: отмечаем один
+    // раз, не по примитивам, чтобы вызывающий сделал ровно один ресинхрон при любом исходе.
+    s_storage_mutated = true;
     if (LittleFS.exists(kTmpPath)) {
         LittleFS.remove(kTmpPath);
     }
@@ -194,6 +207,7 @@ static void recover_and_load() {
     if (final_ok) {
         if (tmp_exists) {
             LittleFS.remove(kTmpPath);
+            s_storage_mutated = true;
         }
         (void)load_from_path(kFinalPath);
         return;
@@ -216,6 +230,7 @@ static void recover_and_load() {
 
     if (tmp_exists) {
         LittleFS.remove(kTmpPath);
+        s_storage_mutated = true;
     }
 }
 
@@ -258,6 +273,12 @@ bool saveCurrentStation(uint8_t slot) {
         return false;
     }
     return true;
+}
+
+bool consumeStorageMutation() {
+    const bool mutated = s_storage_mutated;
+    s_storage_mutated = false;
+    return mutated;
 }
 
 } // namespace preset_store

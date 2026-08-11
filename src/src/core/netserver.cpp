@@ -269,6 +269,11 @@ void NetServer::beginUpload(AsyncWebServerRequest *request) {
     netserver.importRequest = IMWIFI;
     request->send(200);
   } else {
+    // Neither import will run, so nothing downstream will close the window that handleUpload()
+    // opened when it purged the playlist pair and wrote /data/tmp. Close it here.
+    // Ни один импорт не запустится, и закрыть окно, открытое handleUpload() при удалении пары
+    // playlist/index и записи /data/tmp, больше некому. Закрываем здесь.
+    display.requestRgbResync();
     request->send(404);
   }
 }
@@ -454,10 +459,18 @@ void NetServer::processQueue(){
         }
         #endif
         if(config.getMode()==PM_WEB){
-          config.indexPlaylist(); 
-          config.initPlaylist(); 
+          config.indexPlaylist();
+          config.initPlaylist();
         }
-        getPlaylist(clientId); break;
+        getPlaylist(clientId);
+        // Latest boundary of the playlist import window: the playlist file was written by
+        // importPlaylist(), and index.dat has now been rebuilt and re-read. One resync for the
+        // whole import, not per station and not between the playlist and index files.
+        // Крайняя граница окна импорта плейлиста: файл плейлиста записан в importPlaylist(),
+        // index.dat перестроен и перечитан. Один ресинхрон на весь импорт, не по станциям и не
+        // между файлами плейлиста и индекса.
+        display.requestRgbResync();
+        break;
       }
       case GETACTIVE: {
           bool dbgact = false;
@@ -1222,6 +1235,15 @@ uint8_t NetServer::_readPlaylistLine(File &file, char * line, size_t size){
 }
 
 bool NetServer::importPlaylist() {
+  // handleUpload() already deleted the old playlist/index pair and wrote /data/tmp before this
+  // runs, so the hazard exists on entry — including the paths that abandon the import. When the
+  // import succeeds, PLAYLISTSAVED closes the window after the index rebuild instead.
+  // handleUpload() до этого уже удалил старую пару playlist/index и записал /data/tmp, поэтому
+  // окно существует уже на входе — включая пути отказа. При успехе окно закрывает PLAYLISTSAVED
+  // после перестроения индекса.
+  RgbResyncTransaction resync;
+  resync.markFsMutated();
+
   if(config.getMode()==PM_SDCARD) return false;
   File tempfile = LittleFS.open(TMP_PATH, "r");
   if (!tempfile) {
@@ -1234,6 +1256,7 @@ bool NetServer::importPlaylist() {
     tempfile.close();
     LittleFS.rename(TMP_PATH, PLAYLIST_PATH);
     requestOnChange(PLAYLISTSAVED, 0);
+    resync.deferToDisplayEvent();
     return true;
   }
   if (config.parseJSON(linePl, sName, sUrl, sOvol)) {
@@ -1252,6 +1275,7 @@ bool NetServer::importPlaylist() {
     tempfile.close();
     LittleFS.remove(TMP_PATH);
     requestOnChange(PLAYLISTSAVED, 0);
+    resync.deferToDisplayEvent();
     return true;
   }
   tempfile.close();
@@ -1373,6 +1397,12 @@ void beginUploadBg(AsyncWebServerRequest* request) {
 void handleUploadBg(AsyncWebServerRequest* request, String filename, size_t index, uint8_t* data, size_t len, bool final) {
   (void)filename;
 
+  // Chunk invocations are NOT the transaction — the guard is only armed on the paths that end the
+  // upload (final chunk, or the fatal-IO exit), so a multi-chunk upload still yields one resync.
+  // Вызовы по чанкам — не транзакция: guard взводится только на завершающих путях, поэтому
+  // многочанковая загрузка даёт один ресинхрон.
+  RgbResyncTransaction resync;
+
   if (index == 0) {
     gBgUploadArmed = false;
     gBgIoFatal = false;
@@ -1404,6 +1434,7 @@ void handleUploadBg(AsyncWebServerRequest* request, String filename, size_t inde
         gBgUploadFile.close();
       }
       LittleFS.remove(kBgTmpPath);
+      resync.markFsMutated();
       request->send(500, "application/json", "{\"ok\":false,\"error\":\"open_failed\"}");
     }
     return;
@@ -1420,6 +1451,10 @@ void handleUploadBg(AsyncWebServerRequest* request, String filename, size_t inde
   if (!final) {
     return;
   }
+
+  // Final chunk: the temp file exists, so every exit from here owes one resync.
+  // Финальный чанк: временный файл создан, поэтому любой выход отсюда должен дать ресинхрон.
+  resync.markFsMutated();
 
   gBgUploadArmed = false;
   if (gBgUploadFile) {
@@ -1532,6 +1567,11 @@ void handleUploadBg(AsyncWebServerRequest* request, String filename, size_t inde
       const uint8_t active = static_cast<uint8_t>(lvgl_ui::yoradio_theme_active_preset());
       if (uploaded == active) {
         display.putRequest(MAIN_BG_FS_UPDATED, static_cast<int>(uploaded));
+        // Reload handler closes the window. An inactive slot queues nothing, so the guard still
+        // owes the resync — that upload wrote just as many bytes.
+        // Обработчик reload закрывает окно. Для неактивного слота событие не ставится, и ресинхрон
+        // остаётся за guard — байт записано столько же.
+        resync.deferToDisplayEvent();
       }
     }
   }
@@ -1554,20 +1594,44 @@ void handleRemoveBgHttp(AsyncWebServerRequest* request) {
   }
   String slot = request->getParam("slot")->value();
   const char* path = nullptr;
+  uint8_t removed = 255;
   if (slot == "dark") {
     path = "/bg/main_dark.bin";
+    removed = 0;
   } else if (slot == "light") {
     path = "/bg/main_light.bin";
+    removed = 1;
   } else if (slot == "custom") {
     path = "/bg/main_custom.bin";
+    removed = 2;
   } else {
     request->send(400, "application/json", "{\"ok\":false,\"error\":\"bad_slot\"}");
     return;
   }
+  // Delete now follows the same completion contract as upload: mutate, hand the slot to DspTask
+  // so the cached background is dropped and the default reapplied, and let that handler close the
+  // hazard window. A failed remove mutated nothing, so it owes no resync.
+  // Удаление следует тому же контракту завершения, что и загрузка: изменить ФС, передать слот в
+  // DspTask для сброса кэша и возврата к дефолту, и там закрыть окно. Неудавшийся remove ничего
+  // не изменил — ресинхрон не нужен.
+  RgbResyncTransaction resync;
+  bool deleted = false;
   if (LittleFS.exists(path)) {
     if (!LittleFS.remove(path)) {
       request->send(500, "application/json", "{\"ok\":false,\"error\":\"remove_failed\"}");
       return;
+    }
+    resync.markFsMutated();
+    deleted = true;
+  }
+  // Deleting an already-absent slot changes nothing, so it neither needs the reload nor owes a
+  // resync — only a real removal does.
+  // Удаление отсутствующего слота ничего не меняет: ни reload, ни ресинхрон не нужны.
+  if (deleted) {
+    const uint8_t active = static_cast<uint8_t>(lvgl_ui::yoradio_theme_active_preset());
+    if (removed == active) {
+      display.putRequest(MAIN_BG_FS_UPDATED, static_cast<int>(removed));
+      resync.deferToDisplayEvent();
     }
   }
   request->send(200, "application/json", "{\"ok\":true}");
@@ -1591,6 +1655,10 @@ void beginUploadTheme(AsyncWebServerRequest* request) {
 }
 
 void handleUploadTheme(AsyncWebServerRequest* request, String filename, size_t index, uint8_t* data, size_t len, bool final) {
+  // Armed only on the transaction-ending paths — see handleUploadBg.
+  // Взводится только на завершающих путях — см. handleUploadBg.
+  RgbResyncTransaction resync;
+
   if (index == 0) {
     gThemeUploadArmed = false;
     gThemeIoFatal = false;
@@ -1622,6 +1690,7 @@ void handleUploadTheme(AsyncWebServerRequest* request, String filename, size_t i
         gThemeUploadFile.close();
       }
       LittleFS.remove(kThemeCustomTmpPath);
+      resync.markFsMutated();
       request->send(500, "application/json", "{\"ok\":false,\"error\":\"open_failed\"}");
     }
     return;
@@ -1642,6 +1711,10 @@ void handleUploadTheme(AsyncWebServerRequest* request, String filename, size_t i
   if (!final) {
     return;
   }
+
+  // Final chunk: temp file exists, every exit from here owes one resync.
+  // Финальный чанк: временный файл создан, любой выход отсюда должен дать ресинхрон.
+  resync.markFsMutated();
 
   gThemeUploadArmed = false;
   if (gThemeUploadFile) {
@@ -1706,6 +1779,7 @@ void handleUploadTheme(AsyncWebServerRequest* request, String filename, size_t i
   // Stage 6.6R-F2: DspTask-only reload — NetServer does FS commit + queue (no palette parse here).
   // Этап 6.6R-F2: парсинг/палитра только в DspTask; stats — через GET /bg_status после reload.
   display.putRequest(CUSTOM_THEME_FILE_UPDATED, 0);
+  resync.deferToDisplayEvent();
 
   char okjson[256];
   snprintf(okjson, sizeof(okjson),
@@ -1869,6 +1943,10 @@ void beginUploadArt(AsyncWebServerRequest* request) {
 void handleUploadArt(AsyncWebServerRequest* request, String filename, size_t index, uint8_t* data, size_t len, bool final) {
     (void)filename;
 
+    // Armed only on the transaction-ending paths — see handleUploadBg.
+    // Взводится только на завершающих путях — см. handleUploadBg.
+    RgbResyncTransaction resync;
+
     if (index == 0) {
         gArtUploadArmed = false;
         gArtIoFatal     = false;
@@ -1901,6 +1979,7 @@ void handleUploadArt(AsyncWebServerRequest* request, String filename, size_t ind
             gArtUploadArmed = false;
             if (gArtUploadFile) gArtUploadFile.close();
             LittleFS.remove(kArtTmpPath);
+            resync.markFsMutated();
             request->send(500, "application/json", "{\"ok\":false,\"error\":\"open_failed\"}");
         }
         return;
@@ -1913,6 +1992,10 @@ void handleUploadArt(AsyncWebServerRequest* request, String filename, size_t ind
     }
 
     if (!final) return;
+
+    // Final chunk: temp file exists, every exit from here owes one resync.
+    // Финальный чанк: временный файл создан, любой выход отсюда должен дать ресинхрон.
+    resync.markFsMutated();
 
     gArtUploadArmed = false;
     if (gArtUploadFile) gArtUploadFile.close();
@@ -1996,6 +2079,7 @@ void handleUploadArt(AsyncWebServerRequest* request, String filename, size_t ind
 
     // Signal DspTask to reload art on Main screen / Сигнал DspTask — перезагрузить арт на Main.
     display.putRequest(ART_FS_UPDATED, 0);
+    resync.deferToDisplayEvent();
 
     char okjson[320];
     snprintf(okjson, sizeof(okjson),
@@ -2286,6 +2370,13 @@ void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t ind
   const bool is_prompt_file = webUploadIsAiPromptBasename(base);
   
   if (is_prompt_file) {
+    // One resync per prompt upload attempt, armed on the paths that end it — success and every
+    // abort that already touched /ai/ai_prompt.{tmp,bak,txt}. A rolled-back prompt still moved
+    // flash blocks, so an HTTP 500 does not excuse the scanout.
+    // Один ресинхрон на попытку загрузки промпта, взводится на завершающих путях — и успех, и
+    // любой обрыв, уже тронувший /ai/ai_prompt.{tmp,bak,txt}. Откат тоже двигал блоки flash.
+    RgbResyncTransaction resync;
+
     // Get max prompt size from ai_prompt module / Получить максимальный размер промпта из модуля ai_prompt
     extern size_t aiPromptGetMaxLen();
     size_t max_prompt_size = aiPromptGetMaxLen();
@@ -2327,6 +2418,7 @@ void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t ind
       
       if (freeSpace < max_prompt_size) {
         AI_LOG("[AI] Upload rejected: insufficient FS space (free=%.0f, required=%u)", freeSpace, max_prompt_size);
+        resync.markFsMutated();  // stale tmp may already have been removed above
         request->send(413, "text/plain", "Insufficient filesystem space");
         return;
       }
@@ -2343,6 +2435,7 @@ void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t ind
       if (!request->_tempFile) {
         AI_LOG("[AI] Upload failed: FS error (cannot open temp file)");
         AI_DLOG("[AI] Upload: open() failed for %s", tmp_path);
+        resync.markFsMutated();  // stale tmp may already have been removed above
         request->send(500, "text/plain", "Filesystem error");
         return;
       }
@@ -2363,6 +2456,7 @@ void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t ind
           AI_LOG("[AI] Upload rejected: prompt too large (estimated=%u + chunk=%u > max=%u)", estimated_size, len, max_prompt_size);
           request->_tempFile.close();
           LittleFS.remove(tmp_path);  // Remove temp file only / Удалить только временный файл
+          resync.markFsMutated();
           request->send(413, "text/plain", "File too large");
           return;
         }
@@ -2376,6 +2470,7 @@ void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t ind
           AI_LOG("[AI] Upload failed: write error (requested=%u written=%u)", len, bytes_written);
           request->_tempFile.close();
           LittleFS.remove(tmp_path);
+          resync.markFsMutated();
           request->send(500, "text/plain", "Filesystem write error");
           return;
         }
@@ -2385,6 +2480,11 @@ void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t ind
     }
     
     if (final) {
+      // Transaction ends here on every branch below — success, validation reject, commit failure
+      // and rollback all reach flash.
+      // Транзакция завершается здесь на любой ветке ниже — успех, отказ валидации, сбой коммита
+      // и откат одинаково доходят до flash.
+      resync.markFsMutated();
       if (request->_tempFile) {
         request->_tempFile.flush();  // Final flush before checking size / Финальный flush перед проверкой размера
         size_t new_size = request->_tempFile.size();
@@ -2565,7 +2665,11 @@ void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t ind
         // IMPORTANT: Reset only after file is written and validated / ВАЖНО: Сброс только после записи и валидации файла
         extern void aiPromptResetCache();
         aiPromptResetCache();
-        
+
+        // Resync is owned by the transaction guard armed above, so success and failure share one
+        // mechanism and neither can emit two.
+        // Ресинхрон принадлежит guard-у, взведённому выше: успех и ошибка идут одним механизмом,
+        // и ни один не может выдать два.
         request->send(200, "text/plain", "OK");
       } else {
         AI_LOG("[AI] Upload failed: FS error (file not open)");

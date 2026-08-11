@@ -455,6 +455,26 @@ void end() {
     }
 }
 
+bool restartRgbScanout() {
+    // Official esp_lcd recovery for a DMA/LCD desync caused by insufficient bandwidth.
+    // esp_lcd_rgb_panel_restart() only raises an internal flag; the driver performs the
+    // GDMA restart in its next VSYNC handler, so requests issued within the same frame
+    // coalesce into a single restart.
+    // Официальное восстановление esp_lcd при рассинхроне DMA/LCD из-за нехватки bandwidth.
+    // esp_lcd_rgb_panel_restart() лишь поднимает внутренний флаг; сам restart драйвер
+    // выполняет в следующем обработчике VSYNC, поэтому запросы внутри одного кадра
+    // схлопываются в один restart.
+    if (!s_ready || !s_panel) {
+        return false;
+    }
+    const esp_err_t err = esp_lcd_rgb_panel_restart(s_panel);
+    if (err != ESP_OK) {
+        Serial.printf("[esp_lcd_st7701] rgb_panel_restart failed: %s\n", esp_err_to_name(err));
+        return false;
+    }
+    return true;
+}
+
 }  // namespace yoradio_esp_lcd_st7701
 
 #endif  // DSP_ST7701

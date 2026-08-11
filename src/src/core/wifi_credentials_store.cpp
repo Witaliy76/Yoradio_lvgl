@@ -5,6 +5,7 @@
 #include "wifi_credentials_store.h"
 
 #include "config.h"
+#include "display.h"
 
 #include <Arduino.h>
 #include <LittleFS.h>
@@ -132,10 +133,18 @@ bool wifiCredStorePersistToFs() {
   if (!fsIsReady()) {
     return false;
   }
+  // This whole-file rewrite is one logical transaction and, unlike the other credential paths,
+  // it is NOT followed by a reboot — so the RGB scanout has to be resynced here. The guard fires
+  // once on every exit below, including the mid-write abort that leaves a truncated file.
+  // Полная перезапись файла — одна логическая транзакция и, в отличие от прочих путей с
+  // credentials, БЕЗ последующего reboot, поэтому ресинхрон нужен здесь. Guard срабатывает один
+  // раз на любом выходе ниже, включая обрыв записи с усечённым файлом.
+  RgbResyncTransaction resync;
   File f = LittleFS.open(SSIDS_PATH, "w");
   if (!f) {
     return false;
   }
+  resync.markFsMutated();
   for (uint8_t i = 0; i < config.ssidsCount; i++) {
     const char* s = config.ssids[i].ssid;
     const char* p = config.ssids[i].password;

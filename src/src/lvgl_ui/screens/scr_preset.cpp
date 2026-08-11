@@ -18,6 +18,7 @@
 
 #include "lvgl.h"
 #include "../../core/config.h"
+#include "../../core/display.h"
 #include "../../i18n/i18n.h"
 #include "../adapters/preset_store.h"
 #include "../adapters/station_list_adapter.h"
@@ -330,6 +331,11 @@ void LvglPresetScreen::enter() {
     _lastCountdownSecond = -1;
     _cancelFeedbackTimer();
     (void)preset_store::begin();
+    // First entry may commit or discard an orphan temp file left by an interrupted save.
+    // Первый вход может закоммитить или удалить осиротевший временный файл прошлого сохранения.
+    if (preset_store::consumeStorageMutation()) {
+        display.requestRgbResync();
+    }
     _setHelperDefault();
     _startCountdownTimer();
     for (uint8_t s = 0; s < kSlotCount; ++s) _updateRowContent(s);
@@ -573,7 +579,17 @@ void LvglPresetScreen::_onRowLongPressed(uint8_t slot) {
     _long_press_handled = true;
     refreshActiveTemporaryTimeout();
 
-    if (preset_store::saveCurrentStation(slot)) {
+    const bool saved = preset_store::saveCurrentStation(slot);
+    // DEVICE-PROVEN hazard: the temp/verify/rename save transaction desyncs RGB scanout on this
+    // panel despite writing only 26 bytes. One resync for the whole save — including a failure
+    // that already wrote the temp file, since the scanout does not care that the save was undone.
+    // DEVICE-PROVEN: транзакция tmp/verify/rename рассинхронизирует RGB scanout на этой панели
+    // несмотря на 26 байт. Один ресинхрон на всё сохранение, включая неуспех после записи tmp.
+    if (preset_store::consumeStorageMutation()) {
+        display.requestRgbResync();
+    }
+
+    if (saved) {
         _updateRowContent(slot);
         char msg[kSavedMessageBufferSize];
         preset_format_checked(msg, sizeof(msg), "",

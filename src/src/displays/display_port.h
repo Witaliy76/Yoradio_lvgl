@@ -45,6 +45,20 @@ void setBrightness(uint8_t percent);
 void sleep();
 void wake();
 
+// Request one RGB scanout resynchronization (no raw panel handle exposed).
+// The underlying restart is performed by the driver at the next VSYNC, not at call time;
+// multiple requests issued before that VSYNC coalesce into a single restart.
+// Safe no-op if the active backend/panel is not ready.
+//
+// Display policy owns when this is called — see Display::_performRgbResync().
+// Other subsystems must use Display::requestRgbResync() instead of calling this directly.
+//
+// Запрос одного ресинхрона RGB scanout (raw panel handle не раскрывается).
+// Реальный restart выполняет драйвер на следующем VSYNC, а не в момент вызова;
+// несколько запросов до этого VSYNC схлопываются в один restart.
+// Безопасный no-op, если активный backend/panel ещё не готов.
+void restartRgbScanout();
+
 }  // namespace DisplayPort
 
 #endif

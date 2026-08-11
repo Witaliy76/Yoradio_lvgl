@@ -36,4 +36,17 @@ bool imgDiskHeaderToLvHeader(const ImgDiskHeader& disk, lv_image_header_t& out) 
     return true;
 }
 
+void imgDiskRgb565AlphaRowToPlanar(const uint8_t* src_row, uint16_t w,
+                                   uint8_t* color_row, uint8_t* alpha_row) {
+    if (!src_row || !color_row || !alpha_row) {
+        return;
+    }
+    for (uint16_t x = 0; x < w; x++) {
+        const size_t s = static_cast<size_t>(x) * 3u;
+        color_row[static_cast<size_t>(x) * 2u]      = src_row[s];      // RGB565 LE low byte
+        color_row[static_cast<size_t>(x) * 2u + 1u] = src_row[s + 1u]; // RGB565 LE high byte
+        alpha_row[x]                                = src_row[s + 2u]; // A8
+    }
+}
+
 }  // namespace lvgl_ui

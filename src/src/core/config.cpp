@@ -220,7 +220,13 @@ bool aiSaveToFS(const AIConfig& cfg) {
   // Update runtime cache after successful save / Обновляем runtime кеш после успешного сохранения
   g_ai_cfg = cfg;
   g_ai_cfg_loaded = true;
-  
+
+  // AI Layer Apply persistence is complete. One resync for the whole transaction; the later
+  // debounced NVS tail is ordinary small persistence and is deliberately not covered here.
+  // Persistence AI Layer Apply завершена. Один ресинхрон на всю транзакцию; последующий
+  // отложенный NVS-хвост — обычная мелкая запись, здесь намеренно не покрывается.
+  display.requestRgbResync();
+
   return true;
 }
 

@@ -518,6 +518,129 @@ static bool main_bg_cache_get(const char* fs_path, lv_img_dsc_t& out_dsc) {
     return true;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Station Art loader / Загрузчик арта станции
+// ─────────────────────────────────────────────────────────────────────────────
+
+// STATION-ART-LVGL9-REPAIR: load /logo/<key>.bin into PSRAM as an LVGL 9 descriptor.
+//
+// Handing "L:/logo/<key>.bin" straight to lv_image_set_src() CANNOT work under LVGL 9.5: its bin
+// decoder reads sizeof(lv_image_header_t) == 12 bytes and takes byte 0 as `magic`. Our on-disk
+// header is the YoRadio 4-byte v8 packed word, so byte 0 is the v8 cf (5). magic != 0x19 trips the
+// decoder's legacy fallback, which assigns cf = magic = 5 — an unallocated value in LVGL 9's
+// lv_color_format_t (0x03…0x05 are gaps) — while w/h/stride get read out of the first pixel bytes.
+// cf=5 is not UNKNOWN, so info_cb still returns OK and the widget accepts a nonsense header; the
+// draw-time get_area_cb then rejects cf=5 as unsupported and no pixel is ever produced.
+//
+// So we translate the header ourselves (exactly like the background path) and, for v8
+// TRUE_COLOR_ALPHA, de-interleave the 3 B/pixel payload into LVGL 9's planar RGB565A8 layout.
+// On success out_buf is a ps_malloc'd buffer the caller owns and must free().
+//
+// Передача пути "L:/..." в LVGL 9.5 невозможна: его bin-декодер читает 12-байтный заголовок и
+// принимает байт 0 за magic, поэтому v8-cf (5) попадает в magic, а w/h берутся из пиксельных байт.
+// Поэтому заголовок переводим сами и разбираем чередующиеся пиксели в планарный RGB565A8.
+static bool art_load_into_psram(const char* fs_path, uint8_t*& out_buf, lv_img_dsc_t& out_dsc) {
+    out_buf = nullptr;
+    File f = LittleFS.open(fs_path, "r");
+    if (!f) return false;
+
+    const size_t file_sz = static_cast<size_t>(f.size());
+    if (file_sz <= 4) {
+        f.close();
+        Serial.printf("[ART] file too small (%u B): %s\n", (unsigned)file_sz, fs_path);
+        return false;
+    }
+
+    uint8_t hdr_raw[4];
+    if (f.read(hdr_raw, sizeof(hdr_raw)) != sizeof(hdr_raw)) {
+        f.close();
+        return false;
+    }
+
+    ImgDiskHeader disk_hdr;
+    imgDiskHeaderParse(hdr_raw, disk_hdr);
+    lv_image_header_t lv_hdr;
+    if (!imgDiskHeaderToLvHeader(disk_hdr, lv_hdr)) {
+        f.close();
+        Serial.printf("[ART] unsupported on-disk cf=%u for %s\n", (unsigned)disk_hdr.cf, fs_path);
+        return false;
+    }
+
+    // v8 cf=5 → 3 B/pixel interleaved on disk; v8 cf=4 → 2 B/pixel RGB565 (no alpha plane).
+    // v8 cf=5 — 3 Б/пиксель с чередованием; cf=4 — 2 Б/пиксель без альфы.
+    const bool     has_alpha     = (lv_hdr.cf == LV_COLOR_FORMAT_RGB565A8);
+    const size_t   bytes_per_px  = has_alpha ? 3u : 2u;
+    const size_t   px            = static_cast<size_t>(disk_hdr.w) * static_cast<size_t>(disk_hdr.h);
+    const size_t   payload       = file_sz - sizeof(hdr_raw);
+
+    if (px == 0 || payload != px * bytes_per_px) {
+        f.close();
+        Serial.printf("[ART] payload mismatch: %u B for %ux%u cf=%u (expected %u) %s\n",
+                      (unsigned)payload, (unsigned)disk_hdr.w, (unsigned)disk_hdr.h,
+                      (unsigned)disk_hdr.cf, (unsigned)(px * bytes_per_px), fs_path);
+        return false;
+    }
+
+    uint8_t* buf = static_cast<uint8_t*>(ps_malloc(payload));
+    if (!buf) {
+        f.close();
+        Serial.printf("[ART] ps_malloc failed (%u bytes) for %s\n", (unsigned)payload, fs_path);
+        return false;
+    }
+
+    bool ok = true;
+    if (has_alpha) {
+        // Row-wise interleaved → planar so no second full-size buffer is needed.
+        // The color plane is h rows of w*2 bytes; the A8 plane follows at px*2 as h rows of w bytes.
+        // Построчно: цветовая плоскость h×(w*2), затем A8-плоскость h×w — второй большой буфер не нужен.
+        const size_t row_len = static_cast<size_t>(disk_hdr.w) * 3u;
+        uint8_t* row = static_cast<uint8_t*>(ps_malloc(row_len));
+        if (!row) {
+            free(buf);
+            f.close();
+            Serial.printf("[ART] row scratch alloc failed (%u bytes)\n", (unsigned)row_len);
+            return false;
+        }
+        uint8_t* color = buf;
+        uint8_t* alpha = buf + px * 2u;
+        for (uint16_t y = 0; y < disk_hdr.h; y++) {
+            const int n = f.read(row, row_len);
+            if (n < 0 || static_cast<size_t>(n) != row_len) {
+                ok = false;
+                Serial.printf("[ART] read incomplete at row %u: got %d / %u\n",
+                              (unsigned)y, n, (unsigned)row_len);
+                break;
+            }
+            imgDiskRgb565AlphaRowToPlanar(row, disk_hdr.w, color, alpha);
+            color += static_cast<size_t>(disk_hdr.w) * 2u;
+            alpha += disk_hdr.w;
+        }
+        free(row);
+    } else {
+        const int n = f.read(buf, payload);
+        if (n < 0 || static_cast<size_t>(n) != payload) {
+            ok = false;
+            Serial.printf("[ART] read incomplete: got %d / %u bytes\n", n, (unsigned)payload);
+        }
+    }
+    f.close();
+
+    if (!ok) {
+        free(buf);
+        return false;
+    }
+
+    out_buf           = buf;
+    out_dsc.header    = lv_hdr;
+    out_dsc.data_size = static_cast<uint32_t>(payload);
+    out_dsc.data      = buf;
+
+    Serial.printf("[ART] preloaded %s -> PSRAM %u B (%ux%u v8cf=%u lvcf=0x%02X)\n",
+                  fs_path, (unsigned)payload, (unsigned)disk_hdr.w, (unsigned)disk_hdr.h,
+                  (unsigned)disk_hdr.cf, (unsigned)lv_hdr.cf);
+    return true;
+}
+
 // F-c: black scrim — only when file bg is shown AND Dark preset (readability). / Scrim только Dark + есть фон.
 // LVGL v8 named opa (lv_opa.h): LV_OPA_TRANSP=0; LV_OPA_10…LV_OPA_90 (~10%…90% of cover); LV_OPA_100/LV_OPA_COVER=255.
 // Именованные ступени: 0, 10…90, 100/COVER; можно любое lv_opa_t 0–255.
@@ -796,10 +919,15 @@ void LvglMainScreen::create_mid_block(LvglMainScreen& self, const YoRadioPalette
                     if (init_key[0] != '\0') {
                         snprintf(init_fs, sizeof(init_fs), "/logo/%s.bin", init_key);
                     }
-                    if (init_key[0] != '\0' && LittleFS.exists(init_fs)) {
-                        char init_lvgl[88] = {};
-                        snprintf(init_lvgl, sizeof(init_lvgl), "L:/logo/%s.bin", init_key);
-                        lv_img_set_src(self._art_img, init_lvgl);
+                    // STATION-ART-LVGL9-REPAIR: preload into PSRAM (never a "L:/..." path — LVGL
+                    // 9.5's bin decoder cannot read the v8 on-disk header, see art_load_into_psram).
+                    // A present-but-undecodable file leaves the slot HIDDEN (Mode A) rather than
+                    // revealing an empty frame; _art_last_station_num stays 0xFFFF so the first
+                    // update() re-evaluates via _reloadArtIfNeeded().
+                    // Предзагрузка в PSRAM вместо пути "L:/...": LVGL 9.5 не читает v8-заголовок.
+                    // Файл есть, но не декодируется → остаёмся в Mode A (пустую рамку не показываем).
+                    if (init_key[0] != '\0' && LittleFS.exists(init_fs) &&
+                        self._setArtImageSource(init_fs)) {
                         lv_obj_clear_flag(self._art_slot, LV_OBJ_FLAG_HIDDEN); // Mode B
                         strlcpy(self._art_current_key, init_key, sizeof(self._art_current_key));
                         self._art_last_station_num = config.lastStation();
@@ -1743,16 +1871,61 @@ void LvglMainScreen::create() {
 // Station Art MVP: runtime-перезагрузка арта (только DspTask).
 // ---------------------------------------------------------------------------
 
-void LvglMainScreen::_reloadArtIfNeeded() {
+// STATION-ART-LVGL9-REPAIR: never pass "L:/logo/<key>.bin" to lv_img_set_src() — LVGL 9.5's bin
+// decoder cannot read the YoRadio v8 on-disk header (see art_load_into_psram). Preload to PSRAM and
+// point the widget at the descriptor instead.
+// Возвращает false, если ассет отсутствует/не декодируется — вызывающий остаётся в Mode A.
+bool LvglMainScreen::_setArtImageSource(const char* fs_path) {
+    if (!_art_img || !fs_path || fs_path[0] == '\0') return false;
+
+    uint8_t*     buf = nullptr;
+    lv_img_dsc_t dsc = {};
+    if (!art_load_into_psram(fs_path, buf, dsc)) {
+        return false; // keep the current buffer/source untouched / текущий буфер не трогаем
+    }
+
+    // Publish the new buffer BEFORE freeing the old one: lv_img_set_src() always invalidates and the
+    // widget must never hold a pointer into freed PSRAM, not even transiently.
+    // Сначала подменяем источник, только потом освобождаем прежний буфер.
+    uint8_t* old_buf = _art_psram_buf;
+    _art_psram_buf   = buf;
+    _art_psram_dsc   = dsc;
+
+    // Image + header caches are disabled (lv_conf.h: LV_CACHE_DEF_SIZE 0,
+    // LV_IMAGE_HEADER_CACHE_DEF_CNT 0), so LVGL keeps no decoded copy between draws — re-pointing at
+    // the descriptor is all a same-key replacement needs; no lv_image_cache_drop() is required.
+    // Кэш изображений и заголовков отключён — повторное наведение на дескриптор достаточно.
+    lv_img_set_src(_art_img, &_art_psram_dsc);
+
+    if (old_buf) free(old_buf);
+
+    // One concise line proving the swap actually happened: a same-station replacement must show a
+    // NEW src address here. Exactly one buffer is released per successful swap, so alternating
+    // addresses across repeated replacements are the expected steady state (no growth).
+    // Одна строка, доказывающая подмену: при замене арта адрес src обязан измениться.
+    Serial.printf("[ART] source swap: %p -> %p (%u B)\n",
+                  (void*)old_buf, (void*)buf, (unsigned)dsc.data_size);
+    return true;
+}
+
+void LvglMainScreen::_releaseArtBuffer() {
+    if (_art_psram_buf) {
+        free(_art_psram_buf);
+        _art_psram_buf = nullptr;
+    }
+    _art_psram_dsc = {};
+}
+
+void LvglMainScreen::_reloadArtIfNeeded(bool force) {
     if (!_art_slot || !_art_img) return;
 
     const uint16_t current_num = config.lastStation();
 
-    // Re-evaluate only when station changes or forced (avoids stationByNum() I/O every update tick).
-    // Пересчитываем только при смене станции или принудительном флаге (минимальный I/O).
-    if (current_num == _art_last_station_num && !_art_reload_forced) return;
+    // Re-evaluate only when the station changes or the caller forces it (avoids stationByNum() I/O
+    // on every update tick).
+    // Пересчитываем только при смене станции или при force (минимальный I/O на каждом тике).
+    if (!force && current_num == _art_last_station_num) return;
     _art_last_station_num = current_num;
-    _art_reload_forced    = false;
 
     // Stable source: playlist name via stationByNum — never config.station.name (may be ICY-overwritten).
     // Стабильный источник: плейлистное имя через stationByNum, не config.station.name.
@@ -1760,31 +1933,45 @@ void LvglMainScreen::_reloadArtIfNeeded() {
 
     char key[68]  = {};
     char fs_path[84]   = {};
-    char lvgl_path[88] = {};
     artNormalizeKey(playlist_name, key, sizeof(key));
     if (key[0] != '\0') {
-        snprintf(fs_path,   sizeof(fs_path),   "/logo/%s.bin",   key);
-        snprintf(lvgl_path, sizeof(lvgl_path), "L:/logo/%s.bin", key);
+        snprintf(fs_path, sizeof(fs_path), "/logo/%s.bin", key);
     }
 
     const bool file_exists      = (key[0] != '\0') && LittleFS.exists(fs_path);
     const bool currently_visible = !lv_obj_has_flag(_art_slot, LV_OBJ_FLAG_HIDDEN);
     const bool key_changed      = (strncmp(_art_current_key, key, sizeof(_art_current_key)) != 0);
 
-    if (!key_changed && (file_exists == currently_visible)) {
+    // STATION-ART-SAME-STATION-REPLACE: this guard compares only *state* (does a file exist, is the
+    // slot visible) — it is blind to the file's CONTENT. On a same-station replacement the key is
+    // unchanged and present==visible, so it used to return here and _setArtImageSource() was never
+    // reached: the screen kept showing the previous art until a reboot re-ran the create() preload.
+    // `force` (ART_FS_UPDATED) must therefore bypass it — the filesystem is authoritative.
+    // Этот guard сравнивает только состояние (есть файл / виден слот) и не видит содержимое файла.
+    // При замене арта той же станции ключ тот же и present==visible — раньше здесь был return, и
+    // _setArtImageSource() не вызывался. force (ART_FS_UPDATED) обязан обходить этот guard.
+    if (!force && !key_changed && (file_exists == currently_visible)) {
         return; // nothing changed — skip all lv_* calls
     }
 
     strlcpy(_art_current_key, key, sizeof(_art_current_key));
 
-    if (file_exists) {
-        lv_img_set_src(_art_img, lvgl_path);
+    // STATION-ART-LVGL9-REPAIR: a present-but-undecodable file must fall back to Mode A, never
+    // reveal an empty frame — so layout below follows art_visible (load result), not file_exists.
+    // Файл есть, но не декодируется → Mode A, а не пустая рамка: ниже используется art_visible.
+    const bool art_visible = file_exists && _setArtImageSource(fs_path);
+
+    if (art_visible) {
         lv_obj_clear_flag(_art_slot, LV_OBJ_FLAG_HIDDEN); // Mode B: art visible
     } else {
-        // Do NOT call lv_img_set_src(nullptr) — LVGL 8.x warns "unknown type" for NULL src.
-        // Hiding the slot is sufficient: LVGL skips rendering hidden objects entirely.
-        // lv_img_set_src(nullptr) не вызываем — LVGL 8 даёт warn "unknown type" для NULL.
-        // Скрытие слота достаточно: LVGL не рендерит скрытые объекты.
+        if (file_exists) {
+            Serial.printf("[ART] decode failed, staying in Mode A: %s\n", fs_path);
+        }
+        // LVGL 9: lv_img_set_src(nullptr) resets the image attributes silently (it only warns for a
+        // non-NULL unknown src), so detaching first is safe — and required before the buffer is freed.
+        // LVGL 9: NULL-src сбрасывает атрибуты без warn; отвязываемся до освобождения буфера.
+        lv_img_set_src(_art_img, nullptr);
+        _releaseArtBuffer();
         lv_obj_add_flag(_art_slot, LV_OBJ_FLAG_HIDDEN);   // Mode A: no art, cont_text expands
     }
 
@@ -1792,8 +1979,8 @@ void LvglMainScreen::_reloadArtIfNeeded() {
     // CENTER when no art; START/LEFT when art is visible.
     // Синхронизируем выравнивание flex/text с Mode A/B (зеркало has_cover из create()).
     {
-        const lv_flex_align_t fa = file_exists ? LV_FLEX_ALIGN_START  : LV_FLEX_ALIGN_CENTER;
-        const lv_text_align_t ta = file_exists ? LV_TEXT_ALIGN_LEFT   : LV_TEXT_ALIGN_CENTER;
+        const lv_flex_align_t fa = art_visible ? LV_FLEX_ALIGN_START  : LV_FLEX_ALIGN_CENTER;
+        const lv_text_align_t ta = art_visible ? LV_TEXT_ALIGN_LEFT   : LV_TEXT_ALIGN_CENTER;
         if (_cont_mid) {
             lv_obj_set_flex_align(_cont_mid,  fa, fa, fa);
         }
@@ -1814,7 +2001,7 @@ void LvglMainScreen::_reloadArtIfNeeded() {
     // Update flex grow for art/no-art vertical composition (spacers around cont_mid).
     // Обновляем grow спейсеров для вертикальной компоновки с артом и без.
     if (_spacer_top && _spacer_bottom) {
-        if (file_exists) {
+        if (art_visible) {
             lv_obj_set_flex_grow(_spacer_top,    k_spacer_grow_with_art_top);
             lv_obj_set_flex_grow(_spacer_bottom, k_spacer_grow_with_art_bottom);
         } else {
@@ -1823,15 +2010,19 @@ void LvglMainScreen::_reloadArtIfNeeded() {
         }
     }
 
-    Serial.printf("[ART] reload: num=%u key='%s' present=%d\n",
-        (unsigned)current_num, key, (int)file_exists);
+    // force=1 identifies the ART_FS_UPDATED path, so a replacement that silently skipped the reload
+    // is distinguishable from one that ran. / force=1 — путь ART_FS_UPDATED.
+    Serial.printf("[ART] reload: force=%d num=%u key='%s' present=%d visible=%d\n",
+        (int)force, (unsigned)current_num, key, (int)file_exists, (int)art_visible);
 }
 
 void LvglMainScreen::reloadStationArtFromLittlefs() {
     // Called from DspTask via ART_FS_UPDATED queue event after WebUI upload_art / remove_art.
+    // The filesystem is authoritative here: the content behind an unchanged key may have been
+    // replaced, so this is the forced path and no guard may skip the re-read.
     // Вызывается из DspTask после ART_FS_UPDATED (upload_art / remove_art через WebUI).
-    _art_reload_forced = true;
-    _reloadArtIfNeeded();
+    // Содержимое могло измениться при том же ключе — это принудительный путь.
+    _reloadArtIfNeeded(true);
 }
 
 void LvglMainScreen::enter() {
@@ -1970,10 +2161,11 @@ void LvglMainScreen::update() {
         }
     }
 
-    // Station Art MVP: reload art when station changes.
+    // Station Art MVP: reload art when station changes. Never forced — an ordinary tick must not
+    // re-read LittleFS; ART_FS_UPDATED owns the forced path via reloadStationArtFromLittlefs().
     // Key: stationByNum(lastStation()) — not config.station.name.
-    // Station Art MVP: перезагрузка арта при смене станции (ключ из плейлиста, не runtime name).
-    _reloadArtIfNeeded();
+    // Station Art MVP: перезагрузка арта при смене станции; обычный тик никогда не форсирует чтение.
+    _reloadArtIfNeeded(false);
 }
 
 void LvglMainScreen::liveReapplyTheme() {
@@ -2153,8 +2345,12 @@ void LvglMainScreen::_nullHandlesAndFreeNonLvgl() {
     _art_img   = nullptr;
     _cont_mid  = nullptr;
     _cont_text = nullptr;
+    // STATION-ART-LVGL9-REPAIR: unlike _bg_psram_buf (borrowed from s_bg_cache), the art buffer is
+    // owned by the page — free it here. _art_img is already gone with the screen tree, so nothing
+    // can still reference the descriptor.
+    // Буфер арта принадлежит странице (в отличие от фона) — освобождаем здесь.
+    _releaseArtBuffer();
     _art_last_station_num = 0xFFFF; // reset sentinel so next create()+update() re-evaluates
-    _art_reload_forced    = false;
     _art_current_key[0]   = '\0';
     _spacer_top    = nullptr;
     _spacer_bottom = nullptr;

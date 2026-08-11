@@ -323,6 +323,23 @@ void DisplayPort::wake() {
     GIVE_MUTEX();
 }
 
+void DisplayPort::restartRgbScanout() {
+#if YORADIO_ST7701_BACKEND_DIRECT
+    // Backend owns the panel handle; upper layers only request a scanout resync.
+    // Backend владеет panel handle; верхние слои только запрашивают ресинхрон.
+    if (!yoradio_esp_lcd_st7701::isReady()) {
+        return;  // panel not up yet / панель ещё не поднята
+    }
+    TAKE_MUTEX();
+    (void)yoradio_esp_lcd_st7701::restartRgbScanout();
+    GIVE_MUTEX();
+#else
+    // GFX rollback path has no esp_lcd panel handle to restart.
+    // Rollback-путь GFX не имеет esp_lcd panel handle для restart.
+    (void)0;
+#endif
+}
+
 bool DspCore::initDisplay() {
     return DisplayPort::begin();
 }

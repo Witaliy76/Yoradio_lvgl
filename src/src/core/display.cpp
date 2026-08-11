@@ -10,6 +10,7 @@
 #include "player.h"
 #include "network.h"
 #include "../core/spidog.h"
+#include "../displays/display_port.h"
 #include "../lvgl_ui/lvgl_ui.h"
 #include "../lvgl_ui/lv_screensaver.h"
 #include "../lvgl_ui/lv_ui_events.h"
@@ -278,6 +279,11 @@ void Display::_tryCompleteLvglPlayerHandoff() {
   lvgl_ui::onModeChanged(PLAYER, PLAYER);
   _bootStep = 2;
   _suspendFlush = false;
+  // Startup hazard window is over: config/playlist/index writes and their debounced NVS tail
+  // have all been issued while RGB was already streaming. One resync as Main becomes visible.
+  // Стартовое окно нагрузки закрыто: записи config/playlist/index и их отложенный NVS-хвост
+  // уже выполнены при активном RGB. Один ресинхрон в момент появления Main.
+  _performRgbResync();
 }
 
 void Display::_setReturnTicker(uint8_t time_s){
@@ -361,6 +367,30 @@ void Display::copyAIInterpretationForLvgl(char* buf, size_t cap) const {
     strlcpy(buf, _aiPendingText, cap);
 }
 
+void Display::_performRgbResync() {
+  // Sole policy-layer caller of the DisplayPort resync request. The backend forwards it to
+  // esp_lcd, which consumes one pending flag at the next VSYNC; repeat requests coalesce.
+  // Safe no-op while the panel is not ready.
+  // Единственный вызов запроса ресинхрона на уровне политики. Backend передаёт его в esp_lcd,
+  // который снимает один флаг на следующем VSYNC; повторные запросы схлопываются.
+  DisplayPort::restartRgbScanout();
+}
+
+void Display::requestRgbResync() {
+  // Context-aware so every caller can use one API. DspTask-owned callers (LVGL screens, storage
+  // adapters running under LVGL) execute the policy directly: enqueuing from DspTask would add a
+  // pointless round-trip and, with a full queue, would block DspTask on a queue only DspTask
+  // drains. Every other task serializes through the display queue as before.
+  // Контекстно-зависимо, чтобы у всех вызывающих был один API. Вызовы из DspTask выполняются
+  // сразу: постановка в очередь из DspTask — лишний круг, а на полной очереди это заблокировало
+  // бы DspTask на очереди, которую разбирает только он сам. Прочие задачи — через очередь.
+  if (xTaskGetCurrentTaskHandle() == DspTask) {
+    _performRgbResync();
+    return;
+  }
+  putRequest(RGB_RESYNC);
+}
+
 void Display::putRequest(displayRequestType_e type, int payload){
   if(displayQueue==NULL) return;
   requestParams_t request;
@@ -392,6 +422,22 @@ void Display::loop() {
     if (lvgl_ui::tryPresentLvglBootOnFirstDspLoop()) {
       _bootStep = 1;
       _suspendFlush = false;
+      // EARLY startup resync: the RGB panel finished init (and has been streaming) since
+      // DisplayPort::begin() succeeded, well before DspTask was even created — this is the
+      // first DspTask loop iteration, so it is the latest point still strictly before the
+      // Boot screen's first lv_timer_handler() flush later in this same loop() call. Closes
+      // the true-cold-boot window where scanout phase can start desynchronized. The LATE
+      // resync at Boot->Main (below, _tryCompleteLvglPlayerHandoff) still covers the
+      // config/playlist/NVS tail that runs after this point; the two are deliberately not
+      // merged, see BASE-DISP-S3-HARDENING RGB-RESYNC-DEVICE-CORRECTIONS section 12.
+      // РАННИЙ стартовый ресинхрон: RGB-панель завершила init (и уже стримит) с момента
+      // успешного DisplayPort::begin(), задолго до создания DspTask — это первая итерация
+      // цикла DspTask, т.е. последняя точка, ещё строго до первого lv_timer_handler()-flush
+      // экрана Boot дальше в этом же вызове loop(). Закрывает окно истинного холодного
+      // старта, где scanout может начаться рассинхронизированным. ПОЗДНИЙ ресинхрон на
+      // Boot->Main (ниже, _tryCompleteLvglPlayerHandoff) по-прежнему покрывает хвост
+      // config/playlist/NVS после этой точки; два ресинхрона намеренно не объединены.
+      _performRgbResync();
     } else {
       static bool s_lvgl_boot_present_fail_logged = false;
       if (!s_lvgl_boot_present_fail_logged) {
@@ -455,20 +501,38 @@ void Display::loop() {
           Serial.println("[Display] Processing DSP_START request");
           _start();
           break;
+        // Asset completion handlers below reload/decode the committed file from LittleFS into
+        // PSRAM before the operation is really finished. The resync therefore belongs after the
+        // reload, not at the web-side write — one request covers write + commit + read + apply.
+        // Обработчики ниже дочитывают/декодируют закоммиченный файл из LittleFS в PSRAM, и лишь
+        // тогда операция завершена. Ресинхрон идёт после reload, а не на стороне записи — один
+        // запрос покрывает write + commit + read + apply.
         case MAIN_BG_FS_UPDATED: {
           lvgl_ui::onMainBackgroundSlotCommitted(static_cast<uint8_t>(request.payload));
+          _performRgbResync();
           break;
         }
         case ART_FS_UPDATED: {
           lvgl_ui::onStationArtCommitted();
+          _performRgbResync();
           break;
         }
         case SET_THEME_PRESET: {
+          // Writes /data/theme.dat and reapplies the palette across created pages.
+          // Пишет /data/theme.dat и переприменяет палитру на созданных страницах.
           lvgl_ui::onThemePresetChanged(static_cast<uint8_t>(request.payload));
+          _performRgbResync();
           break;
         }
         case CUSTOM_THEME_FILE_UPDATED: {
           lvgl_ui::onCustomThemeFileUpdated();
+          _performRgbResync();
+          break;
+        }
+        // Queued resync from a non-display task (AI config/prompt persistence, playlist import).
+        // Ресинхрон из не-display задачи (persistence AI config/prompt, импорт плейлиста).
+        case RGB_RESYNC: {
+          _performRgbResync();
           break;
         }
         default: break;

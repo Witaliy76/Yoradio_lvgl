@@ -61,6 +61,14 @@ void setBrightnessPercent(uint8_t percent);
 // Снос panel handle при частичном сбое begin() или выходе harness.
 void end();
 
+// Ask esp_lcd to restart RGB DMA at the next VSYNC (recovers a permanent scanout shift).
+// Requests issued before that VSYNC coalesce into one restart.
+// No-op when panel is not ready. Does not expose the raw handle.
+// Просит esp_lcd перезапустить RGB DMA на следующем VSYNC (восстановление permanent shift).
+// Запросы, поданные до этого VSYNC, схлопываются в один restart.
+// No-op если panel не готов. Raw handle не раскрывает.
+bool restartRgbScanout();
+
 }  // namespace yoradio_esp_lcd_st7701
 
 #endif

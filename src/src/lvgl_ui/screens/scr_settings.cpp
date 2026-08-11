@@ -19,6 +19,7 @@
 
 #include "../../core/config.h"
 #include "../../core/autodim.h"
+#include "../../core/display.h"
 #include "../../core/player.h"
 #include "../../core/sleep_timer.h"
 #include "../control_glyph_utf8.h"
@@ -1674,6 +1675,13 @@ void LvglSettingsPage::themeRowClickedEvt(lv_event_t* e) {
     onThemePresetChanged(static_cast<uint8_t>(next));
     self->_syncDisplayValues();
     self->_syncMainRowValues();
+    // Settings UI theme gesture bypasses SET_THEME_PRESET (that path is WebUI-only), so this is
+    // the sole completion boundary: persistence + palette + page-chain restyle + this row's own
+    // value label are all done by this point. One resync closes the whole hazard window.
+    // Жест смены темы в Settings идёт мимо SET_THEME_PRESET (тот путь — только для WebUI), поэтому
+    // это единственная точка завершения: persistence + палитра + restyle страниц + значение этой
+    // строки уже применены. Один ресинхрон закрывает всё окно риска.
+    display.requestRgbResync();
 }
 
 void LvglSettingsPage::brightnessSliderEvt(lv_event_t* e) {

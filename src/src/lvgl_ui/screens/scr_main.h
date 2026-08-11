@@ -158,20 +158,51 @@ private:
     lv_obj_t* _cont_text = nullptr; // text column (station name / track / artist)
 
     // Station Art MVP: runtime reload state.
-    // _art_last_station_num: 0xFFFF = uninitialized (force reload on first update() call).
-    // _art_reload_forced: set by reloadStationArtFromLittlefs() to re-check even if num unchanged.
+    // _art_last_station_num: 0xFFFF = uninitialized (re-evaluate on first update() call).
     // _art_current_key: normalized key of the last loaded asset (empty = none loaded).
     // Station Art MVP: состояние runtime-перезагрузки.
-    uint16_t _art_last_station_num = 0xFFFF; // sentinel: force reload on first call
-    bool     _art_reload_forced    = false;
+    //
+    // STATION-ART-SAME-STATION-REPLACE: the old `_art_reload_forced` member is gone — "forced" is now
+    // an explicit _reloadArtIfNeeded(bool force) argument. As a member it was consumed by the
+    // station-number guard and then silently discarded by the presence-vs-visibility guard, so a
+    // same-key replacement never reloaded. Force must stay authoritative through EVERY guard.
+    // Флаг-член заменён явным аргументом force: как член он гасился вторым guard'ом, и замена
+    // арта для той же станции не перезагружалась.
+    uint16_t _art_last_station_num = 0xFFFF; // sentinel: re-evaluate on first call
     char     _art_current_key[68]  = {};
+
+    // STATION-ART-LVGL9-REPAIR: the art asset is preloaded into PSRAM and handed to _art_img as a
+    // descriptor — LVGL 9.5's bin decoder cannot read the YoRadio v8 on-disk header from a
+    // "L:/..." path (see art_load_into_psram). Unlike the background, this buffer is owned by the
+    // page itself (only ~43 KB per station, reloaded on create) — _nullHandlesAndFreeNonLvgl()
+    // frees it. _art_psram_dsc must stay alive as long as _art_img points at it.
+    //
+    // Арт предзагружается в PSRAM и передаётся дескриптором: LVGL 9.5 не читает v8-заголовок по
+    // пути "L:/...". В отличие от фона, буфером владеет сама страница (~43 КБ на станцию).
+    uint8_t*     _art_psram_buf = nullptr;
+    lv_img_dsc_t _art_psram_dsc = {};
+
+    // Point _art_img at the PSRAM-preloaded asset at fs_path. Returns false when the file is
+    // missing or undecodable — callers must then stay in Mode A instead of revealing an empty frame.
+    // Наводит _art_img на предзагруженный ассет; false — остаться в Mode A (пустую рамку не показывать).
+    bool _setArtImageSource(const char* fs_path);
+    // Free the page-owned art buffer and clear the descriptor. / Освободить буфер арта.
+    void _releaseArtBuffer();
 
     // Reload station art from LittleFS for the current station.
     // Must be called only from DspTask (same thread as all lv_* calls).
     // Key source: stationByNum(config.lastStation()) — never config.station.name.
-    // Перезагрузка арта для текущей станции из LittleFS (только DspTask).
-    // Источник ключа: stationByNum() — не config.station.name.
-    void _reloadArtIfNeeded();
+    //
+    // force == false: ordinary update()/station-change path — every guard may skip the work, so a
+    //                 normal tick costs no LittleFS I/O and no lv_* calls.
+    // force == true:  ART_FS_UPDATED — the filesystem is authoritative and the on-disk CONTENT may
+    //                 have changed under an unchanged key. Re-read the file and republish the source
+    //                 unconditionally; no guard may skip it.
+    //
+    // force == false: обычный тик/смена станции — guard'ы могут пропустить работу.
+    // force == true:  ART_FS_UPDATED — содержимое файла могло измениться при том же ключе;
+    //                 перечитываем файл безусловно, ни один guard не должен это пропустить.
+    void _reloadArtIfNeeded(bool force);
 
     // Layout builders — private static to keep create() a short skeleton while retaining
     // full access to private members via self. Called only from create().
