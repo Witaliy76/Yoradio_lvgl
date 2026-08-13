@@ -42,6 +42,20 @@ Each page has a distinct role: Main is for listening, Visual for atmosphere, Inf
 
 ## Change history
 
+### 13 August 2026 — 0.9.434m-r2-lvgl-beta.2-s2.2.4
+
+Build platform refresh: PIOArduino `55.03.311`, Arduino-ESP32 `3.3.11`, ESP-IDF `5.5.5`. The custom ESP-IDF system library set was rebuilt against the new version.
+
+The main change for source builders: manually replacing ESP-IDF archives inside `.platformio` is no longer required. YoRadio's own libraries now live in the repository itself (`library!/esp-idf-5.5.5/s3/`) and are resolved at link time, leaving the shared PlatformIO package untouched. The workflow is now just "clone/update the project → Build".
+
+Build profile selection is automatic. The `yoradio_build.py` helper, which PlatformIO runs on its own, checks the platform versions and the checksums of all seven archives, then applies the set together with the mbedTLS link options it requires. Validation is atomic: if the set is unavailable or even one file fails to match, the build does not stop but continues against the stock ESP-IDF libraries with a warning.
+
+ESP32-S3 and ESP32-P4 are now separate profiles: a custom archive set is adopted for S3 only, and P4 builds remain fully stock.
+
+Display behaviour, buffer topology, and RGB resynchronization logic are unchanged from `-s2.12`.
+
+Public baseline remains `0.9.434m-r2-lvgl-beta.2`.
+
 ### 11 August 2026 — 0.9.434m-r2-lvgl-beta.2-s2.12
 
 Hardening stage for the direct `esp_lcd` display path on the ESP32-4848S040.
@@ -239,7 +253,7 @@ The browser accepts common image formats, centers and cover-crops the image, and
 
 This fork develops YoRadio as a touchscreen device with an LVGL interface and board-specific hardware profiles. Compared with [e2002/yoradio](https://github.com/e2002/yoradio), it adds:
 
-- an LVGL 8.3 interface instead of legacy Canvas screens on the supported board;
+- an LVGL 9.5 interface instead of legacy Canvas screens on the supported board;
 - a six-page navigation ring plus dedicated Boot, Wi-Fi, Preset Temporary, and Screensaver modes;
 - a Beocord-inspired Visual with defined signal ballistics;
 - Web UI Appearance controls for themes, an editable Custom palette, independent Main backgrounds, and station artwork;
@@ -282,19 +296,33 @@ For DAC wiring, configuration, first start, and touch controls, see the **[ESP32
 
 ### Source build note
 
-The source build uses a replaced set of ESP-IDF system libraries. This is required for two practical device characteristics.
+To build:
 
-The custom **LwIP / esp_netif** profile supports long playback of demanding network streams, including FLAC and high-bitrate stations, by reducing the likelihood of network stalls and buffering failures. It cannot guarantee uninterrupted playback because station and network quality still matter.
+1. Clone or update YoRadio.
+2. Open the project in PlatformIO.
+3. Press **Build**.
 
-The matched **mbedTLS Profile B** is not merely an HTTPS switch. AI Layer can make a TLS request while LVGL and the audio decoder are active. With the stock profile, the TLS handshake could fail when a sufficiently large contiguous internal-memory block was unavailable. Profile B lowers those requirements, while a guard skips a request if the available block is still too small. The archives form one matched profile and must not be replaced individually with arbitrary versions.
+Nothing else is needed. You no longer have to replace ESP-IDF archives inside `.platformio` by hand — the former instructions for copying `.a` files into `framework-arduinoespressif32-libs` are obsolete and unsupported.
 
-- Source builds require the complete KnownGood set in `library!/esp32s3_5_5_2__3_3_6_ai_tls_profile_b_FULL_WORKING_20260603_221741/`. It contains ten matched LwIP, esp_netif, HTTP, and mbedTLS/TLS archives. The older LwIP/esp_netif-only directory is insufficient for this beta.
-- The set is for PIOArduino `55.03.36`, Arduino-ESP32 `3.3.6`, and `framework-arduinoespressif32-libs` `5.5.0+sha.f56bea3d1f` based on ESP-IDF `5.5.2`.
-- Replace the matching files in `framework-arduinoespressif32-libs/esp32s3/lib/`, restart PlatformIO, clean the project, and rebuild.
-- The ten files are `libesp_http_client.a`, `libesp_netif.a`, `libesp-tls.a`, `libhttp_parser.a`, `liblwip.a`, `libmbedcrypto.a`, `libmbedtls.a`, `libmbedtls_2.a`, `libmbedx509.a`, and `libtcp_transport.a`.
-- Target directory: Windows — `%USERPROFILE%\.platformio\packages\framework-arduinoespressif32-libs\esp32s3\lib\`; Linux/macOS — `~/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/lib/`.
-- Repeat the replacement after reinstalling or updating the framework package.
-- This replacement is only for source builds. Ready-to-flash packages in `build_bin/` already include the required profile.
+PlatformIO resolves the package pinned in [`platformio.ini`](platformio.ini) on its own: PIOArduino `55.03.311` (Arduino-ESP32 `3.3.11`, ESP-IDF `5.5.5`). The shared PlatformIO framework package stays stock — YoRadio never modifies or overwrites anything inside it.
+
+Instead, YoRadio keeps its own overrides in the repository, under `library!/esp-idf-5.5.5/s3/`. That directory holds seven ESP-IDF archives rebuilt from stock Espressif sources with a YoRadio configuration, plus a `manifest.txt` recording full provenance (versions, commits, SHA256 sums, and the exact configuration delta). It is **not** an ordinary Arduino library: nothing there should be copied, installed, or picked out file by file.
+
+The rest is handled by the build helper `yoradio_build.py`. PlatformIO runs it automatically on every build (via `extra_scripts` in `platformio.ini`) — **never run it by hand**. It detects the target chip, checks the platform, core, and ESP-IDF versions, verifies the SHA256 of all seven archives, and only then puts them on the linker search path together with the link options that set requires.
+
+Validation is all-or-nothing: if all seven archives match, the full optimized YoRadio profile is used; if anything at all fails to match, none of it is used. In that case the build does not stop — the helper prints a warning and builds against the complete stock ESP-IDF library set. This fallback is intended behaviour rather than an error, but it is not equivalent to the optimized profile: the resulting firmware has stock ESP-IDF networking and TLS characteristics.
+
+The set matters for three practical device characteristics.
+
+The custom **LwIP** profile supports long playback of demanding network streams, including FLAC and high-bitrate stations, by reducing the likelihood of network stalls and buffering failures. It cannot guarantee uninterrupted playback because station and network quality still matter.
+
+The custom **mbedTLS** profile is not merely an HTTPS switch. AI Layer can make a TLS request while LVGL and the audio decoder are active. With the stock profile, the TLS handshake could fail when a sufficiently large contiguous internal-memory block was unavailable. The dynamic-buffer mode lowers those requirements, while a guard skips a request if the available block is still too small. The archives form one matched profile, together with their link options, and must not be replaced individually with arbitrary versions.
+
+The rebuilt **esp_lcd** is what the RGB display needs: the automatic per-VSYNC RGB panel restart is disabled in it, and YoRadio's own Display layer owns resynchronisation instead. Stock `esp_lcd` cannot reproduce that behaviour.
+
+- ESP32-S3 and ESP32-P4 are separate profiles. A custom archive set is currently adopted for S3 only; a P4 build uses stock ESP-IDF libraries throughout and never inherits the S3 archives.
+- The Windows build is device-verified. Building with the local overlay on Linux/macOS has not been exercised yet — that is an open portability item, not a known firmware problem.
+- All of the above applies to source builds only. Ready-to-flash packages in `build_bin/` are already built with the required library set.
 - Select the interface language in `src/myoptions.h` with `L10N_LANGUAGE`: `RU`, `EN`, `PL`, or `SK`. There is no runtime language switch.
 
 ## Credits

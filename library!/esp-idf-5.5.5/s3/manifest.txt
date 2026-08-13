@@ -1,0 +1,116 @@
+YoRadio project-local ESP-IDF library overlay — provenance manifest
+===================================================================
+
+Identity
+--------
+target                    ESP32-S3  (family "s3")
+PIOArduino platform       55.03.311
+                          https://github.com/pioarduino/platform-espressif32
+                          /releases/download/55.03.311/platform-espressif32.zip
+Arduino core              3.3.11        (arduino-esp32, commit 0d7a8614b)
+ESP-IDF                   v5.5.5        (commit b774170ff46c393eeb5e495ea37936038d3f4f4f)
+memory variant            qio_opi       (ESP32-S3 N16R8, 16 MB flash / 8 MB PSRAM)
+adopted                   Stage 2.2 / Slice 4, 2026-08-13
+configuration identity    C1-yoradio-production
+
+Builder provenance
+------------------
+builder                   espressif/esp32-arduino-lib-builder
+                          commit ee57070cc8571c488a64b8ef028684acdc6ff5e2
+                          ("Remove CONFIG_ESP_IPC_TASK_STACK_SIZE from all chip specific configs")
+toolchain                 xtensa-esp-elf esp-14.2.0_20260121 (GCC 14.2.0)
+tinyusb                   53f8c53c2
+defconfig chain           defconfig.common; defconfig.esp32s3; defconfig.debug_default;
+                          defconfig.esp_sr; defconfig.qio; defconfig.80m; defconfig.qio_ram
+YoRadio fragment          configs/defconfig.yoradio_s22_c1
+resulting sdkconfig       SHA256 d585ef7f53d73a00522249bbbc8e2f34119d26e8903468589b6dce7c4d743964
+resulting sdkconfig.h     SHA256 f38c92ee7a181194da5b76b2a78dfd6c6393f1eb1da0526dd33bdabfaffb905a
+                          (build-time reference only — YoRadio builds against the STOCK
+                           esp32s3/qio_opi/include/sdkconfig.h and never replaces it)
+
+Stage 2.2 provenance chain
+--------------------------
+Slice 3    IDF 5.5.5 differential library rebuild            ACCEPTED  (set C1)
+Slice 3A   dynamic-buffer wrap A/B preflight                 ACCEPTED
+Slice 3B   device A/B, P0 (wraps off) vs P1 (wraps on)       ACCEPTED — P1 SELECTED
+Slice 3C   auto local library overlay preflight              ACCEPTED
+Slice 4    production adoption + clean-install proof         this pack
+
+Archives — SHA256, size, filename
+---------------------------------
+F8A0CC32D911FC0758580C5D317660686087F1838E372068011218ACB44723A1  4042950  liblwip.a
+4EEFB5AA4BF0E2C63286EE17CAE78031348F535BB67B736ACC20775FA411353C  1436292  libmbedtls_2.a
+EDDFAFDB5296BE874289DD409A2F675144195BE13EF3CE111E42AC2291C3B69A   289140  libesp-tls.a
+7FDAA2BFE9DF085BBAA86F39842100E01C09D3CF81B2C79E9E5A5A871CF25723   351808  libtcp_transport.a
+11238D44B2A5BE1F6E4E35B02F1F311F857FB94FEB6F8ACA4FB8445ACF49A4B3   333740  libesp_http_client.a
+B349B9F2969D4CF21ABEEA7971EC42E07C32EBB6B761679F6E429D5974F6DF62   934166  libesp_lcd.a
+8A13CD4C72D171F886ED43947B56AB3BFDFA0A1F325BF31DAF7C804D15750A2F  4670746  libwpa_supplicant.a
+
+Exactly seven archives.  Total 12 058 842 bytes (11.50 MiB).
+
+Configuration delta vs stock 3.3.11 / 5.5.5 (C0 -> C1)
+------------------------------------------------------
+ #   symbol                                   stock        C1        why
+ 1   CONFIG_LWIP_MAX_ACTIVE_TCP               16           64        YoRadio network profile
+ 2   CONFIG_LWIP_TCP_WND_DEFAULT              5760         32768     YoRadio network profile
+ 3   CONFIG_LWIP_TCPIP_CORE_LOCKING_INPUT     n            y         required by Arduino 3.x AsyncTCP
+ 4   CONFIG_MBEDTLS_SSL_PROTO_DTLS            y            n         prerequisite of #5
+ 5   CONFIG_MBEDTLS_DYNAMIC_BUFFER            (suppressed) y         TLS heap policy; adds the 12 --wrap options
+ 6   CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA  (suppressed) y         depends on #5
+ 7   CONFIG_MBEDTLS_DYNAMIC_FREE_CA_CERT      (suppressed) y         depends on #6
+ 8   CONFIG_MBEDTLS_SSL_VARIABLE_BUFFER_LENGTH n           n         asserted, not changed
+ 9   CONFIG_MBEDTLS_ASYMMETRIC_CONTENT_LEN    n            y         selected by #5
+10   CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN        (not emitted) 16384    depends on #9
+11   CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN       (not emitted) 4096     depends on #9; ~12 KB/connection saved
+12   CONFIG_LCD_RGB_RESTART_IN_VSYNC          y            n         Stage 2.1 Display-owned bounded RGB restart
+
+Deliberately NOT changed (excluded by the Slice 3 ruling):
+     CONFIG_LWIP_TCP_SND_BUF_DEFAULT   left at 5744
+     CONFIG_LWIP_TCP_RECVMBOX_SIZE     left at 6
+
+RESTART_IN_VSYNC policy
+-----------------------
+CONFIG_LCD_RGB_RESTART_IN_VSYNC = n.
+
+libesp_lcd.a in this pack is built with the automatic per-VSYNC RGB panel
+restart DISABLED (esp_lcd/rgb/esp_lcd_panel_rgb.c:1153-1166).  YoRadio's
+Display layer owns RGB resynchronisation instead and performs a single
+bounded restart after each flash-writing operation.  Stock esp_lcd cannot be
+substituted here without reintroducing the continuous-restart behaviour.
+
+mbedTLS wrap requirement
+------------------------
+libmbedtls_2.a in this pack REQUIRES these 12 GNU --wrap link options.  They
+are applied automatically by yoradio_build.py, and only when all seven
+archives validate.  Linking this pack without them, or applying them without
+this pack, is not a supported configuration.
+
+    -Wl,--wrap=mbedtls_ssl_close_notify
+    -Wl,--wrap=mbedtls_ssl_free
+    -Wl,--wrap=mbedtls_ssl_handshake_client_step
+    -Wl,--wrap=mbedtls_ssl_handshake_server_step
+    -Wl,--wrap=mbedtls_ssl_read
+    -Wl,--wrap=mbedtls_ssl_send_alert_message
+    -Wl,--wrap=mbedtls_ssl_session_reset
+    -Wl,--wrap=mbedtls_ssl_setup
+    -Wl,--wrap=mbedtls_ssl_tls13_handshake_client_step
+    -Wl,--wrap=mbedtls_ssl_tls13_handshake_server_step
+    -Wl,--wrap=mbedtls_ssl_write
+    -Wl,--wrap=mbedtls_ssl_write_client_hello
+
+(log_printf and longjmp are wrapped by the stock framework itself and are not
+part of this pack's requirement.)
+
+How these archives are used
+---------------------------
+They are NOT copied into the PlatformIO framework package.  yoradio_build.py
+prepends this directory to the linker search path, so the seven -l names
+resolve here instead of in
+  <platformio>/packages/framework-arduinoespressif32-libs/esp32s3/lib/
+which stays byte-unchanged.  Validation is atomic: 7/7 SHA256 matches enable
+the overlay and the 12 wraps together; anything less disables both and the
+build falls back to the complete stock library set with a warning.
+
+This file is the human-readable provenance record.  The SHA256 table that the
+build actually enforces is embedded in yoradio_build.py, so that a modified
+overlay cannot certify itself by editing this manifest.

@@ -21,6 +21,9 @@ SPECTRUM*.md
 !/LICENSE
 !/NOTICE
 !/platformio.ini
+# PlatformIO build helper invoked by platformio.ini (extra_scripts). Must be
+# tracked: without it a fresh clone cannot build. / Обязателен для сборки.
+!/yoradio_build.py
 !/partitions.csv
 !/minimal_spiffs.csv
 !/partition_16MB_ota_spiffs.csv
