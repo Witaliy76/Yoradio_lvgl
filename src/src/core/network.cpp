@@ -755,7 +755,17 @@ void MyNetwork::begin() {
     return;
   }
   if(config.getMode()!=PM_SDCARD){
-    if(!wifiBegin()){
+    const bool wifi_ok = wifiBegin();
+    // Wi-Fi/NVS activity inside the boot bootstrap window can desynchronize the ST7701 RGB
+    // scanout, and with the accepted RESTART_IN_VSYNC=OFF configuration nothing restores it on
+    // its own. Recover once the episode has finished, whatever its outcome: the hazard belongs
+    // to the window, not to the "connected" result. Without this the display stays shifted until
+    // some later persistence episode happens to request a resync.
+    // Активность Wi-Fi/NVS внутри загрузочного bootstrap может рассинхронизировать RGB scanout
+    // ST7701; при принятой конфигурации RESTART_IN_VSYNC=OFF автоматического восстановления нет.
+    // Ресинхрон по завершении эпизода, независимо от результата подключения.
+    display.requestRgbResync();
+    if(!wifi_ok){
       // S6V9C / 8-E19C-1: Wi-Fi Recovery — no automatic AP on failed STA; AP only on Hotspot page.
       // S6V9C / 8-E19C-1: Recovery — AP при неудаче STA не поднимаем; AP только со Hotspot page.
       Serial.println("[Network] Wi-Fi Recovery needed; AP not started");
