@@ -279,11 +279,10 @@ void Display::_tryCompleteLvglPlayerHandoff() {
   lvgl_ui::onModeChanged(PLAYER, PLAYER);
   _bootStep = 2;
   _suspendFlush = false;
-  // Startup hazard window is over: config/playlist/index writes and their debounced NVS tail
-  // have all been issued while RGB was already streaming. One resync as Main becomes visible.
-  // Стартовое окно нагрузки закрыто: записи config/playlist/index и их отложенный NVS-хвост
-  // уже выполнены при активном RGB. Один ресинхрон в момент появления Main.
-  _performRgbResync();
+  // PageChain requests the late resync only after Main reports LV_EVENT_SCREEN_LOADED.
+  // Do not request here: dismissBoot() may still be inside its fade and onModeChanged()
+  // can immediately route through goTo(Main); the completion seam deduplicates that pair.
+  // Поздний ресинхрон запрашивает PageChain только после фактической загрузки Main.
 }
 
 void Display::_setReturnTicker(uint8_t time_s){
@@ -427,16 +426,14 @@ void Display::loop() {
       // first DspTask loop iteration, so it is the latest point still strictly before the
       // Boot screen's first lv_timer_handler() flush later in this same loop() call. Closes
       // the true-cold-boot window where scanout phase can start desynchronized. The LATE
-      // resync at Boot->Main (below, _tryCompleteLvglPlayerHandoff) still covers the
-      // config/playlist/NVS tail that runs after this point; the two are deliberately not
-      // merged, see BASE-DISP-S3-HARDENING RGB-RESYNC-DEVICE-CORRECTIONS section 12.
+      // resync at completed Boot->Main is owned by PageChain and still covers the
+      // config/playlist/NVS tail that runs after this point; the two remain distinct.
       // РАННИЙ стартовый ресинхрон: RGB-панель завершила init (и уже стримит) с момента
       // успешного DisplayPort::begin(), задолго до создания DspTask — это первая итерация
       // цикла DspTask, т.е. последняя точка, ещё строго до первого lv_timer_handler()-flush
       // экрана Boot дальше в этом же вызове loop(). Закрывает окно истинного холодного
-      // старта, где scanout может начаться рассинхронизированным. ПОЗДНИЙ ресинхрон на
-      // Boot->Main (ниже, _tryCompleteLvglPlayerHandoff) по-прежнему покрывает хвост
-      // config/playlist/NVS после этой точки; два ресинхрона намеренно не объединены.
+      // старта, где scanout может начаться рассинхронизированным. ПОЗДНИЙ ресинхрон после
+      // завершённого Boot->Main теперь принадлежит PageChain и покрывает последующий хвост.
       _performRgbResync();
     } else {
       static bool s_lvgl_boot_present_fail_logged = false;

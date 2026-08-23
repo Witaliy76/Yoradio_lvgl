@@ -115,6 +115,37 @@ bool PageChain::navigationBlocked() const {
     return _special != SpecialMode::None;
 }
 
+void PageChain::armRgbResyncOnTransitionComplete(lv_obj_t* destination) {
+    if (!destination || destination == lv_scr_act()) return;
+
+    // One completion callback per destination. Boot handoff can immediately route through
+    // goTo(Main) as well; replacing the earlier arm prevents two requests for that one load.
+    // Один callback на destination. Boot handoff может сразу пройти и через goTo(Main),
+    // поэтому повторный arm заменяет прежний и не создаёт второй запрос.
+    lv_obj_remove_event_cb_with_user_data(
+        destination, transitionScreenLoadedEvent, this);
+    lv_obj_add_event_cb(
+        destination, transitionScreenLoadedEvent, LV_EVENT_SCREEN_LOADED, this);
+}
+
+void PageChain::transitionScreenLoadedEvent(lv_event_t* e) {
+    if (!e || lv_event_get_code(e) != LV_EVENT_SCREEN_LOADED) return;
+
+    auto* self = static_cast<PageChain*>(lv_event_get_user_data(e));
+    auto* destination = static_cast<lv_obj_t*>(lv_event_get_target(e));
+    if (!self || !destination) return;
+
+    lv_obj_remove_event_cb_with_user_data(
+        destination, transitionScreenLoadedEvent, self);
+    self->_completedTransitionRgbResyncPending = true;
+}
+
+bool PageChain::takeCompletedTransitionRgbResyncRequest() {
+    const bool pending = _completedTransitionRgbResyncPending;
+    _completedTransitionRgbResyncPending = false;
+    return pending;
+}
+
 ILvglScreen* PageChain::activeScreen() const {
     switch (_special) {
         case SpecialMode::Temporary:
@@ -219,6 +250,8 @@ void PageChain::goTo(int index) {
     lv_obj_t* next_scr = next->screen();
     if (!next_scr) return; // create() failed (e.g. LVGL pool exhausted) — guard clears the flag.
 
+    armRgbResyncOnTransitionComplete(next_scr);
+
     // W2F unified auto-delete: prev is deleted by LVGL on load, so its object tree returns to the
     // 48 KB pool before the next page redraws (e.g. Main gradients). No per-page non-resident flag.
     // W2F: prev удаляется LVGL при загрузке — дерево возвращается в пул до отрисовки следующей страницы.
@@ -273,7 +306,9 @@ void PageChain::showTemporary(ILvglScreen* scr, uint32_t timeout_ms) {
 
     scr->create();
     scr->enter();
-    loadScreenAnim(scr->screen(), LV_SCR_LOAD_ANIM_MOVE_BOTTOM, kPageAnimMs);
+    lv_obj_t* temp_scr = scr->screen();
+    armRgbResyncOnTransitionComplete(temp_scr);
+    loadScreenAnim(temp_scr, LV_SCR_LOAD_ANIM_MOVE_BOTTOM, kPageAnimMs);
 }
 
 void PageChain::dismissTemporary() {
@@ -311,6 +346,7 @@ void PageChain::dismissTemporary() {
 
     lv_obj_t* origin_scr = origin->screen();
     if (origin_scr) {
+        armRgbResyncOnTransitionComplete(origin_scr);
         lv_scr_load(origin_scr);
     }
 
@@ -353,7 +389,10 @@ void PageChain::dismissBoot() {
     // Вернули fade: полноэкранный refresh LVGL убрал полосы; FADE_ON снова безопасен для handoff.
     // auto_del deletes Boot screen after the transition; destroy() stops shuttle anim (no stale pointers).
     // auto_del удаляет Boot после перехода; destroy() гасит анимацию shuttle (без висячих указателей).
-    if (mainScr) loadScreenAnimAutoDel(mainScr, LV_SCR_LOAD_ANIM_FADE_ON, kBootHandoffFadeMs);
+    if (mainScr) {
+        armRgbResyncOnTransitionComplete(mainScr);
+        loadScreenAnimAutoDel(mainScr, LV_SCR_LOAD_ANIM_FADE_ON, kBootHandoffFadeMs);
+    }
     _currentIndex = MAIN_INDEX;
 
     _bootScreen->exit();
@@ -376,7 +415,10 @@ void PageChain::dismissBootThenShowRebootRequired(ILvglScreen* scr) {
     scr->enter();
     lv_obj_t* svcScr = scr->screen();
     // Same auto_del fade as dismissBoot→Main; avoids Main::enter / BG preload when STA offline / без Main preload.
-    if (svcScr) loadScreenAnimAutoDel(svcScr, LV_SCR_LOAD_ANIM_FADE_ON, kBootHandoffFadeMs);
+    if (svcScr) {
+        armRgbResyncOnTransitionComplete(svcScr);
+        loadScreenAnimAutoDel(svcScr, LV_SCR_LOAD_ANIM_FADE_ON, kBootHandoffFadeMs);
+    }
 
     _bootScreen->exit();
     _bootScreen->destroy();
@@ -395,7 +437,9 @@ void PageChain::showRebootRequired(ILvglScreen* scr) {
 
     scr->create();
     scr->enter();
-    loadScreenAnim(scr->screen(), LV_SCR_LOAD_ANIM_FADE_IN, kPageAnimMs);
+    lv_obj_t* reboot_scr = scr->screen();
+    armRgbResyncOnTransitionComplete(reboot_scr);
+    loadScreenAnim(reboot_scr, LV_SCR_LOAD_ANIM_FADE_IN, kPageAnimMs);
 }
 
 bool PageChain::isRebootRequiredActiveFor(const ILvglScreen* scr) const {
@@ -414,6 +458,7 @@ void PageChain::dismissRebootRequired() {
     main->enter();
     lv_obj_t* mainScr = main->screen();
     if (mainScr) {
+        armRgbResyncOnTransitionComplete(mainScr);
         lv_scr_load(mainScr);
     }
     _currentIndex = MAIN_INDEX;
@@ -464,6 +509,7 @@ void PageChain::showWifiServiceOneWay(ILvglScreen* scr) {
     lv_obj_t* svc_scr = scr->screen();
 
     if (svc_scr) {
+        armRgbResyncOnTransitionComplete(svc_scr);
         if (blank) {
             // auto_del=true + ANIM_NONE/0/0: LVGL synchronously loads svc_scr and deletes blank.
             // auto_del=true + ANIM_NONE/0/0: LVGL синхронно загружает svc_scr и удаляет blank.

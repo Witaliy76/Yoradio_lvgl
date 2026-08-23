@@ -4,6 +4,11 @@
 #include <stdint.h>
 #include "lv_screen.h"
 
+extern "C" {
+struct _lv_event_t;
+typedef struct _lv_event_t lv_event_t;
+}
+
 namespace lvgl_ui {
 
 // PageChain: horizontal 6-page carousel plus Boot / Temporary / Wi-Fi special modes.
@@ -90,6 +95,10 @@ public:
     void tick();
     void onActivity(); // Screensaver hook (Stage 5) / заглушка под screensaver (этап 5)
 
+    // Consumed by lvgl_ui::taskHandler() after LVGL event dispatch has completed.
+    // Забирается taskHandler() только после завершения диспетчеризации событий LVGL.
+    bool takeCompletedTransitionRgbResyncRequest();
+
     // Stage 6.6R-C: live palette on carousel pages that already called create() (screen() != nullptr).
     // Этап 6.6R-C: live reapply темы на созданных страницах карусели.
     void reapplyThemeToCreatedPages();
@@ -107,6 +116,8 @@ private:
     int resolveStartIndex() const;
     ILvglScreen* activeScreen() const;
     bool navigationBlocked() const;
+    void armRgbResyncOnTransitionComplete(lv_obj_t* destination);
+    static void transitionScreenLoadedEvent(lv_event_t* e);
 
     ILvglScreen* _pages[PAGE_COUNT] = {};
     int _currentIndex = -1;
@@ -128,6 +139,10 @@ private:
     // cheap and future-safe (e.g. if an animated/auto_del path is added later).
     // W2F: защита от повторного входа в goTo() во время перехода (жест поверх жеста).
     bool _transitionActive = false;
+
+    // Set only by LV_EVENT_SCREEN_LOADED for an explicitly armed real transition.
+    // Ставится только после LV_EVENT_SCREEN_LOADED реально начатого перехода.
+    bool _completedTransitionRgbResyncPending = false;
 };
 
 } // namespace lvgl_ui

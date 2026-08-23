@@ -627,6 +627,12 @@ void lvgl_ui::taskHandler() {
         s_deferred_carousel_dir = LV_DIR_NONE;
         map_horizontal_gesture_to_carousel(dir);
     }
+    // A completed screen load can be reported from inside LVGL event dispatch. Keep the event
+    // callback side-effect free; request the Display-owned, next-VSYNC restart only after dispatch.
+    // Завершение загрузки приходит из LVGL callback; сам запрос делаем только после dispatch.
+    if (s_page_chain.takeCompletedTransitionRgbResyncRequest()) {
+        display.requestRgbResync();
+    }
 #if LV_USE_PERF_MONITOR
     repositionBuiltinLvglPerfMonitorOnce();
 #endif
