@@ -43,6 +43,7 @@ struct Instance {
 
     station_list_adapter::StationListSignature list_sig_cache{};
     bool list_sig_cache_valid = false;
+    bool page_filled_for_pending_enter = false;
 
     lv_point_t press_pt{};
     int32_t stroke_max_dx = 0;

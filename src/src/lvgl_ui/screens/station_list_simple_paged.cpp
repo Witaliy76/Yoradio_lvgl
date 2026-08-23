@@ -547,16 +547,19 @@ static void fillCurrentPage(Instance& instance) {
     const uint16_t last = lastStationOnPage(instance);
     const size_t name_limit = name_limit_for_profile();
 
-    size_t used = 0;
-    instance.page_text[0] = '\0';
-    for (uint16_t num = first; num <= last; ++num) {
-        char name_buf[160];
-        if (!station_list_adapter::station_name(num, name_buf, sizeof(name_buf))) {
-            format_fallback_station_name(name_buf, sizeof(name_buf), num);
-        }
-        truncate_utf8_in_place(name_buf, name_limit);
-        if (!append_station_line(instance.page_text, instance.page_text_cap, used, num, name_buf)) {
-            break;
+    if (!station_list_adapter::station_page_text(
+            first, last, instance.page_text, instance.page_text_cap, name_limit)) {
+        size_t used = 0;
+        instance.page_text[0] = '\0';
+        for (uint16_t num = first; num <= last; ++num) {
+            char name_buf[160];
+            if (!station_list_adapter::station_name(num, name_buf, sizeof(name_buf))) {
+                format_fallback_station_name(name_buf, sizeof(name_buf), num);
+            }
+            truncate_utf8_in_place(name_buf, name_limit);
+            if (!append_station_line(instance.page_text, instance.page_text_cap, used, num, name_buf)) {
+                break;
+            }
         }
     }
 
@@ -818,6 +821,7 @@ void populate(Instance& instance) {
     setPageIndexFromCurrentStation(instance);
     fillCurrentPage(instance);
     cacheListSignature(instance);
+    instance.page_filled_for_pending_enter = true;
 }
 
 RefreshOnActivateResult refreshOnActivate(Instance& instance) {
@@ -837,7 +841,14 @@ RefreshOnActivateResult refreshOnActivate(Instance& instance) {
 
 void onEnter(Instance& instance) {
     if (!instance.list_area) return;
+    const bool already_filled = instance.page_filled_for_pending_enter;
+    instance.page_filled_for_pending_enter = false;
+    const uint16_t filled_page = instance.page_index;
     setPageIndexFromCurrentStation(instance);
+    if (already_filled && instance.page_index == filled_page) {
+        layoutCurrentMarker(instance, station_list_adapter::current_station_num());
+        return;
+    }
     fillCurrentPage(instance);
 }
 
@@ -874,6 +885,7 @@ void releaseAfterTreeDelete(Instance& instance) {
     instance.station_total = 0;
     instance.focus_station_num = 0;
     instance.list_sig_cache_valid = false;
+    instance.page_filled_for_pending_enter = false;
     resetInputState(instance);
     releasePageTextBuffer(instance);
 }

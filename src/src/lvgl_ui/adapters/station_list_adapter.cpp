@@ -127,6 +127,49 @@ bool station_name(uint16_t num, char* out, size_t cap) {
     return out[0] != '\0';
 }
 
+bool station_page_text(uint16_t first, uint16_t last, char* out, size_t cap, size_t name_limit) {
+    if (!out || cap == 0u) return false;
+    out[0] = '\0';
+    if (!is_valid_station_num(first) || last < first || last > station_count()) return false;
+
+    FS* fs = config.SDPLFS();
+    const bool web_mode = config.getMode() == PM_WEB;
+    const char* playlist_path = web_mode ? PLAYLIST_PATH : PLAYLIST_SD_PATH;
+    const char* index_path = web_mode ? INDEX_PATH : INDEX_SD_PATH;
+    File playlist = fs ? fs->open(playlist_path, "r") : File();
+    File index = fs ? fs->open(index_path, "r") : File();
+
+    bool complete = false;
+    if (playlist && index) {
+        const size_t index_offset = static_cast<size_t>(first - 1u) * sizeof(uint32_t);
+        if (index.seek(index_offset, SeekSet)) {
+            size_t used = 0;
+            complete = true;
+            for (uint16_t num = first; num <= last; ++num) {
+                uint32_t pos = 0;
+                if (index.readBytes(reinterpret_cast<char*>(&pos), sizeof(pos)) != sizeof(pos)
+                    || !playlist.seek(pos, SeekSet)) {
+                    complete = false;
+                    break;
+                }
+                char name_buf[160];
+                if (!read_playlist_name(playlist, name_buf, sizeof(name_buf))) {
+                    format_fallback_name(name_buf, sizeof(name_buf), num);
+                }
+                truncate_utf8_in_place(name_buf, name_limit);
+                if (!append_station_line(out, cap, used, num, name_buf)) {
+                    complete = false;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (index) index.close();
+    if (playlist) playlist.close();
+    return complete;
+}
+
 bool list_signature(StationListSignature* out) {
     if (!out) return false;
     out->station_count = station_count();
