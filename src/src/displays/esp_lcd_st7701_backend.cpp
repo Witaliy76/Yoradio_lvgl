@@ -207,7 +207,11 @@ bool createRgbPanel() {
     panel_config.data_width = 16;
     panel_config.bits_per_pixel = 16;
     panel_config.num_fbs = 1;
+#if YORADIO_RGB_BOUNCE10
+    panel_config.bounce_buffer_size_px = kWidth * 10;
+#else
     panel_config.bounce_buffer_size_px = 0;
+#endif
     // GFX sets deprecated sram_trans_align=8 / psram_trans_align=64 (union → dma_burst_size).
     panel_config.sram_trans_align = 8;
     panel_config.psram_trans_align = 64;

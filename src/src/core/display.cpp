@@ -83,7 +83,11 @@ DspCore dsp;
 // (canary panic). 10240 B leaves ~3.4 KiB measured margin.
 // EXEC-01B: 6 KiB -> 10 KiB для LVGL 9 (пик ~6760 B при построении Main).
 #ifndef CORE_STACK_SIZE
-  #define CORE_STACK_SIZE  (1024*10)
+  #if YORADIO_DSPTASK_12K
+    #define CORE_STACK_SIZE  (1024*12)
+  #else
+    #define CORE_STACK_SIZE  (1024*10)
+  #endif
 #endif
 #ifndef DSP_TASK_DELAY
   #define DSP_TASK_DELAY  pdMS_TO_TICKS(5)

@@ -132,6 +132,16 @@
 /* ===============================================
    DISPLAY OPTIONS
    =============================================== */
+// Stage 2.5 production defaults. Both switches remain override-friendly for
+// controlled comparison builds; XIP is intentionally not a user option.
+#ifndef YORADIO_RGB_BOUNCE10
+#define YORADIO_RGB_BOUNCE10 1
+#endif
+
+#ifndef YORADIO_DSPTASK_12K
+#define YORADIO_DSPTASK_12K 1
+#endif
+
 // Block 8-E5C: carousel PageChain slide (MOVE_LEFT/RIGHT). Boot fade unchanged.
 // Block 8-E5C: slide-анимация карусели при свайпе. 0 = мгновенно (partial 4848); 1 = slide 300 ms.
 // Future Settings / ESP32-P4 may enable 1 at runtime; not stored in NVS yet.
