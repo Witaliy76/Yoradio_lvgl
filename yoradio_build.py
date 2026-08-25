@@ -401,6 +401,13 @@ def apply(env):
         env.Prepend(LIBPATH=[decision["overlay_dir"]])
         env.Append(LINKFLAGS=["-Wl,--wrap=%s" % sym
                               for sym in decision["wraps"]])
+        # Keep project/framework compile-time lwIP headers coherent with the
+        # accepted C1 liblwip archive.  Force-include only after the atomic
+        # 7/7 decision; stock fallback therefore retains stock sdkconfig.
+        config_header = os.path.join(
+            project_dir, "src", "src", "core", "yoradio_idf_c1_config.h")
+        env.Append(CPPDEFINES=[("YORADIO_IDF_C1_CONFIG", 1)])
+        env.Append(CCFLAGS=["-include", config_header])
 
     for line in render(decision):
         print(line)

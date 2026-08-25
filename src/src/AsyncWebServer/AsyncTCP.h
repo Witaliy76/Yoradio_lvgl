@@ -41,10 +41,10 @@ extern "C" {
 #endif
 
 #ifndef XTASK_MEM_SIZE
-  #ifdef WROOM_USED
-    #define XTASK_MEM_SIZE  6144 // (8192 / 2)
+  #if YORADIO_ASYNCTCP_STACK_16K
+    #define XTASK_MEM_SIZE 16384
   #else
-    #define XTASK_MEM_SIZE  8192 * 2
+    #define XTASK_MEM_SIZE 32768
   #endif
 #endif
 #ifndef XTASK_PRIOTITY

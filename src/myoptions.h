@@ -132,14 +132,27 @@
 /* ===============================================
    DISPLAY OPTIONS
    =============================================== */
-// Stage 2.5 production defaults. Both switches remain override-friendly for
-// controlled comparison builds; XIP is intentionally not a user option.
+// RGB panel bounce buffers (ESP32-S3 RGB transport):
+//   1 = use two INTERNAL RGB565 bounce buffers, each panel_width x 10 pixels.
+//       This improves scanout tolerance to short PSRAM bandwidth stalls, but
+//       reserves about 19.2 KB of INTERNAL RAM on a 480-pixel-wide panel.
+//   0 = disable bounce buffers and let RGB DMA read the framebuffer from PSRAM.
 #ifndef YORADIO_RGB_BOUNCE10
-#define YORADIO_RGB_BOUNCE10 1
+#define YORADIO_RGB_BOUNCE10 0
 #endif
 
+// DspTask stack size:
+//   1 = 12 KB stack for additional runtime headroom.
+//   0 = historical 10 KB stack.
+// This option does not change the task core, priority, period, or entry point.
 #ifndef YORADIO_DSPTASK_12K
 #define YORADIO_DSPTASK_12K 1
+#endif
+
+// AsyncTCP worker stack size:
+//   1 = accepted measured 16 KB stack; 0 = historical 32 KB fallback.
+#ifndef YORADIO_ASYNCTCP_STACK_16K
+#define YORADIO_ASYNCTCP_STACK_16K 1
 #endif
 
 // Block 8-E5C: carousel PageChain slide (MOVE_LEFT/RIGHT). Boot fade unchanged.
