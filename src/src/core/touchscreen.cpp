@@ -8,7 +8,8 @@
  * Реализация обработки касаний и свайпов для сенсорного экрана
  * 
  * Поддерживаемые модели тачскринов:
- * - GT911 - емкостный тачскрин (I2C) - оптимизирован для 480x480
+ * - GT911 - емкостный тачскрин (I2C); geometry from kYoradioTouchGeometryCurrent
+ *   / геометрия из kYoradioTouchGeometryCurrent
  * - AXS15231B - емкостный тачскрин (I2C) — deferred UEDX/AXS stage
  * - CST826 - емкостный тачскрин (I2C) - высокое разрешение 4095 — deferred UEDX stage
  * 
@@ -28,6 +29,7 @@
 #include "options.h"
 #if (TS_MODEL!=TS_MODEL_UNDEFINED)
 
+#include "touch_geometry.h"
 #include "touchscreen.h"
 #include "config.h"
 #include "controls.h"
@@ -52,7 +54,9 @@
 
 #if TS_MODEL==TS_MODEL_GT911
   #include "../GT911_Touchscreen/TAMC_GT911.h"
-  TAMC_GT911 ts = TAMC_GT911(TS_SDA, TS_SCL, TS_INT, TS_RST, 480, 480);
+  TAMC_GT911 ts = TAMC_GT911(TS_SDA, TS_SCL, TS_INT, TS_RST,
+                             kYoradioTouchGeometryCurrent.panel_width,
+                             kYoradioTouchGeometryCurrent.panel_height);
   typedef TP_Point TSPoint;
 #elif TS_MODEL==TS_MODEL_AXS15231B
   #include "../AXS15231B_touch/AXS15231B_Touch.h"
@@ -124,12 +128,12 @@
 #define SWIPE_PROXIMITY_TIME   600   // Время проверки близости к концу свайпа (мс)
 #define SWIPE_PROXIMITY_DIST   100   // Расстояние близости к концу свайпа (px)
 
-// Специальные настройки для GT911 на квадратном экране 480x480
+// GT911 swipe-distance thresholds (controller-model sensitivity, not panel literals).
+// Пороги свайпа GT911 (чувствительность модели контроллера, не литералы панели).
 #if TS_MODEL==TS_MODEL_GT911
-  // Уменьшенные пороги для высокого разрешения
-  #define GT911_SWIPE_THRESHOLD      20    // Было 30, уменьшаем для 480x480
-  #define GT911_SWIPE_MIN_DISTANCE   25    // Было 35, оптимизируем для квадратного экрана
-  #define GT911_MOVEMENT_THRESHOLD   6     // Было 8, более чувствительно для 480x480
+  #define GT911_SWIPE_THRESHOLD      20    // was 30 / было 30
+  #define GT911_SWIPE_MIN_DISTANCE   25    // was 35 / было 35
+  #define GT911_MOVEMENT_THRESHOLD   6     // was 8 / было 8
   #define GT911_SWIPE_DEADZONE       2     // Было 3, уменьшаем для точности
   #define GT911_SWIPE_ANGLE_THRESHOLD 25.0 // Было 22.5, увеличиваем для стабильности
 #elif TS_MODEL==TS_MODEL_CST826
@@ -176,26 +180,9 @@ struct TouchPoint {
 // Функция фильтрации координат GT911 (как в AXS15231B)
 #if TS_MODEL==TS_MODEL_GT911
 bool TouchScreen::_filterGT911Coordinates(uint16_t rawX, uint16_t rawY) {
-    // Проверяем валидность координат GT911 для экрана 480x480
-    // GT911 выдает координаты в диапазоне 0-480, а не 100-3800
-    if (rawX > 480 || rawY > 480) {
-        // Координаты выходят за пределы экрана - игнорируем
-        return false;
-    }
-    
-    // Проверяем на "мертвые" координаты GT911
-    if (rawX == 0 && rawY == 0) {
-        // Нулевые координаты - игнорируем
-        return false;
-    }
-    
-    // Проверяем на подозрительно одинаковые координаты (только если они не в углах)
-    if (rawX == rawY && rawX > 10 && rawX < 470) {
-        // Возможные некорректные значения в центре экрана - игнорируем
-        return false;
-    }
-    
-    return true;
+    // Generic filter: bounds come from the current-board contract, not a 480 literal.
+    // Generic-фильтр: границы из контракта текущей платы, не литерал 480.
+    return yoradio_touch_filter_raw(kYoradioTouchGeometryCurrent, rawX, rawY);
 }
 #endif
 
@@ -242,16 +229,9 @@ void TouchScreen::loop(){
           return;
       }
       
-      // Маппирование координат GT911 (координаты уже в диапазоне 0-480)
-      // GT911 выдает координаты напрямую, маппирование не требуется
-      touchX = p.y;  // Оси перепутаны, но координаты уже правильные
-      touchY = p.x;
-      
-      // Дополнительная проверка границ экрана
-      if (touchX >= _width) touchX = _width - 1;
-      if (touchY >= _height) touchY = _height - 1;
-      if (touchX < 0) touchX = 0;
-      if (touchY < 0) touchY = 0;
+      // Swap + clip from the current-board contract (legacy loop has no invert).
+      // Swap + clip из контракта текущей платы (legacy loop без invert).
+      yoradio_touch_swap_and_clip(kYoradioTouchGeometryCurrent, p.x, p.y, &touchX, &touchY);
     #elif TS_MODEL==TS_MODEL_CST826
       TSPoint p = ts.getPoint(0);
       
@@ -719,16 +699,13 @@ tsDirection_e TouchScreen::_tsDirection(uint16_t x, uint16_t y) {
 }
 
 void TouchScreen::init() {
+    const YoradioTouchGeometry& geom = kYoradioTouchGeometryCurrent;
+    _width  = geom.logical_width;
+    _height = geom.logical_height;
     #if TS_MODEL==TS_MODEL_GT911
         ts.begin();
-        ts.setRotation(config.store.fliptouch?0:2);
-        ts.setResolution(_width, _height);
-        
-        // Автоматическая настройка порогов для квадратного экрана
-        if (_width == _height && _width >= 480) {
-            // Для квадратного экрана 480x480 и больше используем оптимизированные настройки
-            // Эти настройки уже определены в константах выше
-        }
+        ts.setRotation(yoradio_touch_rotation(geom, config.store.fliptouch));
+        ts.setResolution(geom.panel_width, geom.panel_height);
     #endif
     #if TS_MODEL==TS_MODEL_AXS15231B
         ts.begin();
@@ -747,11 +724,6 @@ void TouchScreen::init() {
               Serial.println("[CST826] Touchscreen initialized successfully");
             }
         }
-    #endif
-    _width  = dsp.width();
-    _height = dsp.height();
-    #if TS_MODEL==TS_MODEL_GT911
-        ts.setResolution(_width, _height);
     #endif
     #if TS_MODEL==TS_MODEL_AXS15231B
         ts.setResolution(_width, _height);
@@ -783,14 +755,9 @@ bool TouchScreen::readPointerForLvgl(uint16_t* outX, uint16_t* outY) {
         if (!_filterGT911Coordinates(p.x, p.y)) {
             return false;
         }
-        touchX = p.y;
-        touchY = p.x;
-        if (touchX >= _width) {
-            touchX = _width - 1;
-        }
-        if (touchY >= _height) {
-            touchY = _height - 1;
-        }
+        // LVGL path: swap → clip → invert from the current-board contract.
+        // Путь LVGL: swap → clip → invert из контракта текущей платы.
+        yoradio_touch_map_for_lvgl(kYoradioTouchGeometryCurrent, p.x, p.y, &touchX, &touchY);
     }
 #elif TS_MODEL==TS_MODEL_CST826
     {
@@ -822,7 +789,7 @@ bool TouchScreen::readPointerForLvgl(uint16_t* outX, uint16_t* outY) {
 
 void TouchScreen::flip() {
     #if TS_MODEL==TS_MODEL_GT911
-        ts.setRotation(config.store.fliptouch?0:2);
+        ts.setRotation(yoradio_touch_rotation(kYoradioTouchGeometryCurrent, config.store.fliptouch));
     #endif
     #if TS_MODEL==TS_MODEL_AXS15231B
         ts.setRotation(config.store.fliptouch?0:2);
