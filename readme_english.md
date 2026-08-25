@@ -42,6 +42,10 @@ Each page has a distinct role: Main is for listening, Visual for atmosphere, Inf
 
 ## Change history
 
+### 25 August 2026 — 0.9.434m-r2-lvgl-beta.2-s2.10.1
+
+Stage 2 stabilization of the ESP32-S3 RGB/LVGL display path is complete: the production `esp_lcd` path was hardened, completed screen transitions gained centralized RGB resynchronization, the Stations list opens faster, and the C1 lwIP build configuration is synchronized. The 12 KB DspTask and 16 KB AsyncTCP stacks are accepted; RGB bounce remains optional and is disabled by default.
+
 ### 13 August 2026 — 0.9.434m-r2-lvgl-beta.2-s2.2.4
 
 Build platform refresh: PIOArduino `55.03.311`, Arduino-ESP32 `3.3.11`, ESP-IDF `5.5.5`. The custom ESP-IDF system library set was rebuilt against the new version.
