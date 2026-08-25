@@ -2,8 +2,8 @@
 // Прямой esp_lcd ST7701 RGB backend за интерфейсом DisplayPort.
 // Ownership: display TU; active 4848S040 DisplayPort backend.
 // Владелец: display TU; активный backend DisplayPort для 4848S040.
-// Hardware: ESP32-S3 4848S040; Arduino_GFX retained as parity reference only.
-// Железо: ESP32-S3 4848S040; Arduino_GFX остаётся только эталоном паритета.
+// Hardware: ESP32-S3 4848S040; historical Arduino_GFX behavior is parity provenance only.
+// Железо: ESP32-S3 4848S040; поведение Arduino_GFX сохранено только как provenance паритета.
 // Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef YORADIO_ESP_LCD_ST7701_BACKEND_H
 #define YORADIO_ESP_LCD_ST7701_BACKEND_H

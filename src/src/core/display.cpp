@@ -29,8 +29,8 @@ static uint32_t s_panel_last_flush_ms = 0;
 // Block 8-E18D: markFrameDirty — no-op (legacy Canvas dirty flush removed).
 void markFrameDirty() {}
 
-// Block 8-E3/8.1H-H: panel flush counter on LVGL direct→output_display path.
-// Block 8-E3/8.1H-H: счётчик panel flush при прямом LVGL→output_display.
+// Block 8-E3/8.1H-H: panel flush counter on the LVGL → DisplayPort path.
+// Block 8-E3/8.1H-H: счётчик panel flush на пути LVGL → DisplayPort.
 void lvgl_ui::recordLvglDirectPanelFlush() {
     s_panel_flush_count++;
     s_panel_last_flush_ms = millis();
@@ -139,7 +139,7 @@ void Display::init() {
   sleep_timer_init();
 
   if (!display_ok) {
-    Serial.println("[Display] Failed to initialize display (no output_display)!");
+    Serial.println("[Display] Failed to initialize display backend!");
     return;
   }
 
