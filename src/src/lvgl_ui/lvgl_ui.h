@@ -32,8 +32,8 @@ void initRuntime();
 // Stage 2: инициализация источника тиков LVGL (esp_timer + lv_tick_inc())
 void initTick();
 
-// Stage 2: register LVGL display driver that renders into Arduino_Canvas.
-// Stage 2: регистрация LVGL-дисплея, рисующего в Arduino_Canvas
+// Register the LVGL display driver for the current DisplayPort -> direct esp_lcd path.
+// Регистрация LVGL-дисплея для текущего пути DisplayPort -> direct esp_lcd.
 void initDisplayDriver(uint16_t hor_res, uint16_t ver_res);
 
 // Stage 5.2: register pointer indev after display driver (read_cb on DspTask only).

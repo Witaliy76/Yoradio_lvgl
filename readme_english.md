@@ -42,6 +42,10 @@ Each page has a distinct role: Main is for listening, Visual for atmosphere, Inf
 
 ## Change history
 
+### 25 August 2026 — 0.9.434m-r2-lvgl-beta.2-s2.10.2-gfx-retired
+
+Final Stage 2 cleanup: the Arduino_GFX dependency and backend are fully removed from the current source and build. ST7701 now uses only the production `DisplayPort → esp_lcd` path; the legacy rollback code is gone, while the exact Type9 table and its historical provenance remain preserved.
+
 ### 25 August 2026 — 0.9.434m-r2-lvgl-beta.2-s2.10.1
 
 Stage 2 stabilization of the ESP32-S3 RGB/LVGL display path is complete: the production `esp_lcd` path was hardened, completed screen transitions gained centralized RGB resynchronization, the Stations list opens faster, and the C1 lwIP build configuration is synchronized. The 12 KB DspTask and 16 KB AsyncTCP stacks are accepted; RGB bounce remains optional and is disabled by default.
@@ -74,7 +78,7 @@ Public baseline remains `0.9.434m-r2-lvgl-beta.2`.
 
 YoRadio migrated from LVGL 8.3.11 to LVGL 9.5.0. The ESP32-4848S040 product UI and behaviour were preserved.
 
-Arduino_GFX remains the current temporary display bridge; direct `esp_lcd` migration is a separate following stage. Generated fonts were migrated to the LVGL9 ABI. Image/runtime descriptor handling and RGB565A8 screensaver assets were adapted for LVGL9.
+At that migration stage, Arduino_GFX was still the temporary display bridge and the direct `esp_lcd` migration followed later. Generated fonts were migrated to the LVGL9 ABI. Image/runtime descriptor handling and RGB565A8 screensaver assets were adapted for LVGL9.
 
 Two migration regressions were found and fixed: display-task stack sizing and carousel event/screen lifecycle. Device smoke and full functional validation passed. Internal LVGL UI/layout documentation was synchronized.
 
@@ -334,7 +338,7 @@ The rebuilt **esp_lcd** is what the RGB display needs: the automatic per-VSYNC R
 - **e2002** — original YoRadio project;
 - **Wolle (schreibfaul1)** — AudioI2S;
 - **Maleksm** (4pda.to) — AudioI2S improvements;
-- **moononournation** — Arduino_GFX;
+- **moononournation** — Arduino_GFX, historical Type9/parity provenance;
 - **LVGL** — interface graphics engine.
 
 ## License and authors

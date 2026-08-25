@@ -92,7 +92,7 @@ After edits: rebuild and verify on hardware.
 
 ## 5. Behaviour notes
 
-- **Historical Boot → Main artifact note:** the older shared-`Arduino_Canvas` path was stabilized with a full-frame buffer and `full_refresh = 1`. That is not the current 4848S040 topology. Current LVGL 9 uses one 480×160 PSRAM draw buffer (153600 B), `LV_DISPLAY_RENDER_MODE_PARTIAL`, and a synchronous direct flush through Arduino_GFX. Treat the old full-frame observation as migration history, not current troubleshooting guidance.
+- **Historical Boot → Main artifact note:** the older shared-`Arduino_Canvas` path was stabilized with a full-frame buffer and `full_refresh = 1`. That is not the current 4848S040 topology. Current LVGL 9 uses one 480×160 PSRAM draw buffer (153600 B), `LV_DISPLAY_RENDER_MODE_PARTIAL`, and a synchronous `DisplayPort → esp_lcd` CPU blit into one 480×480 PSRAM physical framebuffer. Treat the old full-frame observation as migration history, not current troubleshooting guidance.
 - **Min visible time:** at least **3 s** before Main after `DSP_START` if the network was fast — see §0.7.
 - **Shuttle:** indeterminate only; **not** real progress.
 - **`onBootSignal()`:** temporary stub — see §0.3.

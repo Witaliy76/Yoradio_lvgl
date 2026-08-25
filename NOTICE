@@ -38,7 +38,7 @@ original license; see source headers and vendor directories for full texts.
 | Opus / CELT / SILK decoders | `src/src/audioI2S/opus_decoder/` | BSD-style (see file headers) |
 | AsyncWebServer | `src/src/AsyncWebServer/` | LGPL 2.1+ |
 | IRremoteESP8266 | `src/src/IRremoteESP8266/` | GPL v3 |
-| Arduino_GFX | PlatformIO dependency | See moononournation repository |
+| Arduino_GFX | Historical Type9/parity provenance; retired production dependency | See moononournation repository |
 | Adafruit BusIO / CST8XX | `src/src/Adafruit_*` | MIT |
 | Tabler Icons (font source) | `@tabler/icons-webfont` | MIT |
 

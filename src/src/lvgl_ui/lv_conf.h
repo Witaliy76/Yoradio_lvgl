@@ -132,7 +132,7 @@
     #define LV_USE_DRAW_SW_COMPLEX_GRADIENTS    0
 #endif
 
-/* No GPU / vector backends on this product (ESP32-S3 + Arduino_GFX temporary bridge). */
+/* No GPU / vector backends on this product (ESP32-S3 + direct esp_lcd/ST7701). */
 #define LV_USE_NEMA_GFX 0
 #define LV_USE_PXP 0
 #define LV_USE_G2D 0

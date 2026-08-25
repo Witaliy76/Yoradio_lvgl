@@ -68,10 +68,10 @@ lvgl_ui/
 |---------|--------|
 | `lv_*` API | DspTask only |
 | Display / draw buffer | LVGL 9 `lv_display_t`; RGB565; one 480x160 PSRAM buffer (153600 B) in `LV_DISPLAY_RENDER_MODE_PARTIAL` on 4848S040 |
-| Flush | Synchronous LVGL -> Arduino_GFX panel path; `lv_display_flush_ready()` exactly once on every callback path |
+| Flush | Synchronous LVGL -> DisplayPort -> direct `esp_lcd`/ST7701 path; CPU rectangular blit from the 480x160 draw buffer into one 480x480 PSRAM physical framebuffer; `lv_display_flush_ready()` exactly once on every callback path |
 | Touch | GT911 registered as an LVGL 9 pointer indev; its read callback runs from `lv_timer_handler()` on DspTask |
 | LVGL heap | Fixed 128 KiB built-in TLSF pool backed by one process-lifetime PSRAM allocation |
-| LVGL task stack | DspTask, 10240 B |
+| LVGL task stack | DspTask, 12288 B |
 | Theme preset / Custom file | Theme module + WebUI Appearance; live reapply on DspTask |
 | Station art / Main backgrounds | LittleFS + Main reload hooks on DspTask |
 | Weather data | Core `WeatherState` (fetch off UI); Weather page is read-only consumer |
