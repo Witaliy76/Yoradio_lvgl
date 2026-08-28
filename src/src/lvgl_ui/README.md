@@ -59,7 +59,7 @@ lvgl_ui/
 ├── adapters/                 - preset store, station list boundary
 ├── theme/                    - Dark / Light / Custom + THEME.md
 ├── assets/                   - Boot / screensaver assets
-└── fonts/                    - Generated LVGL fonts (do not hand-edit .c)
+└── fonts/                    - factory + Tabler TTF, emergency 16, see readme_fonts.md
 ```
 
 ## Runtime ownership
@@ -70,7 +70,7 @@ lvgl_ui/
 | Display / draw buffer | LVGL 9 `lv_display_t`; RGB565; one 480x160 PSRAM buffer (153600 B) in `LV_DISPLAY_RENDER_MODE_PARTIAL` on 4848S040 |
 | Flush | Synchronous LVGL -> DisplayPort -> direct `esp_lcd`/ST7701 path; CPU rectangular blit from the 480x160 draw buffer into one 480x480 PSRAM physical framebuffer; `lv_display_flush_ready()` exactly once on every callback path |
 | Touch | GT911 registered as an LVGL 9 pointer indev; its read callback runs from `lv_timer_handler()` on DspTask |
-| LVGL heap | Fixed 128 KiB built-in TLSF pool backed by one process-lifetime PSRAM allocation |
+| LVGL heap | Fixed 256 KiB built-in TLSF pool backed by one process-lifetime PSRAM allocation |
 | LVGL task stack | DspTask, 12288 B |
 | Theme preset / Custom file | Theme module + WebUI Appearance; live reapply on DspTask |
 | Station art / Main backgrounds | LittleFS + Main reload hooks on DspTask |
@@ -95,9 +95,9 @@ File-backed Main, Visual, and screensaver RGB565 backgrounds keep the existing Y
 4-byte little-endian disk header followed by RGB565 bytes. Loaders translate that header
 to an in-memory LVGL 9 `lv_image_header_t` / `lv_image_dsc_t`; the files were not converted
 to a new disk format. Static RGB565A8 screensaver sprites are different: they use the
-LVGL 9 color-plane-then-alpha-plane representation. All 48 generated fonts use the LVGL 9
-ABI and must be regenerated with `lv_font_conv@1.5.3`; the 1.5.2 output can retain the
-removed v8 `.cache` field, while the v9 `fallback` field is valid.
+LVGL 9 color-plane-then-alpha-plane representation. Normal text and icons are two
+embedded TTF assets opened by TinyTTF (`fonts/readme_fonts.md`). The compiled
+`lv_font_yora_montserrat_16_cyr` emergency face remains LVGL 9 `fmt_txt` ABI.
 
 ## Related tracked docs
 

@@ -222,63 +222,9 @@
  *  FONT USAGE
  *==================*/
 
-/* Stage 5.1 / BASE-LVGL9-MIGRATION C4: generated Cyrillic-capable Montserrat, regenerated for v9 font ABI.
- * Stage 5.1 / C4: сгенерированный Montserrat с кириллицей, перегенерирован под ABI шрифтов v9. */
-#define LV_FONT_YORA_MONTSERRAT_12_CYR 1
-#define LV_FONT_YORA_MONTSERRAT_14_CYR 1
+/* Compiled emergency face only. Application declaration: fonts/lv_fonts.h.
+ * Только аварийный compiled-face. Объявление приложения: fonts/lv_fonts.h. */
 #define LV_FONT_YORA_MONTSERRAT_16_CYR 1
-#define LV_FONT_YORA_MONTSERRAT_18_CYR 1
-#define LV_FONT_YORA_MONTSERRAT_20_CYR 1
-#define LV_FONT_YORA_MONTSERRAT_22_CYR 1
-#define LV_FONT_YORA_MONTSERRAT_28_CYR 1
-#define LV_FONT_YORA_MONTSERRAT_32_CYR 1
-#define LV_FONT_YORA_MONTSERRAT_40_CYR 1
-#define LV_FONT_YORA_MONTSERRAT_48_CYR 1
-/* Tabler subset: Main status Wi-Fi glyphs (fonts/lv_font_yora_status_icons_18|20|22.c). */
-#define LV_FONT_YORA_STATUS_ICONS_18 1
-#define LV_FONT_YORA_STATUS_ICONS_20 1
-#define LV_FONT_YORA_STATUS_ICONS_22 1
-/* Tabler subset: Wi-Fi Flow header icon only — 24 px (≤320) / 36 px (480+); see lv_font_yora_wifi_flow_icons.md. */
-#define LV_FONT_YORA_WIFI_FLOW_ICONS_24 1
-#define LV_FONT_YORA_WIFI_FLOW_ICONS_36 1
-/* Tabler subset: OWM weather glyphs 18–28 px (Main mini) + 36|64 px (Weather Page). A1/A3. */
-#define LV_FONT_YORA_WEATHER_ICONS_18 1
-#define LV_FONT_YORA_WEATHER_ICONS_20 1
-#define LV_FONT_YORA_WEATHER_ICONS_22 1
-#define LV_FONT_YORA_WEATHER_ICONS_24 1
-#define LV_FONT_YORA_WEATHER_ICONS_28 1
-#define LV_FONT_YORA_WEATHER_ICONS_36 1
-#define LV_FONT_YORA_WEATHER_ICONS_64 1
-/* Tabler subset: Weather Page metric row icons (wind/droplet/gauge/cloud-rain) @ 22|26 px. A1/A3. */
-#define LV_FONT_YORA_WEATHER_METRIC_ICONS_22 1
-#define LV_FONT_YORA_WEATHER_METRIC_ICONS_26 1
-/* Tabler subset: Main control band icons (fonts/lv_font_yora_control_icons_18|20|22|24|26|28.c). Stage 6.1E-b. */
-#define LV_FONT_YORA_CONTROL_ICONS_18 1
-#define LV_FONT_YORA_CONTROL_ICONS_20 1
-#define LV_FONT_YORA_CONTROL_ICONS_22 1
-#define LV_FONT_YORA_CONTROL_ICONS_24 1
-#define LV_FONT_YORA_CONTROL_ICONS_26 1
-#define LV_FONT_YORA_CONTROL_ICONS_28 1
-/* Tabler subset: Station Page current marker (volume-2) @ 14–24 px (profile pick later). Stage 6.3D-b+ */
-#define LV_FONT_YORA_STATION_ICONS_14 1
-#define LV_FONT_YORA_STATION_ICONS_15 1
-#define LV_FONT_YORA_STATION_ICONS_16 1
-#define LV_FONT_YORA_STATION_ICONS_17 1
-#define LV_FONT_YORA_STATION_ICONS_18 1
-#define LV_FONT_YORA_STATION_ICONS_19 1
-#define LV_FONT_YORA_STATION_ICONS_20 1
-#define LV_FONT_YORA_STATION_ICONS_21 1
-#define LV_FONT_YORA_STATION_ICONS_22 1
-#define LV_FONT_YORA_STATION_ICONS_23 1
-#define LV_FONT_YORA_STATION_ICONS_24 1
-/* Tabler subset: Info Page section rail (database, device-desktop, router, cpu) @ 24|28|32|36|40|44. Stage 6.2 Patch B. */
-#define LV_FONT_YORA_INFO_SECTION_ICONS_24 1
-#define LV_FONT_YORA_INFO_SECTION_ICONS_28 1
-#define LV_FONT_YORA_INFO_SECTION_ICONS_32 1
-#define LV_FONT_YORA_INFO_SECTION_ICONS_36 1
-#define LV_FONT_YORA_INFO_SECTION_ICONS_40 1
-#define LV_FONT_YORA_INFO_SECTION_ICONS_44 1
-#define LV_FONT_YORA_SETTINGS_ICONS_28 1
 
 #define LV_FONT_MONTSERRAT_14 1
 #define LV_FONT_MONTSERRAT_8  0
@@ -305,60 +251,14 @@
 #define LV_FONT_DEJAVU_16_PERSIAN_HEBREW 0
 #define LV_FONT_UNSCII_8 0
 #define LV_FONT_UNSCII_16 0
-#define LV_FONT_CUSTOM_DECLARE                                                                 \
-    extern const lv_font_t lv_font_yora_montserrat_12_cyr;                                      \
-    extern const lv_font_t lv_font_yora_montserrat_14_cyr;                                      \
-    extern const lv_font_t lv_font_yora_montserrat_16_cyr;                                      \
-    extern const lv_font_t lv_font_yora_montserrat_18_cyr;                                      \
-    extern const lv_font_t lv_font_yora_montserrat_20_cyr;                                      \
-    extern const lv_font_t lv_font_yora_montserrat_22_cyr;                                      \
-    extern const lv_font_t lv_font_yora_montserrat_28_cyr;                                      \
-    extern const lv_font_t lv_font_yora_montserrat_32_cyr;                                      \
-    extern const lv_font_t lv_font_yora_montserrat_40_cyr;                                      \
-    extern const lv_font_t lv_font_yora_montserrat_48_cyr;                                      \
-    extern const lv_font_t lv_font_yora_status_icons_18;                                      \
-    extern const lv_font_t lv_font_yora_status_icons_20;                                      \
-    extern const lv_font_t lv_font_yora_status_icons_22;                                      \
-    extern const lv_font_t lv_font_yora_wifi_flow_icons_24;                                      \
-    extern const lv_font_t lv_font_yora_wifi_flow_icons_36;                                      \
-    extern const lv_font_t lv_font_yora_weather_icons_18;                                      \
-    extern const lv_font_t lv_font_yora_weather_icons_20;                                      \
-    extern const lv_font_t lv_font_yora_weather_icons_22;                                      \
-    extern const lv_font_t lv_font_yora_weather_icons_24;                                      \
-    extern const lv_font_t lv_font_yora_weather_icons_28;                                      \
-    extern const lv_font_t lv_font_yora_weather_icons_36;                                      \
-    extern const lv_font_t lv_font_yora_weather_icons_64;                                      \
-    extern const lv_font_t lv_font_yora_weather_metric_icons_22;                               \
-    extern const lv_font_t lv_font_yora_weather_metric_icons_26;                               \
-    extern const lv_font_t lv_font_yora_control_icons_18;                                      \
-    extern const lv_font_t lv_font_yora_control_icons_20;                                      \
-    extern const lv_font_t lv_font_yora_control_icons_22;                                      \
-    extern const lv_font_t lv_font_yora_control_icons_24;                                      \
-    extern const lv_font_t lv_font_yora_control_icons_26;                                      \
-    extern const lv_font_t lv_font_yora_control_icons_28;                                      \
-    extern const lv_font_t lv_font_yora_station_icons_14;                                      \
-    extern const lv_font_t lv_font_yora_station_icons_15;                                      \
-    extern const lv_font_t lv_font_yora_station_icons_16;                                      \
-    extern const lv_font_t lv_font_yora_station_icons_17;                                      \
-    extern const lv_font_t lv_font_yora_station_icons_18;                                      \
-    extern const lv_font_t lv_font_yora_station_icons_19;                                      \
-    extern const lv_font_t lv_font_yora_station_icons_20;                                      \
-    extern const lv_font_t lv_font_yora_station_icons_21;                                      \
-    extern const lv_font_t lv_font_yora_station_icons_22;                                      \
-    extern const lv_font_t lv_font_yora_station_icons_23;                                      \
-    extern const lv_font_t lv_font_yora_station_icons_24;                                      \
-    extern const lv_font_t lv_font_yora_info_section_icons_24;                                      \
-    extern const lv_font_t lv_font_yora_info_section_icons_28;                                      \
-    extern const lv_font_t lv_font_yora_info_section_icons_32;                                      \
-    extern const lv_font_t lv_font_yora_info_section_icons_36;                                      \
-    extern const lv_font_t lv_font_yora_info_section_icons_40;                                      \
-    extern const lv_font_t lv_font_yora_info_section_icons_44;                                      \
-    extern const lv_font_t lv_font_yora_settings_icons_28;
+/* Emergency face is declared in fonts/lv_fonts.h, not duplicated here.
+ * Аварийный face объявлен в fonts/lv_fonts.h, без дубля здесь. */
+#define LV_FONT_CUSTOM_DECLARE
 
 #define LV_FONT_DEFAULT &lv_font_montserrat_14
 #define LV_FONT_FMT_TXT_LARGE 0
-/* Stage 5.1: lv_font_conv defaults to RLE-compressed bitmaps; must match generated fonts.
- * Stage 5.1: lv_font_conv по умолчанию даёт RLE — без этого LVGL предупреждает и ломает отрисовку. */
+/* Emergency compiled 16 uses RLE bitmaps from lv_font_conv.
+ * Аварийный compiled 16 использует RLE-битмапы lv_font_conv. */
 #define LV_USE_FONT_COMPRESSED 1
 #define LV_USE_FONT_PLACEHOLDER 1
 
@@ -476,10 +376,7 @@
 #define LV_USE_TINY_TTF 1
 #if LV_USE_TINY_TTF
     #define LV_TINY_TTF_FILE_SUPPORT 0
-    #ifndef YORADIO_TEXT_GLYPH_CACHE
-        #define YORADIO_TEXT_GLYPH_CACHE 64
-    #endif
-    #define LV_TINY_TTF_CACHE_GLYPH_CNT YORADIO_TEXT_GLYPH_CACHE
+    #define LV_TINY_TTF_CACHE_GLYPH_CNT 64
     #define LV_TINY_TTF_CACHE_KERNING_CNT 256
 #endif
 #define LV_USE_RLOTTIE 0

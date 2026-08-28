@@ -4,17 +4,17 @@
 
 #include <cstring>
 
-// OWM `icon` string (e.g. "01n") → UTF-8 for Tabler weather subset font.
-// Weather page hero/forecast icons: lv_font_yora_weather_icons_64 / _36.
+// OWM `icon` string (e.g. "01n") → UTF-8 for the embedded Tabler subset.
+// Weather page hero/forecast icons: FontProvider::icon(64|36).
 // Строка OWM `icon` → UTF-8 глифов Tabler (страница погоды + мини на Main).
 
 // ── Metric row icons (A1) ─────────────────────────────────────────────────────────────────
-// lv_font_yora_weather_metric_icons_26: wind / droplets / gauge / cloud-rain / umbrella
+// Tabler metric glyphs: wind / droplets / gauge / cloud-rain / umbrella
 // Таблер-иконки для строки метрик (ветер, влажность, давление, осадки, зонт).
-// Source: @tabler/icons-webfont 3.26.0 (MIT).
+// Source: @tabler/icons-webfont 3.26.0 (MIT). See fonts/readme_fonts.md.
 //
-// Glyph strings for lv_label_set_text() with lv_font_yora_weather_metric_icons_26.
-// Строки глифов для lv_label_set_text() с lv_font_yora_weather_metric_icons_26.
+// Glyph strings for lv_label_set_text() with FontProvider::icon().
+// Строки глифов для lv_label_set_text() с FontProvider::icon().
 #define YORA_WEATHER_METRIC_GLYPH_WIND      (reinterpret_cast<const char*>(u8"\uEC34"))
 #define YORA_WEATHER_METRIC_GLYPH_HUMIDITY  (reinterpret_cast<const char*>(u8"\uFC12"))
 #define YORA_WEATHER_METRIC_GLYPH_PRESSURE  (reinterpret_cast<const char*>(u8"\uEAB1"))
@@ -26,7 +26,7 @@
 
 namespace lvgl_ui {
 
-// Map OpenWeatherMap icon id to one PUA glyph (Tabler 3.26, see lv_font_yora_weather_icons_22.md).
+// Map OpenWeatherMap icon id to one PUA glyph (Tabler 3.26, see fonts/readme_fonts.md).
 inline const char* weather_owm_icon_to_glyph_utf8(const char* owm_icon) {
     static const char* const k_cloud_rain = reinterpret_cast<const char*>(u8"\uEA72");
     static const char* const k_cloud_storm = reinterpret_cast<const char*>(u8"\uEA74");

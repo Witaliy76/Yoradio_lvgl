@@ -2,8 +2,8 @@
 #ifndef CONTROL_GLYPH_UTF8_H
 #define CONTROL_GLYPH_UTF8_H
 
-// UTF-8 BMP PUA for lv_font_yora_control_icons_* (Tabler 3.26 — see lv_font_yora_control_icons.md).
-// UTF-8 BMP PUA для шрифта control icons (Tabler 3.26).
+// UTF-8 BMP PUA for Main control icons (Tabler 3.26 — see fonts/readme_fonts.md).
+// UTF-8 BMP PUA для иконок полосы управления (Tabler 3.26).
 
 namespace lvgl_ui {
 
@@ -35,8 +35,8 @@ inline const char* control_glyph_utf8_volume_2() {
     return reinterpret_cast<const char*>(u8"\uEB4F");
 }
 
-// Station Page — `lv_font_yora_station_icons_*` (marker + bottom hint), not the bottom control bar.
-// Station Page — тот же subset, что маркер и подсказка; не нижняя панель плеера.
+// Station Page — same Tabler PUA subset (marker + bottom hint), not the bottom control bar.
+// Station Page — тот же subset Tabler (маркер и подсказка); не нижняя панель плеера.
 inline const char* station_glyph_utf8_volume_2() {
     return reinterpret_cast<const char*>(u8"\uEB4F");
 }

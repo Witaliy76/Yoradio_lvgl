@@ -5,22 +5,20 @@
 
 #include "fonts/lv_fonts.h"
 
-#ifndef YORADIO_TEXT_GLYPH_CACHE
-#define YORADIO_TEXT_GLYPH_CACHE 64
-#endif
-#ifndef YORADIO_ICON_GLYPH_CACHE
-#define YORADIO_ICON_GLYPH_CACHE 8
-#endif
-
+// PlatformIO board_build.embed_files symbols for the two production TTF assets.
+// Символы PlatformIO board_build.embed_files для двух production TTF.
 extern "C" {
-extern const uint8_t yoradio_text_ttf_data[];
-extern const uint8_t yoradio_text_ttf_data_end[];
-extern const uint8_t yoradio_tabler_ttf_data[];
-extern const uint8_t yoradio_tabler_ttf_data_end[];
+extern const uint8_t _binary_src_src_lvgl_ui_fonts_yoradio_factory_font_ttf_start[];
+extern const uint8_t _binary_src_src_lvgl_ui_fonts_yoradio_factory_font_ttf_end[];
+extern const uint8_t _binary_src_src_lvgl_ui_fonts_yoradio_tabler_ttf_start[];
+extern const uint8_t _binary_src_src_lvgl_ui_fonts_yoradio_tabler_ttf_end[];
 }
 
 namespace lvgl_ui {
 namespace {
+
+constexpr size_t kTextGlyphCache = 64;
+constexpr size_t kIconGlyphCache = 8;
 
 // These are current 480x480 product requests, not TinyTTF or TTF capabilities.
 // Текущие запросы профиля 480x480, не ограничения TTF.
@@ -46,12 +44,24 @@ const lv_font_t* emergency_font() {
     return &lv_font_yora_montserrat_16_cyr;
 }
 
-size_t text_bytes() {
-    return static_cast<size_t>(yoradio_text_ttf_data_end - yoradio_text_ttf_data);
+const uint8_t* factory_ttf() {
+    return _binary_src_src_lvgl_ui_fonts_yoradio_factory_font_ttf_start;
 }
 
-size_t icon_bytes() {
-    return static_cast<size_t>(yoradio_tabler_ttf_data_end - yoradio_tabler_ttf_data);
+size_t factory_ttf_bytes() {
+    return static_cast<size_t>(
+        _binary_src_src_lvgl_ui_fonts_yoradio_factory_font_ttf_end -
+        _binary_src_src_lvgl_ui_fonts_yoradio_factory_font_ttf_start);
+}
+
+const uint8_t* tabler_ttf() {
+    return _binary_src_src_lvgl_ui_fonts_yoradio_tabler_ttf_start;
+}
+
+size_t tabler_ttf_bytes() {
+    return static_cast<size_t>(
+        _binary_src_src_lvgl_ui_fonts_yoradio_tabler_ttf_end -
+        _binary_src_src_lvgl_ui_fonts_yoradio_tabler_ttf_start);
 }
 
 lv_font_t* find_instance(FontInstance* table, size_t count, uint16_t px) {
@@ -72,11 +82,11 @@ void release_table(FontInstance* table, size_t& count) {
 lv_font_t* create_text_font(uint16_t px) {
     if (px == 0 || s_text_count >= kMaxLiveTextInstances) return nullptr;
     lv_font_t* font = lv_tiny_ttf_create_data_ex(
-        yoradio_text_ttf_data,
-        text_bytes(),
+        factory_ttf(),
+        factory_ttf_bytes(),
         px,
         LV_FONT_KERNING_NORMAL,
-        static_cast<size_t>(YORADIO_TEXT_GLYPH_CACHE));
+        kTextGlyphCache);
     if (!font) return nullptr;
     s_text_instances[s_text_count++] = FontInstance{px, font};
     return font;
@@ -85,11 +95,11 @@ lv_font_t* create_text_font(uint16_t px) {
 lv_font_t* create_icon_font(uint16_t px) {
     if (px == 0 || s_icon_count >= kMaxLiveIconInstances) return nullptr;
     lv_font_t* font = lv_tiny_ttf_create_data_ex(
-        yoradio_tabler_ttf_data,
-        icon_bytes(),
+        tabler_ttf(),
+        tabler_ttf_bytes(),
         px,
         LV_FONT_KERNING_NONE,
-        static_cast<size_t>(YORADIO_ICON_GLYPH_CACHE));
+        kIconGlyphCache);
     if (!font) return nullptr;
     s_icon_instances[s_icon_count++] = FontInstance{px, font};
     return font;
@@ -129,10 +139,10 @@ bool FontProvider::begin() {
         "[FontProvider] TinyTTF factory ready text_bytes=%u cache=P%u "
         "tabler_bytes=%u icon_cache=P%u icons=%s pool=%uKiB/PSRAM "
         "text=12,14,16,18,20,22,32,40 icon=20,22,26,28,36,64\n",
-        static_cast<unsigned>(text_bytes()),
-        static_cast<unsigned>(YORADIO_TEXT_GLYPH_CACHE),
-        static_cast<unsigned>(icon_bytes()),
-        static_cast<unsigned>(YORADIO_ICON_GLYPH_CACHE),
+        static_cast<unsigned>(factory_ttf_bytes()),
+        static_cast<unsigned>(kTextGlyphCache),
+        static_cast<unsigned>(tabler_ttf_bytes()),
+        static_cast<unsigned>(kIconGlyphCache),
         s_icons_available ? "ready" : "unavailable",
         static_cast<unsigned>(YORADIO_LVGL_POOL_SIZE_KIB));
     return true;

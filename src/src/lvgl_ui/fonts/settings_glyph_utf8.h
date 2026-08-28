@@ -1,8 +1,8 @@
 #ifndef SETTINGS_GLYPH_UTF8_H
 #define SETTINGS_GLYPH_UTF8_H
 
-// UTF-8 BMP PUA for lv_font_yora_settings_icons_28 (Tabler 3.26 — see lv_font_yora_settings_icons_28.md).
-// UTF-8 BMP PUA для шрифта Settings category icons (Tabler 3.26).
+// UTF-8 BMP PUA for Settings category icons (Tabler 3.26 — see fonts/readme_fonts.md).
+// UTF-8 BMP PUA для иконок категорий Settings (Tabler 3.26).
 
 namespace lvgl_ui {
 
