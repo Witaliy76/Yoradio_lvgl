@@ -663,24 +663,26 @@ static lv_obj_t* add_hourly_row(lv_obj_t* col, const YoRadioPalette& pal,
         lv_obj_set_style_pad_column(group, 2, LV_PART_MAIN);
     }
 
-    auto make_in_group = [&](const void* font, lv_color_t col) -> lv_obj_t* {
+    auto make_in_group = [&](const void* font, lv_color_t col, const char* initial) -> lv_obj_t* {
         if (!group) return nullptr;
         lv_obj_t* l = lv_label_create(group);
         if (!l) return nullptr;
-        lv_label_set_text(l, "--");
+        lv_label_set_text(l, initial);
         wx_set_font(l, font);
         lv_obj_set_style_text_color(l, col, LV_PART_MAIN);
         lv_label_set_long_mode(l, LV_LABEL_LONG_CLIP);
         return l;
     };
 
-    lv_obj_t* icon     = make_in_group(font_hourly_icon(), pal.status_weather_icon);
-    lv_obj_t* temp     = make_in_group(font_small(), pal.text_primary);
-    lv_obj_t* pop_icon = make_in_group(font_hourly_pop(), pal.text_secondary);
+    // Tabler PUA-only: ASCII "--" on icon(28) makes TinyTTF log cache-not-allocated (U+002D missing).
+    // Tabler только PUA: ASCII "--" на icon(28) даёт cache-not-allocated (нет U+002D).
+    lv_obj_t* icon     = make_in_group(font_hourly_icon(), pal.status_weather_icon, "");
+    lv_obj_t* temp     = make_in_group(font_small(), pal.text_primary, "--");
+    lv_obj_t* pop_icon = make_in_group(font_hourly_pop(), pal.text_secondary, "--");
     if (pop_icon) {
         lv_label_set_text(pop_icon, YORA_WEATHER_METRIC_GLYPH_UMBRELLA);
     }
-    lv_obj_t* pop = make_in_group(font_caption(), pal.text_secondary);
+    lv_obj_t* pop = make_in_group(font_caption(), pal.text_secondary, "--");
 
     if (out_time)     *out_time     = time;
     if (out_icon)     *out_icon     = icon;
