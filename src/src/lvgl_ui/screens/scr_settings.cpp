@@ -24,6 +24,7 @@
 #include "../../core/sleep_timer.h"
 #include "../control_glyph_utf8.h"
 #include "../fonts/lv_fonts.h"
+#include "../font_provider.h"
 #include "../fonts/settings_glyph_utf8.h"
 #include "../lv_page_chain.h"
 #include "../profiles/lv_profile_select.h"
@@ -108,8 +109,7 @@ static const void* const kFontSettingsIcon =
 static const void* const kFontChevron =
     reinterpret_cast<const void*>(&lv_font_yora_control_icons_28);
 
-static const void* const kFontDisplayHeader =
-    reinterpret_cast<const void*>(&lv_font_yora_montserrat_20_cyr);
+static const void* font_display_header() { return FontProvider::text(20); }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Visual and layout constants / Визуальные и геометрические константы
@@ -338,7 +338,7 @@ static lv_obj_t* add_row_label(
     if (!lbl) return nullptr;
     lv_label_set_text(lbl, text);
     lv_label_set_long_mode(lbl, LV_LABEL_LONG_CLIP);
-    set_font_slot(lbl, LV_ACTIVE_PROFILE.font_normal);
+    set_font_slot(lbl, FontProvider::text(LV_ACTIVE_PROFILE.font_normal_px));
     lv_obj_set_style_text_color(lbl, secondary ? pal.text_meta : pal.text_primary, LV_PART_MAIN);
     if (flex_grow) {
         lv_obj_set_flex_grow(lbl, 1);
@@ -351,7 +351,7 @@ static lv_obj_t* add_row_value(lv_obj_t* row, const char* text, const YoRadioPal
     if (!val) return nullptr;
     lv_label_set_text(val, text);
     lv_label_set_long_mode(val, LV_LABEL_LONG_CLIP);
-    set_font_slot(val, LV_ACTIVE_PROFILE.font_header);
+    set_font_slot(val, FontProvider::text(LV_ACTIVE_PROFILE.font_header_px));
     lv_obj_set_style_text_color(val, pal.text_meta, LV_PART_MAIN);
     lv_obj_set_style_text_align(val, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
     return val;
@@ -533,7 +533,7 @@ static void create_footer(
     out_lbl_footer = lv_label_create(out_footer);
     if (out_lbl_footer) {
         lv_label_set_text(out_lbl_footer, kStrFooterReturn);
-        set_font_slot(out_lbl_footer, LV_ACTIVE_PROFILE.font_normal);
+        set_font_slot(out_lbl_footer, FontProvider::text(LV_ACTIVE_PROFILE.font_normal_px));
         lv_obj_set_style_text_color(out_lbl_footer, pal.text_secondary, LV_PART_MAIN);
         lv_obj_set_style_text_align(out_lbl_footer, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
         wgt_footer_pill::make_child_passive(out_lbl_footer);
@@ -606,7 +606,7 @@ static void create_detail_header(
     out_title = lv_label_create(header);
     if (out_title) {
         lv_label_set_text(out_title, title_text);
-        set_font_slot(out_title, kFontDisplayHeader);
+        set_font_slot(out_title, font_display_header());
         lv_obj_set_style_text_color(out_title, pal.text_primary, LV_PART_MAIN);
         lv_obj_set_flex_grow(out_title, 1);
     }
@@ -1439,10 +1439,8 @@ void LvglSettingsPage::_showSleepDeviceWarning() {
         lv_obj_set_width(title, LV_PCT(100));
         lv_obj_set_style_text_align(title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
         lv_obj_set_style_text_color(title, pal.overlay_title_text, LV_PART_MAIN);
-        if (LV_ACTIVE_PROFILE.font_large) {
-            lv_obj_set_style_text_font(
-                title, static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_large), LV_PART_MAIN);
-        }
+        lv_obj_set_style_text_font(
+            title, FontProvider::text(LV_ACTIVE_PROFILE.font_large_px), LV_PART_MAIN);
     }
 
     lv_obj_t* body = lv_label_create(card);
@@ -1452,10 +1450,8 @@ void LvglSettingsPage::_showSleepDeviceWarning() {
         lv_obj_set_width(body, LV_PCT(100));
         lv_obj_set_style_text_align(body, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
         lv_obj_set_style_text_color(body, pal.overlay_body_text, LV_PART_MAIN);
-        if (LV_ACTIVE_PROFILE.font_small) {
-            lv_obj_set_style_text_font(
-                body, static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_small), LV_PART_MAIN);
-        }
+        lv_obj_set_style_text_font(
+            body, FontProvider::text(LV_ACTIVE_PROFILE.font_small_px), LV_PART_MAIN);
     }
 
     lv_obj_t* btn_row = lv_obj_create(card);

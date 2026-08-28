@@ -34,6 +34,7 @@
 #include <cstdio>
 #include <cstring>
 #include "../fonts/lv_fonts.h"
+#include "../font_provider.h"
 #include "../profiles/lv_profile_select.h"
 #include "../theme/lv_theme_yoradio.h"
 #include "../control_glyph_utf8.h"
@@ -980,7 +981,7 @@ void LvglMainScreen::create_mid_block(LvglMainScreen& self, const YoRadioPalette
                     lv_obj_set_width(self._lbl_station_name, LV_PCT(100));
                     // Main font experiment: 32 px anchor (direct font ref, not profile slot).
                     // Эксперимент: якорь 32 px.
-                    main_set_font(self._lbl_station_name, reinterpret_cast<const void*>(&lv_font_yora_montserrat_32_cyr));
+                    main_set_font(self._lbl_station_name, FontProvider::text(32));
                     lv_obj_set_style_text_color(self._lbl_station_name, pal.station_name_text, LV_PART_MAIN);
                 }
 
@@ -991,7 +992,7 @@ void LvglMainScreen::create_mid_block(LvglMainScreen& self, const YoRadioPalette
                     lv_obj_set_width(self._lbl_track, LV_PCT(100));
                     // Second tier: 22 px.
                     // Второй уровень: 22 px.
-                    main_set_font(self._lbl_track, reinterpret_cast<const void*>(&lv_font_yora_montserrat_22_cyr));
+                    main_set_font(self._lbl_track, FontProvider::text(22));
                     lv_obj_set_style_text_color(self._lbl_track, pal.track_text, LV_PART_MAIN);
                     lv_obj_set_style_pad_top(self._lbl_track, k_main_track_pad_top, LV_PART_MAIN);
                     lv_obj_add_flag(self._lbl_track, LV_OBJ_FLAG_HIDDEN);
@@ -1004,7 +1005,7 @@ void LvglMainScreen::create_mid_block(LvglMainScreen& self, const YoRadioPalette
                     lv_obj_set_width(self._lbl_artist, LV_PCT(100));
                     // Third tier: 18 px (experiment ladder).
                     // Третий уровень: 18 px.
-                    main_set_font(self._lbl_artist, reinterpret_cast<const void*>(&lv_font_yora_montserrat_18_cyr));
+                    main_set_font(self._lbl_artist, FontProvider::text(18));
                     lv_obj_set_style_text_color(self._lbl_artist, pal.artist_text, LV_PART_MAIN);
                     lv_obj_add_flag(self._lbl_artist, LV_OBJ_FLAG_HIDDEN);
                 }
@@ -1428,7 +1429,7 @@ void LvglMainScreen::create_bottom_zone(LvglMainScreen& self, const YoRadioPalet
                 lv_obj_set_width(self._lbl_stream_info, LV_PCT(100));
                 lv_label_set_long_mode(self._lbl_stream_info, LV_LABEL_LONG_CLIP);
                 lv_obj_set_style_text_align(self._lbl_stream_info, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-                main_set_font(self._lbl_stream_info, reinterpret_cast<const void*>(&lv_font_yora_montserrat_16_cyr));
+                main_set_font(self._lbl_stream_info, FontProvider::text(16));
                 lv_obj_set_style_text_color(self._lbl_stream_info, pal.text_meta, LV_PART_MAIN);
                 {
                     char ib[64];
@@ -1457,7 +1458,7 @@ void LvglMainScreen::create_bottom_zone(LvglMainScreen& self, const YoRadioPalet
             self._lbl_volume = lv_label_create(col_vol);
             if (self._lbl_volume) {
                 lv_label_set_text(self._lbl_volume, "Vol: --");
-                main_set_font(self._lbl_volume, LV_ACTIVE_PROFILE.font_small);
+                main_set_font(self._lbl_volume, FontProvider::text(LV_ACTIVE_PROFILE.font_small_px));
                 lv_obj_set_style_text_color(self._lbl_volume, pal.text_secondary, LV_PART_MAIN);
             }
 
@@ -1518,7 +1519,7 @@ void LvglMainScreen::create_bottom_zone(LvglMainScreen& self, const YoRadioPalet
             self._lbl_vol_popup = lv_label_create(self._screen);
             if (self._lbl_vol_popup && self._bar_volume) {
                 lv_label_set_text(self._lbl_vol_popup, "");
-                main_set_font(self._lbl_vol_popup, LV_ACTIVE_PROFILE.font_small);
+                main_set_font(self._lbl_vol_popup, FontProvider::text(LV_ACTIVE_PROFILE.font_small_px));
                 lv_obj_set_style_text_color(self._lbl_vol_popup, pal.text_primary, LV_PART_MAIN);
                 lv_obj_set_style_bg_color(self._lbl_vol_popup, pal.panel_background, LV_PART_MAIN);
                 lv_obj_set_style_bg_opa(self._lbl_vol_popup, LV_OPA_80, LV_PART_MAIN);
@@ -1557,7 +1558,7 @@ void LvglMainScreen::create_bottom_zone(LvglMainScreen& self, const YoRadioPalet
             lv_obj_set_width(self._lbl_ai_line, LV_PCT(100));
             lv_obj_set_style_text_align(self._lbl_ai_line, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
             // AI line: 16 px (was 14) — one tier up for readability / строка AI: 16 px, чуть крупнее
-            const lv_font_t* const f_ai = reinterpret_cast<const lv_font_t*>(&lv_font_yora_montserrat_16_cyr);
+            const lv_font_t* const f_ai = FontProvider::text(16);
             main_set_font(self._lbl_ai_line, reinterpret_cast<const void*>(f_ai));
             lv_obj_set_style_text_color(self._lbl_ai_line, pal.bottom_ai_text, LV_PART_MAIN);
             // One line from font metrics — slot stability only; lower divider position is NOT from this (symmetry pass).

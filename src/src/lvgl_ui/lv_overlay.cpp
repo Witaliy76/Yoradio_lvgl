@@ -4,6 +4,7 @@
 
 #include "lv_overlay.h"
 #include "lv_screensaver.h"
+#include "font_provider.h"
 
 #include "lvgl.h"
 #include <cstring>
@@ -22,10 +23,8 @@ lv_obj_t* s_update_root     = nullptr;
 
 static void apply_overlay_title_font(lv_obj_t* lbl) {
     if (!lbl) return;
-    const void* f = LV_ACTIVE_PROFILE.font_large;
-    if (f) {
-        lv_obj_set_style_text_font(lbl, static_cast<const lv_font_t*>(f), LV_PART_MAIN);
-    }
+    lv_obj_set_style_text_font(
+        lbl, FontProvider::text(LV_ACTIVE_PROFILE.font_large_px), LV_PART_MAIN);
 }
 
 static void destroy_if_present(lv_obj_t** p) {
@@ -104,11 +103,10 @@ void overlayShowLost() {
             lv_obj_set_width(s_lost_status_lbl, LV_PCT(100));
             lv_obj_set_style_text_align(s_lost_status_lbl, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
             lv_obj_set_style_text_color(s_lost_status_lbl, pal.overlay_title_text, LV_PART_MAIN);
-            if (LV_ACTIVE_PROFILE.font_small) {
-                lv_obj_set_style_text_font(s_lost_status_lbl,
-                                           static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_small),
-                                           LV_PART_MAIN);
-            }
+            lv_obj_set_style_text_font(
+                s_lost_status_lbl,
+                FontProvider::text(LV_ACTIVE_PROFILE.font_small_px),
+                LV_PART_MAIN);
         }
     }
 }

@@ -29,6 +29,7 @@
 #include "../../core/player.h"
 #include "../../core/ppm_pcm_level.h"
 #include "../fonts/lv_fonts.h"
+#include "../font_provider.h"
 #include "../profiles/lv_profile_select.h"
 #include "../theme/lv_theme_yoradio.h"
 #include "../widgets/wgt_status_line.h"
@@ -378,7 +379,7 @@ void LvglVisualPage::create_metadata_layer(LvglVisualPage& self, const YoRadioPa
             kMetaStationY,
             kMetaStationW,
             kMetaStationH,
-            reinterpret_cast<const void*>(&lv_font_yora_montserrat_22_cyr),
+            FontProvider::text(22),
             pal.text_secondary,
             LV_TEXT_ALIGN_CENTER);
         lv_label_set_text(self._lbl_station, "");
@@ -392,7 +393,7 @@ void LvglVisualPage::create_metadata_layer(LvglVisualPage& self, const YoRadioPa
             kMetaArtistY,
             kMetaArtistW,
             kMetaArtistH,
-            reinterpret_cast<const void*>(&lv_font_yora_montserrat_22_cyr),
+            FontProvider::text(22),
             pal.text_secondary,
             LV_TEXT_ALIGN_CENTER);
         lv_label_set_text(self._lbl_artist, "");
@@ -406,7 +407,7 @@ void LvglVisualPage::create_metadata_layer(LvglVisualPage& self, const YoRadioPa
             kMetaSongY,
             kMetaSongW,
             kMetaSongH,
-            reinterpret_cast<const void*>(&lv_font_yora_montserrat_18_cyr),
+            FontProvider::text(18),
             pal.text_meta,
             LV_TEXT_ALIGN_CENTER);
         lv_label_set_text(self._lbl_song, "");

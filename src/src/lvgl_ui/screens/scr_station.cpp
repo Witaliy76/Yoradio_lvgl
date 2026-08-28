@@ -18,6 +18,7 @@
 #include "../adapters/station_list_adapter.h"
 #include "../control_glyph_utf8.h"
 #include "../fonts/lv_fonts.h"
+#include "../font_provider.h"
 #include "../../i18n/i18n.h"
 #include "../lv_page_chain.h"
 #include "../lvgl_ui.h"
@@ -33,9 +34,9 @@ static constexpr char kStrCountPlaceholder[]      = "-- / --";
 
 static const char* const kIconHintClick = station_glyph_utf8_hand_click();
 
-static const void* const kFontTitle    = reinterpret_cast<const void*>(&lv_font_yora_montserrat_20_cyr);
-static const void* const kFontCount    = reinterpret_cast<const void*>(&lv_font_yora_montserrat_18_cyr);
-static const void* const kFontHintText = reinterpret_cast<const void*>(&lv_font_yora_montserrat_16_cyr);
+static const void* font_title() { return FontProvider::text(20); }
+static const void* font_count() { return FontProvider::text(18); }
+static const void* font_hint_text() { return FontProvider::text(16); }
 static const void* const kFontHintIcon = reinterpret_cast<const void*>(&lv_font_yora_station_icons_20);
 
 constexpr size_t kCountBufferSize = 24;
@@ -128,14 +129,14 @@ void LvglStationPage::create_header(LvglStationPage& self, const YoRadioPalette&
     self._lbl_title = lv_label_create(header);
     if (self._lbl_title) {
         lv_label_set_text(self._lbl_title, i18n::text(i18n::TextId::StationTitle));
-        station_set_font(self._lbl_title, kFontTitle);
+        station_set_font(self._lbl_title, font_title());
         lv_obj_set_style_text_color(self._lbl_title, pal.text_primary, LV_PART_MAIN);
     }
 
     self._lbl_count = lv_label_create(header);
     if (self._lbl_count) {
         lv_label_set_text(self._lbl_count, kStrCountPlaceholder);
-        station_set_font(self._lbl_count, kFontCount);
+        station_set_font(self._lbl_count, font_count());
         lv_obj_set_style_text_color(self._lbl_count, pal.text_secondary, LV_PART_MAIN);
     }
 }
@@ -181,7 +182,7 @@ void LvglStationPage::create_hint_band(LvglStationPage& self, const YoRadioPalet
     self._lbl_hint_text = lv_label_create(hint_row);
     if (self._lbl_hint_text) {
         lv_label_set_text(self._lbl_hint_text, i18n::text(i18n::TextId::StationFooter));
-        station_set_font(self._lbl_hint_text, kFontHintText);
+        station_set_font(self._lbl_hint_text, font_hint_text());
         lv_obj_set_style_text_color(self._lbl_hint_text, pal.text_secondary, LV_PART_MAIN);
         lv_obj_set_style_text_align(self._lbl_hint_text, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
         lv_label_set_long_mode(self._lbl_hint_text, LV_LABEL_LONG_CLIP);

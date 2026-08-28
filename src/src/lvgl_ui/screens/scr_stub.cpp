@@ -12,6 +12,7 @@
 #include "lvgl.h"
 #include "lvgl_ui.h"
 #include "../profiles/lv_profile_select.h"
+#include "../font_provider.h"
 #include "../theme/lv_theme_yoradio.h"
 
 namespace lvgl_ui {
@@ -36,9 +37,8 @@ void LvglStubPage::create() {
     if (_lbl) {
         lv_label_set_text(_lbl, _titleUtf8);
         lv_obj_set_style_text_color(_lbl, pal.text_primary, LV_PART_MAIN);
-        if (LV_ACTIVE_PROFILE.font_large) {
-            lv_obj_set_style_text_font(_lbl, static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_large), LV_PART_MAIN);
-        }
+        lv_obj_set_style_text_font(
+            _lbl, FontProvider::text(LV_ACTIVE_PROFILE.font_large_px), LV_PART_MAIN);
         lv_obj_center(_lbl);
     }
 

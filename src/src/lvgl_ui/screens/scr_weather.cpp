@@ -38,6 +38,7 @@
 #include <time.h>
 
 #include "../fonts/lv_fonts.h"
+#include "../font_provider.h"
 #include "../profiles/lv_profile_select.h"
 #include "../theme/lv_theme_yoradio.h"
 #include "../weather_owm_glyph.h"
@@ -114,16 +115,16 @@ static void wx_diag_dump(const char* tag, lv_obj_t* root) {
 static const void* k_font_hero_icon    = reinterpret_cast<const void*>(&lv_font_yora_weather_icons_64);
 static const void* k_font_daily_icon   = reinterpret_cast<const void*>(&lv_font_yora_weather_icons_36); // daily wx / посуточная погода
 static const void* k_font_daily_pop    = reinterpret_cast<const void*>(&lv_font_yora_weather_metric_icons_22); // umbrella / зонт
-static const void* k_font_daily_day    = reinterpret_cast<const void*>(&lv_font_yora_montserrat_14_cyr); // daily date header / дата в карточке (+2 px over caption)
+static const void* font_daily_day() { return FontProvider::text(14); } // daily date header / дата в карточке
 static const void* k_font_hourly_icon  = reinterpret_cast<const void*>(&lv_font_yora_weather_icons_28);
 static const void* k_font_hourly_pop   = reinterpret_cast<const void*>(&lv_font_yora_weather_metric_icons_22); // umbrella / зонт
-static const void* k_font_daily_range  = reinterpret_cast<const void*>(&lv_font_yora_montserrat_16_cyr); // tmin° / tmax°
+static const void* font_daily_range() { return FontProvider::text(16); } // tmin° / tmax°
 static const void* k_font_metric_icon  = reinterpret_cast<const void*>(&lv_font_yora_weather_metric_icons_26);
-static const void* k_font_metric_value = reinterpret_cast<const void*>(&lv_font_yora_montserrat_14_cyr); // narrow cells / узкие ячейки
-static const void* k_font_hero_temp  = reinterpret_cast<const void*>(&lv_font_yora_montserrat_40_cyr);
-static const void* k_font_cond       = reinterpret_cast<const void*>(&lv_font_yora_montserrat_16_cyr);
-static const void* k_font_small      = reinterpret_cast<const void*>(&lv_font_yora_montserrat_14_cyr);
-static const void* k_font_caption    = reinterpret_cast<const void*>(&lv_font_yora_montserrat_12_cyr);
+static const void* font_metric_value() { return FontProvider::text(14); } // narrow cells / узкие ячейки
+static const void* font_hero_temp() { return FontProvider::text(40); }
+static const void* font_condition() { return FontProvider::text(16); }
+static const void* font_small() { return FontProvider::text(14); }
+static const void* font_caption() { return FontProvider::text(12); }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Visual constants / Визуальные константы
@@ -240,7 +241,7 @@ static void wx_format_hero_date(char* buf, size_t cap, const struct tm* tm, lv_c
                       i18n::text(i18n::TextId::WeatherHeroDateFullFormat),
                       tm->tm_mday, month, tm->tm_year + 1900, weekday);
 
-    const lv_font_t* cap_font = static_cast<const lv_font_t*>(k_font_caption);
+    const lv_font_t* cap_font = static_cast<const lv_font_t*>(font_caption());
     if (max_text_w > 0) {
         // BASE-LVGL9-MIGRATION C7: lv_txt_get_width's v8-compat alias target (lv_text_get_width)
         // is a private v9 API; use the public lv_text_get_size (unwrapped: max_width=LV_COORD_MAX).
@@ -608,12 +609,12 @@ static void add_metric_cell(lv_obj_t* row, const char* icon_glyph, const char* l
     if (icon_lbl && icon_glyph) {
         lv_label_set_text(icon_lbl, icon_glyph);
     }
-    add_metric_slot(cell, k_metric_value_slot_h, k_font_metric_value, pal.text_primary,
+    add_metric_slot(cell, k_metric_value_slot_h, font_metric_value(), pal.text_primary,
                     LV_LABEL_LONG_CLIP, false, out_val);
     lv_obj_t* cap_lbl = nullptr;
     // A3.1a: caption uses content width — avoids rounding clip on «Влажность» (ь).
     // A3.1a: подпись по ширине текста — без обрезки «ь» у «Влажность».
-    add_metric_slot(cell, k_metric_label_slot_h, k_font_caption, pal.text_secondary,
+    add_metric_slot(cell, k_metric_label_slot_h, font_caption(), pal.text_secondary,
                     LV_LABEL_LONG_CLIP, true, &cap_lbl);
     if (cap_lbl && label_text) {
         lv_label_set_text(cap_lbl, label_text);
@@ -643,7 +644,7 @@ static lv_obj_t* add_hourly_row(lv_obj_t* col, const YoRadioPalette& pal,
     lv_obj_t* time = lv_label_create(row);
     if (time) {
         lv_label_set_text(time, "--");
-        wx_set_font(time, k_font_caption);
+        wx_set_font(time, font_caption());
         lv_obj_set_style_text_color(time, pal.text_secondary, LV_PART_MAIN);
         lv_obj_set_style_min_width(time, 40, LV_PART_MAIN);
         lv_obj_set_style_pad_right(time, 3, LV_PART_MAIN); // gap after time / отступ после времени (was 7)
@@ -674,12 +675,12 @@ static lv_obj_t* add_hourly_row(lv_obj_t* col, const YoRadioPalette& pal,
     };
 
     lv_obj_t* icon     = make_in_group(k_font_hourly_icon, pal.status_weather_icon);
-    lv_obj_t* temp     = make_in_group(k_font_small, pal.text_primary);
+    lv_obj_t* temp     = make_in_group(font_small(), pal.text_primary);
     lv_obj_t* pop_icon = make_in_group(k_font_hourly_pop, pal.text_secondary);
     if (pop_icon) {
         lv_label_set_text(pop_icon, YORA_WEATHER_METRIC_GLYPH_UMBRELLA);
     }
-    lv_obj_t* pop = make_in_group(k_font_caption, pal.text_secondary);
+    lv_obj_t* pop = make_in_group(font_caption(), pal.text_secondary);
 
     if (out_time)     *out_time     = time;
     if (out_icon)     *out_icon     = icon;
@@ -718,9 +719,9 @@ static lv_obj_t* add_daily_cell(lv_obj_t* row, const YoRadioPalette& pal,
         return l;
     };
 
-    lv_obj_t* day   = make_label(k_font_daily_day, pal.text_secondary);
+    lv_obj_t* day   = make_label(font_daily_day(), pal.text_secondary);
     lv_obj_t* icon  = make_label(k_font_daily_icon, pal.status_weather_icon);
-    lv_obj_t* range = make_label(k_font_daily_range, pal.text_primary);
+    lv_obj_t* range = make_label(font_daily_range(), pal.text_primary);
 
     // Precipitation row: umbrella glyph + percent (centered cluster).
     // Строка осадков: зонт + процент (центрированная группа).
@@ -747,7 +748,7 @@ static lv_obj_t* add_daily_cell(lv_obj_t* row, const YoRadioPalette& pal,
         pop = lv_label_create(pop_row);
         if (pop) {
             lv_label_set_text(pop, "");
-            wx_set_font(pop, k_font_caption);
+            wx_set_font(pop, font_caption());
             lv_obj_set_style_text_color(pop, pal.text_secondary, LV_PART_MAIN);
             lv_label_set_long_mode(pop, LV_LABEL_LONG_CLIP);
         }
@@ -1023,7 +1024,7 @@ void LvglWeatherPage::create_data_block(LvglWeatherPage& self, const YoRadioPale
                 if (self._lbl_hero_date) {
                     lv_label_set_text(self._lbl_hero_date,
                                       i18n::text(i18n::TextId::WeatherToday));
-                    wx_set_font(self._lbl_hero_date, k_font_caption);
+                    wx_set_font(self._lbl_hero_date, font_caption());
                     lv_obj_set_style_text_color(self._lbl_hero_date, pal.text_meta, LV_PART_MAIN);
                     lv_obj_set_width(self._lbl_hero_date, LV_PCT(100));
                     lv_label_set_long_mode(self._lbl_hero_date, LV_LABEL_LONG_CLIP);
@@ -1064,7 +1065,7 @@ void LvglWeatherPage::create_data_block(LvglWeatherPage& self, const YoRadioPale
                         self._lbl_hero_temp = lv_label_create(hero_text);
                         if (self._lbl_hero_temp) {
                             lv_label_set_text(self._lbl_hero_temp, "--");
-                            wx_set_font(self._lbl_hero_temp, k_font_hero_temp);
+                            wx_set_font(self._lbl_hero_temp, font_hero_temp());
                             lv_obj_set_style_text_color(self._lbl_hero_temp, pal.text_primary, LV_PART_MAIN);
                             lv_obj_set_style_text_align(self._lbl_hero_temp, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
                         }
@@ -1075,14 +1076,14 @@ void LvglWeatherPage::create_data_block(LvglWeatherPage& self, const YoRadioPale
                             // A3.1B: фиксированная ширина + круговой скролл только при переполнении.
                             lv_label_set_long_mode(self._lbl_hero_cond, LV_LABEL_LONG_SCROLL_CIRCULAR);
                             lv_obj_set_width(self._lbl_hero_cond, LV_PCT(100));
-                            wx_set_font(self._lbl_hero_cond, k_font_cond);
+                            wx_set_font(self._lbl_hero_cond, font_condition());
                             lv_obj_set_style_text_color(self._lbl_hero_cond, pal.text_secondary, LV_PART_MAIN);
                             lv_obj_set_style_text_align(self._lbl_hero_cond, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
                         }
                         self._lbl_hero_feels = lv_label_create(hero_text);
                         if (self._lbl_hero_feels) {
                             lv_label_set_text(self._lbl_hero_feels, "");
-                            wx_set_font(self._lbl_hero_feels, k_font_small);
+                            wx_set_font(self._lbl_hero_feels, font_small());
                             lv_obj_set_style_text_color(self._lbl_hero_feels, pal.text_meta, LV_PART_MAIN);
                             lv_obj_set_style_text_align(self._lbl_hero_feels, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
                         }
@@ -1136,7 +1137,7 @@ void LvglWeatherPage::create_data_block(LvglWeatherPage& self, const YoRadioPale
                 if (self._lbl_hourly_day) {
                     lv_label_set_text(self._lbl_hourly_day,
                                       i18n::text(i18n::TextId::WeatherHourlyNearest));
-                    wx_set_font(self._lbl_hourly_day, k_font_caption);
+                    wx_set_font(self._lbl_hourly_day, font_caption());
                     lv_obj_set_style_text_color(self._lbl_hourly_day, pal.text_meta, LV_PART_MAIN);
                     lv_obj_set_width(self._lbl_hourly_day, LV_PCT(100));
                     lv_label_set_long_mode(self._lbl_hourly_day, LV_LABEL_LONG_CLIP);
@@ -1208,7 +1209,7 @@ void LvglWeatherPage::create_empty_center(LvglWeatherPage& self, const YoRadioPa
                               i18n::text(i18n::TextId::WeatherForecastWaiting));
             lv_label_set_long_mode(self._lbl_message, LV_LABEL_LONG_WRAP);
             lv_obj_set_width(self._lbl_message, LV_PCT(85));
-            wx_set_font(self._lbl_message, k_font_cond);
+            wx_set_font(self._lbl_message, font_condition());
             lv_obj_set_style_text_color(self._lbl_message, pal.text_secondary, LV_PART_MAIN);
             lv_obj_set_style_text_align(self._lbl_message, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
         }
@@ -1250,7 +1251,7 @@ void LvglWeatherPage::create_footer(LvglWeatherPage& self, const YoRadioPalette&
                         i18n::text(i18n::TextId::WeatherTapToRefresh), nullptr);
                     lv_label_set_text(self._lbl_footer, fb);
                 }
-                wx_set_font(self._lbl_footer, k_font_cond);
+                wx_set_font(self._lbl_footer, font_condition());
                 lv_obj_set_style_text_color(self._lbl_footer, pal.text_secondary, LV_PART_MAIN);
                 lv_obj_set_style_text_align(self._lbl_footer, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
                 // A3.2: full-width circular scroll on overflow; tap stays on _footer_box.
@@ -1770,7 +1771,7 @@ void LvglWeatherPage::liveReapplyTheme() {
                 const lv_font_t* f = lv_obj_get_style_text_font(ch, LV_PART_MAIN);
                 // Retint caption font (time/day/pop labels) and metric icon glyphs.
                 // Перекраска шрифта caption и глифов метрических иконок.
-                if (f == static_cast<const lv_font_t*>(k_font_caption) ||
+                if (f == static_cast<const lv_font_t*>(font_caption()) ||
                     f == static_cast<const lv_font_t*>(k_font_metric_icon)) {
                     lv_obj_set_style_text_color(ch, pal.text_secondary, LV_PART_MAIN);
                 }

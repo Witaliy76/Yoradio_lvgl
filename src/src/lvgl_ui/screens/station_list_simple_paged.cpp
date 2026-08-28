@@ -19,6 +19,7 @@
 #include "../adapters/station_list_adapter.h"
 #include "../control_glyph_utf8.h"
 #include "../fonts/lv_fonts.h"
+#include "../font_provider.h"
 #include "../../i18n/i18n.h"
 #include "../profiles/lv_profile_select.h"
 #include "../theme/lv_theme_yoradio.h"
@@ -60,8 +61,7 @@ constexpr lv_coord_t kTapMaxFingerTravelPx  = 24;
 constexpr lv_coord_t kPageSwipeMinTravelPx  = 24;
 static constexpr uint32_t kStationRowSafetyLimit = UINT16_MAX - 10u;
 
-static const void* const kFontStationList =
-    reinterpret_cast<const void*>(&lv_font_yora_montserrat_22_cyr);
+static const void* font_station_list_slot() { return FontProvider::text(22); }
 static const void* const kFontCurrentMarker =
     reinterpret_cast<const void*>(&lv_font_yora_station_icons_22);
 static const char* const kIconCurrentStation = station_glyph_utf8_volume_2();
@@ -71,7 +71,7 @@ static int32_t abs_i32(int32_t v) { return v < 0 ? -v : v; }
 static int32_t max_i32(int32_t a, int32_t b) { return a > b ? a : b; }
 
 static const lv_font_t* station_list_font() {
-    return &lv_font_yora_montserrat_22_cyr;
+    return FontProvider::text(22);
 }
 
 static const lv_font_t* station_marker_font() {
@@ -359,7 +359,7 @@ static void ensurePageLabel(Instance& instance) {
     instance.lbl_page = lv_label_create(instance.list_area);
     if (!instance.lbl_page) return;
     lv_label_set_long_mode(instance.lbl_page, LV_LABEL_LONG_CLIP);
-    station_set_font(instance.lbl_page, kFontStationList);
+    station_set_font(instance.lbl_page, font_station_list_slot());
     lv_obj_set_style_text_color(instance.lbl_page, yoradio_palette().list_row_text, LV_PART_MAIN);
     lv_obj_set_style_text_line_space(instance.lbl_page, station_line_space(), LV_PART_MAIN);
     lv_obj_set_style_pad_left(instance.lbl_page, list_label_pad_left_for_marker_gutter(), LV_PART_MAIN);

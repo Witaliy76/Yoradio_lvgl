@@ -4,6 +4,7 @@
 #include "lv_screensaver.h"
 #include "lv_touch_indev.h"
 #include "lv_ui_events.h"
+#include "font_provider.h"
 #include "profiles/lv_profile_select.h"
 #include "theme/lv_theme_yoradio.h"
 #include "lv_fs_littlefs.h"
@@ -750,6 +751,9 @@ bool lvgl_ui::isLvglBootActive() {
 
 bool lvgl_ui::tryPresentLvglBootOnFirstDspLoop() {
     if (!lv_disp_get_default()) return false;
+    // FontProvider owns both the embedded TinyTTF primary and the independent
+    // compiled emergency face. Initialize on the LVGL task before Boot labels.
+    (void)FontProvider::begin();
     ensurePageChainRegistered();
     s_page_chain.showBoot(&s_boot_screen);
     s_lvgl_boot_active = true;

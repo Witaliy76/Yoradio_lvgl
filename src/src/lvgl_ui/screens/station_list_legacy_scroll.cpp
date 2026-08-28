@@ -20,6 +20,7 @@
 #include "../adapters/station_list_adapter.h"
 #include "../control_glyph_utf8.h"
 #include "../fonts/lv_fonts.h"
+#include "../font_provider.h"
 #include "../../i18n/i18n.h"
 #include "../profiles/lv_profile_select.h"
 #include "../theme/lv_theme_yoradio.h"
@@ -66,8 +67,7 @@ constexpr lv_coord_t kListTapMaxScrollYDeltaPx = 14;
 constexpr lv_coord_t kListTapMaxFingerTravelPx = 24;
 static constexpr uint32_t kStationRowSafetyLimit = UINT16_MAX - 10u;
 
-static const void* const kFontStationList =
-    reinterpret_cast<const void*>(&lv_font_yora_montserrat_22_cyr);
+static const void* font_station_list() { return FontProvider::text(22); }
 static const void* const kFontCurrentMarker =
     reinterpret_cast<const void*>(&lv_font_yora_station_icons_22);
 static const char* const kIconCurrentStation = station_glyph_utf8_volume_2();
@@ -231,7 +231,7 @@ static bool showStationListAllocationError(Instance& instance) {
     if (!instance.lbl_list) return false;
     lv_label_set_text(instance.lbl_list,
                       i18n::text(i18n::TextId::StationListUnavailable));
-    station_set_font(instance.lbl_list, kFontStationList);
+    station_set_font(instance.lbl_list, font_station_list());
     lv_obj_set_style_text_color(instance.lbl_list, yoradio_palette().list_row_text, LV_PART_MAIN);
     lv_obj_set_style_pad_left(instance.lbl_list, list_label_pad_left_for_marker_gutter(), LV_PART_MAIN);
     registerListPointerHandlersOnLabel(instance);
@@ -243,7 +243,7 @@ static bool createStationListLabelFromBuffer(Instance& instance) {
     if (!instance.lbl_list) return false;
     lv_label_set_long_mode(instance.lbl_list, LV_LABEL_LONG_CLIP);
     lv_label_set_text_static(instance.lbl_list, instance.list_text);
-    station_set_font(instance.lbl_list, kFontStationList);
+    station_set_font(instance.lbl_list, font_station_list());
     lv_obj_set_style_text_color(instance.lbl_list, yoradio_palette().list_row_text, LV_PART_MAIN);
     lv_obj_set_style_text_line_space(instance.lbl_list, kStationListLineSpace, LV_PART_MAIN);
     lv_obj_set_style_pad_left(instance.lbl_list, list_label_pad_left_for_marker_gutter(), LV_PART_MAIN);

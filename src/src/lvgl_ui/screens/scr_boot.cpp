@@ -21,6 +21,7 @@
 #include "Arduino.h"
 #include <cstring>
 #include "../profiles/lv_profile_select.h"
+#include "../font_provider.h"
 #include "../assets/bootlogo_assets.h"
 #include "../../i18n/i18n.h"
 
@@ -35,7 +36,7 @@ namespace {
 // ─────────────────────────────────────────────────────────────────────────────
 
 static const lv_font_t* boot_status_font() {
-    return static_cast<const lv_font_t*>(LV_ACTIVE_PROFILE.font_header);
+    return FontProvider::text(LV_ACTIVE_PROFILE.font_header_px);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

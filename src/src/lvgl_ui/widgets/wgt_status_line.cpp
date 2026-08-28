@@ -13,6 +13,7 @@
 #include "WiFi.h"
 
 #include "../fonts/lv_fonts.h"
+#include "../font_provider.h"
 #include "../profiles/lv_profile_select.h"
 #include "../theme/lv_theme_yoradio.h"
 #include "../weather_owm_glyph.h"
@@ -91,8 +92,8 @@ bool create(lv_obj_t* parent, Instance& out) {
     lv_obj_set_style_bg_opa(out.root, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(out.root, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(out.root, 0, LV_PART_MAIN);
-    const void* clock_f = reinterpret_cast<const void*>(&lv_font_yora_montserrat_18_cyr);
-    const void* wx_temp_f = reinterpret_cast<const void*>(&lv_font_yora_montserrat_14_cyr);
+    const void* clock_f = FontProvider::text(18);
+    const void* wx_temp_f = FontProvider::text(14);
     lv_obj_set_style_pad_ver(out.root, 4, LV_PART_MAIN);
 
     lv_obj_t* col_left = lv_obj_create(out.root);

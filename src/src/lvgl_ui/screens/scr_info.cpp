@@ -29,6 +29,7 @@
 #include "esp_wifi.h"
 
 #include "../fonts/lv_fonts.h"
+#include "../font_provider.h"
 #include "../profiles/lv_profile_select.h"
 #include "../theme/lv_theme_yoradio.h"
 #include "lvgl_ui.h"
@@ -133,8 +134,7 @@ static const char* const kIconMemory  = reinterpret_cast<const char*>(u8"\uEA88"
 
 // INFO page title: M18 — slightly larger than font_normal (≈16 px), less heavy than font_large (22 px).
 // Шрифт заголовка INFO: M18 — чуть крупнее font_normal (≈16 px), не такой тяжёлый как font_large.
-static const void* const kFontInfoTitle =
-    reinterpret_cast<const void*>(&lv_font_yora_montserrat_18_cyr);
+static const void* kFontInfoTitle() { return FontProvider::text(18); }
 
 // Section-rail icon font — 36 px. Also used as the classification key in info_reapply_tree_colors()
 // to identify icon labels (as opposed to key/value labels) during a theme walk.
@@ -255,7 +255,7 @@ static void add_kv_row(
     if (k) {
         lv_label_set_text(k, key);
         lv_label_set_long_mode(k, LV_LABEL_LONG_WRAP);
-        info_set_font(k, LV_ACTIVE_PROFILE.font_normal);
+        info_set_font(k, FontProvider::text(LV_ACTIVE_PROFILE.font_normal_px));
         lv_obj_set_style_text_color(k, pal.text_secondary, LV_PART_MAIN);
         lv_obj_set_style_text_align(k, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
         lv_obj_set_width(k, LV_PCT(kKvKeyWidthPct));
@@ -287,7 +287,7 @@ static void add_kv_row(
 
     if (v) {
         lv_label_set_text(v, initial);
-        info_set_font(v, LV_ACTIVE_PROFILE.font_normal);
+        info_set_font(v, FontProvider::text(LV_ACTIVE_PROFILE.font_normal_px));
         lv_obj_set_style_text_color(v, pal.text_primary, LV_PART_MAIN);
         lv_obj_set_style_text_align(v, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
     }
@@ -352,7 +352,7 @@ static lv_obj_t* add_section_rail_block(
     if (lbl_sec) {
         lv_label_set_text(lbl_sec, section_title_en);
         lv_label_set_long_mode(lbl_sec, LV_LABEL_LONG_WRAP);
-        info_set_font(lbl_sec, LV_ACTIVE_PROFILE.font_normal);
+        info_set_font(lbl_sec, FontProvider::text(LV_ACTIVE_PROFILE.font_normal_px));
         lv_obj_set_style_text_color(lbl_sec, pal.text_secondary, LV_PART_MAIN);
         lv_obj_set_style_text_align(lbl_sec, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
         lv_obj_set_width(lbl_sec, LV_PCT(100));
@@ -507,7 +507,7 @@ void LvglInfoPage::create_title(LvglInfoPage& self, const YoRadioPalette& pal) {
     self._lbl_info_title = lv_label_create(self._screen);
     if (self._lbl_info_title) {
         lv_label_set_text(self._lbl_info_title, kStrInfoTitle);
-        info_set_font(self._lbl_info_title, kFontInfoTitle);
+        info_set_font(self._lbl_info_title, kFontInfoTitle());
         lv_obj_set_style_text_color(self._lbl_info_title, pal.text_primary, LV_PART_MAIN);
         lv_obj_set_style_text_align(self._lbl_info_title, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
     }

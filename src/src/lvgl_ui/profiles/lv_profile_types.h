@@ -44,14 +44,14 @@ struct LvglDisplayProfile {
     // c) Documents intent; future: SRAM fallback or policy switch. d) Future-facing / documentation.
     bool buf_in_psram;
 
-    // --- Font slots (LVGL const lv_font_t* at runtime) / Слоты шрифтов ---
-    // a) Tiered fonts for UI (plan: small/normal/large/clock/header). b) All nullptr; INFO uses lv_font_default().
-    // c) Stage 4.5 per plan ("NULL until Stage 5.1"). d) Foundation reserve for Stage 5.1.
-    const void* font_small;
-    const void* font_normal;
-    const void* font_large;
-    const void* font_clock;
-    const void* font_header;
+    // --- Text size requests (pixels) / Запросы размеров текста (пиксели) ---
+    // The profile selects typography size; FontProvider owns the scalable font
+    // source and runtime lv_font_t instances. These values are not capabilities.
+    uint16_t font_small_px;
+    uint16_t font_normal_px;
+    uint16_t font_large_px;
+    uint16_t font_clock_px;
+    uint16_t font_header_px;
 
     // --- Margins / Поля ---
     // a) Edge inset like legacy TFT_FRAMEWDT (~8 px). b) USED: LvglInfoPage layout (marginLeft = padding*3).

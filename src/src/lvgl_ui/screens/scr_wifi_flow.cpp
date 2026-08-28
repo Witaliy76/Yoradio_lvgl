@@ -28,6 +28,7 @@
 #include "../../core/wifi_ops_adapter.h"
 #include "../../i18n/i18n.h"
 #include "../fonts/lv_fonts.h"
+#include "../font_provider.h"
 #include "../wifi_flow_glyph_utf8.h"
 #include "../lvgl_ui.h"
 #include "../profiles/lv_profile_select.h"
@@ -341,23 +342,22 @@ void wifi_set_font(lv_obj_t* obj, const void* font_slot) {
 // Title: M18 on narrow (≤320), M20 on wide / Заголовок
 const void* wifi_title_font_slot() {
     return (LV_ACTIVE_PROFILE.width <= kCompactProfileMaxWidth)
-               ? reinterpret_cast<const void*>(&lv_font_yora_montserrat_18_cyr)
-               : reinterpret_cast<const void*>(&lv_font_yora_montserrat_20_cyr);
+               ? static_cast<const void*>(FontProvider::text(18))
+               : static_cast<const void*>(FontProvider::text(20));
 }
 
 // Body: profile font_normal; fallback M16 / Текст тела
 const void* wifi_body_font_slot() {
-    if (LV_ACTIVE_PROFILE.font_normal) return LV_ACTIVE_PROFILE.font_normal;
-    return reinterpret_cast<const void*>(&lv_font_yora_montserrat_16_cyr);
+    return FontProvider::text(LV_ACTIVE_PROFILE.font_normal_px);
 }
 
 // Status/help lines: M14 on narrow, M16 on wide — service-flow readability.
 // Статус: M14 на узких, M16 на широких — читаемость строк статуса.
 const void* wifi_status_font_slot() {
     if (LV_ACTIVE_PROFILE.width <= kCompactProfileMaxWidth) {
-        return reinterpret_cast<const void*>(&lv_font_yora_montserrat_14_cyr);
+        return FontProvider::text(14);
     }
-    return reinterpret_cast<const void*>(&lv_font_yora_montserrat_16_cyr);
+    return FontProvider::text(16);
 }
 
 // List rows: body font on narrow, M18 on wide / Строки списка
@@ -365,7 +365,7 @@ const void* wifi_list_row_font_slot() {
     if (LV_ACTIVE_PROFILE.width <= kCompactProfileMaxWidth) {
         return wifi_body_font_slot();
     }
-    return reinterpret_cast<const void*>(&lv_font_yora_montserrat_18_cyr);
+    return FontProvider::text(18);
 }
 
 // Header icon: one accent icon per panel header.
