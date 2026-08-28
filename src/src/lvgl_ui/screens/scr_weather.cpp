@@ -110,16 +110,16 @@ static void wx_diag_dump(const char* tag, lv_obj_t* root) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Font / icon resources / Шрифты и иконки
 // ─────────────────────────────────────────────────────────────────────────────
-// A3: font ladder — hero 64 px; strip forecast 36 px; metric icons 26 px (discrete lv_font_conv sizes).
-// A3: лестница шрифтов — hero 64 пкс; прогноз 36 пкс; метрики 26 пкс (дискретные размеры).
-static const void* k_font_hero_icon    = reinterpret_cast<const void*>(&lv_font_yora_weather_icons_64);
-static const void* k_font_daily_icon   = reinterpret_cast<const void*>(&lv_font_yora_weather_icons_36); // daily wx / посуточная погода
-static const void* k_font_daily_pop    = reinterpret_cast<const void*>(&lv_font_yora_weather_metric_icons_22); // umbrella / зонт
+// Hero / forecast / metric icons: runtime pixel requests from the one Tabler subset.
+// Hero / прогноз / метрики: runtime-запросы px из одного Tabler subset.
+static const void* font_hero_icon() { return FontProvider::icon(64); }
+static const void* font_daily_icon() { return FontProvider::icon(36); } // daily wx / посуточная погода
+static const void* font_daily_pop() { return FontProvider::icon(22); } // umbrella / зонт
 static const void* font_daily_day() { return FontProvider::text(14); } // daily date header / дата в карточке
-static const void* k_font_hourly_icon  = reinterpret_cast<const void*>(&lv_font_yora_weather_icons_28);
-static const void* k_font_hourly_pop   = reinterpret_cast<const void*>(&lv_font_yora_weather_metric_icons_22); // umbrella / зонт
+static const void* font_hourly_icon() { return FontProvider::icon(28); }
+static const void* font_hourly_pop() { return FontProvider::icon(22); } // umbrella / зонт
 static const void* font_daily_range() { return FontProvider::text(16); } // tmin° / tmax°
-static const void* k_font_metric_icon  = reinterpret_cast<const void*>(&lv_font_yora_weather_metric_icons_26);
+static const void* font_metric_icon() { return FontProvider::icon(26); }
 static const void* font_metric_value() { return FontProvider::text(14); } // narrow cells / узкие ячейки
 static const void* font_hero_temp() { return FontProvider::text(40); }
 static const void* font_condition() { return FontProvider::text(16); }
@@ -604,7 +604,7 @@ static void add_metric_cell(lv_obj_t* row, const char* icon_glyph, const char* l
     lv_obj_set_style_pad_hor(cell, 0, LV_PART_MAIN);
 
     lv_obj_t* icon_lbl = nullptr;
-    add_metric_slot(cell, k_metric_icon_slot_h, k_font_metric_icon, pal.text_secondary,
+    add_metric_slot(cell, k_metric_icon_slot_h, font_metric_icon(), pal.text_secondary,
                     LV_LABEL_LONG_CLIP, false, &icon_lbl);
     if (icon_lbl && icon_glyph) {
         lv_label_set_text(icon_lbl, icon_glyph);
@@ -674,9 +674,9 @@ static lv_obj_t* add_hourly_row(lv_obj_t* col, const YoRadioPalette& pal,
         return l;
     };
 
-    lv_obj_t* icon     = make_in_group(k_font_hourly_icon, pal.status_weather_icon);
+    lv_obj_t* icon     = make_in_group(font_hourly_icon(), pal.status_weather_icon);
     lv_obj_t* temp     = make_in_group(font_small(), pal.text_primary);
-    lv_obj_t* pop_icon = make_in_group(k_font_hourly_pop, pal.text_secondary);
+    lv_obj_t* pop_icon = make_in_group(font_hourly_pop(), pal.text_secondary);
     if (pop_icon) {
         lv_label_set_text(pop_icon, YORA_WEATHER_METRIC_GLYPH_UMBRELLA);
     }
@@ -720,7 +720,7 @@ static lv_obj_t* add_daily_cell(lv_obj_t* row, const YoRadioPalette& pal,
     };
 
     lv_obj_t* day   = make_label(font_daily_day(), pal.text_secondary);
-    lv_obj_t* icon  = make_label(k_font_daily_icon, pal.status_weather_icon);
+    lv_obj_t* icon  = make_label(font_daily_icon(), pal.status_weather_icon);
     lv_obj_t* range = make_label(font_daily_range(), pal.text_primary);
 
     // Precipitation row: umbrella glyph + percent (centered cluster).
@@ -741,7 +741,7 @@ static lv_obj_t* add_daily_cell(lv_obj_t* row, const YoRadioPalette& pal,
         pop_icon = lv_label_create(pop_row);
         if (pop_icon) {
             lv_label_set_text(pop_icon, YORA_WEATHER_METRIC_GLYPH_UMBRELLA);
-            wx_set_font(pop_icon, k_font_daily_pop);
+            wx_set_font(pop_icon, font_daily_pop());
             lv_obj_set_style_text_color(pop_icon, pal.text_secondary, LV_PART_MAIN);
             lv_label_set_long_mode(pop_icon, LV_LABEL_LONG_CLIP);
         }
@@ -1046,7 +1046,7 @@ void LvglWeatherPage::create_data_block(LvglWeatherPage& self, const YoRadioPale
                     self._lbl_hero_icon = lv_label_create(hero_inner);
                     if (self._lbl_hero_icon) {
                         lv_label_set_text(self._lbl_hero_icon, "");
-                        wx_set_font(self._lbl_hero_icon, k_font_hero_icon);
+                        wx_set_font(self._lbl_hero_icon, font_hero_icon());
                         lv_obj_set_style_text_color(self._lbl_hero_icon, pal.status_weather_icon, LV_PART_MAIN);
                         lv_obj_set_flex_grow(self._lbl_hero_icon, 0);
                     }
@@ -1740,7 +1740,7 @@ void LvglWeatherPage::liveReapplyTheme() {
         lv_obj_set_style_border_color(_cont_hourly, pal.divider, LV_PART_MAIN);
     }
 
-    // Hourly row icons use k_font_hourly_icon (28 px); daily wx icons use 36 px.
+    // Hourly row icons use font_hourly_icon() (28 px); daily wx icons use 36 px.
     for (int i = 0; i < kHourlyCells; ++i) {
         paint(_hourly[i].time, pal.text_secondary);
         paint(_hourly[i].icon, pal.status_weather_icon);
@@ -1772,7 +1772,7 @@ void LvglWeatherPage::liveReapplyTheme() {
                 // Retint caption font (time/day/pop labels) and metric icon glyphs.
                 // Перекраска шрифта caption и глифов метрических иконок.
                 if (f == static_cast<const lv_font_t*>(font_caption()) ||
-                    f == static_cast<const lv_font_t*>(k_font_metric_icon)) {
+                    f == static_cast<const lv_font_t*>(font_metric_icon())) {
                     lv_obj_set_style_text_color(ch, pal.text_secondary, LV_PART_MAIN);
                 }
             } else if (lv_obj_get_height(ch) == 1 &&

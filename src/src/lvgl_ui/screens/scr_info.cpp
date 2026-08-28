@@ -140,8 +140,7 @@ static const void* kFontInfoTitle() { return FontProvider::text(18); }
 // to identify icon labels (as opposed to key/value labels) during a theme walk.
 // Шрифт иконок rail — 36 px. Также служит ключом классификации в info_reapply_tree_colors():
 // по нему отличаем icon label от key/value labels при обходе дерева при смене темы.
-static const void* const kFontSectionIcon =
-    reinterpret_cast<const void*>(&lv_font_yora_info_section_icons_36);
+static const void* font_section_icon() { return FontProvider::icon(36); }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Visual and layout constants / Визуальные и геометрические константы
@@ -342,7 +341,7 @@ static lv_obj_t* add_section_rail_block(
     if (lbl_icon) {
         lv_label_set_text(lbl_icon, icon_glyph_utf8);
         lv_label_set_long_mode(lbl_icon, LV_LABEL_LONG_CLIP);
-        info_set_font(lbl_icon, kFontSectionIcon);
+        info_set_font(lbl_icon, font_section_icon());
         lv_obj_set_style_text_color(lbl_icon, pal.text_secondary, LV_PART_MAIN);
         lv_obj_set_style_text_align(lbl_icon, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
         lv_obj_set_width(lbl_icon, LV_PCT(100));
@@ -416,7 +415,7 @@ static void info_mb_one_decimal(uint32_t bytes, unsigned& out_whole, unsigned& o
 // Recursive tree walk — recolors dividers and labels without rebuilding the screen.
 //
 // Classification rules (must match the object tree created by add_section_rail_block / add_kv_row):
-//   label with font == kFontSectionIcon  → section icon    → text_secondary
+//   label with font == font_section_icon()  → section icon    → text_secondary
 //   first label-child of a ROW parent   → key label        → text_secondary
 //   label-child of a COLUMN parent      → section title    → text_secondary
 //   all other labels                    → value labels     → text_primary
@@ -432,7 +431,7 @@ static void info_reapply_tree_colors(lv_obj_t* obj, const YoRadioPalette& pal, l
         if (!ch || ch == skip_subtree) continue;
         if (lv_obj_check_type(ch, &lv_label_class)) {
             const lv_font_t* f = lv_obj_get_style_text_font(ch, LV_PART_MAIN);
-            if (f == static_cast<const lv_font_t*>(kFontSectionIcon)) {
+            if (f == static_cast<const lv_font_t*>(font_section_icon())) {
                 lv_obj_set_style_text_color(ch, pal.text_secondary, LV_PART_MAIN);
             } else {
                 lv_obj_t* parent = lv_obj_get_parent(ch);

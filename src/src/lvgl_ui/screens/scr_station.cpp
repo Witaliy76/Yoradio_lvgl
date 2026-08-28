@@ -37,7 +37,7 @@ static const char* const kIconHintClick = station_glyph_utf8_hand_click();
 static const void* font_title() { return FontProvider::text(20); }
 static const void* font_count() { return FontProvider::text(18); }
 static const void* font_hint_text() { return FontProvider::text(16); }
-static const void* const kFontHintIcon = reinterpret_cast<const void*>(&lv_font_yora_station_icons_20);
+static const void* font_hint_icon() { return FontProvider::icon(20); }
 
 constexpr size_t kCountBufferSize = 24;
 
@@ -173,7 +173,7 @@ void LvglStationPage::create_hint_band(LvglStationPage& self, const YoRadioPalet
     self._lbl_hint_icon = lv_label_create(hint_row);
     if (self._lbl_hint_icon) {
         lv_label_set_text(self._lbl_hint_icon, kIconHintClick);
-        station_set_font(self._lbl_hint_icon, kFontHintIcon);
+        station_set_font(self._lbl_hint_icon, font_hint_icon());
         lv_obj_set_style_text_color(self._lbl_hint_icon, pal.text_secondary, LV_PART_MAIN);
         lv_obj_set_style_text_align(self._lbl_hint_icon, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
         wgt_footer_pill::make_child_passive(self._lbl_hint_icon);

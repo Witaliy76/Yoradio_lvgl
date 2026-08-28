@@ -103,11 +103,9 @@ static constexpr char kStrButtonUseSleepDevice[] = "USE SLEEP DEVICE";
 // Font resources / Шрифты экрана
 // ─────────────────────────────────────────────────────────────────────────────
 
-static const void* const kFontSettingsIcon =
-    reinterpret_cast<const void*>(&lv_font_yora_settings_icons_28);
+static const void* font_settings_icon() { return FontProvider::icon(28); }
 
-static const void* const kFontChevron =
-    reinterpret_cast<const void*>(&lv_font_yora_control_icons_28);
+static const void* font_chevron() { return FontProvider::icon(28); }
 
 static const void* font_display_header() { return FontProvider::text(20); }
 
@@ -325,7 +323,7 @@ static lv_obj_t* add_icon_column(lv_obj_t* row, const char* glyph, const YoRadio
     if (icon) {
         lv_label_set_text(icon, glyph);
         lv_label_set_long_mode(icon, LV_LABEL_LONG_CLIP);
-        set_font_slot(icon, kFontSettingsIcon);
+        set_font_slot(icon, font_settings_icon());
         lv_obj_set_style_text_color(icon, pal.text_secondary, LV_PART_MAIN);
         lv_obj_set_style_text_align(icon, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     }
@@ -362,7 +360,7 @@ static lv_obj_t* add_row_chevron(lv_obj_t* row, const YoRadioPalette& pal) {
     if (!chev) return nullptr;
     lv_label_set_text(chev, control_glyph_utf8_chevron_right());
     lv_label_set_long_mode(chev, LV_LABEL_LONG_CLIP);
-    set_font_slot(chev, kFontChevron);
+    set_font_slot(chev, font_chevron());
     lv_obj_set_style_text_color(chev, pal.text_meta, LV_PART_MAIN);
     return chev;
 }
@@ -581,7 +579,7 @@ static void create_detail_header(
         lv_obj_t* back_glyph = lv_label_create(out_back_hit);
         if (back_glyph) {
             lv_label_set_text(back_glyph, control_glyph_utf8_chevron_left());
-            set_font_slot(back_glyph, kFontChevron);
+            set_font_slot(back_glyph, font_chevron());
             lv_obj_set_style_text_color(back_glyph, pal.text_meta, LV_PART_MAIN);
             lv_obj_add_flag(back_glyph, LV_OBJ_FLAG_EVENT_BUBBLE);
         }
@@ -598,7 +596,7 @@ static void create_detail_header(
         out_icon = lv_label_create(icon_col);
         if (out_icon) {
             lv_label_set_text(out_icon, icon_glyph);
-            set_font_slot(out_icon, kFontSettingsIcon);
+            set_font_slot(out_icon, font_settings_icon());
             lv_obj_set_style_text_color(out_icon, pal.text_secondary, LV_PART_MAIN);
         }
     }

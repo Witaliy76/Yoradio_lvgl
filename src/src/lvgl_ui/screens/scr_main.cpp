@@ -1123,8 +1123,7 @@ void LvglMainScreen::create_bottom_zone(LvglMainScreen& self, const YoRadioPalet
 
         // 6.1E: list/settings = transport font + pad/min (size); color/pressed stay utility (secondary + calmer opa).
         // Размер list/settings как у транспорта; цвет и pressed — как раньше у utility.
-        const lv_font_t* f_ctrl_transport =
-            (W <= 320u) ? &lv_font_yora_control_icons_26 : &lv_font_yora_control_icons_28;
+        const lv_font_t* f_ctrl_transport = FontProvider::icon((W <= 320u) ? 26 : 28);
         const lv_coord_t pad_tr = (W <= 320u) ? static_cast<lv_coord_t>(12) : static_cast<lv_coord_t>(16);
         const lv_coord_t min_tr = (W <= 320u) ? static_cast<lv_coord_t>(54) : static_cast<lv_coord_t>(58);
 

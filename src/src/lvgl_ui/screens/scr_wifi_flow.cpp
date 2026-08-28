@@ -371,9 +371,8 @@ const void* wifi_list_row_font_slot() {
 // Header icon: one accent icon per panel header.
 // Не использовать Montserrat на _kbd — ломает LVGL symbol glyphs.
 static const lv_font_t* wifi_header_icon_font() {
-    return (LV_ACTIVE_PROFILE.width <= kCompactProfileMaxWidth)
-               ? &lv_font_yora_wifi_flow_icons_24
-               : &lv_font_yora_wifi_flow_icons_36;
+    return FontProvider::icon(
+        (LV_ACTIVE_PROFILE.width <= kCompactProfileMaxWidth) ? 24 : 36);
 }
 
 static lv_obj_t* wifi_create_header_row(lv_obj_t* parent) {

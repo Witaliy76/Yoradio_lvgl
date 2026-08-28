@@ -26,12 +26,12 @@
 namespace lvgl_ui {
 namespace wgt_status_line {
 
-// Wi-Fi icon: Tabler subset 22 px (on-device OK vs Montserrat 18 clock). Alternatives: _18 / _20 in lv_fonts.h.
-// Иконка Wi‑Fi: Tabler 22 px (проверено на устройстве). Замена: lv_font_yora_status_icons_18 / _20.
-static const lv_font_t* k_wifi_icon_font = &lv_font_yora_status_icons_22;
-// Weather icons: one step smaller than 22 for dense status row; ladder 18/20/22/… in lv_fonts.h.
-// Иконки погоды — на ступень меньше 22 для верхней полосы.
-static const lv_font_t* k_weather_icon_font = &lv_font_yora_weather_icons_20;
+// Wi-Fi icon: Tabler via FontProvider at 22 px (current 480 request, not a TTF limit).
+// Иконка Wi‑Fi: Tabler через FontProvider, 22 px (запрос профиля 480, не лимит TTF).
+static const lv_font_t* wifi_icon_font() { return FontProvider::icon(22); }
+// Weather mini: one step smaller than the 22 px Wi-Fi glyph on the status row.
+// Мини-погода: на ступень меньше 22 px глифа Wi‑Fi на status row.
+static const lv_font_t* weather_icon_font() { return FontProvider::icon(20); }
 
 static void set_font_slot(lv_obj_t* obj, const void* font_slot) {
     if (!obj || !font_slot) return;
@@ -117,7 +117,7 @@ bool create(lv_obj_t* parent, Instance& out) {
     if (out.lbl_wifi) {
         lv_label_set_text(out.lbl_wifi, reinterpret_cast<const char*>(u8"\uEBA3"));
         lv_label_set_long_mode(out.lbl_wifi, LV_LABEL_LONG_CLIP);
-        set_font_slot(out.lbl_wifi, reinterpret_cast<const void*>(k_wifi_icon_font));
+        set_font_slot(out.lbl_wifi, reinterpret_cast<const void*>(wifi_icon_font()));
         lv_obj_set_style_text_color(out.lbl_wifi, pal.status_line_text, LV_PART_MAIN);
     }
 
@@ -149,7 +149,7 @@ bool create(lv_obj_t* parent, Instance& out) {
         if (out.lbl_weather_glyph) {
             lv_label_set_text(out.lbl_weather_glyph, "");
             lv_label_set_long_mode(out.lbl_weather_glyph, LV_LABEL_LONG_CLIP);
-            set_font_slot(out.lbl_weather_glyph, reinterpret_cast<const void*>(k_weather_icon_font));
+            set_font_slot(out.lbl_weather_glyph, reinterpret_cast<const void*>(weather_icon_font()));
             // Theme: status_weather_icon / status_weather_temp (glance row, not bottom_weather).
             // Тема: отдельные токены глифа и °C для верхней полосы.
             lv_obj_set_style_text_color(out.lbl_weather_glyph, pal.status_weather_icon, LV_PART_MAIN);

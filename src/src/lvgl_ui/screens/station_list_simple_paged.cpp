@@ -62,8 +62,7 @@ constexpr lv_coord_t kPageSwipeMinTravelPx  = 24;
 static constexpr uint32_t kStationRowSafetyLimit = UINT16_MAX - 10u;
 
 static const void* font_station_list_slot() { return FontProvider::text(22); }
-static const void* const kFontCurrentMarker =
-    reinterpret_cast<const void*>(&lv_font_yora_station_icons_22);
+static const void* font_current_marker() { return FontProvider::icon(22); }
 static const char* const kIconCurrentStation = station_glyph_utf8_volume_2();
 
 static int32_t abs_i32(int32_t v) { return v < 0 ? -v : v; }
@@ -75,7 +74,7 @@ static const lv_font_t* station_list_font() {
 }
 
 static const lv_font_t* station_marker_font() {
-    return &lv_font_yora_station_icons_22;
+    return FontProvider::icon(22);
 }
 
 // Shared row metrics: label, overlay, hit-test, and rows_per_page must use the same values.
@@ -388,7 +387,7 @@ static void ensureOverlays(Instance& instance) {
             lv_obj_set_width(instance.current_marker, kMarkerBoxW);
             lv_label_set_long_mode(instance.current_marker, LV_LABEL_LONG_CLIP);
             lv_label_set_text(instance.current_marker, kIconCurrentStation);
-            station_set_font(instance.current_marker, kFontCurrentMarker);
+            station_set_font(instance.current_marker, font_current_marker());
             lv_obj_set_style_text_align(instance.current_marker, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
             lv_obj_clear_flag(instance.current_marker, LV_OBJ_FLAG_SCROLLABLE);
             lv_obj_clear_flag(instance.current_marker, LV_OBJ_FLAG_CLICKABLE);
