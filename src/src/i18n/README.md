@@ -214,7 +214,7 @@ Locale `static_assert` проверяет:
 
 Compile-time `maxBytes` не доказывает pixel fit. Runtime caller обязан использовать рассчитанный fixed buffer, проверить результат `snprintf`, а UI acceptance — проверить фактический font/layout на устройстве.
 
-**SK DEVICE VISUAL ACCEPTANCE: PASS.** На `4848S040` / ST7701 приняты каталог `125/125 TextId`, Weather code `sk`, SK glyphs `34/34`, сохранённые PL glyphs `18/18` и union `50/50` во всех десяти shared sizes (12/14/16/18/20/22/28/32/40/48). Missing-glyph boxes, clipping/wrapping и runtime/navigation regressions не наблюдались; selector восстановлен в `RU`. Техническая приёмка рендеринга и layout пройдена. Лингвистическая проверка словацкого текста носителями языка ожидается (`PENDING EXTERNAL REVIEW`).
+**SK DEVICE VISUAL ACCEPTANCE: PASS.** Историческая приёмка SK на `4848S040` / ST7701: каталог `125/125 TextId`, Weather code `sk`, SK glyphs `34/34`, сохранённые PL glyphs `18/18` и union `50/50` на тогдашней compiled-лестнице десяти размеров (12/14/16/18/20/22/28/32/40/48). Missing-glyph boxes, clipping/wrapping и runtime/navigation regressions не наблюдались; selector восстановлен в `RU`. Текущий factory TTF сохраняет тот же Unicode-контракт. Лингвистическая проверка словацкого текста носителями языка ожидается (`PENDING EXTERNAL REVIEW`).
 
 ---
 
@@ -364,4 +364,4 @@ The parser supports integer/string/character conversions, numeric/dynamic width 
 
 Compile-time byte validation does not prove pixel fit. The caller must use a justified fixed buffer, check `snprintf`, and validate the actual font/layout during device acceptance.
 
-**SK DEVICE VISUAL ACCEPTANCE: PASS.** On `4848S040` / ST7701, the `125/125 TextId` catalog, Weather code `sk`, SK glyphs `34/34`, retained PL glyphs `18/18`, and union `50/50` passed across all ten shared sizes (12/14/16/18/20/22/28/32/40/48). No missing-glyph boxes, clipping/wrapping regressions, or runtime/navigation regressions were observed; the selector was restored to `RU`. Technical rendering and layout acceptance passed. Native Slovak linguistic review is pending (`PENDING EXTERNAL REVIEW`).
+**SK DEVICE VISUAL ACCEPTANCE: PASS.** Historical SK acceptance on `4848S040` / ST7701: the `125/125 TextId` catalog, Weather code `sk`, SK glyphs `34/34`, retained PL glyphs `18/18`, and union `50/50` were recorded against the compiled ten-size ladder (12/14/16/18/20/22/28/32/40/48). No missing-glyph boxes, clipping/wrapping regressions, or runtime/navigation regressions were observed; the selector was restored to `RU`. The current factory TTF keeps that Unicode contract. Native Slovak linguistic review is pending (`PENDING EXTERNAL REVIEW`).

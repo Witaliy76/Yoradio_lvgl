@@ -99,10 +99,22 @@ LVGL 9 color-plane-then-alpha-plane representation. Normal text and icons are tw
 embedded TTF assets opened by TinyTTF (`fonts/readme_fonts.md`). The compiled
 `lv_font_yora_montserrat_16_cyr` emergency face remains LVGL 9 `fmt_txt` ABI.
 
+## Fonts
+
+Ordinary firmware uses TinyTTF, not a per-size compiled C ladder.
+
+| Asset | Role |
+|-------|------|
+| `fonts/yoradio_factory_font.ttf` | multilingual factory text; `FontProvider::text(px)` |
+| `fonts/yoradio_tabler.ttf` | 34-glyph Tabler subset; `FontProvider::icon(px)` |
+| `fonts/lv_font_yora_montserrat_16_cyr.c` | emergency 16 px only |
+
+Pixel size is a runtime request. Current S3 glyph cache policy is text **P64** and icons **P8**. There is no production font prewarm. A normal PlatformIO build embeds the two TTF files (`board_build.embed_files`) and does **not** run fontTools. User-uploadable `L:/fonts/user.ttf` is deferred. SHA256 and coverage: [`fonts/readme_fonts.md`](fonts/readme_fonts.md).
+
 ## Related tracked docs
 
 - Theme / Custom file format: [`theme/THEME.md`](theme/THEME.md)
 - Screensaver layout: [`lv_screensaver_layout_tree.md`](lv_screensaver_layout_tree.md)
 - Per-screen layout trees: `screens/*_layout_tree.md`
 - Boot logo notes: [`screens/bootlogo.md`](screens/bootlogo.md)
-- Localization (compile-time RU/EN/PL): [`../i18n/LOCALIZATION.md`](../i18n/LOCALIZATION.md)
+- Localization (compile-time RU/EN/PL/SK): [`../i18n/LOCALIZATION.md`](../i18n/LOCALIZATION.md)

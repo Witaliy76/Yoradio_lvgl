@@ -104,21 +104,21 @@ public i18n API → screens/core/display consumers
 
 ### 7. Покрытие шрифтов
 
-Польский и словацкий каталоги хранят правильный UTF-8 с диакритикой. Транслитерация запрещена. Общая custom LVGL font family содержит полный явный набор обоих языков:
+Польский и словацкий каталоги хранят правильный UTF-8 с диакритикой. Транслитерация запрещена. Заводской текстовый TTF (`FontProvider::text` через TinyTTF) содержит полный явный набор обоих языков; отдельные PL/SK-шрифты и locale-dependent routing отсутствуют:
 
 ```text
 Ąą Ćć Ęę Łł Ńń Óó Śś Źź Żż
 Áá Ää Čč Ďď Éé Íí Ĺĺ Ľľ Ňň Ôô Ŕŕ Šš Ťť Úú Ýý Žž
 ```
 
-Все десять размеров shared family используют одинаковый Unicode contract; отдельные PL/SK fonts и locale-dependent routing отсутствуют. После изменения fonts нужно повторить PL/SK visual text-fit matrix и оценить Flash delta.
+Размер в пикселях задаётся в runtime, а не отдельным compiled `.c` на каждый кегль. Состав и SHA256 factory/Tabler — в [`../lvgl_ui/fonts/readme_fonts.md`](../lvgl_ui/fonts/readme_fonts.md). После изменения покрытия TTF нужно повторить PL/SK visual text-fit matrix и оценить Flash delta.
 
 Buffer safety и font coverage — разные проверки:
 
 - `TextSpec::maxBytes` проверяет UTF-8 bytes вместе с завершающим NUL;
 - device smoke проверяет фактические glyphs, pixel width, wrapping и clipping.
 
-**SK DEVICE VISUAL ACCEPTANCE: PASS.** На устройстве `4848S040` / ST7701 проверены словацкий каталог `125/125 TextId`, Weather provider language `sk`, покрытие SK `34/34`, сохранённое PL `18/18` и объединение PL+SK `50/50` во всех десяти shared font sizes (12/14/16/18/20/22/28/32/40/48). Missing-glyph boxes, clipping/wrapping regressions и runtime/navigation regressions не наблюдались; после smoke selector восстановлен в `RU`. Техническая приёмка рендеринга и layout пройдена. Лингвистическая проверка словацкого текста носителями языка ожидается (`PENDING EXTERNAL REVIEW`).
+**SK DEVICE VISUAL ACCEPTANCE: PASS.** Историческая приёмка SK на `4848S040` / ST7701 (каталог `125/125 TextId`, Weather `sk`, SK `34/34`, сохранённое PL `18/18`, union `50/50`) выполнена на тогдашней compiled-лестнице десяти размеров (12/14/16/18/20/22/28/32/40/48). Missing-glyph boxes, clipping/wrapping regressions и runtime/navigation regressions не наблюдались; после smoke selector восстановлен в `RU`. Текущий factory TTF сохраняет тот же Unicode-контракт. Лингвистическая проверка словацкого текста носителями языка ожидается (`PENDING EXTERNAL REVIEW`).
 
 ### 8. Куда идти дальше
 
@@ -222,21 +222,21 @@ public i18n API → screens/core/display consumers
 
 ### 7. Font coverage
 
-The Polish and Slovak catalogs store correct UTF-8 with native diacritics. Transliteration is forbidden. The shared custom LVGL font family contains the complete explicit set for both languages:
+The Polish and Slovak catalogs store correct UTF-8 with native diacritics. Transliteration is forbidden. The factory text TTF (`FontProvider::text` via TinyTTF) contains the complete explicit set for both languages; there are no separate PL/SK fonts or locale-dependent font routes:
 
 ```text
 Ąą Ćć Ęę Łł Ńń Óó Śś Źź Żż
 Áá Ää Čč Ďď Éé Íí Ĺĺ Ľľ Ňň Ôô Ŕŕ Šš Ťť Úú Ýý Žž
 ```
 
-All ten shared-family sizes use the same Unicode contract; there are no separate PL/SK fonts or locale-dependent font routes. After font changes, repeat the PL/SK visual text-fit matrix and measure the Flash delta.
+Pixel size is a runtime request, not a compiled `.c` file per size. Factory/Tabler identities are in [`../lvgl_ui/fonts/readme_fonts.md`](../lvgl_ui/fonts/readme_fonts.md). After TTF coverage changes, repeat the PL/SK visual text-fit matrix and measure the Flash delta.
 
 Buffer safety and font coverage are separate checks:
 
 - `TextSpec::maxBytes` validates UTF-8 bytes including the terminating NUL;
 - device smoke validates actual glyphs, pixel width, wrapping, and clipping.
 
-**SK DEVICE VISUAL ACCEPTANCE: PASS.** On `4848S040` / ST7701, the Slovak catalog `125/125 TextId`, Weather provider language `sk`, SK coverage `34/34`, retained PL coverage `18/18`, and the PL+SK union `50/50` were checked across all ten shared font sizes (12/14/16/18/20/22/28/32/40/48). No missing-glyph boxes, clipping/wrapping regressions, or runtime/navigation regressions were observed; the selector was restored to `RU` after smoke. Technical rendering and layout acceptance passed. Native Slovak linguistic review is pending (`PENDING EXTERNAL REVIEW`).
+**SK DEVICE VISUAL ACCEPTANCE: PASS.** Historical SK acceptance on `4848S040` / ST7701 (catalog `125/125 TextId`, Weather `sk`, SK `34/34`, retained PL `18/18`, union `50/50`) was recorded against the compiled ten-size ladder (12/14/16/18/20/22/28/32/40/48). No missing-glyph boxes, clipping/wrapping regressions, or runtime/navigation regressions were observed; the selector was restored to `RU` after smoke. The current factory TTF keeps that Unicode contract. Native Slovak linguistic review is pending (`PENDING EXTERNAL REVIEW`).
 
 ### 8. Next references
 

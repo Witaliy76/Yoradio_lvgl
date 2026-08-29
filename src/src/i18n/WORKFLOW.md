@@ -273,7 +273,7 @@ Smoke формируется из реально изменённых consumers.
 
 Missing Polish/Slovak glyph — отдельный font defect. Он не разрешает transliteration и не скрывает buffer/layout/state regressions.
 
-**SK DEVICE VISUAL ACCEPTANCE: PASS.** На `4848S040` / ST7701 проверены `125/125 TextId`, Weather mapping `sk`, SK `34/34`, сохранённое PL `18/18` и union `50/50` во всех десяти shared font sizes (12/14/16/18/20/22/28/32/40/48). Missing-glyph boxes, clipping/wrapping regressions и runtime/navigation regressions не наблюдались; selector после smoke восстановлен в `RU`. Техническая приёмка рендеринга и layout пройдена. Лингвистическая проверка словацкого текста носителями языка ожидается (`PENDING EXTERNAL REVIEW`).
+**SK DEVICE VISUAL ACCEPTANCE: PASS.** Историческая приёмка SK на `4848S040` / ST7701: `125/125 TextId`, Weather mapping `sk`, SK `34/34`, сохранённое PL `18/18` и union `50/50` на тогдашней compiled-лестнице десяти размеров (12/14/16/18/20/22/28/32/40/48). Missing-glyph boxes, clipping/wrapping regressions и runtime/navigation regressions не наблюдались; selector после smoke восстановлен в `RU`. Текущий factory TTF сохраняет тот же Unicode-контракт. Лингвистическая проверка словацкого текста носителями языка ожидается (`PENDING EXTERNAL REVIEW`).
 
 ### 13. Checklist перед commit
 
@@ -501,7 +501,7 @@ Derive smoke coverage from the actual consumers changed:
 
 A missing Polish/Slovak glyph is a separate font defect. It does not permit transliteration or hide buffer/layout/state regressions.
 
-**SK DEVICE VISUAL ACCEPTANCE: PASS.** On `4848S040` / ST7701, `125/125 TextId`, Weather mapping `sk`, SK `34/34`, retained PL `18/18`, and union `50/50` passed across all ten shared font sizes (12/14/16/18/20/22/28/32/40/48). No missing-glyph boxes, clipping/wrapping regressions, or runtime/navigation regressions were observed; the selector was restored to `RU` after smoke. Technical rendering and layout acceptance passed. Native Slovak linguistic review is pending (`PENDING EXTERNAL REVIEW`).
+**SK DEVICE VISUAL ACCEPTANCE: PASS.** Historical SK acceptance on `4848S040` / ST7701: `125/125 TextId`, Weather mapping `sk`, SK `34/34`, retained PL `18/18`, and union `50/50` were recorded against the compiled ten-size ladder (12/14/16/18/20/22/28/32/40/48). No missing-glyph boxes, clipping/wrapping regressions, or runtime/navigation regressions were observed; the selector was restored to `RU` after smoke. The current factory TTF keeps that Unicode contract. Native Slovak linguistic review is pending (`PENDING EXTERNAL REVIEW`).
 
 ### 13. Pre-commit checklist
 

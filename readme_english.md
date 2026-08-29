@@ -8,7 +8,7 @@ The device is accompanied by a Web UI for playback, stations, behavior settings,
 
 The project is based on [e2002/yoradio](https://github.com/e2002/yoradio). The current repository is [Witaliy76/Yoradio_lvgl](https://github.com/Witaliy76/Yoradio_lvgl).
 
-> Public beta: `0.9.434m-r2-lvgl-beta.2`. Supported board: **ESP32-4848S040**.
+> Public beta: `0.9.434m-r2-lvgl-beta.2`. Current development build: `0.9.434m-r2-lvgl-beta.2-s4.8d`. Supported board: **ESP32-4848S040**.
 
 > **Note for ESP32-S3 4848S040:** while data is being written to internal flash — for example during a large playlist upload, background or Station Art upload, or when settings are persisted — the display may briefly shift horizontally. After the write operation finishes, the firmware automatically resynchronizes the RGB scanout and the image returns to normal. This is an expected characteristic of the current display configuration; no reboot is required.
 
@@ -38,9 +38,22 @@ Each page has a distinct role: Main is for listening, Visual for atmosphere, Inf
 - Web UI for playback, stations, settings, Appearance, and firmware updates.
 - Dark, Light, and Custom themes, station artwork, and separate Main backgrounds for each theme.
 - Compile-time RU / EN / PL / SK interface localization.
+- Scalable embedded TinyTTF fonts: factory text and Tabler icons, plus a compiled 16 px emergency face if the font engine cannot start.
 - Optional AI Layer as a quiet information layer over music.
 
 ## Change history
+
+### 29 August 2026 — 0.9.434m-r2-lvgl-beta.2-s4.8d
+
+Interface fonts now use embedded TTF files with TinyTTF runtime scaling. Normal text and icons no longer come from a per-size generated C font ladder.
+
+Firmware includes two ready files: a factory text TTF (Latin, Cyrillic, Polish and Slovak UI letters, plus Western European letters for station and track names) and a compact Tabler icon TTF. A compiled 16 px emergency face remains if TinyTTF cannot start. A normal build embeds these TTF files in application Flash and does not need fontTools, full font sources, or a LittleFS factory-font upload. User-uploadable TTF is deferred.
+
+The LVGL pool on the current ESP32-S3 profile is 256 KiB in PSRAM. The accepted `DisplayPort → esp_lcd` path and 4848S040 behaviour are unchanged.
+
+On Weather, the hourly icon no longer draws an ASCII placeholder with the icon font.
+
+Public baseline remains `0.9.434m-r2-lvgl-beta.2`.
 
 ### 25 August 2026 — 0.9.434m-r2-lvgl-beta.2-s2.10.2-gfx-retired
 
@@ -262,6 +275,7 @@ The browser accepts common image formats, centers and cover-crops the image, and
 This fork develops YoRadio as a touchscreen device with an LVGL interface and board-specific hardware profiles. Compared with [e2002/yoradio](https://github.com/e2002/yoradio), it adds:
 
 - an LVGL 9.5 interface instead of legacy Canvas screens on the supported board;
+- scalable embedded TTF fonts (TinyTTF) instead of a per-size compiled font ladder;
 - a six-page navigation ring plus dedicated Boot, Wi-Fi, Preset Temporary, and Screensaver modes;
 - a Beocord-inspired Visual with defined signal ballistics;
 - Web UI Appearance controls for themes, an editable Custom palette, independent Main backgrounds, and station artwork;
@@ -332,6 +346,7 @@ The rebuilt **esp_lcd** is what the RGB display needs: the automatic per-VSYNC R
 - The Windows build is device-verified. Building with the local overlay on Linux/macOS has not been exercised yet — that is an open portability item, not a known firmware problem.
 - All of the above applies to source builds only. Ready-to-flash packages in `build_bin/` are already built with the required library set.
 - Select the interface language in `src/myoptions.h` with `L10N_LANGUAGE`: `RU`, `EN`, `PL`, or `SK`. There is no runtime language switch.
+- A normal build embeds two ready TTF files from [`src/src/lvgl_ui/fonts/`](src/src/lvgl_ui/fonts/) (`readme_fonts.md`) in application Flash. You do not generate fonts by hand, install fontTools, or upload a factory TTF through LittleFS.
 
 ## Credits
 

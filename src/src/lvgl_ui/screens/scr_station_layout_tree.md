@@ -143,7 +143,7 @@ Left gutter: accent (3) | gap (5) | marker (32) | gap (5) | text
 **SimplePaged (STATIONPAGED-GEOM-A):** row metrics from real font + target pitch (keep 8 rows):
 
 ```
-line_height = lv_font_get_line_height(montserrat_22_cyr)   // currently 27
+line_height = lv_font_get_line_height(FontProvider::text(22))   // 22 px factory TTF; currently 27
 target_pitch = 41
 line_space   = target_pitch - line_height                  // currently 14
 row_pitch    = line_height + line_space                    // 41
