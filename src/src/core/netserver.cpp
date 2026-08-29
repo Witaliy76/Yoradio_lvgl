@@ -177,7 +177,8 @@ bool NetServer::begin(bool quiet) {
   webserver.on("/update", HTTP_POST, beginUpdate, handleUpdate);
   webserver.on("/settings", HTTP_GET, handleHTTPArgs);
   webserver.on("/appearance", HTTP_GET, handleHTTPArgs);
-  // Main background .bin → /bg/main_{dark,light,custom}.bin (Stage 6.1F-d) / Фон Main в слоты LittleFS
+  // Main background JPEG → /bg/user_{dark,light,custom}.jpg (factory /bg/main_*.jpg immutable)
+  // Фон Main: пользовательский JPEG; заводские /bg/main_*.jpg не перезаписываются.
   webserver.on("/upload_bg", HTTP_POST, beginUploadBg, handleUploadBg);
   webserver.on("/remove_bg", HTTP_POST, handleRemoveBgHttp);
   // Stage 6.6R-B: runtime theme preset switch (enqueues SET_THEME_PRESET on DspTask; no LVGL here)
@@ -1334,11 +1335,10 @@ void NetServer::resetQueue(){
 namespace {
 
 static const char kBgTmpPath[] = "/bg/.upload_bg.tmp";
-static constexpr size_t kBgJpegMaxBytes = 1024u * 1024u; // canonical WebUI JPEG, not RGB565 .bin / канонический JPEG, не .bin
+static constexpr size_t kBgJpegMaxBytes = 1024u * 1024u; // canonical WebUI JPEG / канонический JPEG WebUI
 
-// YoRadio on-disk image header (4 bytes LE, unchanged since LVGL 8.x; BASE-LVGL9-MIGRATION keeps
-// this contract — see lv_img_disk_header.h for the LVGL 9 in-memory translation).
-// Заголовок изображения на диске (4 байта LE, не менялся с LVGL 8.x; контракт сохранён).
+// YoRadio on-disk image header (4 bytes LE; Station Art / Visual / Screensaver .bin, not Main).
+// Заголовок изображения на диске (4 байта LE; арт/Visual/Screensaver, не Main).
 static bool bgParseImgHeader(const uint8_t* b, uint8_t* outCf, uint16_t* outW, uint16_t* outH) {
   uint32_t v = (uint32_t)b[0] | ((uint32_t)b[1] << 8) | ((uint32_t)b[2] << 16) | ((uint32_t)b[3] << 24);
   uint8_t az = (uint8_t)((v >> 5) & 7u);
@@ -1350,9 +1350,6 @@ static bool bgParseImgHeader(const uint8_t* b, uint8_t* outCf, uint16_t* outW, u
   *outH = (uint16_t)((v >> 21) & 0x7FFu);
   return true;
 }
-
-// LV_IMG_CF_TRUE_COLOR — LVGL 8.x color format for RGB565 image data
-static constexpr uint8_t kLvImgCfTrueColor = 4;
 
 static bool gBgUploadArmed = false;
 static char gBgDestPath[40] = {0};

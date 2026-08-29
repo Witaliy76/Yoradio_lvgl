@@ -3,7 +3,7 @@
  * Мост ФС LVGL к Arduino LittleFS — один mount, буква диска L:.
  *
  * Stage 6.1F-b: minimal open/read/seek/tell/close for file-backed lv_img (.bin).
- * Регистрация один раз после lv_init(); пути вида "L:/bg/main_dark.bin".
+ * Регистрация один раз после lv_init(); пути вида "L:/visual/…" / "L:/logo/…".
  */
 // Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef LV_FS_LITTLEFS_H

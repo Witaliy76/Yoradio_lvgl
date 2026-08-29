@@ -1666,16 +1666,13 @@ void LvglSettingsPage::themeRowClickedEvt(lv_event_t* e) {
     if (!self) return;
 
     const ThemePreset next = cycle_theme_preset(yoradio_theme_active_preset());
+    // onThemePresetChanged marks Repair-E post-dispatch recovery (theme.dat still owes resync).
+    // Do not restart/lv_refr_now here — this callback still runs inside lv_timer_handler.
+    // onThemePresetChanged ставит Repair-E recovery после dispatch; theme.dat по-прежнему должен resync.
+    // Не restart/lv_refr_now здесь — callback ещё внутри lv_timer_handler.
     onThemePresetChanged(static_cast<uint8_t>(next));
     self->_syncDisplayValues();
     self->_syncMainRowValues();
-    // Settings UI theme gesture bypasses SET_THEME_PRESET (that path is WebUI-only), so this is
-    // the sole completion boundary: persistence + palette + page-chain restyle + this row's own
-    // value label are all done by this point. One resync closes the whole hazard window.
-    // Жест смены темы в Settings идёт мимо SET_THEME_PRESET (тот путь — только для WebUI), поэтому
-    // это единственная точка завершения: persistence + палитра + restyle страниц + значение этой
-    // строки уже применены. Один ресинхрон закрывает всё окно риска.
-    display.requestRgbResync();
 }
 
 void LvglSettingsPage::brightnessSliderEvt(lv_event_t* e) {

@@ -510,7 +510,9 @@ void Display::loop() {
         // запрос покрывает write + commit + read + apply.
         case MAIN_BG_FS_UPDATED: {
           lvgl_ui::onMainBackgroundSlotCommitted(static_cast<uint8_t>(request.payload));
-          _performRgbResync();
+          // Repair E2: dest commit still owes recovery; consume after this loop's taskHandler.
+          // Repair E2: dest-commit по-прежнему должен восстановиться — после taskHandler.
+          lvgl_ui::requestRuntimeRgbRecovery();
           break;
         }
         case ART_FS_UPDATED: {
@@ -520,9 +522,9 @@ void Display::loop() {
         }
         case SET_THEME_PRESET: {
           // Writes /data/theme.dat and reapplies the palette across created pages.
-          // Пишет /data/theme.dat и переприменяет палитру на созданных страницах.
+          // RGB recovery is marked inside onThemePresetChanged and consumed after taskHandler.
+          // Пишет /data/theme.dat и переприменяет палитру. RGB recovery — после taskHandler.
           lvgl_ui::onThemePresetChanged(static_cast<uint8_t>(request.payload));
-          _performRgbResync();
           break;
         }
         case CUSTOM_THEME_FILE_UPDATED: {
@@ -531,15 +533,13 @@ void Display::loop() {
           break;
         }
         // Queued resync from a non-display task (AI config/prompt persistence, playlist import).
-        // Repair A2: redraw the CURRENT active screen first, then scanout restart.
-        // EARLY boot still calls _performRgbResync() directly (this case is not used there).
-        // Ресинхрон из не-display задачи. A2: сначала кадр текущего экрана, затем restart.
+        // Repair A2+E: same redraw-then-resync contract, consumed after this loop's taskHandler
+        // so ordinary lv_timer_handler cannot paint after the restart. EARLY boot still calls
+        // _performRgbResync() directly (this case is not used there).
+        // Ресинхрон из не-display задачи. A2+E: тот же контракт, но после taskHandler.
         // Ранний boot по-прежнему зовёт _performRgbResync() напрямую.
         case RGB_RESYNC: {
-          if (lvgl_ui::tryRedrawActiveScreenNow()) {
-            Serial.println("[DISPLAY] persistence recovery: redraw current frame -> RGB resync");
-          }
-          _performRgbResync();
+          lvgl_ui::requestRuntimeRgbRecovery();
           break;
         }
         default: break;

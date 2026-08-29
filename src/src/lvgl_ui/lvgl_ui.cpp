@@ -109,6 +109,11 @@ static bool preset_open_gesture_allowed() {
 // lv_timer_handler(). Только DspTask — без очередей и мьютексов.
 static lv_dir_t s_deferred_carousel_dir = LV_DIR_NONE;
 
+// Repair E: runtime RGB recovery owed after this iteration's normal LVGL paint (theme / JPEG / A2).
+// DspTask-only; no mutex. Multiple marks in one loop collapse to one post-dispatch recovery.
+// Repair E: долг RGB recovery после обычной отрисовки этой итерации. Только DspTask; без mutex.
+static bool s_runtime_rgb_recovery_pending = false;
+
 // Horizontal carousel: direct mapping from LVGL gesture dir.
 // X normalization is now in lv_touch_read_cb — no per-board swap needed here.
 // Горизонтальная карусель: прямой маппинг из gesture dir (нормализация X теперь в lv_touch_read_cb).
@@ -527,6 +532,10 @@ void lvgl_ui::onThemePresetChanged(uint8_t preset_id) {
     // 6.6R-GB2: сохранить читаемость текста debug-оверлея после смены темы.
     applyPerfMonitorThemeTextColor();
 #endif
+    // Repair E: theme.dat + reinit still owe recovery; run it after this iteration's LVGL paint.
+    // Do not restart here (SET_THEME) or from the Settings click callback (still in dispatch).
+    // Repair E: theme.dat + reinit должны восстановиться после paint, не до/внутри dispatch.
+    requestRuntimeRgbRecovery();
 }
 
 // Stage 0: stub — confirms LVGL library is compiled into the build
@@ -643,12 +652,24 @@ void lvgl_ui::taskHandler() {
     // A completed screen load can be reported from inside LVGL event dispatch. Keep the event
     // callback side-effect free; request the Display-owned, next-VSYNC restart only after dispatch.
     // Завершение загрузки приходит из LVGL callback; сам запрос делаем только после dispatch.
-    if (s_page_chain.takeCompletedTransitionRgbResyncRequest()) {
-        display.requestRgbResync();
-    }
+    const bool transition_resync = s_page_chain.takeCompletedTransitionRgbResyncRequest();
 #if LV_USE_PERF_MONITOR
     repositionBuiltinLvglPerfMonitorOnce();
 #endif
+    // Repair E: after ALL normal LVGL work this iteration (timer, gestures, SCREEN_LOADED take,
+    // optional one-shot perf overlay). Runtime theme/JPEG/A2 recovery coalesces with a pending
+    // transition into one restart. Transition-only keeps the proven no-extra-refr_now path.
+    // Repair E: после всей обычной LVGL-работы итерации. Runtime+переход → один restart.
+    const bool runtime_resync = s_runtime_rgb_recovery_pending;
+    s_runtime_rgb_recovery_pending = false;
+    if (runtime_resync) {
+        if (tryRedrawActiveScreenNow()) {
+            Serial.println("[DISPLAY] post-dispatch runtime recovery: redraw -> RGB resync");
+        }
+    }
+    if (transition_resync || runtime_resync) {
+        display.requestRgbResync();
+    }
 }
 
 // 8-E19B: createTestOverlay triggers initial PageChain registration (DspTask / init only).
@@ -707,6 +728,10 @@ bool lvgl_ui::tryRedrawActiveScreenNow() {
     lv_obj_invalidate(scr);
     lv_refr_now(NULL);
     return true;
+}
+
+void lvgl_ui::requestRuntimeRgbRecovery() {
+    s_runtime_rgb_recovery_pending = true;
 }
 
 // 8-E19B: LVGL-only mode routing — direct PageChain/overlay dispatch, no backend selection.
@@ -833,14 +858,11 @@ void lvgl_ui::mainBgPollRuntimeApply() {
     if (!mainBgCachePollApply()) return;
     if (s_main_screen.refreshBackgroundFromCache()) {
         Serial.println("[MAIN_BG] Applied to Main");
-        // Repair D: JPEG/PSRAM work after persistence resync can desync scanout again.
-        // Stable current frame (A2 helper) then existing RGB resync — not before src/HIDDEN.
-        // Repair D: JPEG/PSRAM после persistence-resync снова сбивает scanout.
-        // Сначала стабильный кадр (хелпер A2), затем штатный RGB resync — не до src/HIDDEN.
-        if (tryRedrawActiveScreenNow()) {
-            display.requestRgbResync();
-            Serial.println("[MAIN_BG] post-apply display recovery");
-        }
+        // Repair D + E: keep the accepted stable-frame redraw; defer the RGB restart until
+        // after this DspTask iteration's lv_timer_handler (post-dispatch barrier).
+        // Repair D + E: стабильный кадр оставляем; RGB restart — после lv_timer_handler итерации.
+        (void)tryRedrawActiveScreenNow();
+        requestRuntimeRgbRecovery();
     } else {
         Serial.println("[MAIN_BG] Background cache ready; Main not active");
     }

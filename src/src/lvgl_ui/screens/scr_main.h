@@ -47,8 +47,8 @@ public:
     void prepareForAutoDelete() override;
     void releaseAfterAutoDelete() override;
 
-    // WebUI replaced LittleFS .bin for a slot — force PSRAM reload (call from DspTask only).
-    // Веб перезаписал .bin слота — принудительно перезагрузить PSRAM (только DspTask).
+    // WebUI replaced LittleFS user JPEG for a slot — force cache reload (call from DspTask only).
+    // Веб заменил user JPEG слота — принудительно перезагрузить кэш (только DspTask).
     void reloadFileBackgroundFromLittlefs();
 
     // DspTask: JPEG cache already filled (boot or worker) — apply without decode.
@@ -79,7 +79,7 @@ private:
     uint8_t*     _bg_psram_buf = nullptr;
     lv_img_dsc_t _bg_psram_dsc = {};
     uint8_t      _bg_last_slot = 255; // 255 = not loaded / не загружен
-    // E36FS1a: latched missing-file state — skip repeat hide path each update tick / нет .bin — без повторов.
+    // E36FS1a: latched missing-file state — skip repeat hide path each update tick / нет JPEG — без повторов.
     bool         _bg_absent_latched = false;
 
     // Apply bg from PSRAM (force=true: reload; force=false: skip if slot unchanged and buf present).

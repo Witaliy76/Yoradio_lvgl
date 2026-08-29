@@ -84,8 +84,15 @@ void refreshMainScreenFromSettings(bool force_full_redraw = false);
 // Repair A2: инвалидация + немедленный flush текущего экрана. Без смены страницы.
 bool tryRedrawActiveScreenNow();
 
-// Stage 6.1F-d: WebUI committed /bg/main_*.bin — reload Main PSRAM bg if slot matches active preset (DspTask queue only).
-// После upload_bg: перечитать фон в PSRAM только для активного слота темы; только из обработчика displayQueue.
+// Repair E: one-shot post-dispatch RGB recovery (DspTask only; coalesces in the same iteration).
+// Marks that this DspTask loop owes redraw + RGB resync AFTER lv_timer_handler returns.
+// Do not call requestRgbResync/lv_refr_now from LVGL event callbacks for these episodes.
+// Repair E: одноразовый RGB recovery после dispatch (только DspTask; схлопывается в итерации).
+// После lv_timer_handler: стабильный кадр + resync. Не звать restart/lv_refr_now из LVGL callback.
+void requestRuntimeRgbRecovery();
+
+// WebUI committed /bg/user_*.jpg — reload Main JPEG cache if slot matches active preset (DspTask queue only).
+// После upload_bg: перечитать JPEG-фон только для активного слота темы; только из обработчика displayQueue.
 void onMainBackgroundSlotCommitted(uint8_t slot);
 
 // Station Art MVP: WebUI committed /logo/<key>.bin (upload or remove) — force art reload on Main (DspTask queue only).

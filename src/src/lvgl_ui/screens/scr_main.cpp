@@ -1702,8 +1702,8 @@ void LvglMainScreen::create() {
     lv_obj_set_flex_align(_screen, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_clear_flag(_screen, LV_OBJ_FLAG_SCROLLABLE);
 
-    // 6.1F-b: bottom-most layer — full-screen img; FLOATING so flex ignores it; hidden if no bin on LittleFS.
-    // 6.1F-b: нижний слой — полноэкранный img; FLOATING — вне flex; скрыт если нет .bin в LittleFS.
+    // Full-screen JPEG layer; FLOATING so flex ignores it; hidden if no JPEG in cache/LittleFS.
+    // Полноэкранный JPEG; FLOATING вне flex; скрыт если нет JPEG в кэше/LittleFS.
     _bg_img = lv_img_create(_screen);
     if (_bg_img) {
         lv_obj_add_flag(_bg_img, LV_OBJ_FLAG_FLOATING);

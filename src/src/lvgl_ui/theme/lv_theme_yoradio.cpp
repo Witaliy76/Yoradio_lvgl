@@ -197,7 +197,7 @@ static const YoRadioPalette kPaletteCustomBuiltin = {
     lv_color_hex(0xCBB89F), // boot_status_text
     lv_color_hex(0x3A2A1F), // boot_progress_track
     lv_color_hex(0xD89A2B), // boot_progress_fill
-    // §4.7 Main chrome — tube-amp shelf glow / pressed (pairs with main_custom.bin bg).
+    // §4.7 Main chrome — tube-amp shelf glow / pressed (pairs with Custom Main JPEG).
     lv_color_hex(0x1A120D), // main_chrome_bg
     lv_color_hex(0x8A5A24), // main_chrome_border
     lv_color_hex(0xF0C06A), // main_chrome_glow_top
