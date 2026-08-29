@@ -9,7 +9,7 @@ The device is accompanied by a Web UI for playback, stations, behavior settings,
 The project is based on [e2002/yoradio](https://github.com/e2002/yoradio). The current repository is [Witaliy76/Yoradio_lvgl](https://github.com/Witaliy76/Yoradio_lvgl).
 
 > **Public version:** `0.9.434m-r2-lvgl-beta.2`
-> **Current source:** `0.9.434m-r2-lvgl-beta.2-s4.8d`
+> **Current source:** `0.9.434m-r2-lvgl-beta.2-s5.3`
 > **Validated board:** ESP32-4848S040
 
 > **Note for ESP32-S3 4848S040:** while data is being written to internal flash — for example during a large playlist upload, background or Station Art upload, or when settings are persisted — the display may briefly shift horizontally. After the write operation finishes, the firmware automatically resynchronizes the RGB scanout and the image returns to normal. This is an expected characteristic of the current display configuration; no reboot is required.
@@ -44,6 +44,12 @@ Each page has a distinct role: Main is for listening, Visual for atmosphere, Inf
 - Optional AI Layer as a quiet information layer over music.
 
 ## Change history
+
+### 29 August 2026 — 0.9.434m-r2-lvgl-beta.2-s5.3
+
+Main now uses factory JPEG backgrounds and browser-normalized user JPEGs. That reduces the LittleFS footprint. After a theme change or background upload, the RGB frame recovers automatically.
+
+Public beta remains `0.9.434m-r2-lvgl-beta.2`.
 
 ### 29 August 2026 — 0.9.434m-r2-lvgl-beta.2-s4.8d
 
@@ -225,7 +231,7 @@ The complete example is [`src/src/lvgl_ui/theme/theme_custom.example.txt`](src/s
 
 Background images are used only on Main. Dark, Light, and Custom have independent slots, so each theme can keep a different image.
 
-The browser accepts common image formats, centers and cover-crops the image, and converts it for the 480×480 display. Uploading a background does not change the active theme. **Choose image** prepares a preview, **Upload to device** stores the selected slot, and **Remove image** clears only that slot. A missing background is a normal state; Main then uses the theme color.
+The browser accepts common image formats and keeps the original aspect ratio. The longest side is limited to 1280 px with no crop, stretch, or upscale. The file is saved as JPEG (quality 0.90) into that theme's user slot. Uploading a background does not change the active theme. **Choose image** prepares a preview, **Upload to device** stores the user JPEG, and **Remove image** clears only that user file. If no user image is present, Main uses the factory JPEG for the theme; if that is also absent, it uses the theme color.
 
 <p align="center">
   <img src="readme/english/webui-main-backgrounds-guide.png" alt="Main Screen Backgrounds setup" width="700">

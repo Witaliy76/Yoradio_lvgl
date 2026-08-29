@@ -13,7 +13,7 @@ Author: Witaliy76 - https://github.com/Witaliy76
 
 ## Order on `_screen` (flex column, top → bottom)
 
-**Z-order (bottom → top):** `_bg_img` (6.1F-b) — optional file-backed background; then `_bg_scrim` (F-c) — optional very light black scrim **only for `ThemePreset::Dark`** when bg file exists; both `FLOATING`, not flex children.
+**Z-order (bottom → top):** `_bg_img` (6.1F-b) — optional JPEG-decoded RGB565 PSRAM cache; then `_bg_scrim` (F-c) — optional very light black scrim **only for `ThemePreset::Dark`** when bg file exists; both `FLOATING`, not flex children.
 
 1. `wgt_status_line.root`  
 2. `status_divider`
@@ -32,7 +32,7 @@ Floating overlays (not flex children of `_screen` in the same sense): `_lbl_vol_
 
 ```
 _screen
-├── _bg_img  (optional LVGL .bin from LittleFS; FLOATING — under all content; 6.1F-b)
+├── _bg_img  (optional JPEG-decoded RGB565 PSRAM cache; FLOATING — under all content; 6.1F-b)
 ├── _bg_scrim  (optional black LV_OPA_50; FLOATING; only Dark + bg present; F-c)
 ├── wgt_status_line.root  (see ../widgets/wgt_status_line.cpp)
 │   ├── col_left  (one of three equal flex columns)

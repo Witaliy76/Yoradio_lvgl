@@ -4,7 +4,7 @@
 
 This is the hardware guide for ESP32-4848S040, the board supported by the public YoRadio LVGL beta. It covers specifications, audio wiring, configuration, ready-to-flash packages, first start, and touch controls. For the interface, themes, and Web UI, see the [full English project README](readme_english.md).
 
-Public package version: `0.9.434m-r2-lvgl-beta.2`. Current source: `0.9.434m-r2-lvgl-beta.2-s4.8d`.
+Public package version: `0.9.434m-r2-lvgl-beta.2`. Current source: `0.9.434m-r2-lvgl-beta.2-s5.3`.
 
 The supported module provides **16 MB Flash** and **8 MB PSRAM**.
 

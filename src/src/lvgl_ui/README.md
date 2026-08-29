@@ -73,7 +73,7 @@ lvgl_ui/
 | LVGL heap | Fixed 256 KiB built-in TLSF pool backed by one process-lifetime PSRAM allocation |
 | LVGL task stack | DspTask, 12288 B |
 | Theme preset / Custom file | Theme module + WebUI Appearance; live reapply on DspTask |
-| Station art / Main backgrounds | LittleFS + Main reload hooks on DspTask |
+| Station art / Main backgrounds | Main: LittleFS JPEG + RGB565 PSRAM cache on DspTask. Station art: LittleFS RGB565 `.bin` |
 | Weather data | Core `WeatherState` (fetch off UI); Weather page is read-only consumer |
 | Presets | `adapters/preset_store` on LittleFS |
 
@@ -91,10 +91,11 @@ direction, and `taskHandler()` consumes it only after `lv_timer_handler()` retur
 LVGL event-dispatch stack has unwound. Some child callbacks still navigate synchronously;
 they are safe in the current object/event layout and remain a defensive hardening follow-up.
 
-File-backed Main, Visual, and screensaver RGB565 backgrounds keep the existing YoRadio
+Main backgrounds are factory/user JPEGs decoded by TJPGD, FIT/ScaleOnce into an RGB565
+PSRAM cache. Visual and screensaver RGB565 `.bin` files keep the existing YoRadio
 4-byte little-endian disk header followed by RGB565 bytes. Loaders translate that header
-to an in-memory LVGL 9 `lv_image_header_t` / `lv_image_dsc_t`; the files were not converted
-to a new disk format. Static RGB565A8 screensaver sprites are different: they use the
+to an in-memory LVGL 9 `lv_image_header_t` / `lv_image_dsc_t`; those families were not
+converted to a new disk format. Static RGB565A8 screensaver sprites are different: they use the
 LVGL 9 color-plane-then-alpha-plane representation. Normal text and icons are two
 embedded TTF assets opened by TinyTTF (`fonts/readme_fonts.md`). The compiled
 `lv_font_yora_montserrat_16_cyr` emergency face remains LVGL 9 `fmt_txt` ABI.
