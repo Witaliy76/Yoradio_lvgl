@@ -28,6 +28,7 @@ enum class TextId : uint16_t {
   BootNoSavedWifiNetworks,
   BootSavedWifiConnectionFailed,
   BootConnectedToFormat,
+  BootLoadingBackground,
   BootWifiFallbackName,
   BootOpeningWifiSetup,
   BootReconnectStatus,
@@ -369,6 +370,7 @@ inline constexpr std::array<TextSpec, textCount()> kTextSpecs{{
   makeTextSpec("", 64),    // BootNoSavedWifiNetworks
   makeTextSpec("", 112),   // BootSavedWifiConnectionFailed
   makeTextSpec("%s", 64),  // BootConnectedToFormat: connected SSID (32 bytes maximum)
+  makeTextSpec("", 48),    // BootLoadingBackground
   makeTextSpec("", 16),    // BootWifiFallbackName
   makeTextSpec("", 64),    // BootOpeningWifiSetup
   makeTextSpec("", 64),    // BootReconnectStatus: safe non-formatted fallback

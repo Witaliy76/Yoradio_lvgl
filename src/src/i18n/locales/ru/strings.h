@@ -27,6 +27,7 @@ inline constexpr std::array<TextEntry, textCount()> kStrings{{
   {TextId::BootNoSavedWifiNetworks, "Нет сохранённых сетей Wi-Fi"},
   {TextId::BootSavedWifiConnectionFailed, "Не удалось подключиться к сохранённым сетям"},
   {TextId::BootConnectedToFormat, "Подключено к %s"},
+  {TextId::BootLoadingBackground, "Загрузка фона..."},
   {TextId::BootWifiFallbackName, "Wi-Fi"},
   {TextId::BootOpeningWifiSetup, "Открываю настройку Wi-Fi..."},
   {TextId::BootReconnectStatus, "Повторное подключение..."},

@@ -51,6 +51,10 @@ public:
     // Веб перезаписал .bin слота — принудительно перезагрузить PSRAM (только DspTask).
     void reloadFileBackgroundFromLittlefs();
 
+    // DspTask: JPEG cache already filled (boot or worker) — apply without decode.
+    // DspTask: кэш JPEG уже готов (boot или worker) — применить без decode.
+    void refreshBackgroundFromCache();
+
     // Station Art MVP: WebUI committed upload_art / remove_art — force art reload (DspTask only).
     // Station Art MVP: после upload_art / remove_art — принудительно перезагрузить арт (только DspTask).
     void reloadStationArtFromLittlefs();

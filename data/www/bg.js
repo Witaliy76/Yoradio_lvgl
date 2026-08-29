@@ -245,14 +245,15 @@
         skipThemeStatus: true,
         skipCustomActionLine: true
       });
-      if (data && String(data.active_theme) === preset) {
+      var loading = data && (data.bg_loading === true || data.bg_loading === 'true');
+      if (data && String(data.active_theme) === preset && !loading) {
         applyThemeShell(preset);
         return data;
       }
-      if (attempt >= 14) {
+      if (attempt >= 30) {
         return Promise.reject(new Error('device confirmation timed out'));
       }
-      return delay(180).then(function () {
+      return delay(200).then(function () {
         return waitForThemeConfirmation(preset, gen, attempt + 1);
       });
     });
@@ -262,8 +263,7 @@
   function requestThemePreset(preset, holdControlsBusy) {
     var gen = ++themeUiGen;
     var label = themeDisplayName(preset);
-    setThemeControlsBusy(true);
-    setThemeSelectorStatus('Applying ' + label + ' theme…', '');
+    setThemeSelectorStatus('Loading background...', '');
 
     var operation = fetch(apiBase() + '/set_theme?preset=' + encodeURIComponent(preset), { method: 'POST' })
       .then(readResponse)
@@ -279,7 +279,7 @@
     return operation.then(function (data) {
       if (gen === themeUiGen) {
         setThemeControlsBusy(holdControlsBusy === true);
-        setThemeSelectorStatus(label + ' theme is active.', 'success');
+        setThemeSelectorStatus('Active', 'success');
       }
       return data;
     }, function (error) {
@@ -296,9 +296,10 @@
         return null;
       }).then(function (data) {
         setThemeControlsBusy(holdControlsBusy === true);
-        if (data && String(data.active_theme) === preset) {
+        if (data && String(data.active_theme) === preset &&
+            data.bg_loading !== true && data.bg_loading !== 'true') {
           applyThemeShell(preset);
-          setThemeSelectorStatus(label + ' theme is active.', 'success');
+          setThemeSelectorStatus('Active', 'success');
           return data;
         }
         setThemeSelectorStatus('Could not apply ' + label + ' theme: ' + error.message, 'error');
@@ -643,7 +644,7 @@
     applyThemeShell(at);
     if (!opts.skipThemeStatus) {
       if (at) {
-        setThemeSelectorStatus(themeDisplayName(at) + ' theme is active.', 'success');
+        setThemeSelectorStatus('Active', 'success');
       } else {
         setThemeSelectorStatus('Active theme status is unavailable.', 'error');
       }

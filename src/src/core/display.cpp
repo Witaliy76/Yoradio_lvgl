@@ -554,10 +554,16 @@ void Display::loop() {
                                          : i18n::text(i18n::TextId::BootWifiFallbackName));
       lvgl_ui::bootScreenSetStatusUtf8(line);
       s_lvgl_boot_connected_latched = true;
+      Serial.printf("[MAIN_BG] connected_ms=%u\n", (unsigned)millis());
+    } else if (s_lvgl_boot_connected_latched && _lvgl_player_handoff_pending) {
+      // Next loops: Loading background... then JPEG cache for the active theme.
+      // Следующие циклы: «Загрузка фона...» и кэш JPEG активной темы.
+      lvgl_ui::bootPrepareActiveMainBackgroundIfNeeded();
     }
   } else {
     s_lvgl_boot_connected_latched = false;
   }
+  lvgl_ui::mainBgPollRuntimeApply();
   if (_mode != SCREENBLANK && _mode != SCREENSAVER) {
     if (_mode == INFO || lvgl_ui::isLvglCarouselOnInfoSlot()) {
       static uint32_t lastInfoRefresh = 0;

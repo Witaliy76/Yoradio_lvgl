@@ -23,6 +23,7 @@
 #include <ArduinoJson.h>
 #include "../lvgl_ui/profiles/lv_profile_select.h"
 #include "../lvgl_ui/theme/lv_theme_yoradio.h"
+#include "../lvgl_ui/main_bg_jpeg.h"
 #include "../ai/ai_subsystem.h"
 #include "../ai/ai_log.h"  // AI Layer logging macros
 
@@ -1876,6 +1877,7 @@ void handleBgStatusHttp(AsyncWebServerRequest* request) {
   snprintf(buf, sizeof(buf),
            "{\"dsp_w\":%u,\"dsp_h\":%u,"
            "\"active_theme\":\"%s\","
+           "\"bg_loading\":%s,"
            "\"bg_dark\":%s,\"bg_light\":%s,\"bg_custom\":%s,"
            "\"bg_dark_size\":%lu,\"bg_light_size\":%lu,\"bg_custom_size\":%lu,"
            "\"custom_theme_exists\":%s,"
@@ -1886,6 +1888,7 @@ void handleBgStatusHttp(AsyncWebServerRequest* request) {
            "\"custom_theme_unknown_keys\":%u}",
            (unsigned)dw, (unsigned)dh,
            active_theme,
+           lvgl_ui::mainBgCacheRuntimeBusy() ? "true" : "false",
            bgOk[0] ? "true" : "false",
            bgOk[1] ? "true" : "false",
            bgOk[2] ? "true" : "false",

@@ -27,6 +27,7 @@ inline constexpr std::array<TextEntry, textCount()> kStrings{{
   {TextId::BootNoSavedWifiNetworks, "Žiadne uložené siete Wi-Fi"},
   {TextId::BootSavedWifiConnectionFailed, "Nepodarilo sa pripojiť k uloženým sieťam"},
   {TextId::BootConnectedToFormat, "Pripojené k %s"},
+  {TextId::BootLoadingBackground, "Načítava sa pozadie..."},
   {TextId::BootWifiFallbackName, "Wi-Fi"},
   {TextId::BootOpeningWifiSetup, "Otváram nastavenie Wi-Fi..."},
   {TextId::BootReconnectStatus, "Opätovné pripájanie..."},

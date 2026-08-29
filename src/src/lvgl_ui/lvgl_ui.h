@@ -113,9 +113,16 @@ void dismissBootForMainHandoff();
 // Wi‑Fi 5B: Boot fail → Wi‑Fi Recovery — tear down Boot into RebootRequired without Main create/enter (no BG preload).
 // Wi‑Fi 5B: снять Boot сразу в Wi‑Fi shell, без Main/preload.
 void dismissBootForWifiRecoveryHandoff();
-// Main path: dismiss only after min time on screen (non-blocking; see Display::_tryCompleteLvglPlayerHandoff).
-// Main: снять Boot не раньше min времени на экране (без блокировки DspTask).
+// Main path: dismiss after active-theme JPEG prepare (brief Loading text, not extra 3s dwell).
+// Main: снять Boot после prepare JPEG (короткий Loading, без лишних 3 с).
 bool dismissBootForMainHandoffWhenDue();
+// Active-theme JPEG cache during Boot (DspTask). Hides first-Main decode delay.
+// Кэш JPEG активной темы на Boot (DspTask). Убирает паузу первого Main.
+void bootPrepareActiveMainBackgroundIfNeeded();
+bool mainBgBootPrepareDone();
+// DspTask: apply a finished runtime JPEG job to Main if one is ready.
+// DspTask: если runtime JPEG job готов — применить к Main.
+void mainBgPollRuntimeApply();
 // Wi‑Fi 5A: min Boot dwell elapsed (same threshold as dismissBootWhenDue).
 bool isLvglBootMinDwellElapsed();
 

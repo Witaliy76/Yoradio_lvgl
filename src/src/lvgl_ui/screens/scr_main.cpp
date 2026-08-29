@@ -37,6 +37,7 @@
 #include "../font_provider.h"
 #include "../profiles/lv_profile_select.h"
 #include "../theme/lv_theme_yoradio.h"
+#include "../main_bg_jpeg.h"
 #include "../control_glyph_utf8.h"
 #include "lvgl_ui.h"
 #include "../lv_page_chain.h"
@@ -65,11 +66,10 @@ constexpr lv_opa_t k_ctrl_pressed_opa_utility = static_cast<lv_opa_t>(36); // ~1
 constexpr lv_opa_t k_ctrl_pressed_opa_transport_light = LV_OPA_60;
 constexpr lv_opa_t k_ctrl_pressed_opa_utility_light = LV_OPA_50;
 
-// Stage 6.6R-GB1: control band fill/border opacity is theme-dependent. Light Cloud Ivory shelf at OPA_50
-// over a Cloudscape bg nearly vanishes → matte ivory needs higher fill; Dark slate keeps original feel.
-// Этап 6.6R-GB1: прозрачность полки зависит от темы. Light ivory при OPA_50 почти исчезает — поднимаем; Dark без изменений.
+// Stage 6.6R-GB1 + Slice 1 A/B: named LVGL opa steps (0–255). Same constant in create() and liveReapplyTheme().
+// Light test: LV_OPA_50 (was 90, then 70). Dark/Custom stay LV_OPA_50. / Тест Light: 50; Dark/Custom без изменений.
 constexpr lv_opa_t k_cb_bg_opa_dark      = LV_OPA_50;
-constexpr lv_opa_t k_cb_bg_opa_light     = LV_OPA_90; // matte ivory shelf, still slightly soft / матовая ивори-полка
+constexpr lv_opa_t k_cb_bg_opa_light     = LV_OPA_50;
 constexpr lv_opa_t k_cb_border_opa_dark  = LV_OPA_30;
 constexpr lv_opa_t k_cb_border_opa_light = LV_OPA_70; // warm beige edge reads on ivory / тёплая беж-кромка читается
 
@@ -305,7 +305,9 @@ static void main_reapply_control_icon_btn(lv_obj_t* btn, lv_color_t fg, lv_color
         lv_obj_set_style_text_color(lbl, fg, LV_PART_MAIN);
     }
     lv_obj_set_style_bg_color(btn, pressed_bg, static_cast<lv_style_selector_t>(LV_PART_MAIN) | LV_STATE_PRESSED);
-    // 6.6R-GB1: pressed opa is theme-aware → reapply on switch so Light feedback stays visible.
+    // Theme reinit restores default CARD fill; recreate path used TRANSPARENT idle + pressed opa.
+    // После yoradio_theme_reinit тема снова даёт непрозрачный CARD — как в create(): idle TRANSP.
+    lv_obj_set_style_bg_opa(btn, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(btn, pressed_opa, static_cast<lv_style_selector_t>(LV_PART_MAIN) | LV_STATE_PRESSED);
 }
 
@@ -386,138 +388,8 @@ static void vol_popup_update_position(lv_obj_t* popup, lv_obj_t* bar, int32_t vo
 // Background helpers / Вспомогательные функции фона
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Load a .bin (4-byte on-disk header + RGB565 pixels) from LittleFS into PSRAM.
-// On success: out_buf is ps_malloc'd buffer, out_dsc is ready for lv_img_set_src().
-// Caller owns out_buf and must free() it.
-// Загрузить .bin из LittleFS в PSRAM; out_buf — ps_malloc, освобождать через free().
-// BASE-LVGL9-MIGRATION C5: the on-disk header is still the YoRadio 4-byte v8 packed layout
-// (unchanged); translate it into the LVGL 9 12-byte lv_image_header_t via lv_img_disk_header.
-static bool bg_load_into_psram(const char* fs_path, uint8_t*& out_buf, lv_img_dsc_t& out_dsc) {
-    out_buf = nullptr;
-    File f = LittleFS.open(fs_path, "r");
-    if (!f) return false;
-
-    const size_t file_sz = static_cast<size_t>(f.size());
-    if (file_sz <= 4) {
-        f.close();
-        return false;
-    }
-
-    uint8_t hdr_raw[4];
-    if (f.read(hdr_raw, sizeof(hdr_raw)) != sizeof(hdr_raw)) {
-        f.close();
-        return false;
-    }
-
-    ImgDiskHeader disk_hdr;
-    imgDiskHeaderParse(hdr_raw, disk_hdr);
-    lv_image_header_t lv_hdr;
-    if (!imgDiskHeaderToLvHeader(disk_hdr, lv_hdr)) {
-        f.close();
-        Serial.printf("[BG] unsupported on-disk cf=%u for %s\n", (unsigned)disk_hdr.cf, fs_path);
-        return false;
-    }
-
-    const uint32_t data_size = static_cast<uint32_t>(file_sz - sizeof(hdr_raw));
-    uint8_t* buf = static_cast<uint8_t*>(ps_malloc(data_size));
-    if (!buf) {
-        f.close();
-        Serial.printf("[BG] ps_malloc failed (%u bytes) for %s\n", data_size, fs_path);
-        return false;
-    }
-
-    const int32_t n = f.read(buf, data_size);
-    f.close();
-
-    if (n < 0 || static_cast<uint32_t>(n) != data_size) {
-        free(buf);
-        Serial.printf("[BG] read incomplete: got %d / %u bytes\n", n, data_size);
-        return false;
-    }
-
-    out_buf           = buf;
-    out_dsc.header    = lv_hdr;
-    out_dsc.data_size = data_size;
-    out_dsc.data      = buf;
-
-    Serial.printf("[BG] preloaded %s -> PSRAM %u bytes\n", fs_path, data_size);
-    return true;
-}
-
-// ── Main background PSRAM cache (W2G-A) ──────────────────────────────────────────────────────────
-//
-// Survives Main LVGL object lifecycle (W2F auto-delete). The 480×480 RGB565 background buffer
-// (~460 KB) is loaded from LittleFS once and stays in PSRAM until the theme slot changes, the
-// user re-uploads a background via WebUI, or memory pressure requires clearing.
-//
-// Ownership contract:
-//   - s_bg_cache owns the ps_malloc'd buffer; Main page only borrows the pointer.
-//   - Main destroy/releaseAfterAutoDelete MUST NOT free _bg_psram_buf (it belongs to the cache).
-//   - The cache is freed by main_bg_cache_invalidate() or on a path change (theme slot switch).
-//
-// Контракт владения:
-//   - s_bg_cache владеет буфером ps_malloc; страница Main только заимствует указатель.
-//   - destroy/releaseAfterAutoDelete НЕ должны освобождать _bg_psram_buf (владелец — кэш).
-//   - Кэш освобождается через main_bg_cache_invalidate() или при смене слота темы.
-
-struct MainBgCache {
-    char         path[64] = {};      // LittleFS path of cached background / путь к закэшированному фону
-    uint8_t*     data     = nullptr; // ps_malloc'd pixel buffer (owned) / пиксельный буфер ps_malloc (владелец)
-    lv_img_dsc_t dsc      = {};      // descriptor ready for lv_img_set_src() / дескриптор для LVGL
-    bool valid() const { return data != nullptr && path[0] != '\0'; }
-};
-static MainBgCache s_bg_cache;  // zero-initialised at load time / нулевая инициализация при загрузке
-
-// Free the cached buffer and reset all fields.
-// Освободить буфер кэша и сбросить все поля.
-static void main_bg_cache_invalidate() {
-    if (s_bg_cache.data) {
-        Serial.printf("[BG_CACHE] clear %s\n", s_bg_cache.path);
-        free(s_bg_cache.data);
-        s_bg_cache.data = nullptr;
-    }
-    s_bg_cache.path[0] = '\0';
-    s_bg_cache.dsc = {};
-}
-
-// Look up or load fs_path. Returns true if data is available (hit or freshly loaded).
-// out_dsc receives a descriptor whose .data points INTO the cache buffer — do NOT free it.
-// Поиск или загрузка. Возвращает true если данные доступны (попадание или свежая загрузка).
-// out_dsc.data указывает в кэш-буфер — не освобождать.
-static bool main_bg_cache_get(const char* fs_path, lv_img_dsc_t& out_dsc) {
-    if (!fs_path || fs_path[0] == '\0') return false;
-
-    // Cache hit — same path, buffer present.
-    // Попадание — тот же путь, буфер есть.
-    if (s_bg_cache.valid() &&
-        strncmp(s_bg_cache.path, fs_path, sizeof(s_bg_cache.path) - 1) == 0) {
-        Serial.printf("[BG_CACHE] hit %s (%u bytes)\n", fs_path,
-                      (unsigned)s_bg_cache.dsc.data_size);
-        out_dsc = s_bg_cache.dsc;
-        return true;
-    }
-
-    // Cache miss or path change — release old buffer and load fresh.
-    // Промах или смена пути — освобождаем старый буфер, загружаем новый.
-    if (s_bg_cache.data) {
-        Serial.printf("[BG_CACHE] reload old=%s new=%s\n", s_bg_cache.path, fs_path);
-    } else {
-        Serial.printf("[BG_CACHE] miss %s\n", fs_path);
-    }
-    main_bg_cache_invalidate();
-
-    uint8_t* buf = nullptr;
-    lv_img_dsc_t dsc = {};
-    if (!bg_load_into_psram(fs_path, buf, dsc)) {
-        return false;
-    }
-
-    s_bg_cache.data = buf;
-    s_bg_cache.dsc  = dsc;
-    strlcpy(s_bg_cache.path, fs_path, sizeof(s_bg_cache.path));
-    out_dsc = dsc;
-    return true;
-}
+// Main JPEG RGB565 cache lives in main_bg_jpeg.cpp (module-owned PSRAM).
+// Кэш JPEG RGB565 фона Main — в main_bg_jpeg.cpp (PSRAM принадлежит модулю).
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Station Art loader / Загрузчик арта станции
@@ -1698,11 +1570,23 @@ void LvglMainScreen::reloadFileBackgroundFromLittlefs() {
     if (!_bg_img) {
         return;
     }
-    // W2G-A: WebUI uploaded a new background file → must bypass the cache and reload from LittleFS.
-    // W2G-A: WebUI загрузил новый фон → инвалидируем кэш и принудительно перезагружаем из LittleFS.
-    main_bg_cache_invalidate();
+    // WebUI / slot commit replaced the file → drop cache and decode on the worker.
+    // WebUI / смена слота заменила файл → сбросить кэш и декодировать на worker.
+    lv_obj_add_flag(_bg_img, LV_OBJ_FLAG_HIDDEN);
+    mainBgCacheInvalidate();
     _bg_psram_buf = nullptr;
     _bg_psram_dsc = {};
+    uint8_t slot = static_cast<uint8_t>(yoradio_theme_active_preset());
+    if (slot > 2) slot = 0;
+    mainBgCacheRequestAsync(mainBgJpegPathForSlot(slot));
+    _applyBgTheme(true);
+    if (_bg_scrim) {
+        main_sync_dark_bg_scrim(_bg_img, _bg_scrim);
+    }
+}
+
+void LvglMainScreen::refreshBackgroundFromCache() {
+    if (!_bg_img) return;
     _applyBgTheme(true);
     if (_bg_scrim) {
         main_sync_dark_bg_scrim(_bg_img, _bg_scrim);
@@ -1713,21 +1597,16 @@ void LvglMainScreen::_applyBgTheme(bool force) {
     if (!_bg_img) return;
 
     static const char* const k_fs[] = {
-        "/bg/main_dark.bin",
-        "/bg/main_light.bin",
-        "/bg/main_custom.bin",
-    };
-    static const char* const k_lvgl[] = {
-        "L:/bg/main_dark.bin",
-        "L:/bg/main_light.bin",
-        "L:/bg/main_custom.bin",
+        "/bg/main_dark.jpg",
+        "/bg/main_light.jpg",
+        "/bg/main_custom.jpg",
     };
 
     uint8_t slot = static_cast<uint8_t>(yoradio_theme_active_preset());
     if (slot > 2) slot = 0;
 
-    // E36FS1a: missing .bin — hide only; LVGL 8 warns on lv_img_set_src(nullptr).
-    // E36FS1a: нет файла — только скрыть; nullptr в set_src даёт warn в LVGL 8.
+    // Missing/unreadable JPEG — hide image; screen keeps theme-colored background.
+    // Нет/нечитаемый JPEG — скрыть картинку; экран остаётся цветом темы.
     auto hide_bg_missing_file = [this]() {
         lv_obj_add_flag(_bg_img, LV_OBJ_FLAG_HIDDEN);
         _syncBgImgLayout();
@@ -1746,7 +1625,7 @@ void LvglMainScreen::_applyBgTheme(bool force) {
         if (!LittleFS.exists(k_fs[slot])) {
             // File deleted from LittleFS: invalidate cache + clear borrowed pointer.
             // Файл удалён из LittleFS: инвалидировать кэш + сбросить заимствованный указатель.
-            main_bg_cache_invalidate();
+            mainBgCacheInvalidate();
             _bg_psram_buf = nullptr;
             _bg_psram_dsc = {};
             hide_bg_missing_file();
@@ -1770,21 +1649,20 @@ void LvglMainScreen::_applyBgTheme(bool force) {
         return;
     }
 
-    // W2G-A: ask the cache for the background buffer (hit = PSRAM reuse, miss = LFS load + cache).
+    // Cache hit only (boot preload or worker). Miss → hide; theme-colored Main remains visible.
     // _bg_psram_buf borrows the pointer from the cache; must NOT be freed in destroy/release.
-    // W2G-A: запрашиваем буфер у кэша (попадание = reuse PSRAM, промах = LFS-загрузка + кэш).
+    // Только попадание в кэш (boot или worker). Промах → скрыть; остаётся цвет темы.
     // _bg_psram_buf заимствует указатель у кэша; в destroy/release НЕ освобождать.
     _bg_absent_latched = false;
-    if (main_bg_cache_get(k_fs[slot], _bg_psram_dsc)) {
+    if (mainBgCacheGet(k_fs[slot], _bg_psram_dsc)) {
         _bg_psram_buf = const_cast<uint8_t*>(_bg_psram_dsc.data); // borrowed / заимствован
         lv_img_set_src(_bg_img, &_bg_psram_dsc);
+        lv_obj_clear_flag(_bg_img, LV_OBJ_FLAG_HIDDEN);
+        _syncBgImgLayout();
     } else {
-        // Fallback: file-backed path (LFS reads on DspTask — slow, but better than no image).
-        // Резервный путь: читаем из LittleFS напрямую (медленно, но без крэша).
-        lv_img_set_src(_bg_img, k_lvgl[slot]);
+        hide_bg_missing_file();
+        _bg_absent_latched = true;
     }
-    lv_obj_clear_flag(_bg_img, LV_OBJ_FLAG_HIDDEN);
-    _syncBgImgLayout();
 }
 
 void LvglMainScreen::_syncBgImgLayout() {
@@ -2233,6 +2111,17 @@ void LvglMainScreen::liveReapplyTheme() {
         lv_obj_set_style_bg_opa(_control_band,       lightScheme ? k_cb_bg_opa_light : k_cb_bg_opa_dark, LV_PART_MAIN);
         lv_obj_set_style_border_color(_control_band, pal.main_chrome_border, LV_PART_MAIN);
         lv_obj_set_style_border_opa(_control_band,   lightScheme ? k_cb_border_opa_light : k_cb_border_opa_dark, LV_PART_MAIN);
+        // Inner flex slots (list / transport / settings) were TRANSPARENT at create(); theme reinit
+        // reapplies opaque card styles. Restore idle transparency without touching layout.
+        // Внутренние слоты в create() прозрачные; reinit делает CARD непрозрачным — вернуть TRANSP.
+        const uint32_t n = lv_obj_get_child_count(_control_band);
+        for (uint32_t i = 0; i < n; i++) {
+            lv_obj_t* ch = lv_obj_get_child(_control_band, i);
+            if (!ch || ch == _edge_glow_top || ch == _edge_glow_bot) continue;
+            lv_obj_set_style_bg_opa(ch, LV_OPA_TRANSP, LV_PART_MAIN);
+            lv_obj_set_style_border_width(ch, 0, LV_PART_MAIN);
+            lv_obj_set_style_shadow_width(ch, 0, LV_PART_MAIN);
+        }
     }
 
     // Rim glow (6.6R-GA): refresh gradient stops + per-theme opacity → no stale glow on switch.

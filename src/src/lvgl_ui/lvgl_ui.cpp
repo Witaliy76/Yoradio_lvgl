@@ -36,6 +36,8 @@
 #endif
 #include "../core/network.h"
 #include "../core/wifi_ops_adapter.h"
+#include "../i18n/i18n.h"
+#include "main_bg_jpeg.h"
 
 using namespace lvgl_ui;
 
@@ -202,10 +204,14 @@ static void poll_top_edge_swipe() {
 
 // True while Boot special mode is shown (Stage 5.4). / Пока виден Boot (этап 5.4).
 static bool s_lvgl_boot_active = false;
-// millis() when LVGL Boot was shown — min dwell before Main handoff (legacy boot had ~3s logo dwell).
-// Время показа Boot — минимум на экране до перехода на Main (как ~3s лого в legacy).
+// millis() when LVGL Boot was shown — used by Wi-Fi Recovery min dwell only.
+// Время показа Boot — только для минимальной паузы Wi-Fi Recovery.
 static uint32_t s_lvgl_boot_shown_ms = 0;
-static constexpr uint32_t kLvglBootMinVisibleMs = 3000;
+static constexpr uint32_t kLvglBootMinVisibleMs = 3000; // Wi-Fi Recovery path only / только Recovery
+static constexpr uint32_t kBootLoadingMinVisibleMs = 400; // brief Loading text, not extra 3s after JPEG
+static bool s_main_bg_boot_status_shown = false;
+static bool s_main_bg_boot_prepare_done = false;
+static uint32_t s_main_bg_loading_shown_ms = 0;
 
 static void ensurePageChainRegistered() {
     static bool s_registered = false;
@@ -487,6 +493,9 @@ void lvgl_ui::onThemePresetChanged(uint8_t preset_id) {
     // 1. Switch palette state — all subsequent yoradio_palette() calls return new preset.
     // 1. Переключить палитру — все вызовы yoradio_palette() вернут новый пресет.
     yoradio_theme_set_preset(next);
+
+    mainBgCacheInvalidate();
+    mainBgCacheRequestAsync(mainBgJpegPathForSlot(static_cast<uint8_t>(next)));
 
     // Stage 6.6R-E: persist preset name to /data/theme.dat (LittleFS, not NVS/config_t).
     // Этап 6.6R-E: сохранить пресет в /data/theme.dat.
@@ -778,11 +787,41 @@ void lvgl_ui::dismissBootForWifiRecoveryHandoff() {
 
 bool lvgl_ui::dismissBootForMainHandoffWhenDue() {
     if (!s_lvgl_boot_active) return true;
-    if ((uint32_t)(millis() - s_lvgl_boot_shown_ms) < kLvglBootMinVisibleMs) return false;
+    if (!s_main_bg_boot_prepare_done) return false;
+    if (s_main_bg_loading_shown_ms != 0 &&
+        (uint32_t)(millis() - s_main_bg_loading_shown_ms) < kBootLoadingMinVisibleMs) {
+        return false;
+    }
+    Serial.printf("[MAIN_BG] handoff_ms=%u\n", (unsigned)millis());
     overlayHideAll();
     s_page_chain.dismissBoot();
     s_lvgl_boot_active = false;
     return true;
+}
+
+void lvgl_ui::bootPrepareActiveMainBackgroundIfNeeded() {
+    if (s_main_bg_boot_prepare_done) return;
+    if (!s_main_bg_boot_status_shown) {
+        bootScreenSetStatusUtf8(i18n::text(i18n::TextId::BootLoadingBackground));
+        s_main_bg_boot_status_shown = true;
+        s_main_bg_loading_shown_ms = millis();
+        Serial.printf("[MAIN_BG] loading_status_ms=%u\n", (unsigned)s_main_bg_loading_shown_ms);
+        return;
+    }
+    (void)mainBgCachePreloadActive();
+    // Existing DisplayPort RGB resync (VSYNC-coalesced). Do not invent a panel reset.
+    // Существующий resync DisplayPort (схлопывается на VSYNC). Новый reset панели не делаем.
+    display.requestRgbResync();
+    s_main_bg_boot_prepare_done = true;
+}
+
+void lvgl_ui::mainBgPollRuntimeApply() {
+    if (!mainBgCachePollApply()) return;
+    s_main_screen.refreshBackgroundFromCache();
+}
+
+bool lvgl_ui::mainBgBootPrepareDone() {
+    return s_main_bg_boot_prepare_done;
 }
 
 bool lvgl_ui::isLvglBootMinDwellElapsed() {

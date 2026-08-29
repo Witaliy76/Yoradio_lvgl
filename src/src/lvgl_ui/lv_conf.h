@@ -358,12 +358,11 @@
 #define LV_USE_FS_UEFI 0
 #define LV_USE_FS_FROGFS 0
 
-/* No third-party image/vector decoders — product images are static C descriptors + the
- * custom on-disk→lv_image_header_t translation (C5), not runtime PNG/JPG/SVG decode. */
+/* Product images: static C descriptors, on-disk .bin translation (C5), and Main JPEG via TJPGD. */
 #define LV_USE_LODEPNG 0
 #define LV_USE_LIBPNG 0
 #define LV_USE_BMP 0
-#define LV_USE_TJPGD 0
+#define LV_USE_TJPGD 1
 #define LV_USE_LIBJPEG_TURBO 0
 #define LV_USE_LIBWEBP 0
 #define LV_USE_GIF 0
