@@ -8,7 +8,9 @@ The device is accompanied by a Web UI for playback, stations, behavior settings,
 
 The project is based on [e2002/yoradio](https://github.com/e2002/yoradio). The current repository is [Witaliy76/Yoradio_lvgl](https://github.com/Witaliy76/Yoradio_lvgl).
 
-> Public beta: `0.9.434m-r2-lvgl-beta.2`. Current development build: `0.9.434m-r2-lvgl-beta.2-s4.8d`. Supported board: **ESP32-4848S040**.
+> **Public version:** `0.9.434m-r2-lvgl-beta.2`
+> **Current source:** `0.9.434m-r2-lvgl-beta.2-s4.8d`
+> **Validated board:** ESP32-4848S040
 
 > **Note for ESP32-S3 4848S040:** while data is being written to internal flash — for example during a large playlist upload, background or Station Art upload, or when settings are persisted — the display may briefly shift horizontally. After the write operation finishes, the firmware automatically resynchronizes the RGB scanout and the image returns to normal. This is an expected characteristic of the current display configuration; no reboot is required.
 
@@ -38,73 +40,36 @@ Each page has a distinct role: Main is for listening, Visual for atmosphere, Inf
 - Web UI for playback, stations, settings, Appearance, and firmware updates.
 - Dark, Light, and Custom themes, station artwork, and separate Main backgrounds for each theme.
 - Compile-time RU / EN / PL / SK interface localization.
-- Scalable embedded TinyTTF fonts: factory text and Tabler icons, plus a compiled 16 px emergency face if the font engine cannot start.
+- Scalable TTF fonts and Tabler icons with RU / EN / PL / SK support.
 - Optional AI Layer as a quiet information layer over music.
 
 ## Change history
 
 ### 29 August 2026 — 0.9.434m-r2-lvgl-beta.2-s4.8d
 
-Interface fonts now use embedded TTF files with TinyTTF runtime scaling. Normal text and icons no longer come from a per-size generated C font ladder.
+A major modernization of YoRadio's graphics stack is complete.
 
-Firmware includes two ready files: a factory text TTF (Latin, Cyrillic, Polish and Slovak UI letters, plus Western European letters for station and track names) and a compact Tabler icon TTF. A compiled 16 px emergency face remains if TinyTTF cannot start. A normal build embeds these TTF files in application Flash and does not need fontTools, full font sources, or a LittleFS factory-font upload. User-uploadable TTF is deferred.
+The interface now uses **LVGL 9.5**, and the ESP32-4848S040 display uses a direct **esp_lcd** path without Arduino_GFX. Appearance, navigation, and device behaviour were preserved through the change.
 
-The LVGL pool on the current ESP32-S3 profile is 256 KiB in PSRAM. The accepted `DisplayPort → esp_lcd` path and 4848S040 behaviour are unchanged.
+Fonts now use **TTF/TinyTTF**: text and icons scale at runtime instead of a separate generated font for each size. Interface languages **RU / EN / PL / SK** are supported.
 
-On Weather, the hourly icon no longer draws an ASCII placeholder with the icon font.
+The same work also includes a series of display, page-transition, Station Artwork, and RGB-panel fixes and optimizations.
 
-Public baseline remains `0.9.434m-r2-lvgl-beta.2`.
+Public beta remains `0.9.434m-r2-lvgl-beta.2`; current sources continue active development.
 
-### 25 August 2026 — 0.9.434m-r2-lvgl-beta.2-s2.10.2-gfx-retired
+### 13 August 2026 — build environment update
 
-Final Stage 2 cleanup: the Arduino_GFX dependency and backend are fully removed from the current source and build. ST7701 now uses only the production `DisplayPort → esp_lcd` path; the legacy rollback code is gone, while the exact Type9 table and its historical provenance remain preserved.
+The project now uses **PIOArduino 55.03.311**, Arduino-ESP32 **3.3.11**, and ESP-IDF **5.5.5**.
 
-### 25 August 2026 — 0.9.434m-r2-lvgl-beta.2-s2.10.1
+The system libraries YoRadio needs are stored and linked by the project itself. They support more robust networking and playback of demanding streams, including FLAC, and keep TLS and the RGB display working as a matched set.
 
-Stage 2 stabilization of the ESP32-S3 RGB/LVGL display path is complete: the production `esp_lcd` path was hardened, completed screen transitions gained centralized RGB resynchronization, the Stations list opens faster, and the C1 lwIP build configuration is synchronized. The 12 KB DspTask and 16 KB AsyncTCP stacks are accepted; RGB bounce remains optional and is disabled by default.
-
-### 13 August 2026 — 0.9.434m-r2-lvgl-beta.2-s2.2.4
-
-Build platform refresh: PIOArduino `55.03.311`, Arduino-ESP32 `3.3.11`, ESP-IDF `5.5.5`. The custom ESP-IDF system library set was rebuilt against the new version.
-
-The main change for source builders: manually replacing ESP-IDF archives inside `.platformio` is no longer required. YoRadio's own libraries now live in the repository itself (`library!/esp-idf-5.5.5/s3/`) and are resolved at link time, leaving the shared PlatformIO package untouched. The workflow is now just "clone/update the project → Build".
-
-Build profile selection is automatic. The `yoradio_build.py` helper, which PlatformIO runs on its own, checks the platform versions and the checksums of all seven archives, then applies the set together with the mbedTLS link options it requires. Validation is atomic: if the set is unavailable or even one file fails to match, the build does not stop but continues against the stock ESP-IDF libraries with a warning.
-
-ESP32-S3 and ESP32-P4 are now separate profiles: a custom archive set is adopted for S3 only, and P4 builds remain fully stock.
-
-Display behaviour, buffer topology, and RGB resynchronization logic are unchanged from `-s2.12`.
-
-Public baseline remains `0.9.434m-r2-lvgl-beta.2`.
-
-### 11 August 2026 — 0.9.434m-r2-lvgl-beta.2-s2.12
-
-Hardening stage for the direct `esp_lcd` display path on the ESP32-4848S040.
-
-The firmware no longer relies on continuous automatic RGB panel restart on VSYNC. RGB scanout synchronization is now owned by the Display layer: recovery runs once, after the operation that wrote to internal flash has completed — a playlist, Main background or Station Art upload, or a settings or Wi-Fi save. Two startup recovery points were added: an early one before the Boot screen is first presented, and a later one after the Boot → Main transition.
-
-Station Art rendering was repaired after the LVGL 9 migration: station artwork is visible again, is correctly replaced by a new image for the same station without a reboot, and is correctly removed.
-
-Public baseline remains `0.9.434m-r2-lvgl-beta.2`.
-
-### 08 August 2026 — 0.9.434m-r2-lvgl-beta.2-s0.4
-
-YoRadio migrated from LVGL 8.3.11 to LVGL 9.5.0. The ESP32-4848S040 product UI and behaviour were preserved.
-
-At that migration stage, Arduino_GFX was still the temporary display bridge and the direct `esp_lcd` migration followed later. Generated fonts were migrated to the LVGL9 ABI. Image/runtime descriptor handling and RGB565A8 screensaver assets were adapted for LVGL9.
-
-Two migration regressions were found and fixed: display-task stack sizing and carousel event/screen lifecycle. Device smoke and full functional validation passed. Internal LVGL UI/layout documentation was synchronized.
-
-Public baseline remains `0.9.434m-r2-lvgl-beta.2`.
-
-Current internal development build at migration closeout: `0.9.434m-r2-lvgl-beta.2-s0.4`.
-Development builds during the current master plan use the `-s<stage>.<slice>` suffix. `beta.3` is reserved for the next explicitly approved preproduction/public-facing milestone.
+Manual replacement of files inside `.platformio` is no longer required. A normal build is PlatformIO → **Build**.
 
 ### 28 July 2026 — 0.9.434m-r2-lvgl-beta.2
 
-The first public beta of YoRadio LVGL for ESP32-4848S040.
+First public beta of YoRadio LVGL for ESP32-4848S040.
 
-Early alpha builds were used for internal development and were not released separately.
+Earlier alpha builds were internal only and were not released separately.
 
 ## Supported hardware
 
