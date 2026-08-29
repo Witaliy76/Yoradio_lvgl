@@ -183,7 +183,7 @@ accent=#D89A2B</pre>
 
         <section class="appearance-section" id="section_background">
           <div class="title" role="heading" aria-level="2"><span>MAIN SCREEN BACKGROUNDS</span></div>
-          <p class="appearance-helper">Each color theme can use its own background image on the Main screen.</p>
+          <p class="appearance-helper">Each color theme can use its own background image on the Main screen. PNG and JPEG are converted in the browser; the original aspect ratio is kept.</p>
           <div id="bg-upload-root" data-bg-api-status="/bg_status" data-bg-api-upload="/upload_bg" data-bg-api-remove="/remove_bg">
             <p class="bg-device-dim" id="bg-device-dim">Checking the Main screen image size…</p>
             <div class="bg-slots">
@@ -230,7 +230,7 @@ accent=#D89A2B</pre>
                 <div class="bg-slot-state" aria-live="polite" aria-atomic="true">No image selected.</div>
               </div>
             </div>
-            <p class="appearance-note">Choosing an image only prepares the preview. Upload writes the processed image to this theme slot. Remove deletes only that slot's custom image and does not change the active color theme.</p>
+            <p class="appearance-note">Choosing an image only prepares the preview. Upload writes a JPEG to this theme's user slot. Remove deletes only that user image; factory art is used again. The active color theme is not changed.</p>
           </div>
         </section>
 

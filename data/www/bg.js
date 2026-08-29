@@ -1,6 +1,6 @@
 /**
- * Main background upload for Appearance: preview, RGB565 with LVGL header, and LittleFS slot upload, status, and removal.
- * Фон Main: превью, конвертация, загрузка в слоты LittleFS
+ * Main background upload: browser decode → FIT max-side 1280 → Canvas JPEG → /upload_bg.
+ * Фон Main: декод в браузере → FIT 1280 → JPEG Canvas → /upload_bg.
  * Author: Witaliy76 - https://github.com/Witaliy76
  */
 (function () {
@@ -74,79 +74,173 @@
     return fallback || 'failed';
   }
 
-  /** LVGL 8.x 4-byte image header (cf | w<<10 | h<<21), LE / Заголовок LVGL 8.x */
-  function buildLvglHeader(cf, w, h) {
-    var v = (cf & 0x1f) | ((w & 0x7ff) << 10) | ((h & 0x7ff) << 21);
-    var b = new Uint8Array(4);
-    b[0] = v & 0xff;
-    b[1] = (v >>> 8) & 0xff;
-    b[2] = (v >>> 16) & 0xff;
-    b[3] = (v >>> 24) & 0xff;
-    return b;
+  /** WebUI JPEG normalization (Stage 5 Slice 2). / Нормализация JPEG в браузере. */
+  var BG_MAX_SIDE = 1280;
+  var BG_JPEG_QUALITY = 0.90;
+  var BG_LOADING_STATUS =
+    'Loading background… The interface may respond more slowly for a few seconds.';
+
+  function themeActiveStatus(preset) {
+    return themeDisplayName(preset) + ' theme active';
   }
 
-  var LV_IMG_CF_TRUE_COLOR = 4;
-
-  /** RGB565, 2 bytes per pixel LE / RGB565, 2 байта на пиксель LE */
-  function pushRgb565Le(r, g, b, out, off) {
-    var r5 = (r >> 3) & 0x1f;
-    var g6 = (g >> 2) & 0x3f;
-    var b5 = (b >> 3) & 0x1f;
-    var u16 = (r5 << 11) | (g6 << 5) | b5;
-    out[off] = u16 & 0xff;
-    out[off + 1] = (u16 >>> 8) & 0xff;
+  function statusIsLoading(data) {
+    return !!(data && (data.bg_loading === true || data.bg_loading === 'true'));
   }
 
-  /** Cover + center crop to tw×th (same as object-fit: cover) / Cover + центр */
-  function drawCoverCenter(ctx, img, tw, th) {
-    var sw = img.naturalWidth || img.width;
-    var sh = img.naturalHeight || img.height;
-    if (!sw || !sh) {
+  function applyThemeSelectorStatusFromData(data) {
+    var at = data && data.active_theme ? String(data.active_theme) : null;
+    if (statusIsLoading(data)) {
+      setThemeSelectorStatus(BG_LOADING_STATUS, '');
       return;
     }
-    var scale = Math.max(tw / sw, th / sh);
-    var dw = sw * scale;
-    var dh = sh * scale;
-    var ox = (tw - dw) / 2;
-    var oy = (th - dh) / 2;
-    ctx.fillStyle = '#000000';
-    ctx.fillRect(0, 0, tw, th);
-    ctx.drawImage(img, 0, 0, sw, sh, ox, oy, dw, dh);
-  }
-
-  /** Build .bin: header + RGB565 pixels / Сборка .bin для бэкенда */
-  function canvasToLvglBin(canvas) {
-    var tw = canvas.width;
-    var th = canvas.height;
-    var ctx = canvas.getContext('2d');
-    var imgd = ctx.getImageData(0, 0, tw, th);
-    var d = imgd.data;
-    var pix = tw * th;
-    var header = buildLvglHeader(LV_IMG_CF_TRUE_COLOR, tw, th);
-    var body = new Uint8Array(pix * 2);
-    var i;
-    var p;
-    for (i = 0, p = 0; i < pix; i++, p += 4) {
-      pushRgb565Le(d[p], d[p + 1], d[p + 2], body, i * 2);
+    if (at) {
+      setThemeSelectorStatus(themeActiveStatus(at), 'success');
+      return;
     }
-    var out = new Uint8Array(4 + body.length);
-    out.set(header, 0);
-    out.set(body, 4);
-    return out.buffer;
+    setThemeSelectorStatus('Active theme status is unavailable.', 'error');
   }
 
-  /** Preview: scaled copy of full-res canvas / Превью — масштаб с полноразмерного canvas */
+  function fitMaxSide(sw, sh, maxSide) {
+    var w = sw;
+    var h = sh;
+    if (!w || !h) {
+      return { w: 1, h: 1 };
+    }
+    var longest = Math.max(w, h);
+    if (longest <= maxSide) {
+      return { w: w, h: h };
+    }
+    var scale = maxSide / longest;
+    return {
+      w: Math.max(1, Math.round(w * scale)),
+      h: Math.max(1, Math.round(h * scale))
+    };
+  }
+
   function drawPreview(previewCanvas, sourceCanvas) {
     var pw = previewCanvas.width;
     var ph = previewCanvas.height;
     var pctx = previewCanvas.getContext('2d');
     pctx.fillStyle = '#111';
     pctx.fillRect(0, 0, pw, ph);
-    pctx.drawImage(sourceCanvas, 0, 0, sourceCanvas.width, sourceCanvas.height, 0, 0, pw, ph);
+    var sw = sourceCanvas.width;
+    var sh = sourceCanvas.height;
+    if (!sw || !sh) {
+      return;
+    }
+    var scale = Math.min(pw / sw, ph / sh);
+    var dw = Math.max(1, Math.round(sw * scale));
+    var dh = Math.max(1, Math.round(sh * scale));
+    var ox = Math.round((pw - dw) / 2);
+    var oy = Math.round((ph - dh) / 2);
+    pctx.drawImage(sourceCanvas, 0, 0, sw, sh, ox, oy, dw, dh);
   }
 
-  var dspW = 0;
-  var dspH = 0;
+  function sourceSize(src) {
+    if (src.naturalWidth) {
+      return { w: src.naturalWidth, h: src.naturalHeight };
+    }
+    return { w: src.width, h: src.height };
+  }
+
+  function paintFittedCanvas(canvas, src) {
+    var sz = sourceSize(src);
+    var fit = fitMaxSide(sz.w, sz.h, BG_MAX_SIDE);
+    canvas.width = fit.w;
+    canvas.height = fit.h;
+    var ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    if (typeof ctx.imageSmoothingQuality === 'string') {
+      ctx.imageSmoothingQuality = 'high';
+    }
+    ctx.drawImage(src, 0, 0, sz.w, sz.h, 0, 0, fit.w, fit.h);
+  }
+
+  function decodeBrowserImage(file) {
+    if (typeof createImageBitmap === 'function') {
+      return createImageBitmap(file, { imageOrientation: 'from-image' }).catch(function () {
+        return createImageBitmap(file);
+      });
+    }
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function () {
+        URL.revokeObjectURL(url);
+        resolve(img);
+      };
+      img.onerror = function () {
+        URL.revokeObjectURL(url);
+        reject(new Error('decode'));
+      };
+      img.src = url;
+    });
+  }
+
+  function canvasToJpegBlob(canvas) {
+    return new Promise(function (resolve, reject) {
+      if (typeof canvas.toBlob !== 'function') {
+        reject(new Error('toBlob unavailable'));
+        return;
+      }
+      canvas.toBlob(function (blob) {
+        if (!blob || blob.size === 0) {
+          reject(new Error('jpeg encode failed'));
+          return;
+        }
+        resolve(blob);
+      }, 'image/jpeg', BG_JPEG_QUALITY);
+    });
+  }
+
+  function waitForBackgroundIdle(attempt) {
+    attempt = attempt || 0;
+    return fetchAppearanceStatus().then(function (data) {
+      refreshAppearanceFromStatus(data);
+      if (!statusIsLoading(data) || attempt >= 50) {
+        return data;
+      }
+      return delay(200).then(function () {
+        return waitForBackgroundIdle(attempt + 1);
+      });
+    });
+  }
+
+  function waitForSlotFile(slot, expectedSize, attempt) {
+    attempt = attempt || 0;
+    return fetchAppearanceStatus().then(function (data) {
+      refreshAppearanceFromStatus(data);
+      var key = 'bg_' + slot;
+      var present = data && (data[key] === true || data[key] === 'true');
+      var size = (data && parseInt(data[key + '_size'], 10)) || 0;
+      if (present && expectedSize > 0 && size === expectedSize) {
+        return data;
+      }
+      if (attempt >= 50) {
+        return data;
+      }
+      return delay(200).then(function () {
+        return waitForSlotFile(slot, expectedSize, attempt + 1);
+      });
+    });
+  }
+
+  function waitForSlotGone(slot, attempt) {
+    attempt = attempt || 0;
+    return fetchAppearanceStatus().then(function (data) {
+      refreshAppearanceFromStatus(data);
+      var key = 'bg_' + slot;
+      var present = data && (data[key] === true || data[key] === 'true');
+      if (!present || attempt >= 50) {
+        return data;
+      }
+      return delay(200).then(function () {
+        return waitForSlotGone(slot, attempt + 1);
+      });
+    });
+  }
+
   var backgroundActionBusy = false;
   var backgroundActionRefreshers = [];
   // Presence stays in each slot closure; this list only fans out confirmed status / Наличие хранится в слоте; список только раздаёт status
@@ -160,7 +254,7 @@
   }
 
   function bgPathForSlot(slot) {
-    return '/bg/main_' + slot + '.bin';
+    return '/bg/user_' + slot + '.jpg';
   }
 
   function setFsLine(el, slot, present, sizeBytes) {
@@ -177,7 +271,7 @@
     } else if (present) {
       el.textContent = 'On device: ' + bgPathForSlot(slot);
     } else {
-      el.textContent = 'No custom background on device.';
+      el.textContent = 'No user background on device. Factory art is used.';
     }
   }
 
@@ -245,12 +339,12 @@
         skipThemeStatus: true,
         skipCustomActionLine: true
       });
-      var loading = data && (data.bg_loading === true || data.bg_loading === 'true');
+      var loading = statusIsLoading(data);
       if (data && String(data.active_theme) === preset && !loading) {
         applyThemeShell(preset);
         return data;
       }
-      if (attempt >= 30) {
+      if (attempt >= 50) {
         return Promise.reject(new Error('device confirmation timed out'));
       }
       return delay(200).then(function () {
@@ -263,7 +357,7 @@
   function requestThemePreset(preset, holdControlsBusy) {
     var gen = ++themeUiGen;
     var label = themeDisplayName(preset);
-    setThemeSelectorStatus('Loading background...', '');
+    setThemeSelectorStatus(BG_LOADING_STATUS, '');
 
     var operation = fetch(apiBase() + '/set_theme?preset=' + encodeURIComponent(preset), { method: 'POST' })
       .then(readResponse)
@@ -279,7 +373,7 @@
     return operation.then(function (data) {
       if (gen === themeUiGen) {
         setThemeControlsBusy(holdControlsBusy === true);
-        setThemeSelectorStatus('Active', 'success');
+        applyThemeSelectorStatusFromData(data);
       }
       return data;
     }, function (error) {
@@ -296,10 +390,9 @@
         return null;
       }).then(function (data) {
         setThemeControlsBusy(holdControlsBusy === true);
-        if (data && String(data.active_theme) === preset &&
-            data.bg_loading !== true && data.bg_loading !== 'true') {
+        if (data && String(data.active_theme) === preset && !statusIsLoading(data)) {
           applyThemeShell(preset);
-          setThemeSelectorStatus('Active', 'success');
+          setThemeSelectorStatus(themeActiveStatus(preset), 'success');
           return data;
         }
         setThemeSelectorStatus('Could not apply ' + label + ' theme: ' + error.message, 'error');
@@ -643,11 +736,7 @@
     var at = data && data.active_theme ? String(data.active_theme) : null;
     applyThemeShell(at);
     if (!opts.skipThemeStatus) {
-      if (at) {
-        setThemeSelectorStatus('Active', 'success');
-      } else {
-        setThemeSelectorStatus('Active theme status is unavailable.', 'error');
-      }
+      applyThemeSelectorStatusFromData(data);
     }
   }
 
@@ -694,7 +783,7 @@
 
     function updateActions() {
       btnChoose.disabled = backgroundActionBusy;
-      btnUpload.disabled = backgroundActionBusy || !hasImage || !dspW;
+      btnUpload.disabled = backgroundActionBusy || !hasImage;
       if (btnRemove) {
         btnRemove.disabled = backgroundActionBusy || slotPresent !== true;
       }
@@ -722,9 +811,6 @@
         .then(function (d) {
           refreshAppearanceFromStatus(d);
           return d;
-        }, function (error) {
-          applyBgStatusToSlots(null);
-          return Promise.reject(error);
         });
     }
 
@@ -739,9 +825,39 @@
           .then(readResponse)
           .then(function (result) {
             if (result.httpOk && result.json && result.json.ok === true) {
-              setState(stateEl, 'Image removed from this theme slot.', 'success');
+              var queuedRemove = result.json.queued === true || result.json.queued === 'true';
+              slotPresent = false;
               setFsLine(fsLine, slot, false, 0);
-              return pullStatus().catch(function () {});
+              updateActions();
+              if (queuedRemove) {
+                setState(stateEl, 'Waiting for the current background to finish loading…', '');
+                return waitForSlotGone(slot)
+                  .then(function () {
+                    return waitForBackgroundIdle(0);
+                  })
+                  .then(function () {
+                    setState(stateEl, 'Image removed from this theme slot.', 'success');
+                  })
+                  .catch(function () {
+                    setState(
+                      stateEl,
+                      'Image removed from this theme slot. Live status refresh failed.',
+                      'success'
+                    );
+                  });
+              }
+              setState(stateEl, 'Image removed from this theme slot.', 'success');
+              return pullStatus()
+                .then(function () {
+                  return waitForBackgroundIdle(0);
+                })
+                .catch(function () {
+                  setState(
+                    stateEl,
+                    'Image removed from this theme slot. Live status refresh failed.',
+                    'success'
+                  );
+                });
             }
             applySlotStatus(null);
             setState(stateEl, 'Remove failed: ' + responseError(result, 'failed'), 'error');
@@ -770,39 +886,38 @@
       hasImage = false;
       updateActions();
       setState(stateEl, 'Preparing selected image…', '');
-      var url = URL.createObjectURL(f);
-      var img = new Image();
-      img.onload = function () {
-        URL.revokeObjectURL(url);
-        if (selectionGen !== imageSelectionGen) {
-          return;
-        }
-        if (!dspW || !dspH) {
-          setState(stateEl, 'Image could not be prepared because the device size is unavailable.', 'error');
-          return;
-        }
-        workCanvas.width = dspW;
-        workCanvas.height = dspH;
-        var wctx = workCanvas.getContext('2d');
-        drawCoverCenter(wctx, img, dspW, dspH);
-        drawPreview(preview, workCanvas);
-        hasImage = true;
-        updateActions();
-        setState(stateEl, 'Ready to upload.', '');
-      };
-      img.onerror = function () {
-        URL.revokeObjectURL(url);
-        if (selectionGen !== imageSelectionGen) {
-          return;
-        }
-        updateActions();
-        setState(stateEl, 'Image could not be loaded.', 'error');
-      };
-      img.src = url;
+      decodeBrowserImage(f)
+        .then(function (src) {
+          if (selectionGen !== imageSelectionGen) {
+            if (src && typeof src.close === 'function') {
+              src.close();
+            }
+            return;
+          }
+          paintFittedCanvas(workCanvas, src);
+          if (src && typeof src.close === 'function') {
+            src.close();
+          }
+          drawPreview(preview, workCanvas);
+          hasImage = true;
+          updateActions();
+          setState(
+            stateEl,
+            'Ready to upload (' + workCanvas.width + '\u00d7' + workCanvas.height + ' JPEG).',
+            ''
+          );
+        })
+        .catch(function () {
+          if (selectionGen !== imageSelectionGen) {
+            return;
+          }
+          updateActions();
+          setState(stateEl, 'Image could not be loaded.', 'error');
+        });
     });
 
     btnUpload.addEventListener('click', function () {
-      if (!hasImage || !dspW) {
+      if (!hasImage) {
         return;
       }
       if (backgroundActionBusy) {
@@ -811,35 +926,59 @@
       }
       setBackgroundActionsBusy(true);
       setState(stateEl, 'Uploading processed image…', '');
-      var bin = canvasToLvglBin(workCanvas);
-      var blob = new Blob([bin], { type: 'application/octet-stream' });
-      var fd = new FormData();
-      fd.append('file', blob, 'main_' + slot + '.bin');
-      var url = apiBase() + uploadPath() + '?slot=' + encodeURIComponent(slot);
-      fetch(url, { method: 'POST', body: fd })
-        .then(readResponse)
+      canvasToJpegBlob(workCanvas)
+        .then(function (blob) {
+          function postOnce() {
+            var fd = new FormData();
+            fd.append('file', blob, 'user_' + slot + '.jpg');
+            var url = apiBase() + uploadPath() + '?slot=' + encodeURIComponent(slot);
+            return fetch(url, { method: 'POST', body: fd }).then(readResponse);
+          }
+          function postRetry(attempt) {
+            return postOnce().then(function (result) {
+              if (result.json && result.json.error === 'busy' && attempt < 15) {
+                return delay(200).then(function () {
+                  return postRetry(attempt + 1);
+                });
+              }
+              return result;
+            });
+          }
+          return postRetry(0);
+        })
         .then(function (result) {
           var j = result.json;
-          /* One real success: JSON from handleUploadBg after commit — not empty 200 from onRequest / Один ответ после commit */
+          var queued = j && (j.queued === true || j.queued === 'true');
           var okCommit =
             result.httpOk &&
             j &&
             j.ok === true &&
-            (j.target_exists === true || j.target_exists === 'true') &&
-            Number(j.final_size) > 0;
+            (queued ||
+              ((j.target_exists === true || j.target_exists === 'true') &&
+                Number(j.final_size) > 0));
           if (!okCommit) {
             applySlotStatus(null);
             setState(stateEl, 'Upload failed: ' + responseError(result, 'invalid response'), 'error');
             return;
           }
-          return fetchAppearanceStatus()
+          var expected = queued ? Number(j.written_bytes) : Number(j.final_size);
+          slotPresent = true;
+          setFsLine(fsLine, slot, true, expected);
+          updateActions();
+          if (queued) {
+            setState(stateEl, 'Waiting for the current background to finish loading…', '');
+          }
+          return waitForSlotFile(slot, expected)
             .then(function (d) {
               refreshAppearanceFromStatus(d);
               setState(stateEl, 'Uploaded to device.', 'success');
+              if (d && String(d.active_theme) === slot) {
+                return waitForBackgroundIdle(0);
+              }
+              return d;
             })
             .catch(function () {
-              applyBgStatusToSlots(null);
-              setState(stateEl, 'Uploaded to device; status refresh failed.', 'success');
+              setState(stateEl, 'Uploaded to device; live status refresh failed.', 'success');
             });
         })
         .catch(function () {
@@ -858,32 +997,21 @@
     var dimEl = document.getElementById('bg-device-dim');
     fetchAppearanceStatus()
       .then(function (data) {
-        dspW = parseInt(data.dsp_w, 10) || 0;
-        dspH = parseInt(data.dsp_h, 10) || 0;
         if (dimEl) {
-          dimEl.textContent = 'Images are center-cropped to ' + dspW + ' × ' + dspH + ' and converted before upload.';
+          dimEl.textContent =
+            'Images keep their aspect ratio. The longest side is limited to 1280 px (no upscale, crop, or stretch). The browser converts the file to JPEG before upload. Factory art remains the fallback.';
         }
         var slots = root.querySelectorAll('.bg-slot');
-        var maxPrev = 200;
         var i;
         for (i = 0; i < slots.length; i++) {
-          var prev = slots[i].querySelector('.bg-slot-preview');
-          if (prev && dspW > 0 && dspH > 0) {
-            if (dspW >= dspH) {
-              prev.width = maxPrev;
-              prev.height = Math.max(1, Math.round(maxPrev * dspH / dspW));
-            } else {
-              prev.height = maxPrev;
-              prev.width = Math.max(1, Math.round(maxPrev * dspW / dspH));
-            }
-          }
           wireSlot(slots[i]);
         }
         refreshAppearanceFromStatus(data);
       })
       .catch(function () {
         if (dimEl) {
-          dimEl.textContent = 'The device image size is unavailable. Connect to the device and reload this page.';
+          dimEl.textContent =
+            'Images keep their aspect ratio. The longest side is limited to 1280 px (no upscale, crop, or stretch). The browser converts the file to JPEG before upload. Factory art remains the fallback.';
         }
         var slots = root.querySelectorAll('.bg-slot');
         var i;

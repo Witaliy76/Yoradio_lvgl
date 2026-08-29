@@ -27,6 +27,10 @@
 #include "../ai/ai_subsystem.h"
 #include "../ai/ai_log.h"  // AI Layer logging macros
 
+namespace {
+void bgTryFinalizePending();
+}
+
 // Forward declarations for AI config functions from config.cpp / Forward объявления для функций AI config из config.cpp
 // AIConfig structure is now defined in config.h (included above)
 // Структура AIConfig теперь определена в config.h (включена выше)
@@ -642,6 +646,7 @@ void NetServer::loop() {
     sm::systemRestart();
   }
   websocket.cleanupClients();
+  bgTryFinalizePending();
   switch (importRequest) {
     case IMPL:    importPlaylist();  importRequest = IMDONE; break;
     case IMWIFI:  config.saveWifi(); importRequest = IMDONE; break;
@@ -1322,12 +1327,14 @@ void NetServer::resetQueue(){
 }
 
 // ---------------------------------------------------------------------------
-// Stage 6.1F-d: Main background slots — POST /upload_bg, GET /bg_status
-// Слоты фона Main: загрузка .bin в /bg/main_*.bin, JSON статус для WebUI
+// Main background slots — POST /upload_bg, POST /remove_bg, GET /bg_status
+// User JPEG: /bg/user_{dark,light,custom}.jpg (factory /bg/main_*.jpg never overwritten)
+// Слоты фона: пользовательский JPEG; заводские /bg/main_*.jpg не перезаписываются.
 // ---------------------------------------------------------------------------
 namespace {
 
 static const char kBgTmpPath[] = "/bg/.upload_bg.tmp";
+static constexpr size_t kBgJpegMaxBytes = 1024u * 1024u; // canonical WebUI JPEG, not RGB565 .bin / канонический JPEG, не .bin
 
 // YoRadio on-disk image header (4 bytes LE, unchanged since LVGL 8.x; BASE-LVGL9-MIGRATION keeps
 // this contract — see lv_img_disk_header.h for the LVGL 9 in-memory translation).
@@ -1365,25 +1372,126 @@ static bool bgPrepareSlotForUpload(AsyncWebServerRequest* request) {
   }
   String slot = request->getParam("slot")->value();
   if (slot == "dark") {
-    strlcpy(gBgDestPath, "/bg/main_dark.bin", sizeof(gBgDestPath));
+    strlcpy(gBgDestPath, "/bg/user_dark.jpg", sizeof(gBgDestPath));
   } else if (slot == "light") {
-    strlcpy(gBgDestPath, "/bg/main_light.bin", sizeof(gBgDestPath));
+    strlcpy(gBgDestPath, "/bg/user_light.jpg", sizeof(gBgDestPath));
   } else if (slot == "custom") {
-    strlcpy(gBgDestPath, "/bg/main_custom.bin", sizeof(gBgDestPath));
+    strlcpy(gBgDestPath, "/bg/user_custom.jpg", sizeof(gBgDestPath));
   } else {
     request->send(400, "application/json", "{\"ok\":false,\"error\":\"bad_slot\"}");
     return false;
   }
   strlcpy(gBgSlotName, slot.c_str(), sizeof(gBgSlotName));
-  uint32_t w = LV_ACTIVE_PROFILE.width;
-  uint32_t h = LV_ACTIVE_PROFILE.height;
-  gBgExpectedSize = 4u + (size_t)w * (size_t)h * 2u;
+  gBgExpectedSize = kBgJpegMaxBytes;
   size_t freeB = LittleFS.totalBytes() - LittleFS.usedBytes();
-  if (freeB < gBgExpectedSize + 4096u) {
+  if (freeB < kBgJpegMaxBytes + 4096u) {
     request->send(507, "application/json", "{\"ok\":false,\"error\":\"insufficient_space\"}");
     return false;
   }
   return true;
+}
+
+struct BgFsPending {
+  bool valid = false;
+  bool is_remove = false;
+  char tmp[40] = {};
+  char dest[40] = {};
+  char slotName[12] = {};
+  uint8_t slot = 255;
+  size_t size = 0;
+};
+
+static BgFsPending s_bgPend;
+
+struct BgSourceFdTryLock {
+  bool owned = false;
+  BgSourceFdTryLock() { owned = lvgl_ui::mainBgTryLockSourceFd(); }
+  ~BgSourceFdTryLock() {
+    if (owned) {
+      lvgl_ui::mainBgUnlockSourceFd();
+    }
+  }
+  explicit operator bool() const { return owned; }
+  BgSourceFdTryLock(const BgSourceFdTryLock&) = delete;
+  BgSourceFdTryLock& operator=(const BgSourceFdTryLock&) = delete;
+};
+
+static uint8_t bgSlotIdFromName(const char* name) {
+  if (!name) return 255;
+  if (std::strcmp(name, "dark") == 0) return 0;
+  if (std::strcmp(name, "light") == 0) return 1;
+  if (std::strcmp(name, "custom") == 0) return 2;
+  return 255;
+}
+
+// Dest replace only after the JPEG worker has closed that path. / Замена dest только после close на worker.
+static bool bgInstallTmpToDest(const char* tmp, const char* dest) {
+  if (!tmp || !dest || dest[0] == '\0') return false;
+  if (LittleFS.exists(dest)) {
+    if (!LittleFS.remove(dest)) {
+      return false;
+    }
+  }
+  if (LittleFS.rename(tmp, dest)) {
+    return true;
+  }
+  File src = LittleFS.open(tmp, "r");
+  File dst = LittleFS.open(dest, "w");
+  if (!src || !dst) {
+    if (src) src.close();
+    if (dst) dst.close();
+    LittleFS.remove(tmp);
+    return false;
+  }
+  uint8_t buf[512];
+  bool ok = true;
+  while (src.available()) {
+    size_t rd = src.read(buf, sizeof(buf));
+    if (rd && dst.write(buf, rd) != rd) {
+      ok = false;
+      break;
+    }
+  }
+  src.close();
+  dst.close();
+  LittleFS.remove(tmp);
+  if (!ok) {
+    LittleFS.remove(dest);
+  }
+  return ok;
+}
+
+void bgTryFinalizePending() {
+  if (!s_bgPend.valid) return;
+  BgSourceFdTryLock fd;
+  if (!fd) return;
+  // Destination commit is its own persistence episode (RGB-RESYNC-ALL-RUNTIME-PERSISTENCE).
+  // An earlier HTTP tmp-write resync does not cover this remove/rename/copy.
+  // Коммит dest — отдельный эпизод персистентности; resync за tmp HTTP его не закрывает.
+  RgbResyncTransaction resync;
+  bool ok = true;
+  if (s_bgPend.is_remove) {
+    if (LittleFS.exists(s_bgPend.dest) && !LittleFS.remove(s_bgPend.dest)) {
+      ok = false;
+    }
+  } else {
+    ok = bgInstallTmpToDest(s_bgPend.tmp, s_bgPend.dest);
+  }
+  const uint8_t slot = s_bgPend.slot;
+  s_bgPend.valid = false;
+  s_bgPend.tmp[0] = '\0';
+  s_bgPend.dest[0] = '\0';
+  if (ok) {
+    resync.markFsMutated();
+    const uint8_t active = static_cast<uint8_t>(lvgl_ui::yoradio_theme_active_preset());
+    if (slot <= 2u && slot == active) {
+      display.putRequest(MAIN_BG_FS_UPDATED, static_cast<int>(slot));
+      resync.deferToDisplayEvent();
+    }
+    Serial.printf("[MAIN_BG] deferred FS commit ok slot=%u\n", (unsigned)slot);
+  } else {
+    Serial.printf("[MAIN_BG] deferred FS commit failed slot=%u\n", (unsigned)slot);
+  }
 }
 
 }  // namespace
@@ -1410,6 +1518,10 @@ void handleUploadBg(AsyncWebServerRequest* request, String filename, size_t inde
     gBgWrittenTotal = 0;
     if (gBgUploadFile) {
       gBgUploadFile.close();
+    }
+    if (s_bgPend.valid) {
+      request->send(409, "application/json", "{\"ok\":false,\"error\":\"busy\"}");
+      return;
     }
     if (!bgPrepareSlotForUpload(request)) {
       return;
@@ -1442,10 +1554,14 @@ void handleUploadBg(AsyncWebServerRequest* request, String filename, size_t inde
   }
 
   if (len && gBgUploadFile) {
-    size_t n = gBgUploadFile.write(data, len);
-    gBgWrittenTotal += n;
-    if (n != len) {
+    if (gBgWrittenTotal + len > kBgJpegMaxBytes) {
       gBgIoFatal = true;
+    } else {
+      size_t n = gBgUploadFile.write(data, len);
+      gBgWrittenTotal += n;
+      if (n != len) {
+        gBgIoFatal = true;
+      }
     }
   }
 
@@ -1475,74 +1591,57 @@ void handleUploadBg(AsyncWebServerRequest* request, String filename, size_t inde
     return;
   }
   size_t sz = vf.size();
-  if (sz != gBgExpectedSize) {
+  if (sz == 0) {
     vf.close();
     LittleFS.remove(kBgTmpPath);
-    request->send(400, "application/json", "{\"ok\":false,\"error\":\"size_mismatch\"}");
+    request->send(400, "application/json", "{\"ok\":false,\"error\":\"empty\"}");
     return;
   }
-  uint8_t hdr[4];
-  if (vf.read(hdr, 4) != 4) {
+  if (sz > kBgJpegMaxBytes) {
     vf.close();
     LittleFS.remove(kBgTmpPath);
-    request->send(400, "application/json", "{\"ok\":false,\"error\":\"header_short\"}");
+    request->send(400, "application/json", "{\"ok\":false,\"error\":\"too_large\"}");
     return;
   }
-  uint8_t cf = 0;
-  uint16_t iw = 0;
-  uint16_t ih = 0;
-  if (!bgParseImgHeader(hdr, &cf, &iw, &ih)) {
+  uint8_t soi[3] = {0, 0, 0};
+  if (vf.read(soi, 2) != 2 || soi[0] != 0xFFu || soi[1] != 0xD8u) {
     vf.close();
     LittleFS.remove(kBgTmpPath);
-    request->send(400, "application/json", "{\"ok\":false,\"error\":\"bad_header\"}");
-    return;
-  }
-  if (cf != kLvImgCfTrueColor) {
-    vf.close();
-    LittleFS.remove(kBgTmpPath);
-    request->send(400, "application/json", "{\"ok\":false,\"error\":\"cf_not_true_color\"}");
-    return;
-  }
-  if (iw != LV_ACTIVE_PROFILE.width || ih != LV_ACTIVE_PROFILE.height) {
-    vf.close();
-    LittleFS.remove(kBgTmpPath);
-    request->send(400, "application/json", "{\"ok\":false,\"error\":\"dimensions_mismatch\"}");
+    request->send(400, "application/json", "{\"ok\":false,\"error\":\"not_jpeg\"}");
     return;
   }
   vf.close();
 
-  if (LittleFS.exists(gBgDestPath)) {
-    LittleFS.remove(gBgDestPath);
+  const uint8_t uploaded = bgSlotIdFromName(gBgSlotName);
+  if (s_bgPend.valid) {
+    LittleFS.remove(kBgTmpPath);
+    request->send(409, "application/json", "{\"ok\":false,\"error\":\"busy\"}");
+    return;
   }
-  if (!LittleFS.rename(kBgTmpPath, gBgDestPath)) {
-    File src = LittleFS.open(kBgTmpPath, "r");
-    File dst = LittleFS.open(gBgDestPath, "w");
-    if (!src || !dst) {
-      if (src) {
-        src.close();
-      }
-      if (dst) {
-        dst.close();
-      }
-      LittleFS.remove(kBgTmpPath);
+  {
+    BgSourceFdTryLock fd;
+    if (!fd) {
+      s_bgPend.valid = true;
+      s_bgPend.is_remove = false;
+      strlcpy(s_bgPend.tmp, kBgTmpPath, sizeof(s_bgPend.tmp));
+      strlcpy(s_bgPend.dest, gBgDestPath, sizeof(s_bgPend.dest));
+      strlcpy(s_bgPend.slotName, gBgSlotName, sizeof(s_bgPend.slotName));
+      s_bgPend.slot = uploaded;
+      s_bgPend.size = sz;
+      Serial.printf("[MAIN_BG] upload queued until source FD released (%s)\n", gBgDestPath);
+      char qjson[300];
+      snprintf(qjson, sizeof(qjson),
+               "{\"ok\":true,\"queued\":true,\"slot\":\"%s\",\"path\":\"%s\",\"written_bytes\":%lu,\"final_size\":0,\"target_exists\":false}",
+               gBgSlotName[0] ? gBgSlotName : "unknown",
+               gBgDestPath,
+               (unsigned long)gBgWrittenTotal);
+      request->send(200, "application/json", qjson);
+      return;
+    }
+    if (!bgInstallTmpToDest(kBgTmpPath, gBgDestPath)) {
       request->send(500, "application/json", "{\"ok\":false,\"error\":\"commit_failed\"}");
       return;
     }
-    uint8_t buf[512];
-    while (src.available()) {
-      size_t rd = src.read(buf, sizeof(buf));
-      if (rd && dst.write(buf, rd) != rd) {
-        src.close();
-        dst.close();
-        LittleFS.remove(kBgTmpPath);
-        LittleFS.remove(gBgDestPath);
-        request->send(500, "application/json", "{\"ok\":false,\"error\":\"commit_copy\"}");
-        return;
-      }
-    }
-    src.close();
-    dst.close();
-    LittleFS.remove(kBgTmpPath);
   }
   size_t final_sz = 0;
   bool target_exists = LittleFS.exists(gBgDestPath);
@@ -1553,27 +1652,11 @@ void handleUploadBg(AsyncWebServerRequest* request, String filename, size_t inde
       committed.close();
     }
   }
-  // Invalidate Main PSRAM bg when WebUI overwrote the active theme slot (DspTask reload).
-  // Сброс кэша фона: только если залитый слот совпадает с активным пресетом — иначе очередь не трогаем.
-  {
-    uint8_t uploaded = 255;
-    if (std::strcmp(gBgSlotName, "dark") == 0) {
-      uploaded = 0;
-    } else if (std::strcmp(gBgSlotName, "light") == 0) {
-      uploaded = 1;
-    } else if (std::strcmp(gBgSlotName, "custom") == 0) {
-      uploaded = 2;
-    }
-    if (uploaded <= 2u) {
-      const uint8_t active = static_cast<uint8_t>(lvgl_ui::yoradio_theme_active_preset());
-      if (uploaded == active) {
-        display.putRequest(MAIN_BG_FS_UPDATED, static_cast<int>(uploaded));
-        // Reload handler closes the window. An inactive slot queues nothing, so the guard still
-        // owes the resync — that upload wrote just as many bytes.
-        // Обработчик reload закрывает окно. Для неактивного слота событие не ставится, и ресинхрон
-        // остаётся за guard — байт записано столько же.
-        resync.deferToDisplayEvent();
-      }
+  if (uploaded <= 2u) {
+    const uint8_t active = static_cast<uint8_t>(lvgl_ui::yoradio_theme_active_preset());
+    if (uploaded == active) {
+      display.putRequest(MAIN_BG_FS_UPDATED, static_cast<int>(uploaded));
+      resync.deferToDisplayEvent();
     }
   }
   char okjson[280];
@@ -1588,7 +1671,7 @@ void handleUploadBg(AsyncWebServerRequest* request, String filename, size_t inde
 }
 
 void handleRemoveBgHttp(AsyncWebServerRequest* request) {
-  // Delete slot file on LittleFS; missing file → ok / Удалить bin слота; нет файла → успех
+  // Delete user JPEG only; missing file → ok / Удалить только user JPEG; нет файла → успех
   if (!request->hasParam("slot")) {
     request->send(400, "application/json", "{\"ok\":false,\"error\":\"missing_slot\"}");
     return;
@@ -1597,13 +1680,13 @@ void handleRemoveBgHttp(AsyncWebServerRequest* request) {
   const char* path = nullptr;
   uint8_t removed = 255;
   if (slot == "dark") {
-    path = "/bg/main_dark.bin";
+    path = "/bg/user_dark.jpg";
     removed = 0;
   } else if (slot == "light") {
-    path = "/bg/main_light.bin";
+    path = "/bg/user_light.jpg";
     removed = 1;
   } else if (slot == "custom") {
-    path = "/bg/main_custom.bin";
+    path = "/bg/user_custom.jpg";
     removed = 2;
   } else {
     request->send(400, "application/json", "{\"ok\":false,\"error\":\"bad_slot\"}");
@@ -1618,6 +1701,23 @@ void handleRemoveBgHttp(AsyncWebServerRequest* request) {
   RgbResyncTransaction resync;
   bool deleted = false;
   if (LittleFS.exists(path)) {
+    if (s_bgPend.valid) {
+      request->send(409, "application/json", "{\"ok\":false,\"error\":\"busy\"}");
+      return;
+    }
+    BgSourceFdTryLock fd;
+    if (!fd) {
+      s_bgPend.valid = true;
+      s_bgPend.is_remove = true;
+      s_bgPend.tmp[0] = '\0';
+      strlcpy(s_bgPend.dest, path, sizeof(s_bgPend.dest));
+      strlcpy(s_bgPend.slotName, slot.c_str(), sizeof(s_bgPend.slotName));
+      s_bgPend.slot = removed;
+      s_bgPend.size = 0;
+      Serial.printf("[MAIN_BG] remove queued until source FD released (%s)\n", path);
+      request->send(200, "application/json", "{\"ok\":true,\"queued\":true}");
+      return;
+    }
     if (!LittleFS.remove(path)) {
       request->send(500, "application/json", "{\"ok\":false,\"error\":\"remove_failed\"}");
       return;
@@ -1830,7 +1930,7 @@ void handleSetThemeHttp(AsyncWebServerRequest* request) {
 
 void handleBgStatusHttp(AsyncWebServerRequest* request) {
   // Main background slots on LittleFS — read-only, defensive / Слоты фона Main, только чтение
-  static const char* const kBgPaths[3] = {"/bg/main_dark.bin", "/bg/main_light.bin", "/bg/main_custom.bin"};
+  static const char* const kBgPaths[3] = {"/bg/user_dark.jpg", "/bg/user_light.jpg", "/bg/user_custom.jpg"};
   bool bgOk[3] = {false, false, false};
   size_t bgSz[3] = {0, 0, 0};
   for (int i = 0; i < 3; i++) {

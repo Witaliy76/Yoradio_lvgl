@@ -1578,32 +1578,38 @@ void LvglMainScreen::reloadFileBackgroundFromLittlefs() {
     _bg_psram_dsc = {};
     uint8_t slot = static_cast<uint8_t>(yoradio_theme_active_preset());
     if (slot > 2) slot = 0;
-    mainBgCacheRequestAsync(mainBgJpegPathForSlot(slot));
+    mainBgCacheRequestAsync(mainBgResolvedJpegPathForSlot(slot));
     _applyBgTheme(true);
     if (_bg_scrim) {
         main_sync_dark_bg_scrim(_bg_img, _bg_scrim);
     }
 }
 
-void LvglMainScreen::refreshBackgroundFromCache() {
-    if (!_bg_img) return;
+bool LvglMainScreen::refreshBackgroundFromCache() {
+    if (!_bg_img) return false;
     _applyBgTheme(true);
     if (_bg_scrim) {
         main_sync_dark_bg_scrim(_bg_img, _bg_scrim);
     }
+    // Repair B: lv_img_set_src / clear HIDDEN may not dirty PARTIAL; next timer_handler must flush.
+    // Do not lv_refr_now / resync here — that is A2/D, not this seam.
+    // Repair B: src/HIDDEN могут не пометить PARTIAL dirty; flush на следующем timer_handler.
+    if (_bg_img) {
+        lv_obj_invalidate(_bg_img);
+    }
+    if (_screen) {
+        lv_obj_invalidate(_screen);
+    }
+    return true;
 }
 
 void LvglMainScreen::_applyBgTheme(bool force) {
     if (!_bg_img) return;
 
-    static const char* const k_fs[] = {
-        "/bg/main_dark.jpg",
-        "/bg/main_light.jpg",
-        "/bg/main_custom.jpg",
-    };
-
     uint8_t slot = static_cast<uint8_t>(yoradio_theme_active_preset());
     if (slot > 2) slot = 0;
+    const char* path = mainBgResolvedJpegPathForSlot(slot);
+    const char* factory = mainBgJpegPathForSlot(slot);
 
     // Missing/unreadable JPEG — hide image; screen keeps theme-colored background.
     // Нет/нечитаемый JPEG — скрыть картинку; экран остаётся цветом темы.
@@ -1614,7 +1620,8 @@ void LvglMainScreen::_applyBgTheme(bool force) {
 
     // Periodic update: slot still missing and already hidden — no lv_* churn.
     // Периодический update: файл по-прежнему отсутствует, фон уже скрыт — без лишних lv_*.
-    if (!force && slot == _bg_last_slot && _bg_absent_latched && !LittleFS.exists(k_fs[slot])) {
+    if (!force && slot == _bg_last_slot && _bg_absent_latched &&
+        !LittleFS.exists(path) && !LittleFS.exists(factory)) {
         return;
     }
 
@@ -1622,40 +1629,29 @@ void LvglMainScreen::_applyBgTheme(bool force) {
     // No lv_img_set_src → no LVGL invalidation → no LFS read on next frame.
     // Быстрый путь: буфер этого слота уже заимствован из кэша → только проверка удаления файла.
     if (!force && slot == _bg_last_slot && _bg_psram_buf != nullptr) {
-        if (!LittleFS.exists(k_fs[slot])) {
-            // File deleted from LittleFS: invalidate cache + clear borrowed pointer.
-            // Файл удалён из LittleFS: инвалидировать кэш + сбросить заимствованный указатель.
+        if (!LittleFS.exists(path) && !LittleFS.exists(factory)) {
             mainBgCacheInvalidate();
             _bg_psram_buf = nullptr;
             _bg_psram_dsc = {};
             hide_bg_missing_file();
             _bg_absent_latched = true;
         }
-        return; // No lv_img_set_src → no LVGL invalidation → no LFS read on next frame
+        return;
     }
 
-    // Slow path: slot changed, forced reload, or no buffer yet.
-    // W2G-A: do NOT free _bg_psram_buf here — the cache owns the allocation.
-    //        Just clear the borrowed pointer and update the slot tracker.
-    // Медленный путь: смена слота, принудительная загрузка или буфер ещё не создан.
-    // W2G-A: не освобождать _bg_psram_buf — буфер принадлежит кэшу; только очищаем заимствованный указатель.
     _bg_psram_buf = nullptr;
     _bg_psram_dsc = {};
     _bg_last_slot = slot;
 
-    if (!LittleFS.exists(k_fs[slot])) {
+    if (!LittleFS.exists(path) && !LittleFS.exists(factory)) {
         hide_bg_missing_file();
         _bg_absent_latched = true;
         return;
     }
 
-    // Cache hit only (boot preload or worker). Miss → hide; theme-colored Main remains visible.
-    // _bg_psram_buf borrows the pointer from the cache; must NOT be freed in destroy/release.
-    // Только попадание в кэш (boot или worker). Промах → скрыть; остаётся цвет темы.
-    // _bg_psram_buf заимствует указатель у кэша; в destroy/release НЕ освобождать.
     _bg_absent_latched = false;
-    if (mainBgCacheGet(k_fs[slot], _bg_psram_dsc)) {
-        _bg_psram_buf = const_cast<uint8_t*>(_bg_psram_dsc.data); // borrowed / заимствован
+    if (mainBgCacheGet(path, _bg_psram_dsc) || mainBgCacheGet(factory, _bg_psram_dsc)) {
+        _bg_psram_buf = const_cast<uint8_t*>(_bg_psram_dsc.data);
         lv_img_set_src(_bg_img, &_bg_psram_dsc);
         lv_obj_clear_flag(_bg_img, LV_OBJ_FLAG_HIDDEN);
         _syncBgImgLayout();

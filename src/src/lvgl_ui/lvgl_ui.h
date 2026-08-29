@@ -79,6 +79,11 @@ void refreshSettingsScreen();
 // force_full_redraw: инвалидация всего экрана + немедленный flush — нужно после смены ориентации.
 void refreshMainScreenFromSettings(bool force_full_redraw = false);
 
+// Repair A2: invalidate + lv_refr_now of lv_scr_act() (DspTask). No page navigation.
+// Returns false if the display driver / active screen is not ready (caller still resyncs).
+// Repair A2: инвалидация + немедленный flush текущего экрана. Без смены страницы.
+bool tryRedrawActiveScreenNow();
+
 // Stage 6.1F-d: WebUI committed /bg/main_*.bin — reload Main PSRAM bg if slot matches active preset (DspTask queue only).
 // После upload_bg: перечитать фон в PSRAM только для активного слота темы; только из обработчика displayQueue.
 void onMainBackgroundSlotCommitted(uint8_t slot);

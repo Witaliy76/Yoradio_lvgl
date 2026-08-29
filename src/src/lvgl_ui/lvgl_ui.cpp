@@ -495,7 +495,10 @@ void lvgl_ui::onThemePresetChanged(uint8_t preset_id) {
     yoradio_theme_set_preset(next);
 
     mainBgCacheInvalidate();
-    mainBgCacheRequestAsync(mainBgJpegPathForSlot(static_cast<uint8_t>(next)));
+    Serial.printf("[MAIN_BG] Theme changed: %s\n",
+                  (next == ThemePreset::Light) ? "Light" :
+                  (next == ThemePreset::Custom) ? "Custom" : "Dark");
+    mainBgCacheRequestAsync(mainBgResolvedJpegPathForSlot(static_cast<uint8_t>(next)));
 
     // Stage 6.6R-E: persist preset name to /data/theme.dat (LittleFS, not NVS/config_t).
     // Этап 6.6R-E: сохранить пресет в /data/theme.dat.
@@ -695,6 +698,17 @@ void lvgl_ui::refreshMainScreenFromSettings(bool force_full_redraw) {
     }
 }
 
+bool lvgl_ui::tryRedrawActiveScreenNow() {
+    // s_disp is set only after initDisplayDriver — the existing readiness gate.
+    // s_disp появляется только после initDisplayDriver — существующий гейт готовности.
+    if (!s_disp) return false;
+    lv_obj_t* scr = lv_scr_act();
+    if (!scr) return false;
+    lv_obj_invalidate(scr);
+    lv_refr_now(NULL);
+    return true;
+}
+
 // 8-E19B: LVGL-only mode routing — direct PageChain/overlay dispatch, no backend selection.
 // 8-E19B: только LVGL маршрутизация режимов — прямой PageChain/overlay, без выбора backend.
 void lvgl_ui::onModeChanged(displayMode_e mode, displayMode_e prev_mode) {
@@ -817,7 +831,19 @@ void lvgl_ui::bootPrepareActiveMainBackgroundIfNeeded() {
 
 void lvgl_ui::mainBgPollRuntimeApply() {
     if (!mainBgCachePollApply()) return;
-    s_main_screen.refreshBackgroundFromCache();
+    if (s_main_screen.refreshBackgroundFromCache()) {
+        Serial.println("[MAIN_BG] Applied to Main");
+        // Repair D: JPEG/PSRAM work after persistence resync can desync scanout again.
+        // Stable current frame (A2 helper) then existing RGB resync — not before src/HIDDEN.
+        // Repair D: JPEG/PSRAM после persistence-resync снова сбивает scanout.
+        // Сначала стабильный кадр (хелпер A2), затем штатный RGB resync — не до src/HIDDEN.
+        if (tryRedrawActiveScreenNow()) {
+            display.requestRgbResync();
+            Serial.println("[MAIN_BG] post-apply display recovery");
+        }
+    } else {
+        Serial.println("[MAIN_BG] Background cache ready; Main not active");
+    }
 }
 
 bool lvgl_ui::mainBgBootPrepareDone() {

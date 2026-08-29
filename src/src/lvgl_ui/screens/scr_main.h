@@ -52,8 +52,9 @@ public:
     void reloadFileBackgroundFromLittlefs();
 
     // DspTask: JPEG cache already filled (boot or worker) — apply without decode.
-    // DspTask: кэш JPEG уже готов (boot или worker) — применить без decode.
-    void refreshBackgroundFromCache();
+    // Returns true if a live Main `_bg_img` was updated (caller may invalidate/log).
+    // DspTask: кэш JPEG уже готов — применить без decode. true = живой `_bg_img` обновлён.
+    bool refreshBackgroundFromCache();
 
     // Station Art MVP: WebUI committed upload_art / remove_art — force art reload (DspTask only).
     // Station Art MVP: после upload_art / remove_art — принудительно перезагрузить арт (только DspTask).

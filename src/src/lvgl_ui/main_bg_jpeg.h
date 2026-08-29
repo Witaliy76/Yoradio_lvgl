@@ -16,6 +16,10 @@
 namespace lvgl_ui {
 
 const char* mainBgJpegPathForSlot(uint8_t slot);
+const char* mainBgUserJpegPathForSlot(uint8_t slot);
+// User JPEG if present, else factory. Pointers are static literals — do not free.
+// Пользовательский JPEG если есть, иначе заводской. Указатели — литералы.
+const char* mainBgResolvedJpegPathForSlot(uint8_t slot);
 
 void mainBgCacheInvalidate();
 
@@ -37,6 +41,13 @@ bool mainBgCachePollApply();
 // Runtime JPEG job not yet installed on DspTask (WebUI /bg_status). Boot preload is not included.
 // Runtime JPEG ещё не установлен на DspTask. Boot preload сюда не входит.
 bool mainBgCacheRuntimeBusy();
+
+// Try-lock the source-file FD window. Non-blocking: false → worker/boot still has a source File open.
+// Try-lock окна FD источника. Non-blocking: false — worker/boot ещё держит File открытым.
+// Hold only around LittleFS open/read/close, never during TJPGD/scale. Caller must Unlock after mutate.
+// Держать только вокруг open/read/close, не во время TJPGD/scale. После mutate — Unlock.
+bool mainBgTryLockSourceFd();
+void mainBgUnlockSourceFd();
 
 }  // namespace lvgl_ui
 

@@ -531,8 +531,14 @@ void Display::loop() {
           break;
         }
         // Queued resync from a non-display task (AI config/prompt persistence, playlist import).
-        // Ресинхрон из не-display задачи (persistence AI config/prompt, импорт плейлиста).
+        // Repair A2: redraw the CURRENT active screen first, then scanout restart.
+        // EARLY boot still calls _performRgbResync() directly (this case is not used there).
+        // Ресинхрон из не-display задачи. A2: сначала кадр текущего экрана, затем restart.
+        // Ранний boot по-прежнему зовёт _performRgbResync() напрямую.
         case RGB_RESYNC: {
+          if (lvgl_ui::tryRedrawActiveScreenNow()) {
+            Serial.println("[DISPLAY] persistence recovery: redraw current frame -> RGB resync");
+          }
           _performRgbResync();
           break;
         }
