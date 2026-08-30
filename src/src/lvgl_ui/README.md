@@ -97,7 +97,8 @@ PSRAM cache. Visual and screensaver RGB565 `.bin` files keep the existing YoRadi
 to an in-memory LVGL 9 `lv_image_header_t` / `lv_image_dsc_t`; those families were not
 converted to a new disk format. Static RGB565A8 screensaver sprites are different: they use the
 LVGL 9 color-plane-then-alpha-plane representation. Normal text and icons are two
-embedded TTF assets opened by TinyTTF (`fonts/readme_fonts.md`). The compiled
+embedded TTF assets opened by TinyTTF (`fonts/readme_fonts.md`), plus an optional
+LittleFS `/fonts/user.ttf` for normal text only. The compiled
 `lv_font_yora_montserrat_16_cyr` emergency face remains LVGL 9 `fmt_txt` ABI.
 
 ## Fonts
@@ -106,11 +107,12 @@ Ordinary firmware uses TinyTTF, not a per-size compiled C ladder.
 
 | Asset | Role |
 |-------|------|
-| `fonts/yoradio_factory_font.ttf` | multilingual factory text; `FontProvider::text(px)` |
+| `fonts/yoradio_factory_font.ttf` | multilingual factory text; `FontProvider::text(px)` when no valid user file |
+| LittleFS `/fonts/user.ttf` | optional user text TTF (runtime, PSRAM copy, 512 KiB cap, reboot to apply) |
 | `fonts/yoradio_tabler.ttf` | 34-glyph Tabler subset; `FontProvider::icon(px)` |
 | `fonts/lv_font_yora_montserrat_16_cyr.c` | emergency 16 px only |
 
-Pixel size is a runtime request. Current S3 glyph cache policy is text **P64** and icons **P8**. There is no production font prewarm. A normal PlatformIO build embeds the two TTF files (`board_build.embed_files`) and does **not** run fontTools. User-uploadable `L:/fonts/user.ttf` is deferred. SHA256 and coverage: [`fonts/readme_fonts.md`](fonts/readme_fonts.md).
+Pixel size is a runtime request. Current S3 glyph cache policy is text **P64** and icons **P8**. There is no production font prewarm. A normal PlatformIO build embeds the two TTF files (`board_build.embed_files`) and does **not** run fontTools. Optional user text is **not** embedded: it is uploaded through WebUI Appearance to `/fonts/user.ttf`. SHA256 and coverage: [`fonts/readme_fonts.md`](fonts/readme_fonts.md).
 
 ## Related tracked docs
 

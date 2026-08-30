@@ -10,12 +10,71 @@ sources.
 face. Она **не** запускает fontTools, не делает subset и не читает полные
 источники Montserrat/Tabler.
 
-Future optional user font (`L:/fonts/user.ttf`) is deferred. Intended policy:
-absent → factory; valid → user; invalid → factory + warning; TinyTTF failure →
-emergency 16.
+Optional user text TTF is a **runtime LittleFS file**, not an embedded firmware
+asset and not an authoring/build-time dependency.
 
-Отложенный пользовательский шрифт (`L:/fonts/user.ttf`): нет файла → factory;
-валидный → user; невалидный → factory + предупреждение; отказ TinyTTF → emergency 16.
+Необязательный пользовательский текстовый TTF — **runtime-файл LittleFS**, а не
+встроенный ассет прошивки и не зависимость сборки.
+
+## Optional user text TTF / Необязательный пользовательский TTF
+
+**English**
+
+- Canonical path: `/fonts/user.ttf` (LittleFS)
+- Role: optional replacement for **normal product text only**
+- Not listed in `board_build.embed_files`
+- Boot copies a valid file into PSRAM once (`ps_malloc` exact size), closes
+  LittleFS, then `lv_tiny_ttf_create_data_ex`; the source buffer stays for the
+  FontProvider lifetime
+- Cap: **512 KiB** (`USER_TTF_MAX_BYTES = 524288`)
+- Format: TTF only, sfnt `0x00010000`, TrueType glyf/loca. Reject OTTO / CFF /
+  CFF2, TTC, `typ1` / `true`, variable-font `fvar` / `gvar` / `avar`
+- Apply: reboot required; no hot-swap; no automatic reboot; WebUI Appearance
+  may offer **Reboot now**
+- No NVS selector: presence of the canonical file is the persisted choice
+- Upload: temp → streaming 512 KiB cap → bounded structural validator →
+  canonical commit. A rejected upload keeps the previous canonical file
+- Validator runs **before** TinyTTF/stb. stb/TinyTTF is **not** a security
+  boundary for deliberately hostile fonts; the product validator is a bounded
+  format/buffer-safety gate for the supported TTF contract
+- Repository samples (optional, not firmware): `fonts/samples/Play-Regular.ttf`,
+  `fonts/samples/PT_Sans-Web-Regular.ttf` (SIL OFL 1.1)
+
+Normal product boot source precedence:
+
+```text
+valid /fonts/user.ttf  → user TinyTTF (same px, kerning NONE)
+otherwise              → embedded factory TinyTTF
+hard backend fallback  → compiled multilingual 16px
+icons                  → embedded Tabler only
+```
+
+Per-glyph miss walks `font->fallback`: user → factory same size → emergency 16.
+
+**Русский**
+
+- Канонический путь: `/fonts/user.ttf` (LittleFS)
+- Роль: необязательная замена **обычного текста продукта**
+- Не входит в `board_build.embed_files`
+- Boot один раз копирует валидный файл в PSRAM (`ps_malloc` точного размера),
+  закрывает LittleFS и вызывает `lv_tiny_ttf_create_data_ex`; буфер живёт
+  вместе с FontProvider
+- Лимит: **512 КиБ**
+- Формат: только TTF, sfnt `0x00010000`, TrueType glyf/loca
+- Применение: reboot; без hot-swap и без автоматической перезагрузки
+- Нет селектора NVS: файл и есть сохранённый выбор
+- stb/TinyTTF **не** граница доверия против враждебных шрифтов
+- Примеры в репозитории: Play и PT Sans (`fonts/samples/`), SIL OFL 1.1; в
+  прошивку не встраиваются
+
+Порядок источника на boot:
+
+```text
+валидный /fonts/user.ttf  → user TinyTTF
+иначе                     → встроенный factory TinyTTF
+жёсткий отказ backend     → compiled multilingual 16px
+иконки                    → только встроенный Tabler
+```
 
 ---
 

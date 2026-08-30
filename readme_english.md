@@ -4,15 +4,15 @@
 
 YoRadio LVGL is an ESP32-S3 Wi-Fi radio with a square touchscreen. Its interface is built on LVGL 9.5 and uses a six-page PageChain, with dedicated Wi-Fi Setup / Recovery, Preset Temporary, and Screensaver screens.
 
-The device is accompanied by a Web UI for playback, stations, behavior settings, and Appearance controls for themes, Main screen backgrounds, and station artwork. The default audio configuration uses an external I2S DAC or amplifier.
+The device is accompanied by a Web UI for playback, stations, behavior settings, and Appearance controls for themes, Main screen backgrounds, station artwork, and an optional user text TTF. The default audio configuration uses an external I2S DAC or amplifier.
 
 The project is based on [e2002/yoradio](https://github.com/e2002/yoradio). The current repository is [Witaliy76/Yoradio_lvgl](https://github.com/Witaliy76/Yoradio_lvgl).
 
 > **Public version:** `0.9.434m-r2-lvgl-beta.2`
-> **Current source:** `0.9.434m-r2-lvgl-beta.2-s5.3`
+> **Current source:** `0.9.434m-r2-lvgl-beta.2-s5.5`
 > **Validated board:** ESP32-4848S040
 
-> **Note for ESP32-S3 4848S040:** while data is being written to internal flash — for example during a large playlist upload, background or Station Art upload, or when settings are persisted — the display may briefly shift horizontally. After the write operation finishes, the firmware automatically resynchronizes the RGB scanout and the image returns to normal. This is an expected characteristic of the current display configuration; no reboot is required.
+> **Note for ESP32-S3 4848S040:** while data is being written to internal flash — for example during a large playlist upload, background or Station Art upload, a user text-font upload, or when settings are persisted — the display may briefly shift horizontally. After the write operation finishes, the firmware automatically resynchronizes the RGB scanout and the image returns to normal. This is an expected characteristic of the current display configuration; no reboot is required.
 
 <p align="center">
   <img src="readme/english/device-front.jpg" alt="YoRadio LVGL device" width="450">
@@ -40,10 +40,16 @@ Each page has a distinct role: Main is for listening, Visual for atmosphere, Inf
 - Web UI for playback, stations, settings, Appearance, and firmware updates.
 - Dark, Light, and Custom themes, station artwork, and separate Main backgrounds for each theme.
 - Compile-time RU / EN / PL / SK interface localization.
-- Scalable TTF fonts and Tabler icons with RU / EN / PL / SK support.
+- Scalable TTF fonts and Tabler icons with RU / EN / PL / SK support; optional user replacement of normal text via Appearance.
 - Optional AI Layer as a quiet information layer over music.
 
 ## Change history
+
+### 30 August 2026 — 0.9.434m-r2-lvgl-beta.2-s5.5
+
+Appearance can upload a user **TTF** for normal interface text (512 KiB maximum). A reboot is required to apply it; the live font does not hot-swap, and the device does not reboot by itself. If the file is missing or rejected, factory text remains. Play and PT Sans samples are in the repository and are not embedded in firmware.
+
+Public beta remains `0.9.434m-r2-lvgl-beta.2`. This is not a separate public release.
 
 ### 29 August 2026 — 0.9.434m-r2-lvgl-beta.2-s5.3
 
@@ -241,6 +247,12 @@ The browser accepts common image formats and keeps the original aspect ratio. Th
   <img src="readme/english/webui-custom-background-guide.png" alt="Custom theme background setup" width="700">
 </p>
 
+### User text font
+
+Normal interface text can be replaced with a **TTF** file (not OTF, and not icons). Upload and remove it in Web UI → Appearance. Maximum size is **512 KiB**. A **reboot** is required after a successful upload; the live font does not change immediately, and there is no automatic reboot. Appearance also offers an optional **Reboot now** button.
+
+If no user file is present or the file is rejected, factory Montserrat remains. Tabler icons are unchanged. Optional Play and PT Sans samples live in [`fonts/samples/`](fonts/samples/); they are not firmware assets and are not copied into LittleFS at build time.
+
 ## Differences from upstream
 
 This fork develops YoRadio as a touchscreen device with an LVGL interface and board-specific hardware profiles. Compared with [e2002/yoradio](https://github.com/e2002/yoradio), it adds:
@@ -249,7 +261,7 @@ This fork develops YoRadio as a touchscreen device with an LVGL interface and bo
 - scalable embedded TTF fonts (TinyTTF) instead of a per-size compiled font ladder;
 - a six-page navigation ring plus dedicated Boot, Wi-Fi, Preset Temporary, and Screensaver modes;
 - a Beocord-inspired Visual with defined signal ballistics;
-- Web UI Appearance controls for themes, an editable Custom palette, independent Main backgrounds, and station artwork;
+- Web UI Appearance controls for themes, an editable Custom palette, independent Main backgrounds, station artwork, and an optional user text TTF;
 - a weather request path with retries and resolver fallback;
 - matched network and TLS library profiles for demanding streams and HTTPS requests during playback;
 - LittleFS;
@@ -317,7 +329,7 @@ The rebuilt **esp_lcd** is what the RGB display needs: the automatic per-VSYNC R
 - The Windows build is device-verified. Building with the local overlay on Linux/macOS has not been exercised yet — that is an open portability item, not a known firmware problem.
 - All of the above applies to source builds only. Ready-to-flash packages in `build_bin/` are already built with the required library set.
 - Select the interface language in `src/myoptions.h` with `L10N_LANGUAGE`: `RU`, `EN`, `PL`, or `SK`. There is no runtime language switch.
-- A normal build embeds two ready TTF files from [`src/src/lvgl_ui/fonts/`](src/src/lvgl_ui/fonts/) (`readme_fonts.md`) in application Flash. You do not generate fonts by hand, install fontTools, or upload a factory TTF through LittleFS.
+- A normal build embeds two ready TTF files from [`src/src/lvgl_ui/fonts/`](src/src/lvgl_ui/fonts/) (`readme_fonts.md`) in application Flash. You do not generate fonts by hand, install fontTools, or upload a factory TTF through LittleFS. Optional user text is uploaded separately through the Web UI (`/fonts/user.ttf`). Samples in [`fonts/samples/`](fonts/samples/) are not part of the firmware.
 
 ## Credits
 
