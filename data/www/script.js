@@ -102,7 +102,10 @@ function onMessage(event) {
     return;
   }
   if(typeof data.redirect !== 'undefined'){
-    document.getElementById("mdnsnamerow").innerHTML=`<h3 style="line-height: 37px;color: #aaa; margin: 0 auto;">redirecting to ${data.redirect}</h3>`;
+    var mdnsRow = document.getElementById("mdnsnamerow");
+    if (mdnsRow) {
+      mdnsRow.innerHTML=`<h3 style="line-height: 37px;color: #aaa; margin: 0 auto;">redirecting to ${data.redirect}</h3>`;
+    }
     setTimeout(function(){ window.location.href=data.redirect; }, 4000);
     return;
   }

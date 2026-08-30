@@ -1,7 +1,7 @@
 /**
  * User text font upload/remove/status for Appearance.
  * Пользовательский текстовый TTF: загрузка, удаление, статус.
- * Apply requires reboot; no live preview.
+ * Apply requires reboot; no live preview. Reboot is user-initiated (existing WS rebootmdns).
  * Author: Witaliy76 - https://github.com/Witaliy76
  */
 (function () {
@@ -38,10 +38,15 @@
   var chooseBtn = document.getElementById('user-font-choose');
   var uploadBtn = document.getElementById('user-font-upload');
   var removeBtn = document.getElementById('user-font-remove');
+  var rebootBtn = document.getElementById('user-font-reboot');
   var selectedEl = document.getElementById('user-font-selected');
   var deviceEl = document.getElementById('user-font-device');
   var statusEl = document.getElementById('user-font-status');
   var selectedFile = null;
+  // Transient pending copy after a successful mutation; not persisted.
+  // Краткий pending-текст после успешной мутации; не сохраняется.
+  var pendingKind = null;
+  var rebootRequested = false;
 
   function setStatus(text, kind) {
     if (!statusEl) return;
@@ -57,39 +62,75 @@
     return 'Factory font is active';
   }
 
-  function refreshStatus() {
+  function showRebootNow(visible) {
+    if (!rebootBtn) return;
+    rebootBtn.hidden = !visible;
+    if (!visible) {
+      rebootBtn.disabled = true;
+      return;
+    }
+    if (!rebootRequested) rebootBtn.disabled = false;
+  }
+
+  function applyStatusJson(j) {
+    if (typeof j.max_bytes === 'number') MAX_BYTES = j.max_bytes;
+    var parts = [];
+    parts.push(runtimeLabel(j.runtime));
+    if (j.file_present) {
+      parts.push('On device: /fonts/user.ttf (' + j.file_size + ' bytes).');
+    } else {
+      parts.push('No user font file on the device.');
+    }
+    if (j.reboot_required) {
+      parts.push('Change pending — reboot required.');
+    }
+    if (deviceEl) deviceEl.textContent = parts.join(' ');
+    if (removeBtn) removeBtn.disabled = !j.file_present;
+    if (j.reboot_required) {
+      showRebootNow(true);
+      if (!pendingKind && !rebootRequested) {
+        setStatus('Reboot is required to apply the font change. Live text remains unchanged until reboot.', 'warning');
+      }
+    } else if (!pendingKind && !rebootRequested) {
+      showRebootNow(false);
+    }
+  }
+
+  function refreshStatus(opts) {
+    var keepPending = opts && opts.keepPending;
     return fetch(statusUrl(), { cache: 'no-store' })
       .then(function (r) { return r.json(); })
       .then(function (j) {
         if (!j || j.ok !== true) {
-          if (deviceEl) deviceEl.textContent = 'Could not read font status.';
+          if (!keepPending && deviceEl) deviceEl.textContent = 'Could not read font status.';
           return;
         }
-        if (typeof j.max_bytes === 'number') MAX_BYTES = j.max_bytes;
-        var parts = [];
-        parts.push(runtimeLabel(j.runtime));
-        if (j.file_present) {
-          parts.push('On device: /fonts/user.ttf (' + j.file_size + ' bytes).');
-        } else {
-          parts.push('No user font file on the device.');
-        }
-        if (j.reboot_required) {
-          parts.push('Reboot the device to apply the latest upload or remove.');
-        }
-        if (deviceEl) deviceEl.textContent = parts.join(' ');
-        if (removeBtn) removeBtn.disabled = !j.file_present;
-        if (j.reboot_required) {
-          setStatus('Reboot required to apply the font change. The device does not reboot itself.', 'warning');
-        }
+        applyStatusJson(j);
       })
       .catch(function () {
-        if (deviceEl) deviceEl.textContent = 'Could not read font status.';
+        if (!keepPending && deviceEl) deviceEl.textContent = 'Could not read font status.';
       });
+  }
+
+  function refreshStatusAfterMutation() {
+    return refreshStatus({ keepPending: true }).then(function () {
+      window.setTimeout(function () {
+        refreshStatus({ keepPending: true });
+      }, 800);
+    });
   }
 
   function looksTtfName(name) {
     if (!name) return false;
     return /\.ttf$/i.test(name);
+  }
+
+  function sendExistingReboot() {
+    if (typeof websocket === 'undefined' || !websocket || websocket.readyState !== 1) {
+      return false;
+    }
+    websocket.send('rebootmdns=');
+    return true;
   }
 
   if (chooseBtn && fileInput) {
@@ -139,15 +180,24 @@
         .then(function (r) { return r.json().then(function (j) { return { okHttp: r.ok, j: j }; }); })
         .then(function (res) {
           if (!res.j || res.j.ok !== true) {
+            pendingKind = null;
             var reason = (res.j && (res.j.reason || res.j.error)) || 'upload_failed';
             setStatus('Upload rejected: ' + reason + '. The previous font file was left unchanged.', 'error');
             uploadBtn.disabled = false;
             return refreshStatus();
           }
-          setStatus('Uploaded. Reboot the device to apply the new font. Live text is unchanged until reboot.', 'warning');
-          return refreshStatus();
+          pendingKind = 'upload';
+          var bytes = (res.j.bytes != null) ? res.j.bytes : selectedFile.size;
+          if (deviceEl) {
+            deviceEl.textContent = 'On device: /fonts/user.ttf (' + bytes + ' bytes). Change pending — reboot required.';
+          }
+          setStatus('Font uploaded successfully. Reboot is required to apply the new font. Live text remains unchanged until reboot.', 'warning');
+          if (removeBtn) removeBtn.disabled = false;
+          showRebootNow(true);
+          return refreshStatusAfterMutation();
         })
         .catch(function () {
+          pendingKind = null;
           setStatus('Upload failed.', 'error');
           uploadBtn.disabled = false;
         });
@@ -161,20 +211,43 @@
         .then(function (r) { return r.json(); })
         .then(function (j) {
           if (!j || j.ok !== true) {
+            pendingKind = null;
             setStatus('Could not remove the user font.', 'error');
             return refreshStatus();
           }
-          setStatus('User font file removed. Reboot the device to return to the factory font. Live text is unchanged until reboot.', 'warning');
+          pendingKind = 'remove';
           selectedFile = null;
           if (fileInput) fileInput.value = '';
           if (selectedEl) selectedEl.textContent = 'Selected file: none';
           if (uploadBtn) uploadBtn.disabled = true;
-          return refreshStatus();
+          if (deviceEl) {
+            deviceEl.textContent = 'No user font file on the device. Change pending — reboot required.';
+          }
+          setStatus('User font removed. Reboot is required to return to the factory font. Live text remains unchanged until reboot.', 'warning');
+          showRebootNow(true);
+          return refreshStatusAfterMutation();
         })
         .catch(function () {
+          pendingKind = null;
           setStatus('Could not remove the user font.', 'error');
           return refreshStatus();
         });
+    });
+  }
+
+  if (rebootBtn) {
+    rebootBtn.addEventListener('click', function () {
+      if (rebootRequested) return;
+      rebootRequested = true;
+      rebootBtn.disabled = true;
+      setStatus('Rebooting…', 'warning');
+      if (sendExistingReboot()) return;
+      window.setTimeout(function () {
+        if (sendExistingReboot()) return;
+        rebootRequested = false;
+        rebootBtn.disabled = false;
+        setStatus('Could not request reboot (WebSocket not connected). Try again, or reboot from Settings. The font change is already stored.', 'error');
+      }, 1000);
     });
   }
 
