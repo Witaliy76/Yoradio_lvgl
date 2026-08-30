@@ -56,6 +56,7 @@ static constexpr char kStrTheme[]             = "THEME";
 static constexpr char kStrAutoDim[]           = "AUTO DIM";
 static constexpr char kStrDimAfter[]          = "DIM AFTER";
 static constexpr char kStrDimLevel[]          = "DIM LEVEL";
+static constexpr char kStrPerformanceMonitor[] = "PERFORMANCE MONITOR";
 
 // Music Rail detail labels / Подписи Music Rail detail
 static constexpr char kStrPresenceRail[]      = "PRESENCE RAIL";
@@ -164,6 +165,10 @@ static void format_brightness_pct(char* buf, size_t cap, uint8_t pct) {
 
 static const char* autodim_enabled_label() {
     return config.store.autodim_enabled ? kStrValOn : kStrValOff;
+}
+
+static const char* performance_monitor_enabled_label() {
+    return config.store.performance_monitor ? kStrValOn : kStrValOff;
 }
 
 static const char* vumeter_enabled_label() {
@@ -970,6 +975,15 @@ void LvglSettingsPage::build_display_detail(LvglSettingsPage& self, const YoRadi
             self._row_theme.chevron = add_row_chevron(theme_row, pal);
             make_row_tappable(theme_row, themeRowClickedEvt, &self);
         }
+
+        lv_obj_t* perf_row = create_row_unit(self._cont_display_content, pal, kRowHeight);
+        if (perf_row) {
+            self._row_perf_monitor.hit = perf_row;
+            self._row_perf_monitor.label = add_row_label(perf_row, kStrPerformanceMonitor, pal, false, true);
+            self._row_perf_monitor.value = add_row_value(
+                perf_row, performance_monitor_enabled_label(), pal);
+            make_row_tappable(perf_row, performanceMonitorRowClickedEvt, &self);
+        }
     }
 }
 
@@ -1226,6 +1240,9 @@ void LvglSettingsPage::_syncDisplayValues() {
 #endif
     if (_row_theme.value) {
         lv_label_set_text(_row_theme.value, theme_preset_label(yoradio_theme_active_preset()));
+    }
+    if (_row_perf_monitor.value) {
+        lv_label_set_text(_row_perf_monitor.value, performance_monitor_enabled_label());
     }
     if (_row_autodim.value) {
         lv_label_set_text(_row_autodim.value, autodim_enabled_label());
@@ -1717,6 +1734,18 @@ void LvglSettingsPage::brightnessSliderEvt(lv_event_t* e) {
     }
 }
 
+void LvglSettingsPage::performanceMonitorRowClickedEvt(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
+    if (!self) return;
+
+    const bool new_value = !config.store.performance_monitor;
+    config.saveValue(&config.store.performance_monitor, new_value);
+    applyPerformanceMonitorState(new_value);
+    notifyPageChainActivity("settings-perf-monitor");
+    self->_syncDisplayValues();
+}
+
 void LvglSettingsPage::autodimRowClickedEvt(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
@@ -1828,6 +1857,7 @@ void LvglSettingsPage::_applyThemeColors() {
     apply_row(_row_sleep_sub, true);
     apply_row(_row_wifi, false);
     apply_row(_row_theme, false);
+    apply_row(_row_perf_monitor, false);
     apply_row(_row_autodim, false);
     apply_row(_row_dim_after, false);
     _applyAutodimRowTreatment(pal);
@@ -1938,6 +1968,7 @@ void LvglSettingsPage::_nullHandles() {
     _row_sleep_sub = {};
     _row_wifi = {};
     _row_theme = {};
+    _row_perf_monitor = {};
     _row_autodim = {};
     _row_dim_after = {};
     _sleep_device_overlay = nullptr;

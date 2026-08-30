@@ -36,6 +36,12 @@ void initTick();
 // Регистрация LVGL-дисплея для текущего пути DisplayPort -> direct esp_lcd.
 void initDisplayDriver(uint16_t hor_res, uint16_t ver_res);
 
+// Apply persisted/runtime Performance monitor ON/OFF (DspTask or LVGL init window).
+// Uses explicit s_disp; no-op until the display exists. Sole sysmon show/hide/pause/resume seam.
+// Применить ON/OFF оверлея производительности (DspTask или init-окно LVGL).
+// Явный s_disp; no-op до создания дисплея. Единственный шов show/hide/pause/resume.
+void applyPerformanceMonitorState(bool enabled);
+
 // Stage 5.2: register pointer indev after display driver (read_cb on DspTask only).
 // Этап 5.2: pointer indev после дисплея (read_cb только на DspTask).
 void initTouchIndev();

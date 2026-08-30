@@ -115,7 +115,8 @@ _view_display  (flex COLUMN; flex_grow=1; HIDDEN until enter Display)
     │           ├── _dim_level_slider
     │           └── _lbl_dim_level_value
     ├── theme_gap                  kDisplayThemeSectionGap spacer
-    └── theme row                  → _row_theme (THEME preset + chevron)
+    ├── theme row                  → _row_theme (THEME preset + chevron)
+    └── perf monitor row           → _row_perf_monitor (PERFORMANCE MONITOR ON/OFF)
 
 block_gesture_bubble_deep(_view_display) — blocks carousel horizontal swipe.
 ```
@@ -217,7 +218,7 @@ flowchart TD
 | `kStrResumeOnStartup` | Main row |
 | `kStrSleepTimer` / `kStrWhenTimerEnds` | Sleep block labels |
 | `kStrWifi` | Main row |
-| `kStrBrightness` / `kStrTheme` / `kStrAutoDim` / `kStrDimAfter` / `kStrDimLevel` | Display detail |
+| `kStrBrightness` / `kStrTheme` / `kStrAutoDim` / `kStrDimAfter` / `kStrDimLevel` / `kStrPerformanceMonitor` | Display detail |
 | `kStrPresenceRail` / `kStrRailProfile` | Music Rail detail |
 | `kStrValOn` / `kStrValOff` | Toggle values |
 | `kStrValStopRadio` / `kStrValSleepDevice` | Sleep action + overlay title |

@@ -30,6 +30,7 @@
 #include "screens/scr_wifi_flow.h"
 #include "../core/autodim.h"
 #include "../core/display.h"
+#include "../core/config.h"
 #include "../core/options.h"
 #if DSP_MODEL == DSP_ST7701
 #include "../displays/display_port.h"
@@ -356,6 +357,12 @@ static bool lvgl_page_refresh_allowed() {
 // Stage 6.6R-GB2: cached perf-label so theme switches can recolor it without rescanning sys layer.
 // Этап 6.6R-GB2: кэш perf-label — перекраска при смене темы без повторного скана sys-слоя.
 static lv_obj_t* s_perf_label = nullptr;
+// L1-B: one-shot presentation lookup is armed only while the monitor is ON and not yet styled.
+// Default OFF pauses before the first dump (label stays "?"), so an un-gated scan would run forever.
+// L1-B: одноразовый lookup только при ON, пока стиль не применён. OFF на boot ставит pause до
+// первого dump (текст "?") — без гейта скан шёл бы на каждой итерации DspTask бесконечно.
+static bool s_perf_presentation_applied = false;
+static bool s_perf_lookup_pending = false;
 
 // Apply theme-aware text color to the debug perf overlay (transparent bg → text must read on any theme).
 // Light → graphite text_primary; Dark/Custom-dark → their light text_primary. Always readable by palette design.
@@ -366,8 +373,10 @@ static void applyPerfMonitorThemeTextColor() {
 }
 
 static void repositionBuiltinLvglPerfMonitorOnce() {
-    static bool s_done = false;
-    if (s_done) return;
+    if (s_perf_presentation_applied) {
+        s_perf_lookup_pending = false;
+        return;
+    }
     lv_obj_t* sys = lv_layer_sys();
     if (!sys) return;
     const uint32_t n = lv_obj_get_child_count(sys);
@@ -377,7 +386,7 @@ static void repositionBuiltinLvglPerfMonitorOnce() {
         const char* txt = lv_label_get_text(ch);
         if (!txt || std::strstr(txt, "FPS") == nullptr) continue;
 
-        lv_display_t* d = lv_display_get_default();
+        lv_display_t* d = s_disp ? s_disp : lv_display_get_default();
         const int32_t w =
             d ? static_cast<int32_t>(lv_display_get_horizontal_resolution(d)) : static_cast<int32_t>(LV_ACTIVE_PROFILE.width);
         // wgt_status_line centers the clock in the screen's middle third (status line = 3 equal flex
@@ -402,11 +411,34 @@ static void repositionBuiltinLvglPerfMonitorOnce() {
         // 6.6R-GB2: тема-зависимый цвет текста (белый сливался на Light).
         s_perf_label = ch;
         applyPerfMonitorThemeTextColor();
-        s_done = true;
+        s_perf_presentation_applied = true;
+        s_perf_lookup_pending = false;
         break;
     }
 }
 #endif
+
+void lvgl_ui::applyPerformanceMonitorState(bool enabled) {
+#if LV_USE_PERF_MONITOR
+    if (!s_disp) return;
+    if (enabled) {
+        lv_sysmon_show_performance(s_disp);
+        lv_sysmon_performance_resume(s_disp);
+        // Re-arm one-shot L1 presentation only until the existing label is styled once.
+        // Hide/show/pause/resume keep the same object; later ON does not rescan.
+        // Одноразовый L1 только пока стиль не применён. Hide/show/pause/resume тот же объект.
+        if (!s_perf_presentation_applied) {
+            s_perf_lookup_pending = true;
+        }
+    } else {
+        lv_sysmon_performance_pause(s_disp);
+        lv_sysmon_hide_performance(s_disp);
+        s_perf_lookup_pending = false;
+    }
+#else
+    (void)enabled;
+#endif
+}
 
 void lvgl_ui::refreshInfoScreen() {
     if (!lvgl_page_refresh_allowed()) return;
@@ -635,6 +667,9 @@ void lvgl_ui::initDisplayDriver(uint16_t hor_res, uint16_t ver_res) {
     // Этап 6.6A: базовая тема LVGL + палитра YoRadio — одна точка после валидного дисплея.
     yoradio_theme_init(s_disp);
     initTouchIndev();
+    // S5.6: lv_display_create already auto-showed sysmon; apply persisted OFF/ON before first flush.
+    // S5.6: lv_display_create уже показал sysmon; persisted OFF/ON до первого flush.
+    applyPerformanceMonitorState(config.store.performance_monitor);
 }
 
 void lvgl_ui::taskHandler() {
@@ -659,7 +694,11 @@ void lvgl_ui::taskHandler() {
     // Завершение загрузки приходит из LVGL callback; сам запрос делаем только после dispatch.
     const bool transition_resync = s_page_chain.takeCompletedTransitionRgbResyncRequest();
 #if LV_USE_PERF_MONITOR
-    repositionBuiltinLvglPerfMonitorOnce();
+    // L1-B: scan only while ON and presentation is still pending (armed by applyPerformanceMonitorState).
+    // L1-B: скан только при ON, пока стиль не применён (взводит applyPerformanceMonitorState).
+    if (s_perf_lookup_pending) {
+        repositionBuiltinLvglPerfMonitorOnce();
+    }
 #endif
     // Slice 6C: consume runtime recovery only when this iteration had no further relevant
     // display/asset work. A busy iteration keeps the pending flag (coalesce) and folds any

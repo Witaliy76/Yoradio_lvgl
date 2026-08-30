@@ -96,6 +96,7 @@ private:
     static void themeRowClickedEvt(lv_event_t* e);
     static void brightnessSliderEvt(lv_event_t* e);
     static void autodimRowClickedEvt(lv_event_t* e);
+    static void performanceMonitorRowClickedEvt(lv_event_t* e);
     static void dimAfterRowClickedEvt(lv_event_t* e);
     static void dimLevelSliderEvt(lv_event_t* e);
     static void wifiRowClickedEvt(lv_event_t* e);
@@ -140,6 +141,7 @@ private:
     RowChrome   _row_sleep_sub{};
     RowChrome   _row_wifi{};
     RowChrome   _row_theme{};
+    RowChrome   _row_perf_monitor{};
     RowChrome   _row_autodim{};
     RowChrome   _row_dim_after{};
     lv_obj_t*   _sleep_device_overlay = nullptr;
