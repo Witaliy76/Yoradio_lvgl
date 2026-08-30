@@ -53,6 +53,9 @@ static bool fsEnsureRequiredDirectories() {
   if (!fsEnsureDirectory("/logo", false)) {
     Serial.println("[FS] warning: /logo not created");
   }
+  if (!fsEnsureDirectory("/fonts", false)) {
+    Serial.println("[FS] warning: /fonts not created");
+  }
   return ok;
 }
 

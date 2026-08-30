@@ -24,6 +24,8 @@
 #include "../lvgl_ui/profiles/lv_profile_select.h"
 #include "../lvgl_ui/theme/lv_theme_yoradio.h"
 #include "../lvgl_ui/main_bg_jpeg.h"
+#include "../lvgl_ui/font_provider.h"
+#include "user_ttf.h"
 #include "../ai/ai_subsystem.h"
 #include "../ai/ai_log.h"  // AI Layer logging macros
 
@@ -79,6 +81,10 @@ void handleUploadArt(AsyncWebServerRequest *request, String filename, size_t ind
 void handleRemoveArtHttp(AsyncWebServerRequest *request);
 void handleArtStatusHttp(AsyncWebServerRequest *request);
 void handleBgStatusHttp(AsyncWebServerRequest *request);
+void beginUploadUserFont(AsyncWebServerRequest *request);
+void handleUploadUserFont(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
+void handleRemoveUserFontHttp(AsyncWebServerRequest *request);
+void handleUserFontStatusHttp(AsyncWebServerRequest *request);
 
 bool  shouldReboot  = false;
 #ifdef MQTT_ROOT_TOPIC
@@ -177,6 +183,9 @@ bool NetServer::begin(bool quiet) {
   webserver.on("/update", HTTP_POST, beginUpdate, handleUpdate);
   webserver.on("/settings", HTTP_GET, handleHTTPArgs);
   webserver.on("/appearance", HTTP_GET, handleHTTPArgs);
+  webserver.on("/upload_font", HTTP_POST, beginUploadUserFont, handleUploadUserFont);
+  webserver.on("/remove_font", HTTP_POST, handleRemoveUserFontHttp);
+  webserver.on("/font_status", HTTP_GET, handleUserFontStatusHttp);
   // Main background JPEG → /bg/user_{dark,light,custom}.jpg (factory /bg/main_*.jpg immutable)
   // Фон Main: пользовательский JPEG; заводские /bg/main_*.jpg не перезаписываются.
   webserver.on("/upload_bg", HTTP_POST, beginUploadBg, handleUploadBg);
@@ -198,6 +207,10 @@ bool NetServer::begin(bool quiet) {
   webserver.onNotFound([](AsyncWebServerRequest* request) {
     if (request->method() == HTTP_GET && request->url() == "/bg_status") {
       handleBgStatusHttp(request);
+      return;
+    }
+    if (request->method() == HTTP_GET && request->url() == "/font_status") {
+      handleUserFontStatusHttp(request);
       return;
     }
     request->send(404, "text/plain", "Not found");
@@ -1898,6 +1911,244 @@ void handleRemoveThemeHttp(AsyncWebServerRequest* request) {
   display.putRequest(CUSTOM_THEME_FILE_UPDATED, 0);
   request->send(200, "application/json",
                  "{\"ok\":true,\"custom_theme_exists\":false,\"reload\":\"queued\"}");
+}
+
+// User text font — POST /upload_font, POST /remove_font, GET /font_status
+// Canonical /fonts/user.ttf; apply on reboot; no TinyTTF/lv_* here.
+// Пользовательский TTF: канонический путь; применение после reboot; без TinyTTF/lv_*.
+namespace {
+
+static bool gFontUploadArmed = false;
+static bool gFontIoFatal = false;
+static bool gFontTooLarge = false;
+static size_t gFontWrittenTotal = 0;
+static File gFontUploadFile;
+
+static bool fontInstallTmpToDest(const char* tmp, const char* dest) {
+  if (!tmp || !dest || dest[0] == '\0') return false;
+  if (LittleFS.exists(dest)) {
+    if (!LittleFS.remove(dest)) {
+      return false;
+    }
+  }
+  if (LittleFS.rename(tmp, dest)) {
+    return true;
+  }
+  File src = LittleFS.open(tmp, "r");
+  File dst = LittleFS.open(dest, "w");
+  if (!src || !dst) {
+    if (src) src.close();
+    if (dst) dst.close();
+    LittleFS.remove(tmp);
+    return false;
+  }
+  uint8_t buf[512];
+  bool ok = true;
+  while (src.available()) {
+    size_t rd = src.read(buf, sizeof(buf));
+    if (rd && dst.write(buf, rd) != rd) {
+      ok = false;
+      break;
+    }
+  }
+  src.close();
+  dst.close();
+  LittleFS.remove(tmp);
+  if (!ok) {
+    LittleFS.remove(dest);
+  }
+  return ok;
+}
+
+static bool fontLooksOtfName(const String& filename) {
+  const int dot = filename.lastIndexOf('.');
+  if (dot < 0) return false;
+  String ext = filename.substring(dot);
+  ext.toLowerCase();
+  return ext == ".otf" || ext == ".ttc" || ext == ".otc";
+}
+
+}  // namespace
+
+void beginUploadUserFont(AsyncWebServerRequest* request) {
+  (void)request;
+}
+
+void handleUploadUserFont(AsyncWebServerRequest* request, String filename, size_t index, uint8_t* data, size_t len, bool final) {
+  RgbResyncTransaction resync;
+
+  if (index == 0) {
+    gFontUploadArmed = false;
+    gFontIoFatal = false;
+    gFontTooLarge = false;
+    gFontWrittenTotal = 0;
+    if (gFontUploadFile) {
+      gFontUploadFile.close();
+    }
+    if (filename.length() > 0 && fontLooksOtfName(filename)) {
+      request->send(400, "application/json", "{\"ok\":false,\"error\":\"otf_not_supported\"}");
+      return;
+    }
+    const size_t freeB = LittleFS.totalBytes() - LittleFS.usedBytes();
+    if (freeB < yoradio::kUserTtfMaxBytes + 4096u) {
+      request->send(507, "application/json", "{\"ok\":false,\"error\":\"insufficient_space\"}");
+      return;
+    }
+    if (LittleFS.exists(yoradio::kUserTtfTmpPath)) {
+      LittleFS.remove(yoradio::kUserTtfTmpPath);
+    }
+    gFontUploadFile = LittleFS.open(yoradio::kUserTtfTmpPath, "w");
+    if (!gFontUploadFile) {
+      gFontIoFatal = true;
+    } else {
+      gFontUploadArmed = true;
+    }
+  } else if (!gFontUploadArmed) {
+    return;
+  }
+
+  if (gFontTooLarge) {
+    if (final) {
+      gFontUploadArmed = false;
+      if (gFontUploadFile) {
+        gFontUploadFile.close();
+      }
+      LittleFS.remove(yoradio::kUserTtfTmpPath);
+      resync.markFsMutated();
+      request->send(400, "application/json", "{\"ok\":false,\"error\":\"too_large\"}");
+    }
+    return;
+  }
+
+  if (gFontIoFatal) {
+    if (final) {
+      gFontUploadArmed = false;
+      if (gFontUploadFile) {
+        gFontUploadFile.close();
+      }
+      LittleFS.remove(yoradio::kUserTtfTmpPath);
+      resync.markFsMutated();
+      request->send(500, "application/json", "{\"ok\":false,\"error\":\"open_failed\"}");
+    }
+    return;
+  }
+
+  if (len && gFontUploadFile && !gFontTooLarge) {
+    if (gFontWrittenTotal + len > yoradio::kUserTtfMaxBytes) {
+      gFontTooLarge = true;
+    } else {
+      const size_t n = gFontUploadFile.write(data, len);
+      gFontWrittenTotal += n;
+      if (n != len) {
+        gFontIoFatal = true;
+      }
+    }
+  }
+
+  if (!final) {
+    return;
+  }
+
+  resync.markFsMutated();
+  gFontUploadArmed = false;
+  if (gFontUploadFile) {
+    gFontUploadFile.close();
+  }
+
+  if (gFontTooLarge) {
+    LittleFS.remove(yoradio::kUserTtfTmpPath);
+    request->send(400, "application/json", "{\"ok\":false,\"error\":\"too_large\"}");
+    return;
+  }
+  if (gFontIoFatal) {
+    LittleFS.remove(yoradio::kUserTtfTmpPath);
+    request->send(500, "application/json", "{\"ok\":false,\"error\":\"write_failed\"}");
+    gFontIoFatal = false;
+    return;
+  }
+
+  File vf = LittleFS.open(yoradio::kUserTtfTmpPath, "r");
+  if (!vf) {
+    LittleFS.remove(yoradio::kUserTtfTmpPath);
+    request->send(500, "application/json", "{\"ok\":false,\"error\":\"read_failed\"}");
+    return;
+  }
+  const size_t sz = static_cast<size_t>(vf.size());
+  if (sz == 0 || sz > yoradio::kUserTtfMaxBytes) {
+    vf.close();
+    LittleFS.remove(yoradio::kUserTtfTmpPath);
+    request->send(400, "application/json", "{\"ok\":false,\"error\":\"size_invalid\"}");
+    return;
+  }
+
+  uint8_t* buf = static_cast<uint8_t*>(ps_malloc(sz));
+  if (!buf) {
+    vf.close();
+    LittleFS.remove(yoradio::kUserTtfTmpPath);
+    request->send(500, "application/json", "{\"ok\":false,\"error\":\"psram_failed\"}");
+    return;
+  }
+  const int nread = vf.read(buf, sz);
+  vf.close();
+  yoradio::UserTtfReject why = yoradio::UserTtfReject::Io;
+  if (nread >= 0 && static_cast<size_t>(nread) == sz) {
+    why = yoradio::user_ttf_validate(buf, sz);
+  }
+  free(buf);
+  if (why != yoradio::UserTtfReject::Ok) {
+    LittleFS.remove(yoradio::kUserTtfTmpPath);
+    char errjson[160];
+    snprintf(errjson, sizeof(errjson),
+             "{\"ok\":false,\"error\":\"invalid_ttf\",\"reason\":\"%s\"}",
+             yoradio::user_ttf_reject_cstr(why));
+    request->send(400, "application/json", errjson);
+    return;
+  }
+
+  if (!fontInstallTmpToDest(yoradio::kUserTtfTmpPath, yoradio::kUserTtfPath)) {
+    LittleFS.remove(yoradio::kUserTtfTmpPath);
+    request->send(500, "application/json", "{\"ok\":false,\"error\":\"commit_failed\"}");
+    return;
+  }
+
+  Serial.printf("[UserFont] uploaded bytes=%u; reboot required to apply\n",
+                static_cast<unsigned>(sz));
+  char okjson[240];
+  snprintf(okjson, sizeof(okjson),
+           "{\"ok\":true,\"path\":\"%s\",\"bytes\":%lu,\"reboot_required\":true}",
+           yoradio::kUserTtfPath, (unsigned long)sz);
+  request->send(200, "application/json", okjson);
+}
+
+void handleRemoveUserFontHttp(AsyncWebServerRequest* request) {
+  RgbResyncTransaction resync;
+  if (LittleFS.exists(yoradio::kUserTtfPath)) {
+    if (!LittleFS.remove(yoradio::kUserTtfPath)) {
+      request->send(500, "application/json", "{\"ok\":false,\"error\":\"remove_failed\"}");
+      return;
+    }
+    resync.markFsMutated();
+    Serial.println("[UserFont] removed; reboot required to apply factory text");
+  }
+  request->send(200, "application/json",
+               "{\"ok\":true,\"removed\":true,\"reboot_required\":true}");
+}
+
+void handleUserFontStatusHttp(AsyncWebServerRequest* request) {
+  const lvgl_ui::UserFontWebStatus st = lvgl_ui::FontProvider::userFontWebStatus();
+  char json[360];
+  snprintf(json, sizeof(json),
+           "{\"ok\":true,\"runtime\":\"%s\",\"provider_ready\":%s,\"file_present\":%s,"
+           "\"file_size\":%lu,\"reboot_required\":%s,\"max_bytes\":%lu,"
+           "\"path\":\"%s\",\"apply\":\"reboot_required\"}",
+           lvgl_ui::FontProvider::userFontRuntimeCstr(st.runtime),
+           st.provider_ready ? "true" : "false",
+           st.file_present ? "true" : "false",
+           (unsigned long)st.file_size,
+           st.reboot_required ? "true" : "false",
+           (unsigned long)yoradio::kUserTtfMaxBytes,
+           yoradio::kUserTtfPath);
+  request->send(200, "application/json", json);
 }
 
 // Stage 6.6R-B: POST /set_theme?preset=dark|light|custom — enqueue runtime preset switch on DspTask.

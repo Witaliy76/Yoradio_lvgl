@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- Appearance Web UI: station artwork, color themes, custom palette, and Main screen backgrounds.
+<!-- Appearance Web UI: station artwork, color themes, custom palette, Main backgrounds, user text font.
      Author: Witaliy76 - https://github.com/Witaliy76 -->
 <html lang="en">
 <head>
@@ -103,7 +103,7 @@
 <body>
   <div class="content">
     <h2 class="pagetitle">APPEARANCE</h2>
-    <p class="appearance-intro">Upload artwork for the current station, choose the color theme and set Main screen backgrounds.</p>
+    <p class="appearance-intro">Upload artwork for the current station, choose the color theme, set Main screen backgrounds, and optionally replace the text font.</p>
     <div class="playerwrap">
       <div class="settingsirwrap" id="appearancecontent">
         <section class="appearance-section" id="section_station_art">
@@ -181,6 +181,27 @@ accent=#D89A2B</pre>
           </div>
         </section>
 
+        <section class="appearance-section" id="section_user_font">
+          <div class="title" role="heading" aria-level="2"><span>USER TEXT FONT</span></div>
+          <p class="appearance-helper">Upload one TrueType (.ttf) file for UI text. Icons stay on the factory icon font. The new file is stored on the device and applied only after a reboot. Maximum size is 512 KiB.</p>
+          <div id="font-upload-root"
+               data-font-api-status="/font_status"
+               data-font-api-upload="/upload_font"
+               data-font-api-remove="/remove_font"
+               data-font-max-bytes="524288">
+            <input type="file" id="user-font-file" accept=".ttf,font/ttf,application/font-sfnt" hidden>
+            <div class="appearance-actions">
+              <button type="button" id="user-font-choose">Choose TTF</button>
+              <button type="button" id="user-font-upload" class="primary-action" disabled>Upload to device</button>
+              <button type="button" id="user-font-remove" class="secondary-action" disabled>Remove user font</button>
+            </div>
+            <div class="appearance-file-name" id="user-font-selected" aria-live="polite">Selected file: none</div>
+            <div class="appearance-device-status" id="user-font-device" aria-live="polite">On-device font: checking…</div>
+            <div class="appearance-status" id="user-font-status" aria-live="polite" aria-atomic="true">Ready to choose a TrueType file.</div>
+            <p class="appearance-note">Missing glyphs fall back to the factory text font, then to the emergency 16 px face. OpenType (.otf) and font collections are not supported. The device never reboots by itself.</p>
+          </div>
+        </section>
+
         <section class="appearance-section" id="section_background">
           <div class="title" role="heading" aria-level="2"><span>MAIN SCREEN BACKGROUNDS</span></div>
           <p class="appearance-helper">Each color theme can use its own background image on the Main screen. PNG and JPEG are converted in the browser; the original aspect ratio is kept.</p>
@@ -241,6 +262,7 @@ accent=#D89A2B</pre>
   </div>
   <script src="bg.js?%VERSION%" defer></script>
   <script src="art.js?%VERSION%" defer></script>
+  <script src="font.js?%VERSION%" defer></script>
   <script src="script.js?%VERSION%"></script>
 </body>
 </html>
