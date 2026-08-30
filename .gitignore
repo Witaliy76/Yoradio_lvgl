@@ -52,6 +52,12 @@ SPECTRUM*.md
 !/boards/
 # RELEASE-FOUNDATION-C: public release binaries tree — tracked / публичный каталог релизных бинарников — трекается
 !/build_bin/
+# Optional OFL sample user fonts (not embedded, not LittleFS).
+# Необязательные OFL-примеры пользовательских шрифтов (не в прошивке и не в LittleFS).
+!/fonts/
+/fonts/*
+!/fonts/samples/
+!/fonts/samples/**
 
 # --- Local-only trees at repo root / только локально (якорь /) ---
 /bg/
@@ -59,7 +65,6 @@ SPECTRUM*.md
 /docs/
 /test/
 /tools/
-/fonts/
 /simulator/
 /old/
 /panel_vendor_files/
