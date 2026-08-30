@@ -9,7 +9,7 @@ The device is accompanied by a Web UI for playback, stations, behavior settings,
 The project is based on [e2002/yoradio](https://github.com/e2002/yoradio). The current repository is [Witaliy76/Yoradio_lvgl](https://github.com/Witaliy76/Yoradio_lvgl).
 
 > **Public version:** `0.9.434m-r2-lvgl-beta.2`
-> **Current source:** `0.9.434m-r2-lvgl-beta.2-s5.5`
+> **Current source:** `0.9.434m-r2-lvgl-beta.2-s5.6`
 > **Validated board:** ESP32-4848S040
 
 > **Note for ESP32-S3 4848S040:** while data is being written to internal flash — for example during a large playlist upload, background or Station Art upload, a user text-font upload, or when settings are persisted — the display may briefly shift horizontally. After the write operation finishes, the firmware automatically resynchronizes the RGB scanout and the image returns to normal. This is an expected characteristic of the current display configuration; no reboot is required.
@@ -44,6 +44,12 @@ Each page has a distinct role: Main is for listening, Visual for atmosphere, Inf
 - Optional AI Layer as a quiet information layer over music.
 
 ## Change history
+
+### 30 August 2026 — 0.9.434m-r2-lvgl-beta.2-s5.6
+
+Settings → Display now has a **Performance monitor**: the FPS/CPU overlay can be turned on or off without a reboot. It is off by default, and the choice is persisted. Compile-time LVGL sysmon was not disabled.
+
+Public beta remains `0.9.434m-r2-lvgl-beta.2`. This is not a separate public release.
 
 ### 30 August 2026 — 0.9.434m-r2-lvgl-beta.2-s5.5
 
@@ -181,7 +187,7 @@ There are eight slots. Tap a filled slot to play it; long press to save the curr
 
 ### Display settings
 
-Settings → Display contains brightness, Auto Dim, its inactivity delay and dim level, and the theme selector.
+Settings → Display contains brightness, Auto Dim, Performance monitor, and the theme selector.
 
 <p align="center">
   <img src="readme/english/display-settings-guide.png" alt="Display settings" width="450">
