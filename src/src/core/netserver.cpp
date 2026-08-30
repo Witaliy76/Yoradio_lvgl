@@ -2091,7 +2091,13 @@ void handleUploadUserFont(AsyncWebServerRequest* request, String filename, size_
   const int nread = vf.read(buf, sz);
   vf.close();
   yoradio::UserTtfReject why = yoradio::UserTtfReject::Io;
+  uint8_t hdr[12] = {};
   if (nread >= 0 && static_cast<size_t>(nread) == sz) {
+    if (sz >= sizeof(hdr)) {
+      memcpy(hdr, buf, sizeof(hdr));
+    } else {
+      memcpy(hdr, buf, sz);
+    }
     why = yoradio::user_ttf_validate(buf, sz);
   }
   free(buf);
@@ -2111,6 +2117,13 @@ void handleUploadUserFont(AsyncWebServerRequest* request, String filename, size_
     return;
   }
 
+  // Same Stage-5 coalesced path as MAIN_BG / theme: Display RGB_RESYNC → requestRuntimeRgbRecovery
+  // after lv_timer_handler (redraw then resync). Do not _performRgbResync here.
+  // Тот же Stage-5 путь, что MAIN_BG/theme: RGB_RESYNC → recovery после taskHandler. Не resync здесь.
+  lvgl_ui::FontProvider::notePersistedUserFile(true, static_cast<uint32_t>(sz), hdr);
+  display.putRequest(RGB_RESYNC);
+  resync.deferToDisplayEvent();
+
   Serial.printf("[UserFont] uploaded bytes=%u; reboot required to apply\n",
                 static_cast<unsigned>(sz));
   char okjson[240];
@@ -2128,6 +2141,10 @@ void handleRemoveUserFontHttp(AsyncWebServerRequest* request) {
       return;
     }
     resync.markFsMutated();
+    static const uint8_t kZeroHdr[12] = {};
+    lvgl_ui::FontProvider::notePersistedUserFile(false, 0, kZeroHdr);
+    display.putRequest(RGB_RESYNC);
+    resync.deferToDisplayEvent();
     Serial.println("[UserFont] removed; reboot required to apply factory text");
   }
   request->send(200, "application/json",

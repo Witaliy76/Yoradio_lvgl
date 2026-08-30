@@ -37,10 +37,15 @@ public:
 
     static bool primaryAvailable();
 
-    // Derived runtime + LittleFS snapshot for WebUI. No lv_* calls.
-    // Производный runtime + снимок LittleFS для WebUI. Без вызовов lv_*.
+    // Derived runtime + file snapshot for WebUI. No lv_* calls.
+    // After a WebUI upload/remove, call notePersistedUserFile so GET /font_status
+    // does not reopen LittleFS (that read would disturb RGB after Stage-5 recovery).
+    // Производный runtime + снимок файла для WebUI. Без lv_*.
+    // После upload/remove вызвать notePersistedUserFile, чтобы GET /font_status
+    // не открывал LittleFS (чтение сбивает RGB после Stage-5 recovery).
     static UserFontWebStatus userFontWebStatus();
     static const char* userFontRuntimeCstr(UserFontRuntime runtime);
+    static void notePersistedUserFile(bool present, uint32_t size, const uint8_t hdr12[12]);
 };
 
 } // namespace lvgl_ui

@@ -52,6 +52,12 @@ size_t s_user_src_bytes = 0;
 bool s_boot_file_present = false;
 uint32_t s_boot_file_size = 0;
 uint8_t s_boot_file_hdr[12] = {};
+// Live WebUI file meta — seeded at boot, updated on upload/remove (no extra LFS reads).
+// Живые метаданные WebUI — с boot, обновляются на upload/remove (без лишних чтений LFS).
+bool s_live_file_known = false;
+bool s_live_file_present = false;
+uint32_t s_live_file_size = 0;
+uint8_t s_live_file_hdr[12] = {};
 
 const lv_font_t* emergency_font() {
     return &lv_font_yora_montserrat_16_cyr;
@@ -105,6 +111,16 @@ void release_user_fonts() {
     s_user_active = false;
 }
 
+void store_live_file_meta(bool present, uint32_t size, const uint8_t* hdr12) {
+    s_live_file_known = true;
+    s_live_file_present = present;
+    s_live_file_size = present ? size : 0;
+    memset(s_live_file_hdr, 0, sizeof(s_live_file_hdr));
+    if (present && hdr12) {
+        memcpy(s_live_file_hdr, hdr12, sizeof(s_live_file_hdr));
+    }
+}
+
 void snapshot_boot_file(bool present, uint32_t size, const uint8_t* hdr12) {
     s_boot_file_present = present;
     s_boot_file_size = size;
@@ -112,12 +128,19 @@ void snapshot_boot_file(bool present, uint32_t size, const uint8_t* hdr12) {
     if (present && hdr12) {
         memcpy(s_boot_file_hdr, hdr12, sizeof(s_boot_file_hdr));
     }
+    store_live_file_meta(present, size, hdr12);
 }
 
 void read_live_file_meta(bool* present, uint32_t* size, uint8_t hdr12[12]) {
     *present = false;
     *size = 0;
     memset(hdr12, 0, 12);
+    if (s_live_file_known) {
+        *present = s_live_file_present;
+        *size = s_live_file_size;
+        memcpy(hdr12, s_live_file_hdr, 12);
+        return;
+    }
     if (!fsIsReady() || !LittleFS.exists(yoradio::kUserTtfPath)) return;
     File f = LittleFS.open(yoradio::kUserTtfPath, "r");
     if (!f) return;
@@ -328,6 +351,10 @@ const char* FontProvider::userFontRuntimeCstr(UserFontRuntime runtime) {
         case UserFontRuntime::Factory:
         default: return "factory";
     }
+}
+
+void FontProvider::notePersistedUserFile(bool present, uint32_t size, const uint8_t hdr12[12]) {
+    store_live_file_meta(present, size, hdr12);
 }
 
 UserFontWebStatus FontProvider::userFontWebStatus() {
