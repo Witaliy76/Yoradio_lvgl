@@ -84,12 +84,19 @@ void refreshMainScreenFromSettings(bool force_full_redraw = false);
 // Repair A2: инвалидация + немедленный flush текущего экрана. Без смены страницы.
 bool tryRedrawActiveScreenNow();
 
-// Repair E: one-shot post-dispatch RGB recovery (DspTask only; coalesces in the same iteration).
-// Marks that this DspTask loop owes redraw + RGB resync AFTER lv_timer_handler returns.
-// Do not call requestRgbResync/lv_refr_now from LVGL event callbacks for these episodes.
-// Repair E: одноразовый RGB recovery после dispatch (только DspTask; схлопывается в итерации).
-// После lv_timer_handler: стабильный кадр + resync. Не звать restart/lv_refr_now из LVGL callback.
+// Repair E / Slice 6C: coalesced post-dispatch RGB recovery (DspTask only).
+// Marks that DspTask owes redraw + RGB resync after queued display/LVGL/asset work is quiescent.
+// Multiple marks collapse to one final recovery. Do not call requestRgbResync/lv_refr_now
+// from LVGL event callbacks for these episodes.
+// Repair E / слайс 6C: схлопнутый RGB recovery после dispatch (только DspTask).
+// Долг: стабильный кадр + resync, когда текущая пачка display/LVGL/asset-работы успокоилась.
+// Несколько меток → одно финальное восстановление. Не звать restart/lv_refr_now из LVGL callback.
 void requestRuntimeRgbRecovery();
+
+// Slice 6C: this DspTask iteration still has relevant display/asset work (queue / page create /
+// JPEG apply). If runtime recovery is pending, keep it armed and do not consume until idle.
+// Слайс 6C: в этой итерации ещё есть display/asset-работа. Pending recovery не потреблять.
+void noteDisplayBatchBusy(const char* reason);
 
 // WebUI committed /bg/user_*.jpg — reload Main JPEG cache if slot matches active preset (DspTask queue only).
 // После upload_bg: перечитать JPEG-фон только для активного слота темы; только из обработчика displayQueue.

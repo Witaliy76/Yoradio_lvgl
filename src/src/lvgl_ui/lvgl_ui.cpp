@@ -109,10 +109,14 @@ static bool preset_open_gesture_allowed() {
 // lv_timer_handler(). Только DspTask — без очередей и мьютексов.
 static lv_dir_t s_deferred_carousel_dir = LV_DIR_NONE;
 
-// Repair E: runtime RGB recovery owed after this iteration's normal LVGL paint (theme / JPEG / A2).
-// DspTask-only; no mutex. Multiple marks in one loop collapse to one post-dispatch recovery.
-// Repair E: долг RGB recovery после обычной отрисовки этой итерации. Только DspTask; без mutex.
+// Repair E / Slice 6C: runtime RGB recovery owed after normal LVGL paint (theme / JPEG / A2 / FS).
+// DspTask-only; no mutex. Multiple marks collapse to one recovery on the first quiescent iteration.
+// Repair E / слайс 6C: долг RGB recovery после обычной отрисовки. Только DspTask; без mutex.
+// Несколько меток схлопываются в одно восстановление на первой спокойной итерации.
 static bool s_runtime_rgb_recovery_pending = false;
+static bool s_runtime_recovery_batch_busy = false;
+static uint32_t s_runtime_recovery_seq = 0;
+static const char* s_runtime_recovery_busy_reason = "";
 
 // Horizontal carousel: direct mapping from LVGL gesture dir.
 // X normalization is now in lv_touch_read_cb — no per-board swap needed here.
@@ -536,6 +540,7 @@ void lvgl_ui::onThemePresetChanged(uint8_t preset_id) {
     // Do not restart here (SET_THEME) or from the Settings click callback (still in dispatch).
     // Repair E: theme.dat + reinit должны восстановиться после paint, не до/внутри dispatch.
     requestRuntimeRgbRecovery();
+    noteDisplayBatchBusy("theme-preset");
 }
 
 // Stage 0: stub — confirms LVGL library is compiled into the build
@@ -656,14 +661,30 @@ void lvgl_ui::taskHandler() {
 #if LV_USE_PERF_MONITOR
     repositionBuiltinLvglPerfMonitorOnce();
 #endif
-    // Repair E: after ALL normal LVGL work this iteration (timer, gestures, SCREEN_LOADED take,
-    // optional one-shot perf overlay). Runtime theme/JPEG/A2 recovery coalesces with a pending
-    // transition into one restart. Transition-only keeps the proven no-extra-refr_now path.
-    // Repair E: после всей обычной LVGL-работы итерации. Runtime+переход → один restart.
+    // Slice 6C: consume runtime recovery only when this iteration had no further relevant
+    // display/asset work. A busy iteration keeps the pending flag (coalesce) and folds any
+    // SCREEN_LOADED transition resync into that later redraw → RGB restart. Transition-only
+    // (no runtime pending) keeps the proven no-extra-refr_now path.
+    // Слайс 6C: recovery только на спокойной итерации. Busy оставляет pending и забирает
+    // переходный resync в поздний redraw→restart. Transition-only без runtime pending — как раньше.
+    const bool batch_busy = s_runtime_recovery_batch_busy;
+    s_runtime_recovery_batch_busy = false;
+    if (s_runtime_rgb_recovery_pending && batch_busy) {
+        Serial.printf("[DISPLAY] runtime recovery deferred/rearmed seq=%u reason=%s\n",
+                      (unsigned)s_runtime_recovery_seq,
+                      s_runtime_recovery_busy_reason[0] ? s_runtime_recovery_busy_reason
+                                                        : "batch-busy");
+        s_runtime_recovery_busy_reason = "";
+        (void)transition_resync; // folded into pending runtime recovery / схлопнуто в pending
+        return;
+    }
+    s_runtime_recovery_busy_reason = "";
     const bool runtime_resync = s_runtime_rgb_recovery_pending;
     s_runtime_rgb_recovery_pending = false;
     if (runtime_resync) {
         if (tryRedrawActiveScreenNow()) {
+            Serial.printf("[DISPLAY] runtime recovery final seq=%u\n",
+                          (unsigned)s_runtime_recovery_seq);
             Serial.println("[DISPLAY] post-dispatch runtime recovery: redraw -> RGB resync");
         }
     }
@@ -731,7 +752,19 @@ bool lvgl_ui::tryRedrawActiveScreenNow() {
 }
 
 void lvgl_ui::requestRuntimeRgbRecovery() {
+    if (!s_runtime_rgb_recovery_pending) {
+        s_runtime_recovery_seq++;
+        Serial.printf("[DISPLAY] runtime recovery requested seq=%u\n",
+                      (unsigned)s_runtime_recovery_seq);
+    }
     s_runtime_rgb_recovery_pending = true;
+}
+
+void lvgl_ui::noteDisplayBatchBusy(const char* reason) {
+    s_runtime_recovery_batch_busy = true;
+    if (reason && reason[0] != '\0') {
+        s_runtime_recovery_busy_reason = reason;
+    }
 }
 
 // 8-E19B: LVGL-only mode routing — direct PageChain/overlay dispatch, no backend selection.
@@ -863,6 +896,7 @@ void lvgl_ui::mainBgPollRuntimeApply() {
         // Repair D + E: стабильный кадр оставляем; RGB restart — после lv_timer_handler итерации.
         (void)tryRedrawActiveScreenNow();
         requestRuntimeRgbRecovery();
+        noteDisplayBatchBusy("main-bg-apply");
     } else {
         Serial.println("[MAIN_BG] Background cache ready; Main not active");
     }

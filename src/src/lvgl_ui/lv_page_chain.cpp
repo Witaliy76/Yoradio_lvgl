@@ -6,6 +6,7 @@
 #include "../core/config.h"
 #include "../core/autodim.h"
 #include "../core/options.h"   // pulls myoptions.h → YORADIO_WEATHER_UI_DIAG
+#include "lvgl_ui.h"
 
 // W2D: gated page-transition diagnostics (carousel mem/object pressure investigation).
 // Default OFF; enable via YORADIO_WEATHER_UI_DIAG=1 in myoptions.h (local, not committed).
@@ -83,6 +84,14 @@ void loadScreenAnimAutoDel(lv_obj_t* scr, lv_scr_load_anim_t anim, uint32_t time
 }
 
 } // namespace
+
+// Slice 6C: create/enter may LittleFS-read into PSRAM after an earlier one-shot recovery
+// already consumed its pending flag. Re-arm Stage-5 recovery and keep this iteration busy.
+// Слайс 6C: create/enter может читать LittleFS после уже потреблённого recovery — перевзводим Stage-5.
+static void afterPageAssetWork() {
+    requestRuntimeRgbRecovery();
+    noteDisplayBatchBusy("page-create");
+}
 
 void PageChain::registerPage(int index, ILvglScreen* page) {
     if (index < 0 || index >= PAGE_COUNT) return;
@@ -241,6 +250,7 @@ void PageChain::goTo(int index) {
     next->create();
     next->enter();
     _currentIndex = index;
+    afterPageAssetWork();
 
 #if YORADIO_WEATHER_UI_DIAG
     // After next->create()/enter(): destination objects exist (e.g. after Weather create).
@@ -343,6 +353,7 @@ void PageChain::dismissTemporary() {
 
     origin->create();
     origin->enter();
+    afterPageAssetWork();
 
     lv_obj_t* origin_scr = origin->screen();
     if (origin_scr) {
@@ -456,6 +467,7 @@ void PageChain::dismissRebootRequired() {
     // Load Main before destroying service screen — avoid lv_scr_act() dangling / Main до destroy сервиса.
     main->create();
     main->enter();
+    afterPageAssetWork();
     lv_obj_t* mainScr = main->screen();
     if (mainScr) {
         armRgbResyncOnTransitionComplete(mainScr);
@@ -518,6 +530,7 @@ void PageChain::showWifiServiceOneWay(ILvglScreen* scr) {
             lv_scr_load(svc_scr);
         }
         scr->enter();
+        afterPageAssetWork();
     } else {
         // create() failed — OOM even on freed pool; controlled reboot into normal Main boot.
         // create() провалился — OOM даже на освобождённом пуле; контролируемый reboot в Main boot.
