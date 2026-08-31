@@ -329,9 +329,12 @@ void LvglPresetScreen::enter() {
     _cancelFeedbackTimer();
     (void)preset_store::begin();
     // First entry may commit or discard an orphan temp file left by an interrupted save.
+    // RGB recovery is owed only when LittleFS was actually mutated; Repair E consumes it after
+    // dispatch (enter() can run from poll_top_edge_swipe after lv_timer_handler — still DspTask).
     // Первый вход может закоммитить или удалить осиротевший временный файл прошлого сохранения.
+    // Recovery только при реальной мутации LittleFS; Repair E снимает долг после dispatch.
     if (preset_store::consumeStorageMutation()) {
-        display.requestRgbResync();
+        requestRuntimeRgbRecovery();
     }
     _setHelperDefault();
     _startCountdownTimer();
@@ -578,12 +581,12 @@ void LvglPresetScreen::_onRowLongPressed(uint8_t slot) {
 
     const bool saved = preset_store::saveCurrentStation(slot);
     // DEVICE-PROVEN hazard: the temp/verify/rename save transaction desyncs RGB scanout on this
-    // panel despite writing only 26 bytes. One resync for the whole save — including a failure
-    // that already wrote the temp file, since the scanout does not care that the save was undone.
+    // panel despite writing only 26 bytes. Repair E: mark recovery here, do not restart inside
+    // this LVGL callback — taskHandler redraws then requestRgbResync after dispatch.
     // DEVICE-PROVEN: транзакция tmp/verify/rename рассинхронизирует RGB scanout на этой панели
-    // несмотря на 26 байт. Один ресинхрон на всё сохранение, включая неуспех после записи tmp.
+    // несмотря на 26 байт. Recovery помечается здесь, restart не из callback — после dispatch.
     if (preset_store::consumeStorageMutation()) {
-        display.requestRgbResync();
+        requestRuntimeRgbRecovery();
     }
 
     if (saved) {
