@@ -13,8 +13,7 @@
 #include <esp_heap_caps.h>
 #include <math.h>
 #include <string.h>
-#include <cerrno>
-#include <cstring>  // strerror — REQ_DIAG connect errno only / только под REQ_DIAG
+#include <cstring>
 #include <climits>  // INT32_MAX/MIN for owm_local_day_key bounds / границы day key
 
 /*
@@ -32,17 +31,7 @@
 
 #if !defined(HIDE_WEATHER)
 
-// Compile-time verbose diagnostics, mirroring YORADIO_WEATHER_DIAG for current weather.
-// Компиляционная подробная диагностика — по аналогии с YORADIO_WEATHER_DIAG.
-#ifndef YORADIO_WEATHER_FC_DIAG
-#define YORADIO_WEATHER_FC_DIAG 0
-#endif
 
-// W-R1B: request/response/aggregation diagnostics — off by default.
-// W-R1B: диагностика запросов/ответов/агрегации — выключена по умолчанию.
-#ifndef YORADIO_WEATHER_REQ_DIAG
-#define YORADIO_WEATHER_REQ_DIAG 0
-#endif
 
 // HF-W-DNS: forecast transport failure-injection hooks — default OFF in production.
 // Enable locally in src/myoptions.h for runtime acceptance tests only.
@@ -149,40 +138,23 @@ static inline int32_t owm_local_day_key(int64_t utcSeconds, int32_t timezoneOffs
 WeatherState s_builder;
 
 // ── Diagnostics / Диагностика ──────────────────────────────────────────────────
-// Reject lines are FC_DIAG-only — pending poll can fire every few seconds under load.
-// Строки reject только под FC_DIAG — poll pending при нехватке heap шумит в UART.
+// Retained as no-op wrappers: the verbose bodies were removed with the FC diagnostics.
+// Оставлены как пустые обёртки: подробные тела удалены вместе с FC-диагностикой.
 void fc_log_reject(const char* reason, size_t int_free, size_t int_block,
                    size_t required, uint8_t pending) {
-#if YORADIO_WEATHER_FC_DIAG
-    Serial.printf("[WEATHER_FC] reject reason=%s int_free=%u int_block=%u required=%u pending=%u\n",
-                  reason,
-                  (unsigned)int_free,
-                  (unsigned)int_block,
-                  (unsigned)required,
-                  (unsigned)pending);
-#else
     (void)reason;
     (void)int_free;
     (void)int_block;
     (void)required;
     (void)pending;
-#endif
 }
 
 void fc_log_reject_psram(const char* reason, size_t int_free,
                          size_t ps_free, size_t ps_block) {
-#if YORADIO_WEATHER_FC_DIAG
-    Serial.printf("[WEATHER_FC] reject reason=%s int_free=%u psram_free=%u psram_block=%u pending=0\n",
-                  reason,
-                  (unsigned)int_free,
-                  (unsigned)ps_free,
-                  (unsigned)ps_block);
-#else
     (void)reason;
     (void)int_free;
     (void)ps_free;
     (void)ps_block;
-#endif
 }
 
 void fc_log_skip(const char* reason, size_t int_free, size_t ps_free, size_t ps_block) {
@@ -205,56 +177,8 @@ void fc_log_success(uint32_t t0, int httpCode, uint16_t points, uint8_t future_d
                   (unsigned)WEATHER_REGULAR_INTERVAL_SEC);
 }
 
-#if YORADIO_WEATHER_FC_DIAG
-void fc_log_heap(const char* tag) {
-    Serial.printf("[WEATHER_FC] heap[%s] int_free=%u int_block=%u psram_free=%u psram_block=%u\n",
-                  tag,
-                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
-                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
-                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
-}
-
-// W1.5 diag readback buffer — file scope so the dump never touches the 4 KB doSync stack.
-// Only compiled when the forecast diag flag is on (no production RAM cost otherwise).
-// W1.5: буфер чтения для дампа — file scope, чтобы не задевать 4 КБ стек doSync; компилируется только под диаг-флагом.
-WeatherState s_fc_diag_snap;
-
-// Dump the just-published WeatherState (read back via the public seqlock getter, so it also
-// exercises the reader path). Summary counts come from local fetch state (parsed vs published).
-// Дамп опубликованного WeatherState через публичный seqlock-getter (заодно проверка читателя);
-// счётчики summary — из локального состояния fetch (распарсено vs опубликовано).
-void fc_dump_published(uint16_t parsed_points, uint8_t hourly_published,
-                       uint8_t future_days_published, int32_t tz) {
-    if (!weatherGetStateSnapshot(&s_fc_diag_snap)) {
-        Serial.println("[WEATHER_FC] dump skipped: snapshot busy");
-        return;
-    }
-    const WeatherState& s = s_fc_diag_snap;
-    Serial.printf("[WEATHER_FC] dump summary parsed_points=%u hourly_published=%u "
-                  "future_days_published=%u updated_at=%lu version=%lu tz=%ld\n",
-                  (unsigned)parsed_points, (unsigned)hourly_published,
-                  (unsigned)future_days_published,
-                  (unsigned long)s.forecast_updated_at, (unsigned long)s.version, (long)tz);
-    for (uint8_t i = 0; i < WEATHER_HOURLY_SLOTS; ++i) {
-        const WeatherHourly& h = s.hourly[i];
-        Serial.printf("[WEATHER_FC] hourly[%u] valid=%d ts=%lu temp=%.1f pop=%u icon=%s code=%u\n",
-                      (unsigned)i, (int)h.valid, (unsigned long)h.ts, (double)h.temp_c,
-                      (unsigned)h.rain_probability, h.owm_icon, (unsigned)h.owm_code);
-    }
-    for (uint8_t i = 0; i < WEATHER_DAILY_SLOTS; ++i) {
-        const WeatherDaily& d = s.daily[i];
-        Serial.printf("[WEATHER_FC] daily[%u] valid=%d day_ts=%lu tmin=%.1f tmax=%.1f "
-                      "popmax=%u icon=%s dom=%u\n",
-                      (unsigned)i, (int)d.valid, (unsigned long)d.day_ts, (double)d.temp_min_c,
-                      (double)d.temp_max_c, (unsigned)d.rain_probability_max, d.owm_icon,
-                      (unsigned)d.dominant_owm_code);
-    }
-}
-#else
 inline void fc_log_heap(const char*) {}
 inline void fc_dump_published(uint16_t, uint8_t, uint8_t, int32_t) {}
-#endif
 
 // Read one CRLF-terminated line into buf (CR/LF stripped). Returns chars stored.
 // Чтение одной строки до \n (CR/LF убираются). Возвращает число символов.
@@ -442,13 +366,6 @@ void weatherPublishCurrentOverLkg(const WeatherTrueCurrent& tc,
     }
     // else: staged.location from LKG is preserved.
 
-#if YORADIO_WEATHER_REQ_DIAG
-    Serial.printf("[WEATHER_STATE] publish current_source=current"
-                  " city=\"%s\" country=\"%s\""
-                  " stale=%d error=%d\n",
-                  staged.location.city, staged.location.country,
-                  (int)publish_stale, (int)error);
-#endif
 
     // Single-flip version-bumping publication — no intermediate state, no double flip.
     // Единая публикация с version++ — нет промежуточного состояния, нет двойного flip.
@@ -522,20 +439,10 @@ bool weatherForecastPollPending() {
                              : heap_low ? "pending_heap_low"
                              : "pending_stack_block_low";
         fc_log_reject(reason, int_free, int_block, kPendingTaskAdmissionMinFreeBytes, 1);
-#if YORADIO_WEATHER_REQ_DIAG
-        Serial.printf("[WEATHER_FC] pending wait reason=%s int_free=%u heap_required=%u int_block=%u stack_required=%u\n",
-                      reason,
-                      (unsigned)int_free, (unsigned)kPendingTaskAdmissionMinFreeBytes,
-                      (unsigned)int_block, (unsigned)kDoSyncTaskStackBytes);
-#endif
         return false;
     }
 
     s_fc_pending_only_run = true;
-#if YORADIO_WEATHER_REQ_DIAG
-    Serial.printf("[WEATHER_FC] pending armed int_free=%u required=%u\n",
-                  (unsigned)int_free, (unsigned)kPendingTaskAdmissionMinFreeBytes);
-#endif
     return true;
 }
 
@@ -578,33 +485,15 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
         const size_t int_block = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
         fc_log_reject("internal_low", int_free, int_block, kMinInternalFreeBytes, 1);
         weatherForecastMarkPending();
-#if YORADIO_WEATHER_REQ_DIAG
-        Serial.printf("[WEATHER_FC] defer reason=internal_low pending=1 int_free=%u int_block=%u\n",
-                      (unsigned)int_free, (unsigned)int_block);
-#endif
         return WeatherForecastFetchResult::DeferredInternalLow;
     }
 
     // Real attempt starting — clear pending before network/parse work.
     // Реальная попытка — сбрасываем pending до сети/парсинга.
     if (s_fc_pending) {
-#if YORADIO_WEATHER_REQ_DIAG
-        Serial.println("[WEATHER_FC] pending cleared reason=attempt_started");
-#endif
         s_fc_pending = false;
     }
 
-#if YORADIO_WEATHER_REQ_DIAG
-    // Log config and request parameters before first network call. / Логируем параметры до сети.
-    Serial.printf("[WEATHER_CFG] lat=\"%s\" lon=\"%s\" units=%s lang=%s key_present=%d key_len=%u\n",
-                  config.store.weatherlat, config.store.weatherlon,
-                  unitsUse, langUse,
-                  strlen(config.store.weatherkey) > 0 ? 1 : 0,
-                  (unsigned)strlen(config.store.weatherkey));
-    Serial.printf("[WEATHER_REQ] path=forecast lat=%s lon=%s units=%s lang=%s cnt=%u preferred=%d\n",
-                  config.store.weatherlat, config.store.weatherlon,
-                  unitsUse, langUse, (unsigned)kForecastCnt, (int)session.hasPreferred());
-#endif
 
     // ── HF-W-DNS: lazy edge-fallback transport loop ──────────────────────────────
     // Reset request-level tracking; cycle-level preferred from current is preserved.
@@ -656,9 +545,6 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
             // Системный DNS — тот же путь, что и в исходном коде.
             if (!networkResolveHostForConnect(host, edgeIP)) {
                 fc_log_fail("dns", t0, -1);
-#if YORADIO_WEATHER_REQ_DIAG
-                Serial.printf("[WEATHER_NET] path=forecast fail attempt=0 source=system stage=dns\n");
-#endif
                 continue; // DNS failed → try fallback resolvers
             }
             sourceName = "system";
@@ -698,12 +584,6 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
                 candidates, 4, candidateCount,
                 800u, "weather-forecast");
 
-#if YORADIO_WEATHER_REQ_DIAG
-            Serial.printf("[WEATHER_NET] path=forecast dns resolver=%s status=%s candidates=%u\n",
-                          sourceName,
-                          dnsStatus == NetDnsQueryStatus::Success ? "ok" : "fail",
-                          (unsigned)candidateCount);
-#endif
 
             if (dnsStatus != NetDnsQueryStatus::Success || candidateCount == 0) {
                 continue; // DNS query failed → try next resolver
@@ -717,10 +597,6 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
                     edgeIP = candidates[ci];
                     break;
                 }
-#if YORADIO_WEATHER_REQ_DIAG
-                Serial.printf("[WEATHER_NET] path=forecast skip resolver=%s reason=duplicate ip=%s\n",
-                              sourceName, candidates[ci].toString().c_str());
-#endif
             }
 
             if (edgeIP == IPAddress(0, 0, 0, 0)) {
@@ -730,19 +606,10 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
 
         // ── Deduplication (covers preferred reuse too, in case of repeated cycle edge) ──
         if (session.wasAttempted(edgeIP)) {
-#if YORADIO_WEATHER_REQ_DIAG
-            Serial.printf("[WEATHER_NET] path=forecast skip source=%s reason=duplicate ip=%s\n",
-                          sourceName, edgeIP.toString().c_str());
-#endif
             continue;
         }
         session.markAttempted(edgeIP);
 
-#if YORADIO_WEATHER_REQ_DIAG
-        Serial.printf("[WEATHER_NET] path=forecast attempt=%u source=%s ip=%s reuse=%d\n",
-                      (unsigned)attemptIdx, sourceName, edgeIP.toString().c_str(),
-                      (int)isReuse);
-#endif
 
         // ── TCP connect ──────────────────────────────────────────────────────
         client.stop(); // clean state before each attempt
@@ -762,13 +629,6 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
 #endif
 
         if (!client.connect(edgeIP, 80, kConnectTimeoutMs)) {
-#if YORADIO_WEATHER_REQ_DIAG
-            const int connect_errno = errno;
-            Serial.printf("[WEATHER_NET] path=forecast fail attempt=%u source=%s "
-                          "stage=connect ip=%s errno=%d\n",
-                          (unsigned)attemptIdx, sourceName, edgeIP.toString().c_str(),
-                          connect_errno);
-#endif
             continue; // ConnectFailed → try next edge
         }
 
@@ -801,11 +661,6 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
             }
             if (!gotByte) {
                 fc_log_fail("read_wait", t0, -1);
-#if YORADIO_WEATHER_REQ_DIAG
-                Serial.printf("[WEATHER_NET] path=forecast fail attempt=%u source=%s "
-                              "stage=read_wait_before_status ip=%s\n",
-                              (unsigned)attemptIdx, sourceName, edgeIP.toString().c_str());
-#endif
                 client.stop();
                 continue; // ReadWaitBeforeStatus → try next edge
             }
@@ -815,10 +670,6 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
         // After this point: do NOT rotate on HTTP-status or parse failures.
         // После первого байта — НЕ ротируем по HTTP-статусу или ошибкам парсинга.
         fc_connected = true;
-#if YORADIO_WEATHER_REQ_DIAG
-        Serial.printf("[WEATHER_NET] path=forecast success attempt=%u source=%s ip=%s\n",
-                      (unsigned)attemptIdx, sourceName, edgeIP.toString().c_str());
-#endif
         break;
     } // end attempt loop
 
@@ -870,11 +721,6 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
     // A4.0: city.name + city.country всегда в фильтре — нужны для WeatherState.location.
     filter["city"]["name"]    = true;
     filter["city"]["country"] = true;
-#if YORADIO_WEATHER_REQ_DIAG
-    // W-R1B: extra coordinates retained only when diagnostics are on.
-    filter["city"]["coord"]["lat"] = true;
-    filter["city"]["coord"]["lon"] = true;
-#endif
     // Array filter template: applies to every element of "list".
     // Шаблон фильтра для массива: применяется к каждому элементу "list".
     filter["list"][0]["dt"] = true;
@@ -908,36 +754,6 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
     }
     const int32_t tz = doc["city"]["timezone"] | 0;
 
-#if YORADIO_WEATHER_REQ_DIAG
-    // Response metadata: city name, coordinates from server response, timezone offset.
-    // Метаданные ответа: имя города, координаты из ответа сервера, смещение timezone.
-    {
-        const char* d_city    = doc["city"]["name"]    | "";
-        const char* d_country = doc["city"]["country"] | "";
-        const float d_lat     = doc["city"]["coord"]["lat"] | 0.0f;
-        const float d_lon     = doc["city"]["coord"]["lon"] | 0.0f;
-        const uint32_t d_first = list.size() > 0 ? (list[0]["dt"]                | 0u) : 0u;
-        const uint32_t d_last  = list.size() > 0 ? (list[list.size()-1]["dt"]    | 0u) : 0u;
-        Serial.printf("[WEATHER_RES] path=forecast ok=1 city=\"%s\" country=\"%s\""
-                      " coord_lat=%.4f coord_lon=%.4f tz=%ld list=%u"
-                      " first_dt=%lu last_dt=%lu\n",
-                      d_city, d_country,
-                      (double)d_lat, (double)d_lon,
-                      (long)tz, (unsigned)list.size(),
-                      (unsigned long)d_first, (unsigned long)d_last);
-    }
-    // Device NTP state vs OWM timezone. / Состояние NTP устройства vs timezone OWM.
-    {
-        const struct tm& devtm   = network.timeinfo;
-        const bool       ntpok   = devtm.tm_year > 100;
-        Serial.printf("[WEATHER_TIME] ntp_valid=%d device_year=%d device_mon=%d device_day=%d"
-                      " owm_tz=%ld device_tz_h=%d device_tz_m=%d\n",
-                      (int)ntpok,
-                      devtm.tm_year + 1900, devtm.tm_mon + 1, devtm.tm_mday,
-                      (long)tz,
-                      (int)config.store.tzHour, (int)config.store.tzMin);
-    }
-#endif
 
     // ── Build into the scratch builder; publish only on full success. ──
     memset(&s_builder, 0, sizeof(s_builder));
@@ -963,10 +779,6 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
     }
     const int32_t target_max_key = today_key + 3;
 
-#if YORADIO_WEATHER_REQ_DIAG
-    Serial.printf("[WEATHER_TIME] location_today_key=%ld today_source=%s tz=%ld\n",
-                  (long)today_key, today_source, (long)tz);
-#endif
 
     uint8_t day_dom_sev[3] = {0};   // severity scratch for daily[1..3]
     uint16_t day_points[3] = {0};   // per-target-day point counts (diag)
@@ -1070,20 +882,6 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
     }
     // daily[0] and daily[4] remain invalid (memset + never written).
 
-#if YORADIO_WEATHER_REQ_DIAG
-    Serial.printf("[WEATHER_AGG] skipped_today_points=%u\n",
-                  (unsigned)skipped_today_points);
-    for (uint8_t fi = 0; fi < 3; ++fi) {
-        const uint8_t slot = static_cast<uint8_t>(fi + 1);
-        Serial.printf("[WEATHER_AGG] future_day[%u] key=%ld points=%u slot=%u\n",
-                      (unsigned)fi, (long)(today_key + 1 + fi),
-                      (unsigned)day_points[fi], (unsigned)slot);
-    }
-    Serial.printf("[WEATHER_AGG] parsed_points=%u hourly_published=%u "
-                  "future_days_published=%u current_valid=%d\n",
-                  (unsigned)point_count, (unsigned)hourly_count,
-                  (unsigned)future_days_published, (int)s_builder.current.valid);
-#endif
 
     // ── A4.0: location from forecast city metadata (always in filter now) ──────────
     // A4.0: локация из метаданных города прогноза (теперь всегда в фильтре).
@@ -1126,16 +924,6 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
         s_builder.current_source = WeatherCurrentSource::CurrentEndpoint;
     }
 
-#if YORADIO_WEATHER_REQ_DIAG
-    Serial.printf("[WEATHER_STATE] publish"
-                  " current_source=%s"
-                  " city=\"%s\" country=\"%s\""
-                  " version=next\n",
-                  s_builder.current_source == WeatherCurrentSource::CurrentEndpoint
-                      ? "current" : "forecast_fallback",
-                  s_builder.location.city,
-                  s_builder.location.country);
-#endif
 
     s_builder.forecast_valid      = true;
     s_builder.stale               = false;

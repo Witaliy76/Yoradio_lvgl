@@ -14,35 +14,15 @@
 #include "../i18n/i18n.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "esp_heap_caps.h"
 #include "lwip/dns.h"
 #include "lwip/ip_addr.h"
 #include "lwip/tcpip.h"
-#include <cerrno>
-#include <cstring>  // strerror — REQ_DIAG connect errno only / только под REQ_DIAG
+#include <cstring>
 
-#ifndef YORADIO_WEATHER_REQ_DIAG
-#define YORADIO_WEATHER_REQ_DIAG 0
-#endif
 
 // W-R1C.3A: doSync stack high-water diagnostics — off by default.
 // W-R1C.3A: диагностика high-water стека doSync — выключена по умолчанию.
-#ifndef YORADIO_WEATHER_STACK_DIAG
-#define YORADIO_WEATHER_STACK_DIAG 0
-#endif
 
-#if YORADIO_WEATHER_STACK_DIAG
-// Observation-only: ESP-IDF returns min free stack in bytes (not vanilla FreeRTOS words).
-// Только наблюдение: ESP-IDF возвращает min free stack в байтах.
-static void logDoSyncStackUsage(const char* mode, const char* phase) {
-  const configSTACK_DEPTH_TYPE min_free_stack = uxTaskGetStackHighWaterMark2(nullptr);
-  const uint32_t configured = kDoSyncTaskStackBytes;
-  const uint32_t min_free = static_cast<uint32_t>(min_free_stack);
-  const uint32_t max_used = (min_free <= configured) ? (configured - min_free) : 0u;
-  Serial.printf("[WEATHER_STACK] mode=%s phase=%s configured=%u min_free=%u max_used=%u\n",
-                mode, phase, configured, min_free, max_used);
-}
-#endif
 
 #ifndef WIFI_ATTEMPTS
   #define WIFI_ATTEMPTS  16
@@ -77,17 +57,6 @@ static void finishWeatherForecastFetch(WeatherForecastFetchResult result,
     case WeatherForecastFetchResult::Published:
       // Already published by weatherFetchForecast() with true-current overlay applied.
       // Уже опубликовано weatherFetchForecast() с overlay true-current (если был).
-#if YORADIO_WEATHER_REQ_DIAG
-      {
-        WeatherState snap{};
-        if (weatherGetStateSnapshot(&snap)) {
-          Serial.printf("[WEATHER_STATE] refresh=end result=success"
-                        " has_data=%d stale=%d error=%d\n",
-                        (int)(snap.forecast_valid && snap.current.valid),
-                        (int)snap.stale, (int)snap.last_error);
-        }
-      }
-#endif
       break;
     case WeatherForecastFetchResult::DeferredInternalLow:
       // A4.0/§11: current ok but forecast deferred — overlay current over LKG, set InternalLow.
@@ -377,17 +346,10 @@ static bool isWeatherGraceElapsed() {
 }
 
 #if !defined(HIDE_WEATHER)
-#ifndef YORADIO_WEATHER_DIAG
-#define YORADIO_WEATHER_DIAG 0
-#endif
 
-// W-R1B: request/response location diagnostics — off by default.
-// W-R1B: диагностика запросов/ответов — выключена по умолчанию.
-#ifndef YORADIO_WEATHER_REQ_DIAG
-#define YORADIO_WEATHER_REQ_DIAG 0
-#endif
 
-// E21W0-C: quiet runtime + optional verbose diag / тихий runtime и опциональная диагностика
+// E21W0-C: quiet runtime — one compact line per failed attempt.
+// E21W0-C: тихий runtime — одна компактная строка на неудачную попытку.
 namespace weather_diag {
 
 // One compact failure line per failed attempt / одна компактная строка на неудачную попытку
@@ -402,79 +364,6 @@ static void logFailCompact(const char* stage, uint32_t t0, uint8_t retry,
   }
   Serial.printf(" elapsed_ms=%lu\n", (unsigned long)(millis() - t0));
 }
-
-#if YORADIO_WEATHER_DIAG
-static void heapSnapshot() {
-  Serial.printf("[WEATHER] heap.free=%u internal_largest=%u psram_free=%u\n",
-                (unsigned)ESP.getFreeHeap(),
-                (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
-                (unsigned)ESP.getFreePsram());
-}
-
-static size_t pathLenEstimate() {
-  return 48U + strlen(config.store.weatherlat) + strlen(config.store.weatherlon) +
-         strlen(kWeatherUnits) + strlen(i18n::locale().weatherApiLanguage) +
-         strlen(config.store.weatherkey);
-}
-
-static void logStart() {
-  const uint32_t now = millis();
-  const uint32_t sinceLast =
-      (s_weather_last_attempt_ms == 0U) ? 0U : (now - s_weather_last_attempt_ms);
-  Serial.printf(
-      "[WEATHER] start showweather=%d force_requested=%d grace_elapsed=%d "
-      "host=api.openweathermap.org port=80 scheme=http path_len=%u "
-      "avail_to_ms=2000 read_to_ms=500 dns_to_ms=5000 wifi_status=%d ip=%s rssi=%d "
-      "boot_ms=%lu since_last_ms=%lu audio_playing=%d\n",
-      (int)config.store.showweather,
-      (int)s_weather_diag_forced,
-      (int)isWeatherGraceElapsed(),
-      (unsigned)pathLenEstimate(),
-      (int)WiFi.status(),
-      WiFi.localIP().toString().c_str(),
-      WiFi.RSSI(),
-      (unsigned long)now,
-      (unsigned long)sinceLast,
-      (int)player.isRunning());
-  heapSnapshot();
-  s_weather_last_attempt_ms = now;
-}
-
-static void logBodyPrefix(const char* raw) {
-  if (raw == nullptr || raw[0] == '\0') {
-    return;
-  }
-  char buf[96];
-  strlcpy(buf, raw, sizeof(buf));
-  char* appid = strstr(buf, "appid=");
-  if (appid != nullptr) {
-    strlcpy(appid, "appid=…", sizeof(buf) - (size_t)(appid - buf));
-  }
-  Serial.printf("[WEATHER] body_prefix=\"%s\"\n", buf);
-}
-
-static void logParseFail(const char* field, uint32_t t0, int httpCode, size_t bodyBytes,
-                         const char* line) {
-  Serial.printf("[WEATHER] fail stage=parse field=%s elapsed_ms=%lu http_code=%d body_bytes~=%u\n",
-                field, (unsigned long)(millis() - t0), httpCode, (unsigned)bodyBytes);
-  logBodyPrefix(line);
-  heapSnapshot();
-}
-
-static void logSuccess(uint32_t t0, int httpCode, float tempC, const char* icon,
-                       const char* desc) {
-  Serial.printf(
-      "[WEATHER] success stage=done http_code=%d temp=%.1f icon=%s desc=\"%s\" "
-      "elapsed_ms=%lu next_interval_s=%u current_ok=1\n",
-      httpCode, tempC, icon, desc, (unsigned long)(millis() - t0),
-      (unsigned)WEATHER_REGULAR_INTERVAL_SEC);
-  heapSnapshot();
-}
-#else
-static inline void logStart() {}
-static inline void logParseFail(const char*, uint32_t, int, size_t, const char*) {}
-static inline void logSuccess(uint32_t, int, float, const char*, const char*) {}
-#endif
 
 } // namespace weather_diag
 #endif // !HIDE_WEATHER
@@ -909,19 +798,6 @@ void MyNetwork::forceWeatherRefreshFromUi() {
   // W-R1C.4: immediate non-blocking schedule attempt — HTTP only inside doSync on Core 0.
   // W-R1C.4: немедленная попытка schedule — HTTP только в doSync на Core 0, не в callback.
   const DoSyncScheduleResult sched = scheduleDoSyncIfIdleEx();
-#if YORADIO_WEATHER_REQ_DIAG
-  switch (sched) {
-    case DoSyncScheduleResult::Started:
-      Serial.println("[WEATHER_SCHED] explicit request schedule=started");
-      break;
-    case DoSyncScheduleResult::Busy:
-      Serial.println("[WEATHER_SCHED] explicit request schedule=busy");
-      break;
-    case DoSyncScheduleResult::CreateFailed:
-      Serial.println("[WEATHER_SCHED] explicit request schedule=create_failed");
-      break;
-  }
-#endif
   (void)sched;
 }
 
@@ -929,9 +805,6 @@ void MyNetwork::forceWeatherRefreshFromUi() {
 void doSync( void * pvParameters ) {
   static uint8_t tsFailCnt = 0;
   //static uint8_t wsFailCnt = 0;
-#if YORADIO_WEATHER_STACK_DIAG
-  const char* stack_diag_mode = "other";
-#endif
   if(network.forceTimeSync){
     network.forceTimeSync = false;
     if(getLocalTime(&network.timeinfo)){
@@ -962,15 +835,9 @@ void doSync( void * pvParameters ) {
     // S6V10H: первый запрос погоды ждёт grace, чтобы не пересекаться с ранним audio/Main preload.
     network.forceWeather = true;
   } else if(network.forceWeather){
-#if YORADIO_WEATHER_STACK_DIAG
-    stack_diag_mode = "full";
-#endif
     s_weather_diag_forced = true;
     network.forceWeather = false;
     weatherForecastDiscardPendingOnlyArm(); // coalesce — full sync covers any armed pending-only pass
-#if YORADIO_WEATHER_REQ_DIAG
-    Serial.println("[WEATHER_SCHED] run force=1");
-#endif
     // A4.0: weatherStateMarkFetchBegin() now covers the ENTIRE combined current+forecast cycle.
     // A4.0: weatherStateMarkFetchBegin() теперь покрывает ВЕСЬ комбинированный цикл.
     weatherStateMarkFetchBegin();
@@ -999,17 +866,8 @@ void doSync( void * pvParameters ) {
                              current_ok ? &s_current_tc : nullptr);
     s_weather_diag_forced = false;
   } else if (weatherForecastTakePendingOnlyRun()) {
-#if YORADIO_WEATHER_STACK_DIAG
-    stack_diag_mode = "pending_forecast";
-#endif
     // W-R1C.1: forecast-only deferred retry — no getWeather() in this path.
     // W-R1C.1: отложенный retry только прогноза — без getWeather().
-#if YORADIO_WEATHER_REQ_DIAG
-    Serial.println("[WEATHER_SCHED] run pending_forecast=1");
-    Serial.printf("[WEATHER_FC] pending retry start int_free=%u int_block=%u\n",
-                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
-#endif
     // A4.0/§12: pending-only path — no /weather request; current_source = ForecastFallback.
     // A4.0/§12: pending-only — без /weather; current_source = ForecastFallback (list[0] прокси).
     // Not changed now: cross-task staging of an earlier true current is deliberately NOT used
@@ -1023,9 +881,6 @@ void doSync( void * pvParameters ) {
     pendingSession.resetCycle();
     runWeatherForecastFetch(pendingSession, nullptr);
   }
-#if YORADIO_WEATHER_STACK_DIAG
-  logDoSyncStackUsage(stack_diag_mode, "exit");
-#endif
   doSyncReleaseHandleAndSelfDelete();
 }
 
@@ -1053,23 +908,11 @@ bool getWeather(WeatherEdgeSession& edgeSession) {
   int httpCode = -1;
   size_t bodyBytes = 0U;
 
-  weather_diag::logStart();
-
   char weatherUnitsRam[12];
   char weatherLangRam[8];
   strlcpy(weatherUnitsRam, kWeatherUnits, sizeof(weatherUnitsRam));
   strlcpy(weatherLangRam, i18n::locale().weatherApiLanguage, sizeof(weatherLangRam));
 
-#if YORADIO_WEATHER_REQ_DIAG
-  Serial.printf("[WEATHER_CFG] lat=\"%s\" lon=\"%s\" units=%s lang=%s key_present=%d key_len=%u\n",
-                config.store.weatherlat, config.store.weatherlon,
-                weatherUnitsRam, weatherLangRam,
-                strlen(config.store.weatherkey) > 0 ? 1 : 0,
-                (unsigned)strlen(config.store.weatherkey));
-  Serial.printf("[WEATHER_REQ] path=current lat=%s lon=%s units=%s lang=%s\n",
-                config.store.weatherlat, config.store.weatherlon,
-                weatherUnitsRam, weatherLangRam);
-#endif
 
   // HF-W-DNS: lazy edge-fallback state machine.
   // System path first; fallback DNS queried only after a qualifying transport failure.
@@ -1099,9 +942,6 @@ bool getWeather(WeatherEdgeSession& edgeSession) {
       if (!networkResolveHostForConnect(host, edgeIP)) {
         weather_diag::logFailCompact("dns", t0, 0, nullptr, -1);
         Serial.println("##WEATHER###: DNS resolve failed");
-#if YORADIO_WEATHER_REQ_DIAG
-        Serial.printf("[WEATHER_NET] path=current fail attempt=0 source=system stage=dns\n");
-#endif
         // Resolution failed — try fallback DNS directly
         // Резолвинг не прошёл — переходим к fallback DNS
         continue;
@@ -1111,14 +951,6 @@ bool getWeather(WeatherEdgeSession& edgeSession) {
         continue;
       }
       edgeSession.markAttempted(edgeIP);
-#if YORADIO_WEATHER_REQ_DIAG
-      Serial.printf("[WEATHER_NET] path=current attempt=0 source=system ip=%s\n",
-                    edgeIP.toString().c_str());
-#endif
-#if YORADIO_WEATHER_DIAG
-      Serial.printf("[WEATHER] dns ok retry=0 ip=%s elapsed_ms=%lu\n",
-                    edgeIP.toString().c_str(), (unsigned long)(millis() - t0));
-#endif
     } else {
       // ── Attempt source 1 or 2: fallback DNS server ──────────────────────────
       const uint8_t fbIdx = (uint8_t)(attemptIdx - 1u);
@@ -1144,12 +976,6 @@ bool getWeather(WeatherEdgeSession& edgeSession) {
           candidates, 4, candidateCount,
           800u, "weather-current");
 
-#if YORADIO_WEATHER_REQ_DIAG
-      Serial.printf("[WEATHER_NET] path=current dns resolver=%s status=%s candidates=%u\n",
-                    sourceName,
-                    dnsStatus == NetDnsQueryStatus::Success ? "ok" : "fail",
-                    (unsigned)candidateCount);
-#endif
 
       if (dnsStatus != NetDnsQueryStatus::Success || candidateCount == 0) {
         continue; // DNS query failed — try next fallback server
@@ -1177,10 +1003,6 @@ bool getWeather(WeatherEdgeSession& edgeSession) {
           edgeIP = candidates[ci];
           break;
         }
-#if YORADIO_WEATHER_REQ_DIAG
-        Serial.printf("[WEATHER_NET] path=current skip resolver=%s reason=duplicate ip=%s\n",
-                      sourceName, candidates[ci].toString().c_str());
-#endif
       }
 
       if (edgeIP == IPAddress(0, 0, 0, 0)) {
@@ -1188,10 +1010,6 @@ bool getWeather(WeatherEdgeSession& edgeSession) {
         continue;
       }
       edgeSession.markAttempted(edgeIP);
-#if YORADIO_WEATHER_REQ_DIAG
-      Serial.printf("[WEATHER_NET] path=current attempt=%u source=%s ip=%s\n",
-                    (unsigned)attemptIdx, sourceName, edgeIP.toString().c_str());
-#endif
     }
 
     // ── TCP connect ───────────────────────────────────────────────────────────
@@ -1206,19 +1024,8 @@ bool getWeather(WeatherEdgeSession& edgeSession) {
 #endif
 
     if (!client.connect(edgeIP, 80)) {
-#if YORADIO_WEATHER_REQ_DIAG
-      const int connect_errno = errno;
-      Serial.printf("[WEATHER] connect fail try=%u errno=%d (%s)\n",
-                    (unsigned)attemptIdx, connect_errno, strerror(connect_errno));
-      Serial.printf("[WEATHER_NET] path=current fail attempt=%u source=%s stage=connect ip=%s\n",
-                    (unsigned)attemptIdx, sourceName, edgeIP.toString().c_str());
-#endif
       continue; // ConnectFailed → try next edge
     }
-#if YORADIO_WEATHER_DIAG
-    Serial.printf("[WEATHER] connect ok retry=%u elapsed_ms=%lu\n",
-                  (unsigned)attemptIdx, (unsigned long)(millis() - t0));
-#endif
 
     // ── Send HTTP request (same for all edges — host header is always the hostname) ──
     client.print(httpget);
@@ -1245,10 +1052,6 @@ bool getWeather(WeatherEdgeSession& edgeSession) {
         // ReadWaitBeforeStatus — no HTTP bytes received → try next edge
         weather_diag::logFailCompact("read_wait", t0, attemptIdx, &serverIP, httpCode);
         Serial.println("##WEATHER###: client available timeout !");
-#if YORADIO_WEATHER_REQ_DIAG
-        Serial.printf("[WEATHER_NET] path=current fail attempt=%u source=%s stage=read_wait_before_status ip=%s\n",
-                      (unsigned)attemptIdx, sourceName, edgeIP.toString().c_str());
-#endif
         client.stop();
         continue; // ReadWaitBeforeStatus → try next edge
       }
@@ -1262,15 +1065,7 @@ bool getWeather(WeatherEdgeSession& edgeSession) {
       // Сохраняем preferred fallback edge — forecast попробует его первым в том же цикле.
       const uint8_t resolverIdx = (uint8_t)(attemptIdx - 1u);
       edgeSession.setPreferred(edgeIP, resolverIdx);
-#if YORADIO_WEATHER_REQ_DIAG
-      Serial.printf("[WEATHER_NET] path=current success attempt=%u source=%s ip=%s preferred_set=1\n",
-                    (unsigned)attemptIdx, sourceName, edgeIP.toString().c_str());
-#endif
     } else {
-#if YORADIO_WEATHER_REQ_DIAG
-      Serial.printf("[WEATHER_NET] path=current success attempt=0 source=system ip=%s\n",
-                    edgeIP.toString().c_str());
-#endif
     }
     break; // proceed to response parsing
   }
@@ -1295,10 +1090,6 @@ bool getWeather(WeatherEdgeSession& edgeSession) {
           const int sp2 = line.indexOf(' ', sp1 + 1);
           httpCode = line.substring(sp1 + 1, sp2 > 0 ? sp2 : line.length()).toInt();
         }
-#if YORADIO_WEATHER_DIAG
-        Serial.printf("[WEATHER] http_status=%d elapsed_ms=%lu\n",
-                      httpCode, (unsigned long)(millis() - t0));
-#endif
       }
       if (strstr(line.c_str(), "\"temp\"") != NULL) {
         client.stop();
@@ -1314,28 +1105,17 @@ bool getWeather(WeatherEdgeSession& edgeSession) {
   }
   if (strstr(line.c_str(), "\"temp\"") == NULL) {
     weather_diag::logFailCompact("http_body", t0, 0, &serverIP, httpCode);
-#if YORADIO_WEATHER_DIAG
-    weather_diag::logBodyPrefix(line.c_str());
-#endif
     Serial.println("##WEATHER###: weather not found !");
     return false;
   }
-#if YORADIO_WEATHER_DIAG
-  Serial.printf("[WEATHER] body_match line_bytes=%u elapsed_ms=%lu\n",
-                (unsigned)line.length(), (unsigned long)(millis() - t0));
-#endif
 
   // ── A4.0: ArduinoJson v7 parse (replaces strstr block) ────────────────────────
   // Single parse feeds WeatherState merge via true-current staging.
   // Единый парсинг — staging для merge в WeatherState.
   WeatherCurrentParsed parsed{};
   if (!weatherParseCurrentBody(line.c_str(), &parsed)) {
-#if YORADIO_WEATHER_DIAG
-    weather_diag::logParseFail("json_parse", t0, httpCode, bodyBytes, line.c_str());
-#else
     (void)bodyBytes;
     weather_diag::logFailCompact("parse", t0, 0, &serverIP, httpCode);
-#endif
     Serial.println("##WEATHER###: parse failed !");
     return false;
   }
@@ -1356,18 +1136,6 @@ bool getWeather(WeatherEdgeSession& edgeSession) {
   }
 
   // ── Diagnostics ───────────────────────────────────────────────────────────────
-#if YORADIO_WEATHER_DIAG
-  weather_diag::logSuccess(t0, httpCode, parsed.tc.temp_c, parsed.tc.owm_icon,
-                           parsed.full_desc);
-#endif
-#if YORADIO_WEATHER_REQ_DIAG
-  Serial.printf("[WEATHER_RES] path=current ok=1"
-                " name=\"%s\" country=\"%s\" temp=%.1f icon=%s"
-                " code=%u dt=%lu\n",
-                parsed.tc.location.city, parsed.tc.location.country,
-                (double)parsed.tc.temp_c, parsed.tc.owm_icon,
-                (unsigned)parsed.tc.owm_code, (unsigned long)parsed.tc.updated_at);
-#endif
   Serial.printf("##WEATHER###: descr.: %s, temp.: %+.1f*C (feels like %+.0f*C)"
                 " \007 press.: %d mm \007 hum.: %s%%"
                 " \007 wind %s %.0f%s m/s (st. %s)\n",

@@ -5,7 +5,6 @@
 #include <Arduino.h>
 #include <WiFiUdp.h>          // typedef NetworkUDP / WiFiUDP
 #include <esp_random.h>       // esp_random() for TX ID seed
-#include <esp_heap_caps.h>    // heap diagnostics under YORADIO_NET_DNS_DIAG
 #include <freertos/semphr.h>  // SemaphoreHandle_t, xSemaphoreCreateMutex …
 #include <string.h>
 
@@ -23,9 +22,6 @@
  */
 
 // ── Compile-time diagnostics gate (default OFF / выключено по умолчанию) ────
-#ifndef YORADIO_NET_DNS_DIAG
-#define YORADIO_NET_DNS_DIAG 0
-#endif
 
 // ── Editable constants block — DNS fallback servers and protocol tunables ────
 // Edit only these lines to change the compiled fallback resolver list.
@@ -70,14 +66,6 @@ SemaphoreHandle_t dnsMutex() {
 }
 
 // ── Internal diagnostics helpers ─────────────────────────────────────────────
-#if YORADIO_NET_DNS_DIAG
-void dns_log_heap(const char* tag, const char* diagTag) {
-    Serial.printf("[NET_DNS] heap[%s] tag=%s int_free=%u int_block=%u\n",
-                  tag, diagTag ? diagTag : "-",
-                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
-}
-#endif
 
 // ── Hostname → DNS label encoding ────────────────────────────────────────────
 // Encodes "foo.bar.com" → \x03foo\x03bar\x03com\x00 into buf[offset…].
@@ -177,13 +165,6 @@ NetDnsQueryStatus netDnsQueryA(
     // From here, s_dns_pkt is exclusively ours.
     // Отсюда s_dns_pkt принадлежит исключительно нам.
 
-#if YORADIO_NET_DNS_DIAG
-    dns_log_heap("before", diagTag);
-    Serial.printf("[NET_DNS] tag=%s resolver=%s hostname=%s timeout=%u\n",
-                  diagTag ? diagTag : "-",
-                  dnsServer.toString().c_str(),
-                  hostname, (unsigned)timeoutMs);
-#endif
 
     NetDnsQueryStatus result = NetDnsQueryStatus::Timeout; // default if we fall through
 
@@ -262,10 +243,6 @@ NetDnsQueryStatus netDnsQueryA(
 
     if (recvLen < 12) {
         // Timed out or truncated beyond repair
-#if YORADIO_NET_DNS_DIAG
-        Serial.printf("[NET_DNS] tag=%s resolver=%s result=timeout elapsed_ms=%lu\n",
-                      diagTag ? diagTag : "-", dnsServer.toString().c_str(), (unsigned long)elapsed);
-#endif
         xSemaphoreGive(mutex);
         return NetDnsQueryStatus::Timeout;
     }
@@ -281,10 +258,6 @@ NetDnsQueryStatus netDnsQueryA(
     // Validate transaction ID
     if (rxId != txId) {
         result = NetDnsQueryStatus::MalformedResponse;
-#if YORADIO_NET_DNS_DIAG
-        Serial.printf("[NET_DNS] tag=%s resolver=%s result=malformed reason=txid_mismatch\n",
-                      diagTag ? diagTag : "-", dnsServer.toString().c_str());
-#endif
         xSemaphoreGive(mutex);
         return result;
     }
@@ -298,10 +271,6 @@ NetDnsQueryStatus netDnsQueryA(
 
     // TC=1 → truncated
     if (flags & kDnsFlagTC) {
-#if YORADIO_NET_DNS_DIAG
-        Serial.printf("[NET_DNS] tag=%s resolver=%s result=truncated\n",
-                      diagTag ? diagTag : "-", dnsServer.toString().c_str());
-#endif
         xSemaphoreGive(mutex);
         return NetDnsQueryStatus::Truncated;
     }
@@ -309,10 +278,6 @@ NetDnsQueryStatus netDnsQueryA(
     // RCODE
     const uint8_t rcode = (uint8_t)(flags & kDnsRcodeMask);
     if (rcode != 0) {
-#if YORADIO_NET_DNS_DIAG
-        Serial.printf("[NET_DNS] tag=%s resolver=%s result=rcode=%u\n",
-                      diagTag ? diagTag : "-", dnsServer.toString().c_str(), (unsigned)rcode);
-#endif
         xSemaphoreGive(mutex);
         return NetDnsQueryStatus::ResponseError;
     }
@@ -401,12 +366,6 @@ NetDnsQueryStatus netDnsQueryA(
                 // IPAddress constructor from 4 bytes (big-endian)
                 IPAddress ip(s_dns_pkt[pos], s_dns_pkt[pos+1], s_dns_pkt[pos+2], s_dns_pkt[pos+3]);
                 const bool dup = isAlreadyInList(outAddresses, outCount, ip);
-#if YORADIO_NET_DNS_DIAG
-                Serial.printf("[NET_DNS] tag=%s resolver=%s A=%s dup=%d\n",
-                              diagTag ? diagTag : "-",
-                              dnsServer.toString().c_str(),
-                              ip.toString().c_str(), (int)dup);
-#endif
                 if (!dup) {
                     outAddresses[outCount++] = ip;
                 }
@@ -419,14 +378,6 @@ NetDnsQueryStatus netDnsQueryA(
     // ── Determine final status ────────────────────────────────────────────────
     result = (outCount > 0) ? NetDnsQueryStatus::Success : NetDnsQueryStatus::NoAddress;
 
-#if YORADIO_NET_DNS_DIAG
-    dns_log_heap("after", diagTag);
-    Serial.printf("[NET_DNS] tag=%s resolver=%s status=%s a_count=%u elapsed_ms=%lu\n",
-                  diagTag ? diagTag : "-",
-                  dnsServer.toString().c_str(),
-                  result == NetDnsQueryStatus::Success ? "ok" : "no_address",
-                  (unsigned)outCount, (unsigned long)elapsed);
-#endif
 
     xSemaphoreGive(mutex);
     return result;

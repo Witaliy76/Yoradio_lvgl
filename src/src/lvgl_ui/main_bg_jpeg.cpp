@@ -492,16 +492,12 @@ bool mainBgCachePreloadActive() {
     const uint16_t dst_w = LV_ACTIVE_PROFILE.width;
     const uint16_t dst_h = LV_ACTIVE_PROFILE.height;
     const uint16_t fill  = lv_color_to_u16(yoradio_palette().device_background);
-    const uint32_t t0 = millis();
-    Serial.printf("[MAIN_BG] prep_start_ms=%u path=%s\n", (unsigned)t0, path);
 
     uint8_t* buf = nullptr;
     lv_img_dsc_t dsc = {};
     char used[64] = {};
     const bool ok = s_prepare_with_fallback(slot, path, dst_w, dst_h, fill, s_req_gen, true,
                                             buf, dsc, used, sizeof(used));
-    Serial.printf("[MAIN_BG] prep_end_ms=%u ok=%d elapsed_ms=%u\n",
-                  (unsigned)millis(), (int)ok, (unsigned)(millis() - t0));
     if (!ok) return false;
 
     mainBgCacheInvalidate();

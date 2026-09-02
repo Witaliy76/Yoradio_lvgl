@@ -26,18 +26,6 @@
 #include "../../core/config.h"
 #include "../../core/player.h" // E23A: read-only player.get_VUlevel() / только чтение VU
 
-// E23A14 preflight: temporary perf/memory probe. Default 0 (preflight closed: CPU/mem OK).
-// Set to 1 to re-measure tick_profile() cost + core/task + heap; no visual change, no tick spam.
-// E23A14 preflight: временная проба. По умолчанию 0 (preflight закрыт: CPU/память OK).
-// Поставить 1 для повторного замера стоимости tick_profile() + core/task + heap.
-#define PRESENCE_RAIL_PERF_PROBE 0
-#if PRESENCE_RAIL_PERF_PROBE
-#include "esp_timer.h"
-#include "esp_heap_caps.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#endif
-
 namespace lvgl_ui {
 namespace wgt_presence_rail {
 
@@ -744,48 +732,6 @@ void prep_line(lv_obj_t* line) {
     lv_obj_set_size(line, LV_PCT(100), LV_PCT(100));
 }
 
-#if PRESENCE_RAIL_PERF_PROBE
-// E23A14 preflight: accumulate tick_profile() cost per active profile; print a 5 s summary
-// with core id + task name + heap snapshot. Static-local accumulators only — no heap.
-// E23A14: накапливаем стоимость tick_profile() по активному профилю; раз в 5 с печатаем
-// сводку (core/task/heap). Только статические локальные — без heap.
-static void rail_perf_account(const Instance& inst, uint32_t dt_us) {
-    static uint32_t s_min[kProfileCount] = {0xFFFFFFFFu, 0xFFFFFFFFu};
-    static uint32_t s_max[kProfileCount] = {0u, 0u};
-    static uint64_t s_sum[kProfileCount] = {0u, 0u};
-    static uint32_t s_cnt[kProfileCount] = {0u, 0u};
-    static uint32_t s_last_ms = 0u;
-
-    const uint8_t p = static_cast<uint8_t>(inst.style) % kProfileCount;
-    if (dt_us < s_min[p]) s_min[p] = dt_us;
-    if (dt_us > s_max[p]) s_max[p] = dt_us;
-    s_sum[p] += dt_us;
-    s_cnt[p] += 1u;
-
-    const uint32_t now = millis();
-    if (s_last_ms == 0u) s_last_ms = now;
-    if (now - s_last_ms < 5000u) return;
-    s_last_ms = now;
-
-    const RailProfileConfig cfg = getProfileConfig(inst.style);
-    const uint32_t avg = s_cnt[p] ? static_cast<uint32_t>(s_sum[p] / s_cnt[p]) : 0u;
-    const float load = (cfg.timer_ms > 0)
-        ? (100.0f * static_cast<float>(avg) / (static_cast<float>(cfg.timer_ms) * 1000.0f))
-        : 0.0f;
-    Serial.printf("[RailPerf] profile %u/%u %s core=%d task=%s tick_us avg=%u max=%u min=%u n=%u period=%ums load=%.2f%%\n",
-                  static_cast<unsigned>(p), static_cast<unsigned>(kProfileCount), effectName(inst.style),
-                  xPortGetCoreID(), pcTaskGetName(nullptr),
-                  avg, s_max[p], (s_min[p] == 0xFFFFFFFFu ? 0u : s_min[p]), s_cnt[p],
-                  static_cast<unsigned>(cfg.timer_ms), load);
-    Serial.printf("[RailMem] internal_free=%u internal_largest=%u psram_free=%u psram_largest=%u\n",
-                  static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
-                  static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)),
-                  static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)),
-                  static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)));
-    // Reset only the active profile's window so each summary reflects recent samples.
-    s_min[p] = 0xFFFFFFFFu; s_max[p] = 0u; s_sum[p] = 0u; s_cnt[p] = 0u;
-}
-#endif
 
 void rail_timer_cb(lv_timer_t* t) {
     Instance* inst = static_cast<Instance*>(lv_timer_get_user_data(t));
@@ -823,13 +769,7 @@ void rail_timer_cb(lv_timer_t* t) {
     update_audio_features(*inst);
 
     const RailProfileConfig cfg = getProfileConfig(inst->style);
-#if PRESENCE_RAIL_PERF_PROBE
-    const int64_t _t0 = esp_timer_get_time();
     tick_profile(*inst, cfg);
-    rail_perf_account(*inst, static_cast<uint32_t>(esp_timer_get_time() - _t0));
-#else
-    tick_profile(*inst, cfg);
-#endif
 }
 
 } // namespace
@@ -890,16 +830,6 @@ void create(lv_obj_t* parent, Instance& out) {
     if (out.timer) lv_timer_pause(out.timer);
     out.active = false;
 
-#if PRESENCE_RAIL_PERF_PROBE
-    // E23A14 preflight: one-shot footprint snapshot right after objects exist.
-    // E23A14: одноразовый снимок памяти сразу после создания объектов.
-    Serial.printf("[RailMem] after_create instance_bytes=%u objects=%d (1 wave + %d seg) internal_free=%u internal_largest=%u psram_free=%u psram_largest=%u\n",
-                  static_cast<unsigned>(sizeof(Instance)), 1 + kSegLines, kSegLines,
-                  static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
-                  static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)),
-                  static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)),
-                  static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)));
-#endif
 }
 
 void destroy(Instance& inst) {

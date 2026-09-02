@@ -5,9 +5,6 @@
 #include <Arduino.h>
 #include <atomic>
 
-#ifndef YORADIO_WEATHER_REQ_DIAG
-#define YORADIO_WEATHER_REQ_DIAG 0
-#endif
 
 /*
  * Weather W1 — double-buffer + seqlock publication for WeatherState.
@@ -50,18 +47,6 @@ bool activeHasForecastPayload(const WeatherState& s) {
     return s.forecast_valid && s.current.valid;
 }
 
-#if YORADIO_WEATHER_REQ_DIAG
-const char* weatherLastErrorTag(WeatherLastError err) {
-    switch (err) {
-        case WeatherLastError::None:           return "none";
-        case WeatherLastError::FetchFailed:    return "fetch_failed";
-        case WeatherLastError::InternalLow:    return "internal_low";
-        case WeatherLastError::NotConfigured:  return "not_configured";
-        case WeatherLastError::NotConnected:   return "not_connected";
-        default:                               return "?";
-    }
-}
-#endif
 
 } // namespace
 
@@ -95,10 +80,6 @@ void weatherStateMarkFetchBegin() {
     staged.last_error         = WeatherLastError::None;
     staged.last_attempt_at_ms = millis();
     // stale preserved while refresh runs over LKG / stale сохраняется при refresh поверх LKG
-#if YORADIO_WEATHER_REQ_DIAG
-    Serial.printf("[WEATHER_STATE] refresh=begin has_data=%d\n",
-                  (int)activeHasForecastPayload(staged));
-#endif
     publishStaged(staged, false);
 }
 
@@ -108,10 +89,6 @@ void weatherStateMarkFetchDeferred() {
     staged.last_error         = WeatherLastError::InternalLow;
     staged.last_attempt_at_ms = millis();
     // Do not force stale on defer when LKG exists / не помечаем stale при defer с LKG
-#if YORADIO_WEATHER_REQ_DIAG
-    Serial.printf("[WEATHER_STATE] refresh=end result=deferred error=internal_low has_data=%d\n",
-                  (int)activeHasForecastPayload(staged));
-#endif
     publishStaged(staged, false);
 }
 
@@ -125,12 +102,6 @@ void weatherStateMarkFetchFailed(WeatherLastError error) {
     } else {
         staged.stale = false;
     }
-#if YORADIO_WEATHER_REQ_DIAG
-    Serial.printf("[WEATHER_STATE] refresh=end result=failed error=%s has_data=%d stale=%d\n",
-                  weatherLastErrorTag(error),
-                  (int)activeHasForecastPayload(staged),
-                  (int)staged.stale);
-#endif
     publishStaged(staged, false);
 }
 

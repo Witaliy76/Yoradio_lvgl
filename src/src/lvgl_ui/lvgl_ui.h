@@ -102,7 +102,7 @@ void requestRuntimeRgbRecovery();
 // Slice 6C: this DspTask iteration still has relevant display/asset work (queue / page create /
 // JPEG apply). If runtime recovery is pending, keep it armed and do not consume until idle.
 // Слайс 6C: в этой итерации ещё есть display/asset-работа. Pending recovery не потреблять.
-void noteDisplayBatchBusy(const char* reason);
+void noteDisplayBatchBusy();
 
 // WebUI committed /bg/user_*.jpg — reload Main JPEG cache if slot matches active preset (DspTask queue only).
 // После upload_bg: перечитать JPEG-фон только для активного слота темы; только из обработчика displayQueue.

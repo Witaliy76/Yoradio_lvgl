@@ -116,8 +116,6 @@ static lv_dir_t s_deferred_carousel_dir = LV_DIR_NONE;
 // Несколько меток схлопываются в одно восстановление на первой спокойной итерации.
 static bool s_runtime_rgb_recovery_pending = false;
 static bool s_runtime_recovery_batch_busy = false;
-static uint32_t s_runtime_recovery_seq = 0;
-static const char* s_runtime_recovery_busy_reason = "";
 
 // Horizontal carousel: direct mapping from LVGL gesture dir.
 // X normalization is now in lv_touch_read_cb — no per-board swap needed here.
@@ -572,7 +570,7 @@ void lvgl_ui::onThemePresetChanged(uint8_t preset_id) {
     // Do not restart here (SET_THEME) or from the Settings click callback (still in dispatch).
     // Repair E: theme.dat + reinit должны восстановиться после paint, не до/внутри dispatch.
     requestRuntimeRgbRecovery();
-    noteDisplayBatchBusy("theme-preset");
+    noteDisplayBatchBusy();
 }
 
 // Stage 0: stub — confirms LVGL library is compiled into the build
@@ -709,23 +707,13 @@ void lvgl_ui::taskHandler() {
     const bool batch_busy = s_runtime_recovery_batch_busy;
     s_runtime_recovery_batch_busy = false;
     if (s_runtime_rgb_recovery_pending && batch_busy) {
-        Serial.printf("[DISPLAY] runtime recovery deferred/rearmed seq=%u reason=%s\n",
-                      (unsigned)s_runtime_recovery_seq,
-                      s_runtime_recovery_busy_reason[0] ? s_runtime_recovery_busy_reason
-                                                        : "batch-busy");
-        s_runtime_recovery_busy_reason = "";
         (void)transition_resync; // folded into pending runtime recovery / схлопнуто в pending
         return;
     }
-    s_runtime_recovery_busy_reason = "";
     const bool runtime_resync = s_runtime_rgb_recovery_pending;
     s_runtime_rgb_recovery_pending = false;
     if (runtime_resync) {
-        if (tryRedrawActiveScreenNow()) {
-            Serial.printf("[DISPLAY] runtime recovery final seq=%u\n",
-                          (unsigned)s_runtime_recovery_seq);
-            Serial.println("[DISPLAY] post-dispatch runtime recovery: redraw -> RGB resync");
-        }
+        (void)tryRedrawActiveScreenNow();
     }
     if (transition_resync || runtime_resync) {
         display.requestRgbResync();
@@ -791,19 +779,11 @@ bool lvgl_ui::tryRedrawActiveScreenNow() {
 }
 
 void lvgl_ui::requestRuntimeRgbRecovery() {
-    if (!s_runtime_rgb_recovery_pending) {
-        s_runtime_recovery_seq++;
-        Serial.printf("[DISPLAY] runtime recovery requested seq=%u\n",
-                      (unsigned)s_runtime_recovery_seq);
-    }
     s_runtime_rgb_recovery_pending = true;
 }
 
-void lvgl_ui::noteDisplayBatchBusy(const char* reason) {
+void lvgl_ui::noteDisplayBatchBusy() {
     s_runtime_recovery_batch_busy = true;
-    if (reason && reason[0] != '\0') {
-        s_runtime_recovery_busy_reason = reason;
-    }
 }
 
 // 8-E19B: LVGL-only mode routing — direct PageChain/overlay dispatch, no backend selection.
@@ -903,7 +883,6 @@ bool lvgl_ui::dismissBootForMainHandoffWhenDue() {
         (uint32_t)(millis() - s_main_bg_loading_shown_ms) < kBootLoadingMinVisibleMs) {
         return false;
     }
-    Serial.printf("[MAIN_BG] handoff_ms=%u\n", (unsigned)millis());
     overlayHideAll();
     s_page_chain.dismissBoot();
     s_lvgl_boot_active = false;
@@ -916,7 +895,6 @@ void lvgl_ui::bootPrepareActiveMainBackgroundIfNeeded() {
         bootScreenSetStatusUtf8(i18n::text(i18n::TextId::BootLoadingBackground));
         s_main_bg_boot_status_shown = true;
         s_main_bg_loading_shown_ms = millis();
-        Serial.printf("[MAIN_BG] loading_status_ms=%u\n", (unsigned)s_main_bg_loading_shown_ms);
         return;
     }
     (void)mainBgCachePreloadActive();
@@ -935,7 +913,7 @@ void lvgl_ui::mainBgPollRuntimeApply() {
         // Repair D + E: стабильный кадр оставляем; RGB restart — после lv_timer_handler итерации.
         (void)tryRedrawActiveScreenNow();
         requestRuntimeRgbRecovery();
-        noteDisplayBatchBusy("main-bg-apply");
+        noteDisplayBatchBusy();
     } else {
         Serial.println("[MAIN_BG] Background cache ready; Main not active");
     }

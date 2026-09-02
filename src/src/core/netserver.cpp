@@ -5,11 +5,6 @@
 
 #include "config.h"
 
-// W-R1B: coordinate-save diagnostics gate — off by default.
-// W-R1B: гейт диагностики сохранения координат — выключен по умолчанию.
-#ifndef YORADIO_WEATHER_REQ_DIAG
-#define YORADIO_WEATHER_REQ_DIAG 0
-#endif
 #include "save_manager.h"
 #include "player.h"
 #include "telnet.h"
@@ -902,20 +897,10 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
       }
       if (strcmp(cmd, "lat") == 0) {
         config.saveValue(config.store.weatherlat, val, 10, false);
-#if YORADIO_WEATHER_REQ_DIAG
-        Serial.printf("[WEATHER_CFG] save field=lat value=\"%s\"\n", val);
-        Serial.printf("[WEATHER_CFG] stored lat=\"%s\" lon=\"%s\"\n",
-                      config.store.weatherlat, config.store.weatherlon);
-#endif
         return;
       }
       if (strcmp(cmd, "lon") == 0) {
         config.saveValue(config.store.weatherlon, val, 10, false);
-#if YORADIO_WEATHER_REQ_DIAG
-        Serial.printf("[WEATHER_CFG] save field=lon value=\"%s\"\n", val);
-        Serial.printf("[WEATHER_CFG] stored lat=\"%s\" lon=\"%s\"\n",
-                      config.store.weatherlat, config.store.weatherlon);
-#endif
         return;
       }
       if (strcmp(cmd, "key") == 0) {
@@ -931,11 +916,6 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
         if (config.store.showweather && strlen(config.store.weatherkey) > 0) {
           network.forceWeatherRefreshFromUi();
         }
-#if YORADIO_WEATHER_REQ_DIAG
-        Serial.printf("[WEATHER_CFG] apply refresh_requested=%d lat=\"%s\" lon=\"%s\"\n",
-                      (config.store.showweather && strlen(config.store.weatherkey) > 0) ? 1 : 0,
-                      config.store.weatherlat, config.store.weatherlon);
-#endif
         return;
       }
       // AI settings commands / Команды настроек AI

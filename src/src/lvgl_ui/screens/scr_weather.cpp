@@ -43,22 +43,15 @@
 #include "../theme/lv_theme_yoradio.h"
 #include "../weather_owm_glyph.h"
 #include "lvgl_ui.h"
-#include "../../core/config.h"   // pulls options.h → myoptions.h (YORADIO_WEATHER_UI_DIAG)
+#include "../../core/config.h"
 #include "../../core/network.h"  // A3.1: network.timeinfo (NTP-synced local date, read-only) / дата из NTP
 #include "../../core/weather_fetch.h"  // A2b: weatherRequestManualRefresh() / async refresh flag
 #include "../../core/weather_state.h"
 #include "../../i18n/i18n.h"
 
 // W2D: gated LVGL/heap diagnostics for the gradient-OOM investigation. Default OFF — set
-// YORADIO_WEATHER_UI_DIAG=1 in myoptions.h (local, not committed) to capture transition logs.
 // W2D: gated диагностика LVGL/кучи под расследование OOM градиента. По умолчанию выкл.
-#ifndef YORADIO_WEATHER_UI_DIAG
-#define YORADIO_WEATHER_UI_DIAG 0
-#endif
 
-#if YORADIO_WEATHER_UI_DIAG
-#include <esp_heap_caps.h>
-#endif
 
 namespace lvgl_ui {
 
@@ -67,37 +60,6 @@ namespace {
 // ─────────────────────────────────────────────────────────────────────────────
 // Diagnostics (gated) / Диагностика (под флагом)
 // ─────────────────────────────────────────────────────────────────────────────
-#if YORADIO_WEATHER_UI_DIAG
-// Recursive LVGL object counter under a root (root included). Diagnostics only.
-// Рекурсивный счётчик объектов LVGL под корнем (с корнем). Только диагностика.
-static uint32_t wx_diag_count_objs(lv_obj_t* root) {
-    if (!root) return 0;
-    uint32_t n = 1;
-    const uint32_t c = lv_obj_get_child_cnt(root);
-    for (uint32_t i = 0; i < c; ++i) {
-        n += wx_diag_count_objs(lv_obj_get_child(root, i));
-    }
-    return n;
-}
-
-// One-line snapshot: LVGL pool monitor + internal/PSRAM heap + object count under root.
-// LVGL pool (LV_MEM_SIZE 48K, LV_GRAD_CACHE_DEF_SIZE 0) is where rect gradients allocate.
-// Срез в одну строку: монитор пула LVGL + internal/PSRAM + число объектов под корнем.
-static void wx_diag_dump(const char* tag, lv_obj_t* root) {
-    lv_mem_monitor_t mon;
-    lv_mem_monitor(&mon);
-    const uint32_t objs = wx_diag_count_objs(root);
-    Serial.printf("[WX_UI_DIAG] %s objs=%lu | lvpool free=%lu biggest=%lu used=%u%% frag=%u%% "
-                  "| int_free=%u int_big=%u psram_free=%u psram_big=%u\n",
-                  tag, (unsigned long)objs,
-                  (unsigned long)mon.free_size, (unsigned long)mon.free_biggest_size,
-                  (unsigned)mon.used_pct, (unsigned)mon.frag_pct,
-                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
-                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
-                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
-}
-#endif // YORADIO_WEATHER_UI_DIAG
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Compile-time localized UI ownership / Владение compile-time локализацией UI
@@ -1321,9 +1283,6 @@ void LvglWeatherPage::create() {
 
     installCarouselGesturesOnPageRoot(_screen);
 
-#if YORADIO_WEATHER_UI_DIAG
-    wx_diag_dump("after_create", _screen);
-#endif
 }
 
 void LvglWeatherPage::enter() {
@@ -1332,19 +1291,10 @@ void LvglWeatherPage::enter() {
     // A3.2 perf: invalidate cache so the first update() after enter is always a full render.
     // A3.2 perf: сброс кэша — первый update() после входа всегда полный рендер.
     _render_cache_valid = false;
-#if YORADIO_WEATHER_UI_DIAG
-    wx_diag_dump("enter_before_update", _screen);
-#endif
     update();
 }
 
 void LvglWeatherPage::exit() {
-#if YORADIO_WEATHER_UI_DIAG
-    // W2F: snapshot before leaving. PageChain auto-deletes this screen on the next switch
-    // (lv_scr_load_anim auto_del) then calls releaseAfterAutoDelete() — pool recovers.
-    // W2F: снимок перед уходом. PageChain удалит экран при переходе (auto_del) и вызовет release.
-    wx_diag_dump("before_leave", _screen);
-#endif
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1645,15 +1595,6 @@ void LvglWeatherPage::update() {
     // 1) Derive visible state (pre-resolve: show_refreshing_footer + view_sig use current pending).
     const WeatherViewState view = _deriveViewState(s_snap, now_ms);
 
-#if YORADIO_WEATHER_UI_DIAG
-    // Log once per published version when data is present — not every 1 Hz frame (avoid UART churn).
-    // Лог раз на версию публикации при наличии данных — не каждый кадр (без флуда UART).
-    static uint32_t s_diag_last_ver = 0;
-    if (view.have_data && s_snap.version != s_diag_last_ver) {
-        s_diag_last_ver = s_snap.version;
-        wx_diag_dump("update_with_data", _screen);
-    }
-#endif
 
     // 2) Resolve manual-refresh lifecycle (future passes only; footer this pass already captured).
     _resolveManualRefresh(s_snap, now_ms);

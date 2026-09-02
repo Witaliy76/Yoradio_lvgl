@@ -513,7 +513,7 @@ void Display::loop() {
           // Repair E2: dest commit still owes recovery; consume after this loop's taskHandler.
           // Repair E2: dest-commit по-прежнему должен восстановиться — после taskHandler.
           lvgl_ui::requestRuntimeRgbRecovery();
-          lvgl_ui::noteDisplayBatchBusy("main-bg-fs");
+          lvgl_ui::noteDisplayBatchBusy();
           break;
         }
         case ART_FS_UPDATED: {
@@ -541,7 +541,7 @@ void Display::loop() {
         // Ранний boot по-прежнему зовёт _performRgbResync() напрямую.
         case RGB_RESYNC: {
           lvgl_ui::requestRuntimeRgbRecovery();
-          lvgl_ui::noteDisplayBatchBusy("rgb-resync-queue");
+          lvgl_ui::noteDisplayBatchBusy();
           break;
         }
         default: break;
@@ -562,7 +562,6 @@ void Display::loop() {
                                          : i18n::text(i18n::TextId::BootWifiFallbackName));
       lvgl_ui::bootScreenSetStatusUtf8(line);
       s_lvgl_boot_connected_latched = true;
-      Serial.printf("[MAIN_BG] connected_ms=%u\n", (unsigned)millis());
     } else if (s_lvgl_boot_connected_latched && _lvgl_player_handoff_pending) {
       // Next loops: Loading background... then JPEG cache for the active theme.
       // Следующие циклы: «Загрузка фона...» и кэш JPEG активной темы.
