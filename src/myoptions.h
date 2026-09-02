@@ -178,6 +178,5 @@
 // 0 = release (only important logs), 1 = debug (all logs)
 // 0 = релиз (только важные логи), 1 = отладка (все логи)
 #define AI_LAYER_DEBUG 0
-#define WIFI_FLOW_DIAG_GLITCH 0
 #define YORADIO_PPM_PCM_TELEMETRY_DIAG 0
 #endif
