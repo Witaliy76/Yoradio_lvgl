@@ -109,6 +109,16 @@ S3_KNOWN_GOOD = {
     "libwpa_supplicant.a":  "8A13CD4C72D171F886ED43947B56AB3BFDFA0A1F325BF31DAF7C804D15750A2F",
 }
 
+# Archives that must NOT sit in the overlay directory.  The overlay precedes
+# stock ESP-IDF on LIBPATH, so a file here shadows the framework copy of the
+# same name - the point of the six accepted archives, and a trap for anything
+# else.  libesp_lcd.a is the retired RESTART_OFF rebuild (S6-DISP-01): the
+# production RGB policy is now stock ESP-IDF 5.5.5 with
+# CONFIG_LCD_RGB_RESTART_IN_VSYNC=ON, so a copy reappearing here would silently
+# undo that repair while every SHA256 in the table still matched.  This is an
+# absence assertion, never a selection between two archives.
+S3_FORBIDDEN = ("libesp_lcd.a",)
+
 PROFILES = {
     "s3": {
         "label": "ESP32-S3",
@@ -117,6 +127,7 @@ PROFILES = {
         "platform": "55.3.311",
         "overlay": ("library!", "esp-idf-5.5.5", "s3"),
         "archives": S3_KNOWN_GOOD,
+        "forbidden": S3_FORBIDDEN,
         "wraps": S3_MBEDTLS_WRAPS,
     },
     # ESP32-P4 is a recognised target but ships no YoRadio archives yet.
@@ -217,6 +228,12 @@ def validate_overlay(overlay_dir, known_good):
     return sum(1 for row in rows if row["ok"]), len(rows), rows
 
 
+def find_forbidden(overlay_dir, forbidden):
+    """Names from `forbidden` that are actually present in the overlay."""
+    return [name for name in forbidden
+            if os.path.isfile(os.path.join(overlay_dir, name))]
+
+
 def decide(mcu, project_dir, idf_version, arduino_version, platform_version):
     """Resolve the build profile.  Never raises; always returns a decision."""
     mcu = (mcu or "").lower()
@@ -230,6 +247,7 @@ def decide(mcu, project_dir, idf_version, arduino_version, platform_version):
         "valid": 0,
         "total": 0,
         "rows": [],
+        "forbidden": [],
         "wraps": [],
         "detected": {
             "idf": idf_version,
@@ -269,6 +287,9 @@ def decide(mcu, project_dir, idf_version, arduino_version, platform_version):
     if not os.path.isdir(overlay_dir):
         decision["reason"] = "overlay-directory-not-found"
         return decision
+
+    decision["forbidden"] = find_forbidden(
+        overlay_dir, profile.get("forbidden", ()))
 
     valid, total, rows = validate_overlay(overlay_dir, profile["archives"])
     decision["valid"], decision["total"], decision["rows"] = valid, total, rows
@@ -394,6 +415,14 @@ def apply(env):
     )
 
     if decision["profile"] == "OPTIMIZED":
+        # Refuse to prepend an overlay carrying a withdrawn archive: it would
+        # shadow stock ESP-IDF silently, and no SHA256 row would notice.
+        if decision["forbidden"]:
+            raise RuntimeError(
+                "YoRadio: obsolete overlay archive(s) %s in %s; the production "
+                "RGB policy is stock ESP-IDF RESTART_IN_VSYNC=ON - delete the "
+                "file, do not re-pin it"
+                % (", ".join(decision["forbidden"]), decision["overlay_dir"]))
         # Prepend, never replace: the stock -L entries stay exactly where
         # pioarduino-build.py puts them, they just lose the six names.
         env.Prepend(LIBPATH=[decision["overlay_dir"]])
