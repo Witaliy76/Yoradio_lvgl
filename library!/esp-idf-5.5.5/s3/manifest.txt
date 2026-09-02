@@ -43,10 +43,9 @@ F8A0CC32D911FC0758580C5D317660686087F1838E372068011218ACB44723A1  4042950  liblw
 EDDFAFDB5296BE874289DD409A2F675144195BE13EF3CE111E42AC2291C3B69A   289140  libesp-tls.a
 7FDAA2BFE9DF085BBAA86F39842100E01C09D3CF81B2C79E9E5A5A871CF25723   351808  libtcp_transport.a
 11238D44B2A5BE1F6E4E35B02F1F311F857FB94FEB6F8ACA4FB8445ACF49A4B3   333740  libesp_http_client.a
-B349B9F2969D4CF21ABEEA7971EC42E07C32EBB6B761679F6E429D5974F6DF62   934166  libesp_lcd.a
 8A13CD4C72D171F886ED43947B56AB3BFDFA0A1F325BF31DAF7C804D15750A2F  4670746  libwpa_supplicant.a
 
-Exactly seven archives.  Total 12 058 842 bytes (11.50 MiB).
+Exactly six archives.  Total 11 124 676 bytes (10.61 MiB).
 
 Configuration delta vs stock 3.3.11 / 5.5.5 (C0 -> C1)
 ------------------------------------------------------
@@ -62,26 +61,40 @@ Configuration delta vs stock 3.3.11 / 5.5.5 (C0 -> C1)
  9   CONFIG_MBEDTLS_ASYMMETRIC_CONTENT_LEN    n            y         selected by #5
 10   CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN        (not emitted) 16384    depends on #9
 11   CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN       (not emitted) 4096     depends on #9; ~12 KB/connection saved
-12   CONFIG_LCD_RGB_RESTART_IN_VSYNC          y            n         Stage 2.1 Display-owned bounded RGB restart
+12   CONFIG_LCD_RGB_RESTART_IN_VSYNC          y            y         REVERTED to stock in s6.2 - see below
 
 Deliberately NOT changed (excluded by the Slice 3 ruling):
      CONFIG_LWIP_TCP_SND_BUF_DEFAULT   left at 5744
      CONFIG_LWIP_TCP_RECVMBOX_SIZE     left at 6
 
-RESTART_IN_VSYNC policy
------------------------
-CONFIG_LCD_RGB_RESTART_IN_VSYNC = n.
+RESTART_IN_VSYNC policy - WITHDRAWN in s6.2
+-------------------------------------------
+CONFIG_LCD_RGB_RESTART_IN_VSYNC = y (stock).
 
-libesp_lcd.a in this pack is built with the automatic per-VSYNC RGB panel
-restart DISABLED (esp_lcd/rgb/esp_lcd_panel_rgb.c:1153-1166).  YoRadio's
-Display layer owns RGB resynchronisation instead and performs a single
-bounded restart after each flash-writing operation.  Stock esp_lcd cannot be
-substituted here without reintroducing the continuous-restart behaviour.
+This pack used to carry a seventh archive, libesp_lcd.a
+(B349B9F2969D4CF21ABEEA7971EC42E07C32EBB6B761679F6E429D5974F6DF62), rebuilt
+with the automatic per-VSYNC RGB panel restart DISABLED
+(esp_lcd/rgb/esp_lcd_panel_rgb.c:1153-1166), so that the Display layer could
+own RGB resynchronisation with a single bounded restart per flash-writing
+operation (Stage 2.1, DL-146).
+
+Stage 6 / S6-DISP-01 retired that policy.  RESTART_OFF was device-proven to
+leave the RGB scanout permanently horizontally phase-shifted, and no amount of
+bounded manual restarts (1x, 2x, 3x) closed the defect.  The VSYNC-ON A/B
+(experiment/s6-disp-vsync-on @ 593afb56) passed Preset, Theme and steady-state
+device tests.  The archive was therefore REMOVED from this pack and -lesp_lcd
+now resolves to the stock ESP-IDF 5.5.5 build
+(B337CCC35D1DFD826CDCA1F9B0C8B1488ECB839CEC221806864B7C5555E8D803), which is
+RESTART_IN_VSYNC=ON.
+
+The Display layer's bounded resync / Repair-E path is retained unchanged; it
+is now additive to the driver's own per-VSYNC restart rather than a
+replacement for it.
 
 mbedTLS wrap requirement
 ------------------------
 libmbedtls_2.a in this pack REQUIRES these 12 GNU --wrap link options.  They
-are applied automatically by yoradio_build.py, and only when all seven
+are applied automatically by yoradio_build.py, and only when all six
 archives validate.  Linking this pack without them, or applying them without
 this pack, is not a supported configuration.
 
@@ -104,10 +117,10 @@ part of this pack's requirement.)
 How these archives are used
 ---------------------------
 They are NOT copied into the PlatformIO framework package.  yoradio_build.py
-prepends this directory to the linker search path, so the seven -l names
+prepends this directory to the linker search path, so the six -l names
 resolve here instead of in
   <platformio>/packages/framework-arduinoespressif32-libs/esp32s3/lib/
-which stays byte-unchanged.  Validation is atomic: 7/7 SHA256 matches enable
+which stays byte-unchanged.  Validation is atomic: 6/6 SHA256 matches enable
 the overlay and the 12 wraps together; anything less disables both and the
 build falls back to the complete stock library set with a warning.
 

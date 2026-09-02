@@ -30,12 +30,11 @@ What it owns
 --------------------------------------------------------------------------
 Why the overlay exists
 --------------------------------------------------------------------------
-YoRadio ships seven ESP-IDF archives rebuilt from stock Espressif sources
-with a YoRadio sdkconfig (mbedTLS dynamic buffers, LwIP tuning, esp_lcd
-RESTART_IN_VSYNC off).  They used to be copied by hand over the shared
-PlatformIO framework package.  That mutated a globally shared package,
-broke every other project on the machine, and could not be reproduced from
-a clean checkout.
+YoRadio ships six ESP-IDF archives rebuilt from stock Espressif sources
+with a YoRadio sdkconfig (mbedTLS dynamic buffers, LwIP tuning).  They
+used to be copied by hand over the shared PlatformIO framework package.
+That mutated a globally shared package, broke every other project on the
+machine, and could not be reproduced from a clean checkout.
 
 This helper resolves them through the *linker search path* instead:
 
@@ -43,8 +42,8 @@ This helper resolves them through the *linker search path* instead:
     -L <platformio>/packages/.../esp32s3/lib   <-- stock, read-only
 
 GNU ld resolves each `-l<name>` from the first `-L` directory holding a
-match, so an overlay directory containing exactly the seven YoRadio
-archives shadows those seven names and nothing else.  The shared framework
+match, so an overlay directory containing exactly the six YoRadio
+archives shadows those six names and nothing else.  The shared framework
 package is only ever read.  (The stock platform uses the same shadowing
 trick itself in builder/frameworks/arduino_relinker.py for sections.ld.)
 
@@ -55,7 +54,7 @@ Selection rules
   * the resolved ESP-IDF / Arduino-core / platform tuple must match the
     profile exactly - the archives are ABI-bound to it, no fuzzy matching;
   * every archive of the profile must be present AND match its accepted
-    SHA256.  7/7 selects all of them; anything else selects NONE.
+    SHA256.  6/6 selects all of them; anything else selects NONE.
 
 Anything short of that falls back to the stock framework libraries with
 the wrap flags disabled, prints a warning, and lets the build continue.
@@ -107,7 +106,6 @@ S3_KNOWN_GOOD = {
     "libesp-tls.a":         "EDDFAFDB5296BE874289DD409A2F675144195BE13EF3CE111E42AC2291C3B69A",
     "libtcp_transport.a":   "7FDAA2BFE9DF085BBAA86F39842100E01C09D3CF81B2C79E9E5A5A871CF25723",
     "libesp_http_client.a": "11238D44B2A5BE1F6E4E35B02F1F311F857FB94FEB6F8ACA4FB8445ACF49A4B3",
-    "libesp_lcd.a":         "B349B9F2969D4CF21ABEEA7971EC42E07C32EBB6B761679F6E429D5974F6DF62",
     "libwpa_supplicant.a":  "8A13CD4C72D171F886ED43947B56AB3BFDFA0A1F325BF31DAF7C804D15750A2F",
 }
 
@@ -397,13 +395,13 @@ def apply(env):
 
     if decision["profile"] == "OPTIMIZED":
         # Prepend, never replace: the stock -L entries stay exactly where
-        # pioarduino-build.py puts them, they just lose the seven names.
+        # pioarduino-build.py puts them, they just lose the six names.
         env.Prepend(LIBPATH=[decision["overlay_dir"]])
         env.Append(LINKFLAGS=["-Wl,--wrap=%s" % sym
                               for sym in decision["wraps"]])
         # Keep project/framework compile-time lwIP headers coherent with the
         # accepted C1 liblwip archive.  Force-include only after the atomic
-        # 7/7 decision; stock fallback therefore retains stock sdkconfig.
+        # 6/6 decision; stock fallback therefore retains stock sdkconfig.
         config_header = os.path.join(
             project_dir, "src", "src", "core", "yoradio_idf_c1_config.h")
         env.Append(CPPDEFINES=[("YORADIO_IDF_C1_CONFIG", 1)])
