@@ -9,7 +9,7 @@ The device is accompanied by a Web UI for playback, stations, behavior settings,
 The project is based on [e2002/yoradio](https://github.com/e2002/yoradio). The current repository is [Witaliy76/Yoradio_lvgl](https://github.com/Witaliy76/Yoradio_lvgl).
 
 > **Public version:** `0.9.434m-r2-lvgl-beta.2`
-> **Current source:** `0.9.434m-r2-lvgl-beta.2-s5.6`
+> **Current source:** `0.9.434m-r2-lvgl-beta.2-s6.4`
 > **Validated board:** ESP32-4848S040
 
 > **Note for ESP32-S3 4848S040:** while data is being written to internal flash — for example during a large playlist upload, background or Station Art upload, a user text-font upload, or when settings are persisted — the display may briefly shift horizontally. After the write operation finishes, the firmware automatically resynchronizes the RGB scanout and the image returns to normal. This is an expected characteristic of the current display configuration; no reboot is required.
@@ -44,6 +44,31 @@ Each page has a distinct role: Main is for listening, Visual for atmosphere, Inf
 - Optional AI Layer as a quiet information layer over music.
 
 ## Change history
+
+### 03 September 2026 — 0.9.434m-r2-lvgl-beta.2-s6.4
+
+Final acceptance of the ESP32-4848S040 board is complete.
+
+**RGB scanout stabilization.** A long-standing defect is fixed: repeatedly saving a preset, or
+switching themes, could leave the screen black and then bring the image back shifted horizontally.
+The cause was the RGB panel driver policy — the project build of `libesp_lcd` disabled the
+automatic scanout restart on VSYNC. The stock ESP-IDF 5.5.5 build with `RESTART_IN_VSYNC=ON` is now
+used, and a build-time check prevents the obsolete library override from being reintroduced by
+accident. Neither the black screen nor the residual shift reproduces on the device any more.
+
+**Rapid theme switching.** Every tap on the Theme row used to run the whole heavy operation
+synchronously — reinitializing the LVGL theme, refreshing styles across the interface, reapplying
+pages and writing the choice to a file. A quick burst of switches could therefore trip the watchdog
+and reboot the device. Requests are now coalesced: only the final selection is applied, intermediate
+ones are discarded, and the file is written once. The Theme row shows the selected value
+immediately, and the final background matches the final theme.
+
+**Diagnostics cleanup.** Eight families of debug macros and temporary counters left over from closed
+investigations were removed from the sources (about 1070 lines), making the console output much
+quieter. PCM/VU telemetry and the touch, AI-layer and LVGL-stack debug switches are retained — they
+will be useful for upcoming work.
+
+Public beta remains `0.9.434m-r2-lvgl-beta.2`. This is not a separate public release.
 
 ### 30 August 2026 — 0.9.434m-r2-lvgl-beta.2-s5.6
 

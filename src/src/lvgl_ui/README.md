@@ -72,7 +72,7 @@ lvgl_ui/
 | Touch | GT911 registered as an LVGL 9 pointer indev; its read callback runs from `lv_timer_handler()` on DspTask |
 | LVGL heap | Fixed 256 KiB built-in TLSF pool backed by one process-lifetime PSRAM allocation |
 | LVGL task stack | DspTask, 12288 B |
-| Theme preset / Custom file | Theme module + WebUI Appearance; live reapply on DspTask |
+| Theme preset / Custom file | Theme module + WebUI Appearance; coalesced live reapply on DspTask |
 | Station art / Main backgrounds | Main: LittleFS JPEG + RGB565 PSRAM cache on DspTask. Station art: LittleFS RGB565 `.bin` |
 | Weather data | Core `WeatherState` (fetch off UI); Weather page is read-only consumer |
 | Presets | `adapters/preset_store` on LittleFS |
@@ -90,6 +90,15 @@ root must not synchronously load another screen: `carousel_gesture_event_cb` rec
 direction, and `taskHandler()` consumes it only after `lv_timer_handler()` returns and the
 LVGL event-dispatch stack has unwound. Some child callbacks still navigate synchronously;
 they are safe in the current object/event layout and remain a defensive hardening follow-up.
+
+Runtime theme changes follow the same request-now / apply-later rule, for the same reason. A
+Theme tap (or a WebUI `SET_THEME_PRESET` message) only records the requested preset;
+`taskHandler()` then runs the heavy transaction - LVGL default-theme reinit, global style
+refresh, page reapply and `theme.dat` persistence - at most once, for the newest request, on a
+quiet iteration. Intermediate presets in a rapid burst are discarded, so the burst costs one
+apply instead of one per tap. Settings reads the requested preset (`themeRequestedPreset()`) so
+the row follows the user immediately, while `yoradio_theme_active_preset()` keeps meaning the
+preset actually in effect for every other consumer.
 
 Main backgrounds are factory/user JPEGs decoded by TJPGD, FIT/ScaleOnce into an RGB565
 PSRAM cache. Visual and screensaver RGB565 `.bin` files keep the existing YoRadio

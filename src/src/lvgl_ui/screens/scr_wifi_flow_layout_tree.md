@@ -666,7 +666,7 @@ Private helpers (WIFIREF-D1) are called only from `pollOpsSnapshot()`:
 | `poll_scan_progress_blocks_ui` | S6V9F scan-progress blocking guard |
 | `poll_restore_operation_buttons` | Re-enable Scan/Rescan after scan block |
 | `poll_handle_scan_completion` | Scan await completion + list rebuild |
-| `poll_emit_diagnostics` | Periodic diag summary (if enabled) |
+| `poll_emit_diagnostics` | Empty hook — the periodic diag summary was removed in s6.3 |
 
 ## Polling phase order
 
@@ -772,9 +772,11 @@ Not triggered on Password or Saved panel visibility.
 
 ## Diagnostics boundary
 
-`poll_emit_diagnostics()` → `wifi_flow_diag_maybe_periodic_summary()` (under `WIFI_FLOW_DIAG_GLITCH`).
-
-Runs last — not before early-return points. No new Serial logs added in D1.
+`poll_emit_diagnostics()` used to call `wifi_flow_diag_maybe_periodic_summary()` under
+`WIFI_FLOW_DIAG_GLITCH`. Stage 6 (s6.3) retired that diagnostic family together with the
+`WifiFlowDiagTextSlot` / `WifiFlowDiagBtnSlot` slot arguments, so the function body is now empty
+and the phase is a placeholder. It still runs last — not before early-return points — so a future
+diagnostic can be reattached there without revisiting the phase order.
 
 ## Panel visibility owner
 
