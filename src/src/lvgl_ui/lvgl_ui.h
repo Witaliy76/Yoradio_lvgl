@@ -18,6 +18,11 @@ typedef struct _lv_obj_t lv_obj_t;
 
 namespace lvgl_ui {
 
+// Declared in theme/lv_theme_yoradio.h; forward-declared here so this lightweight header
+// does not have to pull in lvgl.h just for the enum.
+// Объявлен в theme/lv_theme_yoradio.h; forward-declaration, чтобы не тянуть lvgl.h.
+enum class ThemePreset : uint8_t;
+
 class ILvglScreen;
 
 // Stage 0: compile-time check that LVGL is linked
@@ -112,11 +117,25 @@ void onMainBackgroundSlotCommitted(uint8_t slot);
 // Station Art MVP: после upload_art / remove_art — принудительно перезагрузить арт на Main (только DspTask).
 void onStationArtCommitted();
 
-// Stage 6.6R-B: apply runtime theme preset change (DspTask queue handler only).
+// Stage 6.6R-B / S6-THEME-01: request a runtime theme preset change (DspTask only).
+// Cheap: records the selection and returns. The heavy LVGL transaction runs later on a
+// quiet taskHandler() iteration, and a rapid burst collapses to one apply (latest wins).
 // preset_id: 0=Dark 1=Light 2=Custom (matches ThemePreset enum value).
 // Never call LVGL APIs from NetServer/WebUI — enqueue SET_THEME_PRESET instead.
-// Этап 6.6R-B: применить смену пресета темы. Только из обработчика очереди DspTask.
+// Этап 6.6R-B / S6-THEME-01: запросить смену пресета темы. Только DspTask.
+// Дешёвая операция: запомнить выбор и выйти. Тяжёлая транзакция — позже, на спокойной
+// итерации taskHandler(); быстрая серия схлопывается в одно применение (побеждает последний).
 void onThemePresetChanged(uint8_t preset_id);
+
+// S6-THEME-01: the preset the user has most recently *requested* (may still be pending).
+// UI that must follow the user's intent immediately (Settings row label, preset cycling)
+// reads this; everything that needs the preset actually in effect keeps using
+// yoradio_theme_active_preset().
+// S6-THEME-01: последний *запрошенный* пресет (применение может быть ещё отложено).
+// UI, обязанный сразу отражать намерение пользователя (метка и цикл в Settings), читает это;
+// всё, что нуждается в фактически действующем пресете, продолжает использовать
+// yoradio_theme_active_preset().
+ThemePreset themeRequestedPreset();
 
 // Stage 6.6R-F1: reload /data/theme_custom.txt into runtime Custom palette (DspTask only).
 // Live LVGL reinit only when active preset is Custom; does not change theme.dat.

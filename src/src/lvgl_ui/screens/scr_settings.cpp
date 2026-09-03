@@ -971,7 +971,7 @@ void LvglSettingsPage::build_display_detail(LvglSettingsPage& self, const YoRadi
             self._row_theme.hit = theme_row;
             self._row_theme.label = add_row_label(theme_row, kStrTheme, pal, false, true);
             self._row_theme.value = add_row_value(
-                theme_row, theme_preset_label(yoradio_theme_active_preset()), pal);
+                theme_row, theme_preset_label(themeRequestedPreset()), pal);
             self._row_theme.chevron = add_row_chevron(theme_row, pal);
             make_row_tappable(theme_row, themeRowClickedEvt, &self);
         }
@@ -1239,7 +1239,7 @@ void LvglSettingsPage::_syncDisplayValues() {
     }
 #endif
     if (_row_theme.value) {
-        lv_label_set_text(_row_theme.value, theme_preset_label(yoradio_theme_active_preset()));
+        lv_label_set_text(_row_theme.value, theme_preset_label(themeRequestedPreset()));
     }
     if (_row_perf_monitor.value) {
         lv_label_set_text(_row_perf_monitor.value, performance_monitor_enabled_label());
@@ -1682,11 +1682,19 @@ void LvglSettingsPage::themeRowClickedEvt(lv_event_t* e) {
     auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
     if (!self) return;
 
-    const ThemePreset next = cycle_theme_preset(yoradio_theme_active_preset());
-    // onThemePresetChanged marks Repair-E post-dispatch recovery (theme.dat still owes resync).
-    // Do not restart/lv_refr_now here — this callback still runs inside lv_timer_handler.
-    // onThemePresetChanged ставит Repair-E recovery после dispatch; theme.dat по-прежнему должен resync.
-    // Не restart/lv_refr_now здесь — callback ещё внутри lv_timer_handler.
+    // S6-THEME-01: cycle from the *requested* preset, not the applied one. During the
+    // coalescing window the apply has not happened yet, so cycling from applied would make
+    // every rapid tap toggle between the same two values.
+    // S6-THEME-01: цикл от *запрошенного* пресета, не от применённого. В окне коалесинга
+    // применение ещё не произошло, и цикл от применённого заставил бы каждое быстрое
+    // нажатие переключаться между одними и теми же двумя значениями.
+    const ThemePreset next = cycle_theme_preset(themeRequestedPreset());
+    // S6-THEME-01: this only records the request; the heavy LVGL theme transaction and its
+    // Repair-E recovery run later from taskHandler(). Do not restart/lv_refr_now here —
+    // this callback still runs inside lv_timer_handler.
+    // S6-THEME-01: здесь только регистрируется запрос; тяжёлая транзакция темы и её
+    // Repair-E recovery выполняются позже из taskHandler(). Не restart/lv_refr_now здесь —
+    // callback ещё внутри lv_timer_handler.
     onThemePresetChanged(static_cast<uint8_t>(next));
     self->_syncDisplayValues();
     self->_syncMainRowValues();

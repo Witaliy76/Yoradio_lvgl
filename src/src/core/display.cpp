@@ -522,9 +522,10 @@ void Display::loop() {
           break;
         }
         case SET_THEME_PRESET: {
-          // Writes /data/theme.dat and reapplies the palette across created pages.
-          // RGB recovery is marked inside onThemePresetChanged and consumed after taskHandler.
-          // Пишет /data/theme.dat и переприменяет палитру. RGB recovery — после taskHandler.
+          // S6-THEME-01: registers the request only. The heavy transaction (theme.dat write,
+          // palette reapply, RGB recovery) runs once per burst on a quiet taskHandler iteration.
+          // S6-THEME-01: только регистрирует запрос. Тяжёлая транзакция (запись theme.dat,
+          // reapply палитры, RGB recovery) — один раз на серию, на спокойной итерации.
           lvgl_ui::onThemePresetChanged(static_cast<uint8_t>(request.payload));
           break;
         }

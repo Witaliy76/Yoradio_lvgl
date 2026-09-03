@@ -117,6 +117,38 @@ static lv_dir_t s_deferred_carousel_dir = LV_DIR_NONE;
 static bool s_runtime_rgb_recovery_pending = false;
 static bool s_runtime_recovery_batch_busy = false;
 
+// S6-THEME-01: latest-wins Theme coalescing. One tap used to run the whole heavy
+// transaction (LVGL style reset + global invalidation + /data/theme.dat write + page
+// reapply) synchronously from the LV_EVENT_CLICKED callback, so a rapid burst stacked
+// several of them on DspTask and starved IDLE0 into a task WDT. Requests are now cheap;
+// the apply runs once, for the final selection, on a quiet iteration — gated by the same
+// Repair-E busy contract rather than a competing notion of "display busy".
+// DspTask-only state; no mutex needed.
+// S6-THEME-01: коалесинг темы latest-wins. Раньше одно нажатие выполняло всю тяжёлую
+// транзакцию синхронно из LV_EVENT_CLICKED, поэтому быстрая серия копила их на DspTask
+// и доводила IDLE0 до task WDT. Теперь запрос дешёвый; применение — один раз, для
+// финального выбора, на спокойной итерации по тому же контракту Repair-E.
+// Состояние только для DspTask; mutex не нужен.
+static constexpr uint32_t kThemeApplyQuietMs = 150;
+static ThemePreset s_theme_requested       = ThemePreset::Dark;
+static ThemePreset s_theme_applied         = ThemePreset::Dark;
+static bool        s_theme_apply_pending   = false;
+static bool        s_theme_apply_in_progress = false;
+static bool        s_theme_state_seeded    = false;
+static uint32_t    s_theme_request_ms      = 0;
+
+// Seed both halves from the canonical preset so no invalid/uninitialised value can leak
+// into cycling or into the Settings label before the first request.
+// Инициализация обеих половин от канонического пресета — чтобы до первого запроса
+// в цикл и в метку Settings не попало некорректное значение.
+static void themeSeedStateOnce() {
+    if (s_theme_state_seeded) return;
+    const ThemePreset current = yoradio_theme_active_preset();
+    s_theme_requested = current;
+    s_theme_applied   = current;
+    s_theme_state_seeded = true;
+}
+
 // Horizontal carousel: direct mapping from LVGL gesture dir.
 // X normalization is now in lv_touch_read_cb — no per-board swap needed here.
 // Горизонтальная карусель: прямой маппинг из gesture dir (нормализация X теперь в lv_touch_read_cb).
@@ -527,8 +559,29 @@ void lvgl_ui::onThemePresetChanged(uint8_t preset_id) {
     // Clamp to valid range; unknown preset falls back to Dark / Некорректный ID → Dark.
     if (preset_id > 2u) preset_id = 0u;
 
-    const ThemePreset next = static_cast<ThemePreset>(preset_id);
+    // S6-THEME-01: record the intent only. Both entry points (Settings LV_EVENT_CLICKED and
+    // the WebUI SET_THEME_PRESET queue message) land here, so both are coalesced identically
+    // and neither runs LVGL theme work inside event/queue dispatch.
+    // S6-THEME-01: только фиксируем намерение. Оба входа (клик в Settings и сообщение
+    // SET_THEME_PRESET из WebUI) приходят сюда, поэтому коалесинг одинаков, и ни один
+    // не выполняет работу с темой LVGL внутри диспетчеризации.
+    themeSeedStateOnce();
+    s_theme_requested     = static_cast<ThemePreset>(preset_id);
+    s_theme_apply_pending = true;
+    s_theme_request_ms    = millis();
+}
 
+ThemePreset lvgl_ui::themeRequestedPreset() {
+    themeSeedStateOnce();
+    return s_theme_requested;
+}
+
+// The heavy Theme transaction. Ordering is preserved from the pre-S6-THEME-01
+// onThemePresetChanged(); only the trigger moved. Runs on DspTask, after the LVGL
+// event/timer traversal has returned — never from inside it.
+// Тяжёлая транзакция темы. Порядок шагов сохранён от прежнего onThemePresetChanged();
+// изменился только триггер. Выполняется на DspTask после возврата из обхода событий LVGL.
+static void applyThemePresetNow(ThemePreset next) {
     // 1. Switch palette state — all subsequent yoradio_palette() calls return new preset.
     // 1. Переключить палитру — все вызовы yoradio_palette() вернут новый пресет.
     yoradio_theme_set_preset(next);
@@ -567,8 +620,7 @@ void lvgl_ui::onThemePresetChanged(uint8_t preset_id) {
     applyPerfMonitorThemeTextColor();
 #endif
     // Repair E: theme.dat + reinit still owe recovery; run it after this iteration's LVGL paint.
-    // Do not restart here (SET_THEME) or from the Settings click callback (still in dispatch).
-    // Repair E: theme.dat + reinit должны восстановиться после paint, не до/внутри dispatch.
+    // Repair E: theme.dat + reinit должны восстановиться после paint.
     requestRuntimeRgbRecovery();
     noteDisplayBatchBusy();
 }
@@ -704,6 +756,42 @@ void lvgl_ui::taskHandler() {
     // (no runtime pending) keeps the proven no-extra-refr_now path.
     // Слайс 6C: recovery только на спокойной итерации. Busy оставляет pending и забирает
     // переходный resync в поздний redraw→restart. Transition-only без runtime pending — как раньше.
+    // S6-THEME-01: run at most one heavy Theme transaction, for the newest request only.
+    // Gate: pending, quiet window elapsed, not already applying, and the display owes no
+    // recovery and did no busy work this iteration — the same "quiet iteration" the
+    // Repair-E block below uses. applyThemePresetNow() then marks recovery + batch busy,
+    // so the block below defers the redraw to the next quiet iteration, exactly as a
+    // normal Repair-E debt would.
+    // S6-THEME-01: не более одной тяжёлой транзакции темы, только для последнего запроса.
+    // Условие: есть pending, окно тишины истекло, применение не идёт, дисплей не должен
+    // восстановление и на этой итерации не был занят — та же «спокойная итерация», что и
+    // у блока Repair-E ниже. applyThemePresetNow() затем ставит recovery + batch busy,
+    // поэтому перерисовка уедет на следующую спокойную итерацию, как обычный долг Repair-E.
+    if (s_theme_apply_pending && !s_theme_apply_in_progress &&
+        !s_runtime_rgb_recovery_pending && !s_runtime_recovery_batch_busy &&
+        (uint32_t)(millis() - s_theme_request_ms) >= kThemeApplyQuietMs) {
+        const ThemePreset target = s_theme_requested;
+        s_theme_apply_pending = false;
+        // Same-preset burst (e.g. Dark → Light → Dark) needs no LVGL work and no flash
+        // write. onCustomThemeFileUpdated() owns the separate same-preset force-refresh
+        // contract, so nothing depends on a redundant reapply here.
+        // Серия, вернувшаяся к текущей теме, не требует ни работы LVGL, ни записи во flash.
+        // Контракт принудительного refresh для той же темы принадлежит
+        // onCustomThemeFileUpdated(), поэтому лишний reapply здесь никому не нужен.
+        if (target != s_theme_applied) {
+            s_theme_apply_in_progress = true;
+            applyThemePresetNow(target);
+            s_theme_applied = target;
+            s_theme_apply_in_progress = false;
+            // A request that landed during the apply re-arms pending for the newest value.
+            // Запрос, пришедший во время применения, пере-взводит pending для нового значения.
+            if (s_theme_requested != s_theme_applied) {
+                s_theme_apply_pending = true;
+                s_theme_request_ms    = millis();
+            }
+        }
+    }
+
     const bool batch_busy = s_runtime_recovery_batch_busy;
     s_runtime_recovery_batch_busy = false;
     if (s_runtime_rgb_recovery_pending && batch_busy) {
