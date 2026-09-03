@@ -12,8 +12,6 @@ The project is based on [e2002/yoradio](https://github.com/e2002/yoradio). The c
 > **Current source:** `0.9.434m-r2-lvgl-beta.2-s6.4`
 > **Validated board:** ESP32-4848S040
 
-> **Note for ESP32-S3 4848S040:** while data is being written to internal flash — for example during a large playlist upload, background or Station Art upload, a user text-font upload, or when settings are persisted — the display may briefly shift horizontally. After the write operation finishes, the firmware automatically resynchronizes the RGB scanout and the image returns to normal. This is an expected characteristic of the current display configuration; no reboot is required.
-
 <p align="center">
   <img src="readme/english/device-front.jpg" alt="YoRadio LVGL device" width="450">
 </p>
