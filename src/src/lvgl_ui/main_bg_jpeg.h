@@ -2,9 +2,8 @@
  * Main background: LittleFS JPEG → TJPGD → FIT/ScaleOnce → RGB565 PSRAM cache.
  * Фон Main: JPEG из LittleFS → TJPGD → FIT/ScaleOnce → кэш RGB565 в PSRAM.
  *
- * Boot prepare: DspTask, synchronous (audio not started yet).
- * Runtime theme change: one bounded worker; LVGL apply only on DspTask.
- * Boot — синхронно на DspTask. Смена темы — worker; в LVGL только на DspTask.
+ * Boot prepare and runtime theme change: one bounded worker; LVGL apply only on DspTask.
+ * Boot и смена темы — worker; в LVGL только на DspTask.
  */
 // Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef MAIN_BG_JPEG_H

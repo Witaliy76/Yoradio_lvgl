@@ -250,6 +250,12 @@ static uint32_t s_lvgl_boot_shown_ms = 0;
 static constexpr uint32_t kLvglBootMinVisibleMs = 3000; // Wi-Fi Recovery path only / только Recovery
 static constexpr uint32_t kBootLoadingMinVisibleMs = 400; // brief Loading text, not extra 3s after JPEG
 static bool s_main_bg_boot_status_shown = false;
+// Boot JPEG request handed to the MainBgJpeg worker. Latched like the two flags around it:
+// Boot runs once per cold boot (_bootStep returns to 0 only in Display::init()), so there is
+// no reset path to mirror.
+// Запрос JPEG отдан worker'у MainBgJpeg. Латчится как и соседние флаги: Boot проходит один раз
+// за холодный старт (_bootStep обнуляется только в Display::init()), сбрасывать негде.
+static bool s_main_bg_boot_request_issued = false;
 static bool s_main_bg_boot_prepare_done = false;
 static uint32_t s_main_bg_loading_shown_ms = 0;
 
@@ -977,15 +983,52 @@ bool lvgl_ui::dismissBootForMainHandoffWhenDue() {
     return true;
 }
 
+// Boot background preparation runs on the existing MainBgJpeg worker, never inline on DspTask:
+// lv_timer_handler() has a single call site (taskHandler()), so a synchronous decode here would
+// hold DspTask outside it for the whole decode/scale and freeze the Boot shuttle animation.
+// One phase per DspTask iteration; the loop keeps servicing LVGL between them.
+// Подготовка фона Boot идёт на существующем worker'е MainBgJpeg, а не на DspTask: у
+// lv_timer_handler() одна точка вызова (taskHandler()), и синхронный декод заморозил бы бегунок Boot.
+// По одной фазе на итерацию; между ними цикл продолжает обслуживать LVGL.
 void lvgl_ui::bootPrepareActiveMainBackgroundIfNeeded() {
     if (s_main_bg_boot_prepare_done) return;
+
+    // Phase 0: show the status text and let one frame paint it before any work starts.
+    // Фаза 0: показать статус и дать кадру отрисоваться до начала работы.
     if (!s_main_bg_boot_status_shown) {
         bootScreenSetStatusUtf8(i18n::text(i18n::TextId::BootLoadingBackground));
         s_main_bg_boot_status_shown = true;
         s_main_bg_loading_shown_ms = millis();
         return;
     }
-    (void)mainBgCachePreloadActive();
+
+    // Phase 1: request the applied preset's background. yoradio_theme_init() runs inside
+    // Display::init() before DspTask is created, so the active preset is already authoritative
+    // here — the slot comes from the Theme, never inferred from a path string.
+    // Фаза 1: запросить фон применённого пресета. Тема инициализируется в Display::init()
+    // до создания DspTask, поэтому слот берём из Темы, а не из строки пути.
+    if (!s_main_bg_boot_request_issued) {
+        uint8_t slot = static_cast<uint8_t>(yoradio_theme_active_preset());
+        if (slot > 2) slot = 0;
+        mainBgCacheRequestAsync(mainBgResolvedJpegPathForSlot(slot));
+        s_main_bg_boot_request_issued = true;
+        return;
+    }
+
+    // Phase 2: settlement. mainBgCacheRequestAsync() arms s_runtime_busy inside the same critical
+    // section as the generation bump, so once a request was issued busy==false means the attempt
+    // finished: installed by mainBgPollRuntimeApply() (success), dropped by the worker (total
+    // failure), or never accepted (void API early-return leaves busy clear). Boot never touches
+    // mainBgCachePollApply() itself — mainBgPollRuntimeApply() stays the sole consumer, and because
+    // it runs later in the same Display::loop() the cache is always published one iteration before
+    // prepare_done. Same contract as the old synchronous path: "attempt settled", not "background
+    // exists" — a total failure still lets Main continue, exactly as before.
+    // Фаза 2: завершение. busy==false после выданного запроса = попытка завершена (успех —
+    // кэш уже поставлен общим poll; неудача — worker сбросил busy; запрос не принят — busy не взводился).
+    // Boot не вызывает mainBgCachePollApply() — единственный потребитель остаётся mainBgPollRuntimeApply().
+    // Семантика прежняя: «попытка завершена», а не «фон есть».
+    if (mainBgCacheRuntimeBusy()) return;
+
     // Existing DisplayPort RGB resync (VSYNC-coalesced). Do not invent a panel reset.
     // Существующий resync DisplayPort (схлопывается на VSYNC). Новый reset панели не делаем.
     display.requestRgbResync();

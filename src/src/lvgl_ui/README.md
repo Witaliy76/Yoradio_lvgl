@@ -73,7 +73,7 @@ lvgl_ui/
 | LVGL heap | Fixed 256 KiB built-in TLSF pool backed by one process-lifetime PSRAM allocation |
 | LVGL task stack | DspTask, 12288 B |
 | Theme preset / Custom file | Theme module + WebUI Appearance; coalesced live reapply on DspTask |
-| Station art / Main backgrounds | Main: LittleFS JPEG + RGB565 PSRAM cache on DspTask. Station art: LittleFS RGB565 `.bin` |
+| Station art / Main backgrounds | Main: LittleFS JPEG decoded on the `MainBgJpeg` worker into an RGB565 PSRAM cache; cache install and LVGL apply on DspTask. Station art: LittleFS RGB565 `.bin` |
 | Weather data | Core `WeatherState` (fetch off UI); Weather page is read-only consumer |
 | Presets | `adapters/preset_store` on LittleFS |
 
@@ -101,7 +101,17 @@ the row follows the user immediately, while `yoradio_theme_active_preset()` keep
 preset actually in effect for every other consumer.
 
 Main backgrounds are factory/user JPEGs decoded by TJPGD, FIT/ScaleOnce into an RGB565
-PSRAM cache. Visual and screensaver RGB565 `.bin` files keep the existing YoRadio
+PSRAM cache. Both Boot preparation and runtime theme changes go through the same single
+`MainBgJpeg` worker (core 0, priority 1) with its latest-wins generation counter and
+user→factory fallback; DspTask never decodes inline. That matters on Boot: `lv_timer_handler()`
+has one call site, so a synchronous decode would hold DspTask outside it and freeze the Boot
+shuttle animation — with the worker, DspTask keeps servicing LVGL and the indicator stays
+animated for the whole decode/scale. The indicator remains genuinely indeterminate; there is no
+progress metric to report. Boot still hands off to Main only once the preparation attempt has
+settled, and settlement means *attempted*, not *succeeded* — a decode failure with no usable
+fallback lets Main continue exactly as before, showing the theme-colored screen.
+`mainBgCachePollApply()` (via `mainBgPollRuntimeApply()`) is the sole consumer of a finished
+worker result and the only place the cache is installed. Visual and screensaver RGB565 `.bin` files keep the existing YoRadio
 4-byte little-endian disk header followed by RGB565 bytes. Loaders translate that header
 to an in-memory LVGL 9 `lv_image_header_t` / `lv_image_dsc_t`; those families were not
 converted to a new disk format. Static RGB565A8 screensaver sprites are different: they use the
