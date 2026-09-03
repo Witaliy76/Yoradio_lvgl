@@ -83,6 +83,9 @@ private:
     static void on_btn_back_pass(lv_event_t* e);
     static void on_btn_connect(lv_event_t* e);
     static void on_ta_password_changed(lv_event_t* e);
+    // FU1: password visibility toggle - display-only, no Wi-Fi/connect side effects.
+    // FU1: переключатель видимости пароля - только отображение.
+    static void on_btn_pass_eye(lv_event_t* e);
     static void on_keyboard_event(lv_event_t* e);
     // Wi-Fi 6B: Saved Network panel callbacks / обработчики Saved Network panel.
     static void on_saved_row_click(lv_event_t* e);
@@ -112,6 +115,9 @@ private:
     void set_saved_panel_connecting_ui(bool connecting);
     void set_saved_panel_saving_ui();
     void start_scan_from_user();
+    // FU1: single point mapping _password_visible onto textarea mask and eye icon.
+    // FU1: единственная точка отображения _password_visible на маску и иконку.
+    void apply_password_visibility();
     void clear_password_secrets();
     void clear_password_panel_state();
     void open_password_entry(const char* ssid_utf8);
@@ -162,6 +168,9 @@ private:
     lv_obj_t* _lbl_pass_ssid   = nullptr;
     lv_obj_t* _lbl_pass_hint   = nullptr;
     lv_obj_t* _ta_password     = nullptr;
+    // FU1: password visibility toggle button and its icon label / кнопка показа пароля.
+    lv_obj_t* _btn_pass_eye    = nullptr;
+    lv_obj_t* _lbl_pass_eye    = nullptr;
     lv_obj_t* _lbl_pass_status = nullptr;
     lv_obj_t* _btn_connect     = nullptr;
     lv_obj_t* _btn_back_pass   = nullptr;
@@ -230,6 +239,9 @@ private:
     bool        _password_from_saved    = false;
     // Wi-Fi 6C: inline Remove confirmation active / активно inline-подтверждение удаления.
     bool        _remove_confirm_pending = false;
+    // FU1: password textarea unmasked; display-only, never persisted, always reset to false.
+    // FU1: пароль показан открыто; не сохраняется, всегда сбрасывается в false.
+    bool        _password_visible       = false;
 
     // Ephemeral secrets — cleared on Back/exit; never logged / не в лог, не в snapshot.
     char _selectedSsid[33]{};

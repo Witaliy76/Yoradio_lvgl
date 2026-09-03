@@ -93,8 +93,11 @@ _panel_pass  (HIDDEN until open_password_entry())
 ├── _hdr_pass       "Wi-Fi Setup"; title font; text_primary
 ├── _lbl_pass_ssid  selected SSID; body font; LONG_DOT; 100%W; initial " "; text_primary
 ├── _lbl_pass_hint  "Enter the password…"; status font; LONG_WRAP; 100%W; text_secondary
-├── _ta_password    lv_textarea; 100%W; one-line; password-mode; title font (M20 Cyr); text_primary
-│                   (keyboard attached only in open_password_entry())
+├── [row_pass_input] local transparent flex ROW; gap=8; pad_all=0; cross-align CENTER; not scrollable
+│   ├── _ta_password    lv_textarea; flex_grow=1; one-line; password-mode; title font (M20 Cyr); text_primary
+│   │                   (keyboard attached only in open_password_entry())
+│   └── _btn_pass_eye   password visibility toggle (Secondary; square 46/50 px; pad_hor=0)
+│       └── _lbl_pass_eye  centered; built-in LVGL Montserrat 18; LV_SYMBOL_EYE_OPEN / LV_SYMBOL_EYE_CLOSE
 ├── [rowp]          local transparent flex ROW; gap=10
 │   ├── _btn_connect   "Connect" (Primary; DISABLED initially)
 │   │   └── [local label] centered inside button
@@ -211,7 +214,9 @@ User-data encoding: same 1-based index pattern as saved rows.
 | Header-row failure | title label attached directly to panel (fallback path) |
 | Individual child failure | builder continues; panel remains partially functional |
 | Action-row failure | panel without bottom buttons |
+| `row_pass_input` failure | textarea falls back to a direct 100%-wide panel child; no eye button |
 | `_ta_password` failure | password panel unusable |
+| `_btn_pass_eye` failure | password stays permanently masked; entry and connect unaffected |
 | `_kbd` failure | password panel unusable (no input) |
 
 `destroy()` is safe for any combination of null/non-null handles.
@@ -255,6 +260,7 @@ Keyboard (`_kbd`) key labels use built-in LVGL Montserrat 18 (`LV_PART_ITEMS`); 
 ## Keyboard and Password typography
 
 - **Keyboard:** built-in LVGL Montserrat 18 (`LV_PART_ITEMS` on `_kbd`).
+- **Eye toggle icon:** built-in LVGL Montserrat 18 on `_lbl_pass_eye`. The embedded Tabler subset (34 codepoints) has no eye / eye-off glyph; the built-in face carries the LVGL symbol range, same rationale as the keyboard key labels. No new font or asset is added.
 - **Password textarea:** YoRadio Montserrat 20 Cyr (`wifi_title_font_slot()` on `_ta_password`).
 - **Other body/status text:** YoRadio Montserrat 16 Cyr (`wifi_body_font_slot()` / `wifi_status_font_slot()`).
 - Keyboard does not use YoRadio Cyrillic — special keys require LVGL symbol glyph coverage.
@@ -341,6 +347,7 @@ All backend interaction happens in `enter()`, `exit()`, operation start/finish m
 - `_passwordScratch[40]` mirrors the content for validation without re-reading LVGL.
 - `_connectCandidatePass[40]` holds the password after typing for post-success persistence.
 - The keyboard `_kbd` is detached (`lv_keyboard_set_textarea(_kbd, nullptr)`) at create time and is bound to `_ta_password` in `open_password_entry()`.
+- `_password_visible` is display-only state. It is **not** persisted to configuration and is reset to `false` at the top of `clear_password_secrets()` — the single point already reached by `open_password_entry()`, `clear_password_panel_state()`, `exit()` and `destroy()`. Leaving and re-entering the Wi-Fi flow always returns to masked.
 - All secret buffers are explicitly zeroed in `clear_password_secrets()` on Back, exit, and destroy.
 - The keyboard must be detached before the textarea is destroyed or cleared — no refactor may shorten or reorder this cleanup.
 
@@ -964,6 +971,7 @@ All use `LV_EVENT_CLICKED` and `user_data = &self` (screen instance address from
 | `on_btn_cancel_scan` | no open-await/saving | `wifiOpsCancel()` |
 | `on_btn_back_pass` | no saving; Chg pwd → Saved | `show_saved_panel()` or `show_networks_panel()` |
 | `on_btn_connect` | — | `start_connect_from_user()` |
+| `on_btn_pass_eye` | no connect-await; no saving | toggle `_password_visible`, `apply_password_visibility()` |
 | Saved panel buttons | see Saved panel section | connect/chpwd/remove/back/yes/no |
 
 ## Dynamic row callbacks
@@ -980,6 +988,16 @@ Zero encoded value rejected. Open scan row → `start_open_connect_from_user`; l
 `on_ta_password_changed`: `LV_EVENT_VALUE_CHANGED`, `user_data = &self`.
 
 Preserves `_skip_next_ta_pass_status_sync`, `_pass_status_terminal`, min-length validation, `sync_connect_button_enabled()` at end.
+
+## Password visibility toggle
+
+`on_btn_pass_eye`: `LV_EVENT_CLICKED`, `user_data = &self`.
+
+Guard → toggle → apply. Blocked while `_await_connect_ui` (textarea already `LV_STATE_DISABLED`) or `_saving_in_progress` (flow closing towards reboot). `_await_open_connect_ui` is not consulted — the Password panel is never visible during an open-network connect.
+
+`apply_password_visibility()` is the only writer of the mask: `lv_textarea_set_password_mode(_ta_password, !_password_visible)` plus the eye icon text. It is display-only — it never touches textarea content, the keyboard binding, focus, ops or persistence. The icon shows the **next action**: masked → `LV_SYMBOL_EYE_OPEN`, visible → `LV_SYMBOL_EYE_CLOSE`.
+
+LVGL keeps the real string in the widget (`ta->pwd_tmp`) while masked, so `lv_textarea_get_text()` returns the same password in both states and `lv_textarea_set_password_mode()` emits no `LV_EVENT_VALUE_CHANGED`. `on_ta_password_changed` therefore does not fire on a toggle, and `_pass_status_terminal` / `sync_connect_button_enabled()` are untouched.
 
 ## Keyboard callback
 

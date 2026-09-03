@@ -495,7 +495,28 @@ ScreenType LvglWifiFlowScreen::screenType() const {
 // Local UI state and secret cleanup / Сброс локального UI state и секретов
 // ─────────────────────────────────────────────────────────────────────────────
 
+// FU1: display-only mapping of _password_visible. Never touches textarea content, keyboard
+// binding, focus, ops or persistence. lv_textarea_set_password_mode() keeps the real string
+// inside the widget (pwd_tmp), so lv_textarea_get_text() is unaffected by the mask state.
+// FU1: только отображение. Не трогает содержимое textarea, привязку клавиатуры, фокус,
+// ops и сохранение. Реальная строка остаётся внутри виджета.
+void LvglWifiFlowScreen::apply_password_visibility() {
+    if (_ta_password) {
+        lv_textarea_set_password_mode(_ta_password, !_password_visible);
+    }
+    if (_lbl_pass_eye) {
+        // Icon shows the next action, not the current state: masked -> reveal, visible -> hide.
+        // Иконка показывает следующее действие, а не текущее состояние.
+        wifi_flow_set_text_if_changed(
+            _lbl_pass_eye, _password_visible ? LV_SYMBOL_EYE_CLOSE : LV_SYMBOL_EYE_OPEN);
+    }
+}
+
 void LvglWifiFlowScreen::clear_password_secrets() {
+    // FU1: mask before wiping - visibility never survives Back / Cancel / exit / destroy.
+    // FU1: сначала маскируем - видимость не переживает Back / Cancel / exit / destroy.
+    _password_visible = false;
+    apply_password_visibility();
     // Keyboard must be detached before textarea is cleared; LVGL may fire VALUE_CHANGED otherwise.
     // Клавиатура должна быть отсоединена до очистки textarea — иначе LVGL может сгенерировать VALUE_CHANGED.
     if (_kbd) {
@@ -1825,8 +1846,28 @@ void LvglWifiFlowScreen::create_password_panel(LvglWifiFlowScreen& self, const Y
     lv_label_set_long_mode(self._lbl_pass_hint, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(self._lbl_pass_hint, LV_PCT(100));
 
-    self._ta_password = lv_textarea_create(self._panel_pass);
-    lv_obj_set_width(self._ta_password, LV_PCT(100));
+    // FU1: password input row - textarea grows, eye button keeps a fixed square touch target.
+    // Geometry stays inside the password panel; no other panel is affected.
+    // FU1: строка ввода пароля - textarea растягивается, кнопка-глаз держит квадратную зону.
+    lv_obj_t* row_pass_input = lv_obj_create(self._panel_pass);
+    if (row_pass_input) {
+        style_action_row(row_pass_input, kCompactActionRowColumnGap);
+        // Zero padding keeps the textarea at the same panel-relative extents as before FU1.
+        // Нулевые отступы сохраняют прежние границы textarea внутри панели.
+        lv_obj_set_style_pad_all(row_pass_input, 0, LV_PART_MAIN);
+        lv_obj_set_flex_align(row_pass_input, LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_clear_flag(row_pass_input, LV_OBJ_FLAG_SCROLLABLE);
+    }
+
+    self._ta_password = lv_textarea_create(row_pass_input ? row_pass_input : self._panel_pass);
+    if (row_pass_input) {
+        lv_obj_set_flex_grow(self._ta_password, 1);
+    } else {
+        // Fallback: row allocation failed - textarea keeps its pre-FU1 full-width panel geometry.
+        // Fallback: строка не выделена - textarea сохраняет прежнюю геометрию.
+        lv_obj_set_width(self._ta_password, LV_PCT(100));
+    }
     lv_obj_set_style_min_height(self._ta_password,
         (LV_ACTIVE_PROFILE.width <= kCompactProfileMaxWidth)
             ? kTextAreaMinHeightSmall : kTextAreaMinHeightLarge, LV_PART_MAIN);
@@ -1838,6 +1879,35 @@ void LvglWifiFlowScreen::create_password_panel(LvglWifiFlowScreen& self, const Y
     // Smaller radius reduces rounded-rect mask pressure on textarea / малый радиус снижает маску TA.
     lv_obj_set_style_radius(self._ta_password, kTextAreaRadius, LV_PART_MAIN);
     lv_obj_add_event_cb(self._ta_password, on_ta_password_changed, LV_EVENT_VALUE_CHANGED, &self);
+
+    // FU1: eye button - LVGL symbol glyphs require the built-in Montserrat face; the embedded
+    // Tabler subset (34 codepoints) has no eye / eye-off. Same rationale as the _kbd key labels.
+    // FU1: кнопка-глаз - symbol-глифы LVGL требуют встроенный Montserrat; в subset Tabler
+    // (34 codepoints) нет eye / eye-off. Та же причина, что и для подписей клавиш _kbd.
+    if (row_pass_input) {
+        const lv_coord_t eye_side = (LV_ACTIVE_PROFILE.width <= kCompactProfileMaxWidth)
+                                        ? kButtonMinHeightSmall : kButtonMinHeightLarge;
+        self._btn_pass_eye = lv_btn_create(row_pass_input);
+        if (self._btn_pass_eye) {
+            wifi_apply_button_role(self._btn_pass_eye, pal, WifiBtnRole::Secondary);
+            lv_obj_set_size(self._btn_pass_eye, eye_side, eye_side);
+            // Square target: drop the shared horizontal button padding so the glyph stays centred.
+            // Квадратная зона: снимаем общий горизонтальный padding для центрирования глифа.
+            lv_obj_set_style_pad_left(self._btn_pass_eye, 0, LV_PART_MAIN);
+            lv_obj_set_style_pad_right(self._btn_pass_eye, 0, LV_PART_MAIN);
+            lv_obj_add_event_cb(self._btn_pass_eye, on_btn_pass_eye, LV_EVENT_CLICKED, &self);
+            self._lbl_pass_eye = lv_label_create(self._btn_pass_eye);
+            if (self._lbl_pass_eye) {
+                lv_obj_set_style_text_font(self._lbl_pass_eye, &lv_font_montserrat_18, LV_PART_MAIN);
+                lv_label_set_text(self._lbl_pass_eye, LV_SYMBOL_EYE_OPEN);
+                lv_obj_center(self._lbl_pass_eye);
+            }
+        }
+    }
+    // Default is masked; apply() also seeds the icon for the initial state.
+    // По умолчанию скрыт; apply() задаёт иконку начального состояния.
+    self._password_visible = false;
+    self.apply_password_visibility();
 
     lv_obj_t* rowp = lv_obj_create(self._panel_pass);
     if (rowp) {
@@ -2139,6 +2209,9 @@ void LvglWifiFlowScreen::destroy() {
     _hdr_net = _lbl_net_status = _list_scan = nullptr;
     _hdr_pass = _lbl_pass_ssid = _lbl_pass_hint = _ta_password = _lbl_pass_status = nullptr;
     _btn_connect = _btn_back_pass = _kbd = nullptr;
+    // FU1: eye handles and visibility flag / handles кнопки-глаза и флаг видимости.
+    _btn_pass_eye = _lbl_pass_eye = nullptr;
+    _password_visible = false;
     _btn_scan = _btn_hotspot = _btn_back_home = _btn_rescan = _btn_cancel_scan = _btn_back_net = nullptr;
     // Wi-Fi 6B: null Saved Network panel widgets / обнуляем виджеты Saved Network panel.
     _lbl_saved_ssid = _lbl_saved_sub = _lbl_saved_status = nullptr;
@@ -2453,6 +2526,22 @@ void LvglWifiFlowScreen::on_btn_connect(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     LvglWifiFlowScreen* self = wifi_flow_self_from_event(e);
     if (self) self->start_connect_from_user();
+}
+
+// FU1: eye click - toggles the mask only. Must not connect, cancel, navigate, rebind the
+// keyboard or rewrite the textarea; the keyboard stays bound to _ta_password across the toggle.
+// FU1: клик по глазу - только маска. Не подключает, не отменяет, не меняет панель,
+// не перепривязывает клавиатуру и не переписывает textarea.
+void LvglWifiFlowScreen::on_btn_pass_eye(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    LvglWifiFlowScreen* self = wifi_flow_self_from_event(e);
+    if (!self || !self->_ta_password) return;
+    // Connect in flight: textarea is already LV_STATE_DISABLED and effectively read-only.
+    // Saving in progress: flow is closing towards reboot, no input surface may change.
+    // Идёт connect — поле уже read-only; идёт сохранение — flow закрывается к reboot.
+    if (self->_await_connect_ui || self->_saving_in_progress) return;
+    self->_password_visible = !self->_password_visible;
+    self->apply_password_visibility();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
