@@ -235,6 +235,24 @@ def find_forbidden(overlay_dir, forbidden):
             if os.path.isfile(os.path.join(overlay_dir, name))]
 
 
+def find_unexpected(overlay_dir, known_good, forbidden):
+    """`.a` filenames present in the overlay that are neither an expected
+    archive nor a named-forbidden one (that case is find_forbidden's to
+    report).  Non-archive files - manifest.txt, README, sdkconfig fragments -
+    are not archives and never match.  The exact-set contract exists because
+    the overlay directory sits ahead of stock ESP-IDF on LIBPATH: an unlisted
+    .a resolves silently and no SHA256 row would ever see it."""
+    expected = set(known_good) | set(forbidden)
+    try:
+        entries = os.listdir(overlay_dir)
+    except OSError:
+        return []
+    return sorted(
+        name for name in entries
+        if name.endswith(".a") and name not in expected
+        and os.path.isfile(os.path.join(overlay_dir, name)))
+
+
 def decide(mcu, project_dir, idf_version, arduino_version, platform_version):
     """Resolve the build profile.  Never raises; always returns a decision."""
     mcu = (mcu or "").lower()
@@ -249,6 +267,7 @@ def decide(mcu, project_dir, idf_version, arduino_version, platform_version):
         "total": 0,
         "rows": [],
         "forbidden": [],
+        "unexpected": [],
         "wraps": [],
         "detected": {
             "idf": idf_version,
@@ -291,6 +310,8 @@ def decide(mcu, project_dir, idf_version, arduino_version, platform_version):
 
     decision["forbidden"] = find_forbidden(
         overlay_dir, profile.get("forbidden", ()))
+    decision["unexpected"] = find_unexpected(
+        overlay_dir, profile["archives"], profile.get("forbidden", ()))
 
     valid, total, rows = validate_overlay(overlay_dir, profile["archives"])
     decision["valid"], decision["total"], decision["rows"] = valid, total, rows
@@ -434,6 +455,17 @@ def apply(env):
             "RGB policy is stock ESP-IDF RESTART_IN_VSYNC=ON - delete the "
             "file, do not re-pin it"
             % (", ".join(decision["forbidden"]), decision["overlay_dir"]))
+
+    # Exact-set contract: the overlay directory precedes stock ESP-IDF on
+    # LIBPATH, so an unlisted .a resolves silently and no SHA256 row would
+    # ever notice it shadowing a framework archive.
+    if decision["unexpected"]:
+        raise RuntimeError(
+            "YoRadio: unexpected archive(s) %s in %s; the production overlay "
+            "must contain exactly the known-good set and nothing else - "
+            "remove the file, or add it to S3_KNOWN_GOOD if it is now a "
+            "deliberate part of the overlay"
+            % (", ".join(decision["unexpected"]), decision["overlay_dir"]))
 
     if str(decision.get("reason") or "").startswith("overlay-invalid"):
         detail = "; ".join(
