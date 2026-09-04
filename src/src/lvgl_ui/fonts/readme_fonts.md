@@ -85,12 +85,16 @@ Per-glyph miss walks `font->fallback`: user → factory same size → emergency 
 - File: `yoradio_factory_font.ttf`
 - Role: embedded firmware factory text face; `FontProvider::text(px)` via TinyTTF
 - Current source family: Montserrat Medium
-- Production bytes: `28000`
-- SHA256: `4474F1CBC068BBBA4496ACEF6142C9F8F7AD9741B66F7BBB3E74BE83E8EE62A8`
+- Production bytes: `30888`
+- SHA256: `B01CCA2F22D88A1BFD8DF0E857D2BDD23E58DD9D5F6A5D18E350A8FBDFA49101`
+- cmap: **462** Unicode codepoints
 - Coverage: basic Latin, Cyrillic, degree/bullet/ellipsis, explicit Polish and
-  Slovak UI letters, plus German/French letters and Western punctuation for
-  station/artist/track metadata. Compile-time UI locales remain RU/EN/PL/SK;
-  DE/FR locale packages are not implemented.
+  Slovak UI letters, German/French letters, plus FU4 tester-proven Western /
+  Central European metadata glyphs (Czech Ě/Ř/Ů, Hungarian Ő/Ű, typographic
+  quotes/guillemets, legal/currency including €/™, and selected math symbols).
+  Compile-time UI locales remain RU/EN/PL/SK; DE/FR/CS/HU locale packages are
+  not implemented. `‛` U+201B remains unsupported — absent from the current
+  Montserrat Medium source TTF (not substituted).
 - Pixel sizes are **not** baked into the TTF. TinyTTF scales at runtime.
   Current 480×480 requests: 12, 14, 16, 18, 20, 22, 32, 40 (profile requests,
   not TTF limits).
@@ -101,11 +105,15 @@ Per-glyph miss walks `font->fallback`: user → factory same size → emergency 
 - Файл: `yoradio_factory_font.ttf`
 - Роль: встроенный factory-текст; `FontProvider::text(px)` через TinyTTF
 - Текущее семейство-источник: Montserrat Medium
-- Размер: `28000` байт
-- SHA256: `4474F1CBC068BBBA4496ACEF6142C9F8F7AD9741B66F7BBB3E74BE83E8EE62A8`
+- Размер: `30888` байт
+- SHA256: `B01CCA2F22D88A1BFD8DF0E857D2BDD23E58DD9D5F6A5D18E350A8FBDFA49101`
+- cmap: **462** Unicode codepoints
 - Покрытие: базовая латиница, кириллица, degree/bullet/ellipsis, явные польские
-  и словацкие буквы интерфейса, плюс немецкие/французские буквы и западная
-  пунктуация для metadata станций. Локали UI — RU/EN/PL/SK; пакетов DE/FR нет.
+  и словацкие буквы интерфейса, немецкие/французские буквы, плюс FU4
+  tester-proven Western/Central European metadata (чешские Ě/Ř/Ů, венгерские
+  Ő/Ű, типографика, legal/currency включая €/™, выбранные math-символы).
+  Локали UI — RU/EN/PL/SK; пакетов DE/FR/CS/HU нет. `‛` U+201B не поддержан —
+  отсутствует в текущем Montserrat Medium (без подмены).
 - Размеры в пикселях **не** зашиты в TTF. TinyTTF масштабирует в runtime.
   Текущие запросы 480×480: 12, 14, 16, 18, 20, 22, 32, 40 (запросы профиля,
   не пределы TTF).
@@ -188,8 +196,9 @@ PUA strings live in product helper headers (`control_glyph_utf8.h`,
 **English**
 
 - Symbol/file: `lv_font_yora_montserrat_16_cyr` / `lv_font_yora_montserrat_16_cyr.c`
-- Compiled 16 px multilingual hard-recovery face (same coverage family as the
-  factory TTF: Latin + Cyrillic + PL/SK UI + DE/FR metadata letters)
+- Compiled 16 px multilingual hard-recovery face (Latin + Cyrillic + PL/SK UI +
+  DE/FR metadata letters; **not** auto-synced to every factory TTF cmap
+  extension such as FU4 CZ/HU/math extras)
 - Used **only** when primary TinyTTF/backend cannot initialize
 - Not a third normal backend. Icon init failure may use this face as a stable
   non-null placeholder (it has no Tabler PUA glyphs)
@@ -197,7 +206,9 @@ PUA strings live in product helper headers (`control_glyph_utf8.h`,
 **Русский**
 
 - Символ/файл: `lv_font_yora_montserrat_16_cyr` / `lv_font_yora_montserrat_16_cyr.c`
-- Compiled 16 px многоязычный hard-recovery face (то же покрытие, что factory TTF)
+- Compiled 16 px многоязычный hard-recovery face (латиница + кириллица + PL/SK
+  UI + DE/FR metadata; **не** автоматически синхронизируется с каждым
+  расширением cmap factory TTF, например FU4 CZ/HU/math)
 - Используется **только** если primary TinyTTF/backend не поднимается
 - Это не третий нормальный backend. При отказе icon-init этот face может остаться
   стабильной non-null заглушкой (Tabler PUA в нём нет)
@@ -210,9 +221,9 @@ PUA strings live in product helper headers (`control_glyph_utf8.h`,
 
 If factory coverage or the Tabler 34-codepoint vocabulary must change later,
 that is a **separate manual authoring operation**. Full Montserrat Medium /
-Tabler 3.26.0 sources and fontTools are authoring inputs only. A historical
-reference script may exist at `tools/fonts/font_source_build.py`; it is **not**
-invoked by the ordinary firmware build.
+Tabler 3.26.0 sources and fontTools are local authoring inputs only; they are
+**not** part of the firmware repository tree and are **not** invoked by the
+ordinary firmware build.
 
 After authoring, replace the ready files in this directory and rebuild. Do not
 add a per-size compiled C ladder.
@@ -220,9 +231,9 @@ add a per-size compiled C ladder.
 **Русский**
 
 Если нужно изменить покрытие factory или словарь 34 codepoints Tabler, это
-**отдельная ручная authoring-операция**. Полные Montserrat Medium / Tabler 3.26.0
-и fontTools — только входы authoring. Исторический скрипт может лежать в
-`tools/fonts/font_source_build.py`; обычная сборка прошивки его **не** вызывает.
+**отдельная ручная authoring-операция**. Полные Montserrat Medium /
+Tabler 3.26.0 и fontTools — только локальные входы authoring; они **не**
+входят в дерево репозитория прошивки и обычной сборкой **не** вызываются.
 
 После authoring замените готовые файлы в этом каталоге и пересоберите. Не
 возвращайте per-size compiled C-лестницу.

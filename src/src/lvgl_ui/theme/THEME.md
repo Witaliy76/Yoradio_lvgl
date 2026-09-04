@@ -98,7 +98,7 @@ This is **metadata only** — not a color. It does not affect Dark or Light pres
 
 **WebUI normalization:** browser-readable image → Canvas → JPEG quality 0.90 → longest side 1280 px → preserve aspect ratio; no crop, stretch, or upscale.
 
-Legacy Main RGB565 `.bin` production files are **removed**. Screensaver, Visual, and Station Art `.bin` families are unchanged. The RGB565 converter `tools/lvgl_png_to_rgb565_bin.py` is not used for Main.
+Legacy Main RGB565 `.bin` production files are **removed**. Screensaver, Visual, and Station Art `.bin` families are unchanged. The former Main RGB565 converter path is not used for Main.
 
 ---
 

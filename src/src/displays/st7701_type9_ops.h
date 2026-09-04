@@ -7,7 +7,8 @@
 //   Commit:     00dcd6842c4fe10026468dee83511a4e8bfff50a
 //   Symbol:     st7701_type9_init_operations
 //   Source:     src/display/Arduino_RGB_Display.h (resolved libdeps)
-//   Tool:       tools/display/extract_st7701_type9.py
+//   Provenance note: opcode table extracted from the Arduino_GFX pin above
+//   (local extract helper is not part of the firmware repository tree).
 //
 // Encoded bytes: 271; high-level ops: 55; in-table DELAY ms: [120].
 #ifndef YORADIO_ST7701_TYPE9_OPS_H
