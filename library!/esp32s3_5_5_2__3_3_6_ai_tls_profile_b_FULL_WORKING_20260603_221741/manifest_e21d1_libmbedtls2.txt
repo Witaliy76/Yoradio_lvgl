@@ -1,9 +1,0 @@
-﻿E21D1 libmbedtls_2.a completion manifest
-Date: 2026-06-03 21:51:12
-
-source candidate: G:\Github\esp32-arduino-lib-builder-clean\build\esp-idf\mbedtls\mbedtls\library\libmbedtls.a
-copied pack path: G:\Github\Yoradio_RGB_Panel-1\library!\esp32s3_5_5_2__3_3_6_ai_tls_profile_b_dtls_off_dynamic_20260601_223905\libmbedtls_2.a
-size: 1432462
-SHA256: 58CDCC87D5EFC7B63AEAB37F249EF6A8A569A1970CB5194D5C99FD79210C3347
-timestamp: 06/01/2026 22:42:45
-note: Profile B real mbedTLS core archive installed as libmbedtls_2.a for Arduino NetworkClientSecure path

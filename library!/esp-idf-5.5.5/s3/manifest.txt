@@ -11,7 +11,8 @@ Arduino core              3.3.11        (arduino-esp32, commit 0d7a8614b)
 ESP-IDF                   v5.5.5        (commit b774170ff46c393eeb5e495ea37936038d3f4f4f)
 memory variant            qio_opi       (ESP32-S3 N16R8, 16 MB flash / 8 MB PSRAM)
 adopted                   Stage 2.2 / Slice 4, 2026-08-13
-configuration identity    C1-yoradio-production
+revised                   Post-Stage-6 FU3, 2026-09-04 (liblwip.a only)
+configuration identity    C1-yoradio-production + FU3 balanced LwIP
 
 Builder provenance
 ------------------
@@ -22,7 +23,8 @@ toolchain                 xtensa-esp-elf esp-14.2.0_20260121 (GCC 14.2.0)
 tinyusb                   53f8c53c2
 defconfig chain           defconfig.common; defconfig.esp32s3; defconfig.debug_default;
                           defconfig.esp_sr; defconfig.qio; defconfig.80m; defconfig.qio_ram
-YoRadio fragment          configs/defconfig.yoradio_s22_c1
+YoRadio fragment          configs/defconfig.yoradio_s22_c1        (C1, 2026-08-13)
+                          configs/defconfig.yoradio_fu3_balanced (FU3, 2026-09-04)
 resulting sdkconfig       SHA256 d585ef7f53d73a00522249bbbc8e2f34119d26e8903468589b6dce7c4d743964
 resulting sdkconfig.h     SHA256 f38c92ee7a181194da5b76b2a78dfd6c6393f1eb1da0526dd33bdabfaffb905a
                           (build-time reference only — YoRadio builds against the STOCK
@@ -38,14 +40,14 @@ Slice 4    production adoption + clean-install proof         this pack
 
 Archives — SHA256, size, filename
 ---------------------------------
-F8A0CC32D911FC0758580C5D317660686087F1838E372068011218ACB44723A1  4042950  liblwip.a
+D750FCB82F2635230D925B5A0246A9EC003B3C90C54C7EE1EF89F75DE41B13CC  4030834  liblwip.a   (FU3)
 4EEFB5AA4BF0E2C63286EE17CAE78031348F535BB67B736ACC20775FA411353C  1436292  libmbedtls_2.a
 EDDFAFDB5296BE874289DD409A2F675144195BE13EF3CE111E42AC2291C3B69A   289140  libesp-tls.a
 7FDAA2BFE9DF085BBAA86F39842100E01C09D3CF81B2C79E9E5A5A871CF25723   351808  libtcp_transport.a
 11238D44B2A5BE1F6E4E35B02F1F311F857FB94FEB6F8ACA4FB8445ACF49A4B3   333740  libesp_http_client.a
 8A13CD4C72D171F886ED43947B56AB3BFDFA0A1F325BF31DAF7C804D15750A2F  4670746  libwpa_supplicant.a
 
-Exactly six archives.  Total 11 124 676 bytes (10.61 MiB).
+Exactly six archives.  Total 11 112 560 bytes (10.60 MiB).
 
 Configuration delta vs stock 3.3.11 / 5.5.5 (C0 -> C1)
 ------------------------------------------------------
@@ -63,9 +65,46 @@ Configuration delta vs stock 3.3.11 / 5.5.5 (C0 -> C1)
 11   CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN       (not emitted) 4096     depends on #9; ~12 KB/connection saved
 12   CONFIG_LCD_RGB_RESTART_IN_VSYNC          y            y         REVERTED to stock in s6.2 - see below
 
-Deliberately NOT changed (excluded by the Slice 3 ruling):
-     CONFIG_LWIP_TCP_SND_BUF_DEFAULT   left at 5744
-     CONFIG_LWIP_TCP_RECVMBOX_SIZE     left at 6
+Post-Stage-6 FU3 - balanced LwIP streaming profile (liblwip.a rebuilt)
+----------------------------------------------------------------------
+Slice 3 excluded two LwIP symbols by the continuation-brief s.10 scope ruling
+and shipped them at their stock values.  They were never device-selected and
+never A/B-proven; the Slice 3 delta manifest recorded the divergence as a known
+accepted risk.  FU3 restores the device-proven "balanced" values:
+
+ #   symbol                             C1 (stock)   FU3      why
+13   CONFIG_LWIP_TCP_RECVMBOX_SIZE      6            32       IDF sizing rule
+                                                              LWIP_TCP_WND_DEFAULT/TCP_MSS+2
+                                                              = 32768/1436+2 ~= 25; 6 does not
+                                                              satisfy it at WND=32768
+14   CONFIG_LWIP_TCP_SND_BUF_DEFAULT    5744         8192     same balanced set
+
+The full balanced profile now in force (rows 1,2,3 above plus these two):
+     CONFIG_LWIP_MAX_ACTIVE_TCP            64
+     CONFIG_LWIP_MAX_LISTENING_TCP         16   (stock; asserted)
+     CONFIG_LWIP_TCP_SND_BUF_DEFAULT       8192
+     CONFIG_LWIP_TCP_WND_DEFAULT           32768
+     CONFIG_LWIP_TCP_RECVMBOX_SIZE         32
+     CONFIG_LWIP_TCPIP_RECVMBOX_SIZE       32   (stock; asserted)
+     CONFIG_LWIP_TCPIP_CORE_LOCKING        y
+     CONFIG_LWIP_TCPIP_CORE_LOCKING_INPUT  y
+
+6 / 5744 are NOT a valid current production profile.
+
+FU3 differential evidence (same builder, same IDF, same toolchain version):
+  - sdkconfig differs from the C1 control by exactly these two symbols
+    (and their CONFIG_TCP_* aliases); every other CONFIG_LWIP*/CONFIG_MBEDTLS*
+    symbol is identical.
+  - liblwip.a: 3 of 93 members change - api_msg.c.obj (netconn recvmbox),
+    tcp.c.obj and tcp_out.c.obj (send buffer).  The other 90 are byte-identical.
+  - Only liblwip.a is affected; the other five archives are untouched.
+
+Build provenance note: FU3 was built on a different machine path than C1
+(C1: G:/Github/_yoradio_s22_slice3/lib-builder/build-C1; FU3:
+G:/Github/esp32-arduino-lib-builder/build) with the same toolchain version
+esp-14.2.0_20260121.  Absolute build paths are embedded in DWARF debug info, so
+FU3's archive is not byte-comparable with C1's even where the code is identical;
+this was verified to be the only source of the whole-archive delta.
 
 RESTART_IN_VSYNC policy - WITHDRAWN in s6.2
 -------------------------------------------
