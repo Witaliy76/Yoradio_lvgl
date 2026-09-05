@@ -97,12 +97,13 @@ S3_MBEDTLS_WRAPS = (
     "mbedtls_ssl_write_client_hello",
 )
 
-# Accepted production archive set (C1 + FU3 balanced-LwIP liblwip.a).  This
-# table is the authority; the manifest.txt
+# Accepted production archive set (C1 + FU3 balanced LwIP + FU4.2 PSRAM-first
+# Wi-Fi/LwIP placement).  This table is the authority; the manifest.txt
 # shipped next to the archives is the human-readable provenance record.
 # Keeping the authority here means a tampered overlay cannot self-certify.
 S3_KNOWN_GOOD = {
-    "liblwip.a":            "D750FCB82F2635230D925B5A0246A9EC003B3C90C54C7EE1EF89F75DE41B13CC",
+    "liblwip.a":            "2DD3F21462C0A3F514318B727FB64F879BBDDAFF71F81BC06A15B7AFA0B329E2",
+    "libesp_wifi.a":        "21345489D5FF10543A62C6E3E3189B14F20C17771D66A2C04A2950804B967529",
     "libmbedtls_2.a":       "4EEFB5AA4BF0E2C63286EE17CAE78031348F535BB67B736ACC20775FA411353C",
     "libesp-tls.a":         "EDDFAFDB5296BE874289DD409A2F675144195BE13EF3CE111E42AC2291C3B69A",
     "libtcp_transport.a":   "7FDAA2BFE9DF085BBAA86F39842100E01C09D3CF81B2C79E9E5A5A871CF25723",
@@ -112,7 +113,7 @@ S3_KNOWN_GOOD = {
 
 # Archives that must NOT sit in the overlay directory.  The overlay precedes
 # stock ESP-IDF on LIBPATH, so a file here shadows the framework copy of the
-# same name - the point of the six accepted archives, and a trap for anything
+# same name - the point of the seven accepted archives, and a trap for anything
 # else.  libesp_lcd.a is the retired RESTART_OFF rebuild (S6-DISP-01): the
 # production RGB policy is now stock ESP-IDF 5.5.5 with
 # CONFIG_LCD_RGB_RESTART_IN_VSYNC=ON, so a copy reappearing here would silently

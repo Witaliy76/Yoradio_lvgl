@@ -11,22 +11,34 @@ Arduino core              3.3.11        (arduino-esp32, commit 0d7a8614b)
 ESP-IDF                   v5.5.5        (commit b774170ff46c393eeb5e495ea37936038d3f4f4f)
 memory variant            qio_opi       (ESP32-S3 N16R8, 16 MB flash / 8 MB PSRAM)
 adopted                   Stage 2.2 / Slice 4, 2026-08-13
-revised                   Post-Stage-6 FU3, 2026-09-04 (liblwip.a only)
-configuration identity    C1-yoradio-production + FU3 balanced LwIP
+revised                   Post-Stage-6 FU4.2, 2026-09-05
+configuration identity    C1 + FU3 balanced LwIP + FU4.2 PSRAM-first Wi-Fi/LwIP placement
 
 Builder provenance
 ------------------
 builder                   espressif/esp32-arduino-lib-builder
-                          commit ee57070cc8571c488a64b8ef028684acdc6ff5e2
+actual checkout used      commit 24e56584b2dc26227acdfcbcd3650822417277f3
+                          ("Update P4 config for C5 slaves (#324)")
+release/baseline identity commit ee57070cc8571c488a64b8ef028684acdc6ff5e2
                           ("Remove CONFIG_ESP_IPC_TASK_STACK_SIZE from all chip specific configs")
+relationship              actual checkout is an ancestor of the release/baseline
+                          identity by 49 commits
+relevant build-path delta YES — the intervening history changes build.sh,
+                          configs/defconfig.common and configs/defconfig.esp32s3,
+                          including Wi-Fi/LwIP defaults; byte-identity evidence below
+                          is therefore the production reproducibility authority
 toolchain                 xtensa-esp-elf esp-14.2.0_20260121 (GCC 14.2.0)
 tinyusb                   53f8c53c2
 defconfig chain           defconfig.common; defconfig.esp32s3; defconfig.debug_default;
-                          defconfig.esp_sr; defconfig.qio; defconfig.80m; defconfig.qio_ram
-YoRadio fragment          configs/defconfig.yoradio_s22_c1        (C1, 2026-08-13)
-                          configs/defconfig.yoradio_fu3_balanced (FU3, 2026-09-04)
-resulting sdkconfig       SHA256 d585ef7f53d73a00522249bbbc8e2f34119d26e8903468589b6dce7c4d743964
-resulting sdkconfig.h     SHA256 f38c92ee7a181194da5b76b2a78dfd6c6393f1eb1da0526dd33bdabfaffb905a
+                          defconfig.esp_sr; defconfig.qio; defconfig.80m;
+                          defconfig.qio_ram; defconfig.yoradio_fu3_balanced;
+                          defconfig.yoradio_fu4_psram_network
+historical C1 fragment    configs/defconfig.yoradio_s22_c1        (C1, 2026-08-13;
+                          not passed directly in the FU4.2 production command)
+production fragments      configs/defconfig.yoradio_fu3_balanced (FU3, 2026-09-04)
+                          configs/defconfig.yoradio_fu4_psram_network (FU4.2, 2026-09-05)
+resulting sdkconfig       SHA256 D401A96E9C17E546A25A7CF646866CBD20C2857A1397657E79608CF066FF02E1
+resulting sdkconfig.h     SHA256 2275575D0F164C5B62055F8B66C2E89D09860FA1F580005F657929A52992616D
                           (build-time reference only — YoRadio builds against the STOCK
                            esp32s3/qio_opi/include/sdkconfig.h and never replaces it)
 
@@ -40,14 +52,15 @@ Slice 4    production adoption + clean-install proof         this pack
 
 Archives — SHA256, size, filename
 ---------------------------------
-D750FCB82F2635230D925B5A0246A9EC003B3C90C54C7EE1EF89F75DE41B13CC  4030834  liblwip.a   (FU3)
+2DD3F21462C0A3F514318B727FB64F879BBDDAFF71F81BC06A15B7AFA0B329E2  4031126  liblwip.a       (FU4.2)
+21345489D5FF10543A62C6E3E3189B14F20C17771D66A2C04A2950804B967529   331448  libesp_wifi.a   (FU4.2, new)
 4EEFB5AA4BF0E2C63286EE17CAE78031348F535BB67B736ACC20775FA411353C  1436292  libmbedtls_2.a
 EDDFAFDB5296BE874289DD409A2F675144195BE13EF3CE111E42AC2291C3B69A   289140  libesp-tls.a
 7FDAA2BFE9DF085BBAA86F39842100E01C09D3CF81B2C79E9E5A5A871CF25723   351808  libtcp_transport.a
 11238D44B2A5BE1F6E4E35B02F1F311F857FB94FEB6F8ACA4FB8445ACF49A4B3   333740  libesp_http_client.a
 8A13CD4C72D171F886ED43947B56AB3BFDFA0A1F325BF31DAF7C804D15750A2F  4670746  libwpa_supplicant.a
 
-Exactly six archives.  Total 11 112 560 bytes (10.60 MiB).
+Exactly seven archives. Total 11 444 300 bytes (10.91 MiB).
 
 Configuration delta vs stock 3.3.11 / 5.5.5 (C0 -> C1)
 ------------------------------------------------------
@@ -106,11 +119,78 @@ esp-14.2.0_20260121.  Absolute build paths are embedded in DWARF debug info, so
 FU3's archive is not byte-comparable with C1's even where the code is identical;
 this was verified to be the only source of the whole-archive delta.
 
+Post-Stage-6 FU4.2 - PSRAM-first Wi-Fi/LwIP placement
+-----------------------------------------------------
+Reason: heavy network streams fragmented internal DRAM.  On the control build,
+station 5 (OGG/FLAC, 320 kbps) reached a heap.internal_largest minimum of
+7 156 B.  Candidate B held heap.internal_largest at 42 996 B across all seven
+matched points.
+
+Placement change:
+     CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP  y
+     CONFIG_SPIRAM_IGNORE_NOTFOUND         y
+     CONFIG_SPIRAM_BOOT_HW_INIT            y
+
+Fixed Wi-Fi values (placement only; no throughput tuning):
+     CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM   8
+     CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM 32
+     CONFIG_ESP_WIFI_RX_BA_WIN              8
+     CONFIG_ESP_WIFI_STATIC_TX_BUFFER        y
+     CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM    8
+
+Fixed FU3 LwIP values:
+     CONFIG_LWIP_TCP_WND_DEFAULT             32768
+     CONFIG_LWIP_TCP_RECVMBOX_SIZE               32
+     CONFIG_LWIP_TCPIP_RECVMBOX_SIZE             32
+     CONFIG_LWIP_TCP_SND_BUF_DEFAULT           8192
+     CONFIG_LWIP_MAX_ACTIVE_TCP                   64
+     CONFIG_LWIP_TCPIP_CORE_LOCKING                y
+     CONFIG_LWIP_TCPIP_CORE_LOCKING_INPUT          y
+
+Safety invariants:
+     CONFIG_LWIP_TCP_OOSEQ_MAX_PBUFS  4
+     CONFIG_LWIP_WND_SCALE             OFF
+     Wi-Fi TX-by-ref                    OFF
+
+Differential proof against the TRY=n baseline:
+  - liblwip.a: 1 of 93 members changed semantically: mem.c.obj.
+  - libesp_wifi.a: 2 of 10 members changed: esp_adapter.c.obj and
+    wifi_init.c.obj.
+  - wifi_netif.c.obj is BYTE-IDENTICAL to the TRY=n baseline;
+    esp_wifi_internal_tx is present and esp_wifi_internal_tx_by_ref is absent.
+  - tcp_in.c.obj, tcp.c.obj and tcp_out.c.obj are BYTE-IDENTICAL to the TRY=n
+    baseline, proving OOSEQ_MAX_PBUFS=4 and WND_SCALE=OFF were preserved.
+
+Reproducibility: the experimental Candidate B archives were hardware tested.
+The production rebuild started after freshly clearing build/ and sdkconfig,
+while preserving the already-resolved managed_components/ and dependencies.lock;
+the state was 36 managed components and dependencies.lock SHA256
+90F5CEF5A6F82F9D56BCED1AA46B3F51D94EB92D23FD4D5DFB7687FA4FA59ADA.
+It did not trigger another dependency solve (solving dependencies count = 0).
+The clean production rebuild reproduced the hardware-tested experimental
+archives byte-for-byte.  Both whole archives matched, and all 93 LwIP members
+and all 10 Wi-Fi members independently matched byte-for-byte.
+
+Hardware result:
+  - Station 32, HE-AAC v2 / 64 kbps:
+      average delta heap.free             +10 361 B
+      average delta heap.internal_largest +14 336 B
+  - Station 5, OGG/FLAC / 320 kbps:
+      average delta heap.free             +49 988 B
+      average delta heap.internal_largest +35 499 B
+  - Radio Paradise FLAC at approximately 1.442 Mbps plays.
+  - Roxy HTTPS/FLAC at approximately 1.0-1.08 Mbps establishes TLS and plays
+    repeatedly; AI HTTPS remains functional.
+  - No Guru, WDT or assert; repeated starts passed and production was accepted
+    by the user.
+
+Verdict: STRONG WIN.
+
 RESTART_IN_VSYNC policy - WITHDRAWN in s6.2
 -------------------------------------------
-CONFIG_LCD_RGB_RESTART_IN_VSYNC = y (stock).
+CONFIG_LCD_RGB_RESTART_IN_VSYNC=ON (stock).
 
-This pack used to carry a seventh archive, libesp_lcd.a
+The pre-FU4.2 C1/FU3 pack used to carry a seventh archive, libesp_lcd.a
 (B349B9F2969D4CF21ABEEA7971EC42E07C32EBB6B761679F6E429D5974F6DF62), rebuilt
 with the automatic per-VSYNC RGB panel restart DISABLED
 (esp_lcd/rgb/esp_lcd_panel_rgb.c:1153-1166), so that the Display layer could
@@ -126,6 +206,9 @@ now resolves to the stock ESP-IDF 5.5.5 build
 (B337CCC35D1DFD826CDCA1F9B0C8B1488ECB839CEC221806864B7C5555E8D803), which is
 RESTART_IN_VSYNC=ON.
 
+libesp_lcd.a is NOT in the overlay.  The stock ESP-IDF 5.5.5 libesp_lcd.a is
+used, with CONFIG_LCD_RGB_RESTART_IN_VSYNC=ON.
+
 The Display layer's bounded resync / Repair-E path is retained unchanged; it
 is now additive to the driver's own per-VSYNC restart rather than a
 replacement for it.
@@ -133,7 +216,7 @@ replacement for it.
 mbedTLS wrap requirement
 ------------------------
 libmbedtls_2.a in this pack REQUIRES these 12 GNU --wrap link options.  They
-are applied automatically by yoradio_build.py, and only when all six
+are applied automatically by yoradio_build.py, and only when all seven
 archives validate.  Linking this pack without them, or applying them without
 this pack, is not a supported configuration.
 
@@ -156,10 +239,10 @@ part of this pack's requirement.)
 How these archives are used
 ---------------------------
 They are NOT copied into the PlatformIO framework package.  yoradio_build.py
-prepends this directory to the linker search path, so the six -l names
+prepends this directory to the linker search path, so the seven -l names
 resolve here instead of in
   <platformio>/packages/framework-arduinoespressif32-libs/esp32s3/lib/
-which stays byte-unchanged.  Validation is atomic: 6/6 SHA256 matches enable
+which stays byte-unchanged.  Validation is atomic: 7/7 SHA256 matches enable
 the overlay and the 12 wraps together; anything less disables both and the
 build falls back to the complete stock library set with a warning.
 
