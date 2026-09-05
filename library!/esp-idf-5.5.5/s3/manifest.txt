@@ -48,7 +48,7 @@ Slice 3    IDF 5.5.5 differential library rebuild            ACCEPTED  (set C1)
 Slice 3A   dynamic-buffer wrap A/B preflight                 ACCEPTED
 Slice 3B   device A/B, P0 (wraps off) vs P1 (wraps on)       ACCEPTED — P1 SELECTED
 Slice 3C   auto local library overlay preflight              ACCEPTED
-Slice 4    production adoption + clean-install proof         this pack
+Slice 4    production adoption + clean-install proof         ACCEPTED (original pack)
 
 Archives — SHA256, size, filename
 ---------------------------------
@@ -190,7 +190,8 @@ RESTART_IN_VSYNC policy - WITHDRAWN in s6.2
 -------------------------------------------
 CONFIG_LCD_RGB_RESTART_IN_VSYNC=ON (stock).
 
-The pre-FU4.2 C1/FU3 pack used to carry a seventh archive, libesp_lcd.a
+An earlier C1-era overlay temporarily carried libesp_lcd.a as an additional
+project-local archive
 (B349B9F2969D4CF21ABEEA7971EC42E07C32EBB6B761679F6E429D5974F6DF62), rebuilt
 with the automatic per-VSYNC RGB panel restart DISABLED
 (esp_lcd/rgb/esp_lcd_panel_rgb.c:1153-1166), so that the Display layer could
