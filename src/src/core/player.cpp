@@ -234,8 +234,12 @@ void Player::loop() {
 
   if(xQueueReceive(playerQueue, &requestP, isRunning()?PL_QUEUE_TICKS:PL_QUEUE_TICKS_ST)){
     switch (requestP.type){
-      case PR_STOP: _stop(); break;
+      case PR_STOP:
+        cancelWebstreamReconnect("manual stop");
+        _stop();
+        break;
       case PR_PLAY: {
+        cancelWebstreamReconnect("station change");
         Serial.printf("🎵 [PLAYER] Received PR_PLAY command, payload: %d\n", requestP.payload);
         if (requestP.payload>0) {
           config.setLastStation((uint16_t)requestP.payload);
@@ -284,9 +288,9 @@ void Player::loop() {
 
   Audio::loop();
 #ifdef MEM_WATCHDOG_AUTOREBOOT
-  mwPollPlaybackRecovery(_status, isRunning());
+  mwPollPlaybackRecovery(_status, isRunning() && !isWebstreamReconnectPending());
 #endif
-  if(!isRunning() && _status==PLAYING) {
+  if(!isRunning() && !isWebstreamReconnectPending() && _status==PLAYING) {
 #ifdef MEM_WATCHDOG_AUTOREBOOT
     const AudioTerminalReason terminalReason = consumeTerminalReason();
     if (terminalReason == AudioTerminalReason::HEADER_RETRY_EXHAUSTED ||

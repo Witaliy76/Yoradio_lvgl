@@ -144,6 +144,17 @@ static StaticTask_t __attribute__((unused)) xAudioTaskBuffer;
 static StackType_t  __attribute__((unused)) xAudioStack[AUDIO_STACK_SIZE];
 //extern char audioI2SVers[];
 
+#ifndef YORADIO_AUDIO_TERMINAL_REASON_DEFINED
+#define YORADIO_AUDIO_TERMINAL_REASON_DEFINED
+// Shared Player contract; VS1053 has no internal webstream reconnect owner. /
+// Общий контракт Player; у VS1053 нет внутреннего владельца webstream reconnect.
+enum class AudioTerminalReason : uint8_t {
+    NONE = 0,
+    HEADER_RETRY_EXHAUSTED,
+    UNSTABLE_STREAM_EXHAUSTED
+};
+#endif
+
 class Audio{
 
     AudioBuffer InBuff; // instance of input buffer
@@ -423,6 +434,10 @@ public:
     void     computeVUlevel();
     bool     eofHeader;
     void     setDefaults(); 						// free buffers and set defaults
+    void     beginPlaybackSession() {}
+    AudioTerminalReason consumeTerminalReason() { return AudioTerminalReason::NONE; }
+    bool     isWebstreamReconnectPending() const { return false; }
+    void     cancelWebstreamReconnect(const char*) {}
 //    void     loadUserCode();
 
     bool openai_speech(const String& api_key, const String& model, const String& input, const String& instructions, const String& voice, const String& response_format, const String& speed);

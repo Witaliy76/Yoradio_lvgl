@@ -63,6 +63,15 @@ extern __attribute__((weak)) void audio_progress(uint32_t startpos, uint32_t end
 extern __attribute__((weak)) void audio_error(const char*);
 //----------------------------------------------------------------------------------------------------------------------
 
+class AudioNetworkClientSecure : public NetworkClientSecure {
+public:
+#if defined(YORADIO_IDF_C1_CONFIG) && YORADIO_IDF_C1_CONFIG
+    mbedtls_ssl_context* audioSslContext() {
+        return sslclient ? &sslclient->ssl_ctx : nullptr;
+    }
+#endif
+};
+
 class AudioBuffer {
 // AudioBuffer will be allocated in PSRAM
 //
@@ -127,12 +136,15 @@ protected:
 //----------------------------------------------------------------------------------------------------------------------
 
 
+#ifndef YORADIO_AUDIO_TERMINAL_REASON_DEFINED
+#define YORADIO_AUDIO_TERMINAL_REASON_DEFINED
 // E36REC1B: station-local terminal reasons — consumed once by Player / причины terminal stop
 enum class AudioTerminalReason : uint8_t {
     NONE = 0,
     HEADER_RETRY_EXHAUSTED,
     UNSTABLE_STREAM_EXHAUSTED
 };
+#endif
 
 class Audio{
 
@@ -199,6 +211,8 @@ class Audio{
     // E36REC1B: new user playback session — unstable-stream budget only / только счётчик unstable
     void           beginPlaybackSession();
     AudioTerminalReason consumeTerminalReason();
+    bool           isWebstreamReconnectPending() const { return m_f_webstreamReconnectPending; }
+    void           cancelWebstreamReconnect(const char* reason);
     uint32_t     inBufferFilled();            // returns the number of stored bytes in the inputbuffer
 //    uint32_t     inBufferFree();              // returns the number of free bytes in the inputbuffer
 //    uint32_t     getInBufferSize();           // returns the size of the inputbuffer in bytes
@@ -222,6 +236,7 @@ class Audio{
     int32_t      audioFileSeek(uint32_t position, size_t len = 0);
     void         initInBuff();
     bool         httpPrint(const char* host);
+    bool         tryBufferedWebstreamReconnect();
     bool         httpRange(uint32_t range, uint32_t length = UINT32_MAX);
     void         processLocalFile();
     void         processWebStream();
@@ -263,7 +278,7 @@ class Audio{
     bool         parseContentType(char* ct);
     bool         parseHttpResponseHeader();
     bool         parseHttpRangeHeader();
-    void         tlsPreconnectCleanup();
+    void         tlsPreconnectCleanup(bool preserveAacDecoder = false);
     bool         initializeDecoder(uint8_t codec);
     esp_err_t    I2Sstart();
     esp_err_t    I2Sstop();
@@ -298,10 +313,23 @@ class Audio{
     boolean      streamDetection(uint32_t bytesAvail);
     // E36REC1B: short-lived stream session tracking / сессия unstable-stream
     void         noteStreamAudioProgress();
-    bool         attemptInternalReconnect();
+    bool         attemptInternalReconnect(bool countTransportAttempt = false);
     void         finishUnstableStreamExhausted();
     void         resetStreamConnectionHealth();
     void         pollStreamStability();
+    void         clearBufferedReconnectPcmWatch();
+    void         pollBufferedReconnectPcmWatch();
+    bool         restartAacAfterBufferedReconnect(uint32_t pcmAgeMs, const char* reason = "pcm_stall");
+    void         resetAacOverlapDiagnostic(bool clearHistory);
+    void         rememberAacWebstreamPayload(const uint8_t* data, size_t len);
+    void         armAacOverlapDiagnostic();
+    void         startAacOverlapDiagnostic();
+    void         stageAacOverlapPayload(const uint8_t* data, size_t len);
+    size_t       filterAacOverlapPayload(uint8_t* data, size_t len);
+    void         pollAacOverlapDiagnostic();
+    void         reportAacOverlapDiagnostic(const char* reason);
+    void         scheduleWebstreamReconnect(bool clientConnected, uint32_t availableBytes);
+    void         pollWebstreamReconnect();
     uint32_t     m4a_correctResumeFilePos();
     uint32_t     ogg_correctResumeFilePos();
     int32_t      flac_correctResumeFilePos();
@@ -609,7 +637,7 @@ private:
 
     File                  m_audiofile;
     NetworkClient	      client;
-    NetworkClientSecure	  clientsecure;
+    AudioNetworkClientSecure clientsecure;
     NetworkClient*        m_client = nullptr;
 
     SemaphoreHandle_t     mutex_playAudioData;
@@ -788,15 +816,58 @@ private:
     audiolib::phrah_t m_phrah;
     audiolib::sdet_t m_sdet;
     // E36REC1B/C: session unstable-stream budget (not m_lVar.count) / счётчик сессии + latch соединения
-    static constexpr uint8_t  MAX_UNSTABLE_STREAM_FAILURES = 3;
+    static constexpr uint8_t  MAX_UNSTABLE_STREAM_FAILURES = 6;
     static constexpr uint32_t UNSTABLE_STREAM_STABLE_MS    = 15000;
     static constexpr uint32_t PCM_RECENT_MS                = 2000;
+    static constexpr uint32_t WEBSTREAM_RECONNECT_GRACE_MS = 250;
+    static constexpr uint32_t WEBSTREAM_RECONNECT_BACKOFF_MS = 500;
+    static constexpr uint32_t WEBSTREAM_STALL_RECONNECT_MS = 1000;
+    static constexpr uint32_t AAC_WEBSTREAM_PREBUFFER_BYTES = 32 * 1024;
+    static constexpr uint32_t BUFFERED_RECONNECT_HEADER_TIMEOUT_MS = 2000;
+    static constexpr uint32_t BUFFERED_RECONNECT_PCM_STALL_MS = 2500;
+    static constexpr uint32_t BUFFERED_RECONNECT_PCM_PROBATION_MS = 10000;
+    static constexpr uint16_t AAC_OVERLAP_SIGNATURE_BYTES = 1024;
+    static constexpr uint32_t AAC_OVERLAP_SCAN_LIMIT_BYTES = 192 * 1024;
+    static constexpr uint32_t AAC_OVERLAP_STAGING_BYTES = 192 * 1024;
+    static constexpr uint32_t AAC_OVERLAP_FALLBACK_RESTORE_BYTES = 96 * 1024;
+    static constexpr uint32_t AAC_OVERLAP_SCAN_LIMIT_MS = 10000;
     uint8_t  m_unstableStreamFailures     = 0;
+    uint8_t  m_preservedStreamCodec       = CODEC_NONE;
     bool     m_f_streamHadAudio             = false;
     bool     m_f_shortLivedCounted          = false;
     bool     m_f_streamConnectionStable     = false;
+    bool     m_f_disconnectSnapshotLogged   = false;
+    bool     m_f_webstreamReconnectPending  = false;
+    bool     m_f_preserveStreamReconnect    = false;
+    bool     m_f_bufferedReconnectPcmWatch   = false;
     uint32_t m_streamAudioStartedMs         = 0;
-    uint32_t m_streamLastAudioProgressMs    = 0;
+    std::atomic<uint32_t> m_streamLastAudioProgressMs{0};
+    uint32_t m_playbackSession               = 0;
+    uint32_t m_webstreamReconnectSession     = 0;
+    uint32_t m_webstreamReconnectNextMs      = 0;
+    uint32_t m_bufferedReconnectPcmSession    = 0;
+    uint32_t m_bufferedReconnectPcmStartedMs  = 0;
+    uint8_t  m_aacPayloadTail[AAC_OVERLAP_SIGNATURE_BYTES] = {};
+    uint8_t  m_aacOverlapSignature[AAC_OVERLAP_SIGNATURE_BYTES] = {};
+    uint16_t m_aacOverlapPrefix[AAC_OVERLAP_SIGNATURE_BYTES] = {};
+    ps_ptr<uint8_t> m_aacOverlapStaging;
+    uint16_t m_aacPayloadTailWrite            = 0;
+    uint16_t m_aacPayloadTailCount            = 0;
+    uint16_t m_aacOverlapMatched              = 0;
+    uint16_t m_aacOverlapMatchCount           = 0;
+    uint8_t  m_aacOverlapRetry                = 0;
+    bool     m_f_aacOverlapArmed              = false;
+    bool     m_f_aacOverlapActive             = false;
+    uint32_t m_aacOverlapSession              = 0;
+    uint32_t m_aacOverlapStartedMs            = 0;
+    uint32_t m_aacOverlapScanBytes            = 0;
+    uint32_t m_aacOverlapFirstEnd             = 0;
+    uint32_t m_aacOverlapLastEnd              = 0;
+    uint32_t m_aacOverlapOldInbuf             = 0;
+    uint32_t m_aacOverlapSignatureHash        = 0;
+    uint32_t m_aacOverlapStageWrite           = 0;
+    uint32_t m_aacOverlapStageCount           = 0;
+    uint32_t m_aacOverlapStageTotal           = 0;
     AudioTerminalReason m_terminalReason      = AudioTerminalReason::NONE;
     audiolib::fnsy_t m_fnsy;
 

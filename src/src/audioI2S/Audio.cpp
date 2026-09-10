@@ -30,6 +30,10 @@
 #include "opus_decoder/opus_decoder.h"
 #include "vorbis_decoder/vorbis_decoder.h"
 #include "psram_unique_ptr.hpp"
+#if defined(YORADIO_IDF_C1_CONFIG) && YORADIO_IDF_C1_CONFIG
+#include <esp_heap_caps.h>
+#include <mbedtls/esp_mbedtls_dynamic.h>
+#endif
 
 // constants
 constexpr size_t    m_frameSizeWav       = 4096;
@@ -46,6 +50,108 @@ constexpr size_t    AUDIO_STACK_SIZE     = 3300;
 // static allocations for Audio task
 StaticTask_t __attribute__((unused)) xAudioTaskBuffer;
 StackType_t  __attribute__((unused)) xAudioStack[AUDIO_STACK_SIZE];
+
+#if defined(YORADIO_IDF_C1_CONFIG) && YORADIO_IDF_C1_CONFIG
+namespace {
+struct AudioTlsDynamicBufferHeader {
+    uint32_t state;
+    uint32_t len;
+};
+
+struct AudioTlsHeapProbe {
+    const void* target;
+    size_t      size;
+    bool        found;
+};
+
+enum class AudioAacStaticRxResult : int8_t {
+    FAILED = -1,
+    SKIPPED = 0,
+    ENABLED = 1
+};
+
+constexpr uint32_t AUDIO_TLS_BUF_NO_CACHED = 1;
+constexpr uint32_t AUDIO_TLS_BUF_STATIC = 2;
+constexpr uint32_t AUDIO_TLS_CACHE_BYTES = 16;
+constexpr uint32_t AUDIO_TLS_STATIC_RX_ALLOC_BYTES = 17058;
+#if defined(CONFIG_HEAP_POISONING_LIGHT) || defined(CONFIG_HEAP_POISONING_COMPREHENSIVE)
+constexpr size_t AUDIO_HEAP_USER_POINTER_OFFSET = 8;
+#else
+constexpr size_t AUDIO_HEAP_USER_POINTER_OFFSET = 4;
+#endif
+static_assert(sizeof(AudioTlsDynamicBufferHeader) == 8, "ESP-IDF dynamic TLS buffer header ABI changed");
+
+bool findAudioTlsHeapBlock(walker_heap_into_t, walker_block_info_t block, void* userData) {
+    auto* probe = static_cast<AudioTlsHeapProbe*>(userData);
+    const auto* blockUserPtr = static_cast<const uint8_t*>(block.ptr) + AUDIO_HEAP_USER_POINTER_OFFSET;
+    if(block.used && blockUserPtr == probe->target) {
+        probe->size = block.size > AUDIO_HEAP_USER_POINTER_OFFSET
+            ? block.size - AUDIO_HEAP_USER_POINTER_OFFSET
+            : 0;
+        probe->found = true;
+        return false;
+    }
+    return true;
+}
+
+AudioAacStaticRxResult enableAudioAacStaticRx(AudioNetworkClientSecure& client) {
+    mbedtls_ssl_context* ssl = client.audioSslContext();
+    if(!ssl) {
+        Serial.println("[AUDIO.TLS] AAC static RX skipped unsafe_cache reason=no_context");
+        return AudioAacStaticRxResult::SKIPPED;
+    }
+
+    unsigned char* inBuf = ssl->MBEDTLS_PRIVATE(in_buf);
+    if(!inBuf) {
+        Serial.println("[AUDIO.TLS] AAC static RX skipped unsafe_cache reason=no_rx_buffer");
+        return AudioAacStaticRxResult::SKIPPED;
+    }
+
+    auto* headerPtr = reinterpret_cast<AudioTlsDynamicBufferHeader*>(
+        inBuf - sizeof(AudioTlsDynamicBufferHeader));
+    AudioTlsHeapProbe probe{headerPtr, 0, false};
+    heap_caps_walk(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT, findAudioTlsHeapBlock, &probe);
+    if(!probe.found || probe.size < sizeof(AudioTlsDynamicBufferHeader) + AUDIO_TLS_CACHE_BYTES) {
+        Serial.printf("[AUDIO.TLS] AAC static RX skipped unsafe_cache reason=unverified_block found=%u size=%lu heap_user_offset=%u\n",
+                      (unsigned)probe.found,
+                      (unsigned long)probe.size,
+                      (unsigned)AUDIO_HEAP_USER_POINTER_OFFSET);
+        return AudioAacStaticRxResult::SKIPPED;
+    }
+
+    AudioTlsDynamicBufferHeader header{};
+    memcpy(&header, headerPtr, sizeof(header));
+    if(header.state == AUDIO_TLS_BUF_STATIC) {
+        Serial.printf("[AUDIO.TLS] AAC static RX already enabled bytes=%lu\n",
+                      (unsigned long)header.len);
+        return AudioAacStaticRxResult::ENABLED;
+    }
+    if(header.state != AUDIO_TLS_BUF_NO_CACHED || header.len != AUDIO_TLS_CACHE_BYTES) {
+        Serial.printf("[AUDIO.TLS] AAC static RX skipped unsafe_cache reason=unexpected_header state=%lu len=%lu\n",
+                      (unsigned long)header.state,
+                      (unsigned long)header.len);
+        return AudioAacStaticRxResult::SKIPPED;
+    }
+
+    const esp_err_t err = esp_mbedtls_dynamic_set_rx_buf_static(ssl);
+    if(err != ESP_OK) {
+        Serial.printf("[AUDIO.TLS] AAC static RX failed err=%d alloc=%lu internal_free=%lu internal_largest=%lu\n",
+                      (int)err,
+                      (unsigned long)AUDIO_TLS_STATIC_RX_ALLOC_BYTES,
+                      (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                      (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+        return AudioAacStaticRxResult::FAILED;
+    }
+
+    Serial.printf("[AUDIO.TLS] AAC static RX enabled version=%s alloc=%lu internal_free=%lu internal_largest=%lu\n",
+                  mbedtls_ssl_get_version(ssl),
+                  (unsigned long)AUDIO_TLS_STATIC_RX_ALLOC_BYTES,
+                  (unsigned long)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+                  (unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    return AudioAacStaticRxResult::ENABLED;
+}
+}
+#endif
 
 template <typename... Args>
 void AUDIO_INFO(const char* fmt, Args&&... args) {
@@ -441,7 +547,7 @@ void Audio::setDefaults() {
     m_resampleCursor = 0.0f;
 }
 //****************************************************************************************
-void Audio::tlsPreconnectCleanup() {
+void Audio::tlsPreconnectCleanup(bool preserveAacDecoder) {
     // shrink_to_fit to reduce fragmentation before TLS connect
     if(m_playlistURL.size() > 1024) m_playlistURL.shrink_to_fit();
     if(m_playlistContent.size() > 1024) m_playlistContent.shrink_to_fit();
@@ -452,7 +558,13 @@ void Audio::tlsPreconnectCleanup() {
     if(m_linesWithEXTINF.size() > 1024) m_linesWithEXTINF.shrink_to_fit();
     MP3Decoder_FreeBuffers();
     FLACDecoder_FreeBuffers();
-    AACDecoder_FreeBuffers();
+    if(preserveAacDecoder) {
+        Serial.printf("[AUDIO.RETRY] TLS cleanup preserving AAC decoder inbuf=%lu\n",
+                      (unsigned long)InBuff.bufferFilled());
+    }
+    else {
+        AACDecoder_FreeBuffers();
+    }
     OPUSDecoder_FreeBuffers();
     VORBISDecoder_FreeBuffers();
     delay(15); // let memory settle after freeing
@@ -754,6 +866,19 @@ bool Audio::connecttohost(const char* host, const char* user, const char* pwd) {
     if(res) {
         uint32_t dt = millis() - timestamp;
         AUDIO_INFO("%s has been established in %lu ms", m_f_ssl ? "SSL" : "Connection", (long unsigned int)dt);
+    }
+#if defined(YORADIO_IDF_C1_CONFIG) && YORADIO_IDF_C1_CONFIG
+    if(res && m_f_ssl &&
+       (extension.ends_with_icase(".aac") || extension.ends_with_icase(".aacp"))) {
+        const AudioAacStaticRxResult staticRx = enableAudioAacStaticRx(clientsecure);
+        if(staticRx == AudioAacStaticRxResult::FAILED) {
+            clientsecure.stop();
+            res = false;
+        }
+    }
+#endif
+
+    if(res) {
         m_f_running = true;
         m_client->print(rqh.get());
         if(extension.ends_with_icase( ".mp3" ))      m_expectedCodec  = CODEC_MP3;
@@ -848,6 +973,9 @@ bool Audio::httpPrint(const char* host) {
     bool f_equal = true;
     if(hwoe.equals(cur_hwoe)){f_equal = true;}
     else{                     f_equal = false;}
+#if defined(YORADIO_IDF_C1_CONFIG) && YORADIO_IDF_C1_CONFIG
+    bool openedTlsNow = false;
+#endif
 
     rqh.assign("GET /");
     rqh.append(path.get());
@@ -870,7 +998,9 @@ bool Audio::httpPrint(const char* host) {
          else        { m_client = static_cast<NetworkClient*>(&client); }
         if(f_equal) AUDIO_INFO("The host has disconnected, reconnecting");
 
-        if(m_f_ssl) tlsPreconnectCleanup();
+        const bool preserveAacDecoder = m_f_preserveStreamReconnect &&
+                                        m_preservedStreamCodec == CODEC_AAC;
+        if(m_f_ssl) tlsPreconnectCleanup(preserveAacDecoder);
         IPAddress resolvedIP;
         if(!networkResolveHostForConnect(hwoe.get(), resolvedIP, m_f_ssl ? m_timeout_ms_ssl : m_timeout_ms) ||
            !m_client->connect(resolvedIP, port)) {
@@ -879,10 +1009,27 @@ bool Audio::httpPrint(const char* host) {
             memWatchdog.record(MWEvent::CONN_LOST);
             { auto d = memWatchdog.evaluate(); if (d.trigger) memWatchdog.armReboot(); }
 #endif
+            if(m_f_preserveStreamReconnect) return false;
+            stopSong();
+            return false;
+        }
+#if defined(YORADIO_IDF_C1_CONFIG) && YORADIO_IDF_C1_CONFIG
+        openedTlsNow = m_f_ssl;
+#endif
+    }
+#if defined(YORADIO_IDF_C1_CONFIG) && YORADIO_IDF_C1_CONFIG
+    if(openedTlsNow &&
+       (extension.ends_with_icase(".aac") || extension.ends_with_icase(".aacp"))) {
+        const AudioAacStaticRxResult staticRx = enableAudioAacStaticRx(clientsecure);
+        if(staticRx == AudioAacStaticRxResult::FAILED) {
+            clientsecure.stop();
+            AUDIO_ERROR("AAC static TLS RX allocation failed");
+            if(m_f_preserveStreamReconnect) return false;
             stopSong();
             return false;
         }
     }
+#endif
     m_currentHost.clone_from(c_host);
     m_client->print(rqh.get());
 
@@ -910,7 +1057,17 @@ bool Audio::httpPrint(const char* host) {
     m_audioFileSize = 0;
     m_dataMode = HTTP_RESPONSE_HEADER; // Handle header
     m_streamType = ST_WEBSTREAM;
+    m_f_metadata = false;
+    m_metaint = 0;
+    m_metacount = 0;
+    m_f_firstmetabyte = false;
     m_f_chunked = false;
+    m_chunkcount = 0;
+    m_pwst.chunkSize = 0;
+    m_pwst.readedBytes = 0;
+    m_rmet.pos_ml = 0;
+    m_rmet.metaDataSize = 0;
+    m_rmet.res = 0;
     /*AUDIO_LOG_DEBUG*/AUDIO_INFO("playlistFormat %s, dataMode %s, streamType: %s", plsFmtStr[m_playlistFormat], dataModeStr[m_dataMode], streamTypeStr[m_streamType]);
     return true;
 }
@@ -3057,6 +3214,10 @@ size_t Audio::process_m3u8_ID3_Header(uint8_t* packet) {
 }
 //****************************************************************************************
 uint32_t Audio::stopSong() {
+    clearBufferedReconnectPcmWatch();
+    resetAacOverlapDiagnostic(true);
+    m_f_preserveStreamReconnect = false;
+    m_preservedStreamCodec = CODEC_NONE;
     m_f_lockInBuffer = true; // wait for the decoding to finish
         uint8_t maxWait = 0;
         while(m_f_audioTaskIsDecoding) {vTaskDelay(1); maxWait++; if(maxWait > 100) break;} // in case of error wait max 100ms
@@ -3095,6 +3256,14 @@ uint32_t Audio::stopSong() {
 //****************************************************************************************
 // E36REC1B: unstable-stream session — Player-owned reset, Audio-owned budget / сессия unstable
 void Audio::beginPlaybackSession() {
+    m_playbackSession++;
+    if (!m_playbackSession) m_playbackSession = 1;
+    resetAacOverlapDiagnostic(true);
+    m_f_webstreamReconnectPending = false;
+    m_f_preserveStreamReconnect = false;
+    m_preservedStreamCodec = CODEC_NONE;
+    m_webstreamReconnectSession = 0;
+    m_webstreamReconnectNextMs = 0;
     m_unstableStreamFailures = 0;
     m_terminalReason = AudioTerminalReason::NONE;
     resetStreamConnectionHealth();
@@ -3107,12 +3276,14 @@ AudioTerminalReason Audio::consumeTerminalReason() {
 }
 
 void Audio::resetStreamConnectionHealth() {
+    clearBufferedReconnectPcmWatch();
     // E36REC1C: per physical connection only — not session unstable budget / только текущее соединение
     m_f_streamHadAudio = false;
     m_f_shortLivedCounted = false;
     m_f_streamConnectionStable = false;
+    m_f_disconnectSnapshotLogged = false;
     m_streamAudioStartedMs = 0;
-    m_streamLastAudioProgressMs = 0;
+    m_streamLastAudioProgressMs.store(0, std::memory_order_release);
 }
 
 void Audio::noteStreamAudioProgress() {
@@ -3122,12 +3293,38 @@ void Audio::noteStreamAudioProgress() {
         m_f_streamHadAudio = true;
         m_streamAudioStartedMs = now;
     }
-    m_streamLastAudioProgressMs = now;
+    m_streamLastAudioProgressMs.store(now, std::memory_order_release);
 }
 
-bool Audio::attemptInternalReconnect() {
+bool Audio::tryBufferedWebstreamReconnect() {
+    if (m_dataMode != AUDIO_DATA) return false;
+    if (m_streamType != ST_WEBSTREAM) return false;
+    // Only ADTS AAC has device evidence for decoder-preserving TLS reconnect.
+    // MP3 needs its own PCM watchdog; Ogg/FLAC codecs carry container/decoder state.
+    if (m_codec != CODEC_AAC) return false;
+    if (m_f_tts || m_f_allDataReceived) return false;
+    if (!m_lastHost.valid()) return false;
+    if (InBuff.bufferFilled() == 0) return false;
+    // Preserving the compressed tail is safe only when a byte-exact stitch
+    // signature was frozen at the old socket boundary.
+    if (!m_f_aacOverlapArmed) return false;
+
+    m_preservedStreamCodec = m_codec;
+    m_f_preserveStreamReconnect = true;
+    if (httpPrint(m_lastHost.get())) return true;
+
+    m_f_preserveStreamReconnect = false;
+    m_preservedStreamCodec = CODEC_NONE;
+    return false;
+}
+
+bool Audio::attemptInternalReconnect(bool countTransportAttempt) {
     // E36REC1C: classify outgoing connection before reset / классификация до сброса полей
-    if (m_f_streamHadAudio && !m_f_shortLivedCounted) {
+    if (countTransportAttempt) {
+        if (m_unstableStreamFailures >= MAX_UNSTABLE_STREAM_FAILURES) return false;
+        m_unstableStreamFailures++;
+    }
+    else if (m_f_streamHadAudio && !m_f_shortLivedCounted) {
         const uint32_t livedMs = millis() - m_streamAudioStartedMs;
         const bool effectivelyStable =
             m_f_streamConnectionStable ||
@@ -3149,7 +3346,10 @@ bool Audio::attemptInternalReconnect() {
 }
 
 void Audio::finishUnstableStreamExhausted() {
-    Serial.println("[AUDIO.RETRY] unstable exhausted");
+    m_f_webstreamReconnectPending = false;
+    m_webstreamReconnectSession = 0;
+    m_webstreamReconnectNextMs = 0;
+    Serial.println("[AUDIO.RETRY] reconnect exhausted -> terminal stop");
     m_terminalReason = AudioTerminalReason::UNSTABLE_STREAM_EXHAUSTED;
     m_unstableStreamFailures = 0;
     resetStreamConnectionHealth();
@@ -3157,13 +3357,605 @@ void Audio::finishUnstableStreamExhausted() {
 }
 
 void Audio::pollStreamStability() {
+    const uint32_t lastAudioProgressMs =
+        m_streamLastAudioProgressMs.load(std::memory_order_acquire);
+    // PCM from the preserved old tail does not prove that the replacement
+    // transport or its compressed-stream stitch is healthy.
+    if(m_f_aacOverlapActive || m_f_bufferedReconnectPcmWatch) return;
     if (!m_f_streamHadAudio || m_f_streamConnectionStable) return;
     const uint32_t now = millis();
     if ((now - m_streamAudioStartedMs) < UNSTABLE_STREAM_STABLE_MS) return;
-    if ((now - m_streamLastAudioProgressMs) > PCM_RECENT_MS) return;
+    if (!lastAudioProgressMs || (now - lastAudioProgressMs) > PCM_RECENT_MS) return;
     m_f_streamConnectionStable = true;
     m_unstableStreamFailures = 0;
     Serial.println("[AUDIO.RETRY] stream stable");
+}
+
+void Audio::clearBufferedReconnectPcmWatch() {
+    m_f_bufferedReconnectPcmWatch = false;
+    m_bufferedReconnectPcmSession = 0;
+    m_bufferedReconnectPcmStartedMs = 0;
+}
+
+void Audio::resetAacOverlapDiagnostic(bool clearHistory) {
+    m_f_aacOverlapArmed = false;
+    m_f_aacOverlapActive = false;
+    m_aacOverlapMatched = 0;
+    m_aacOverlapMatchCount = 0;
+    m_aacOverlapRetry = 0;
+    m_aacOverlapSession = 0;
+    m_aacOverlapStartedMs = 0;
+    m_aacOverlapScanBytes = 0;
+    m_aacOverlapFirstEnd = 0;
+    m_aacOverlapLastEnd = 0;
+    m_aacOverlapOldInbuf = 0;
+    m_aacOverlapSignatureHash = 0;
+    m_aacOverlapStageWrite = 0;
+    m_aacOverlapStageCount = 0;
+    m_aacOverlapStageTotal = 0;
+
+    if(clearHistory) {
+        m_aacPayloadTailWrite = 0;
+        m_aacPayloadTailCount = 0;
+        memset(m_aacPayloadTail, 0, sizeof(m_aacPayloadTail));
+        memset(m_aacOverlapSignature, 0, sizeof(m_aacOverlapSignature));
+        memset(m_aacOverlapPrefix, 0, sizeof(m_aacOverlapPrefix));
+    }
+}
+
+void Audio::rememberAacWebstreamPayload(const uint8_t* data, size_t len) {
+    if(!data || !len || m_codec != CODEC_AAC ||
+       m_streamType != ST_WEBSTREAM || m_playlistFormat == FORMAT_M3U8 || m_f_tts) return;
+
+    for(size_t i = 0; i < len; ++i) {
+        m_aacPayloadTail[m_aacPayloadTailWrite] = data[i];
+        m_aacPayloadTailWrite++;
+        if(m_aacPayloadTailWrite == AAC_OVERLAP_SIGNATURE_BYTES) m_aacPayloadTailWrite = 0;
+        if(m_aacPayloadTailCount < AAC_OVERLAP_SIGNATURE_BYTES) m_aacPayloadTailCount++;
+    }
+}
+
+void Audio::reportAacOverlapDiagnostic(const char* reason) {
+    if(!m_f_aacOverlapActive) return;
+
+    if(m_aacOverlapMatchCount == 0) {
+        Serial.printf("[AUDIO.DEDUP] diagnostic no_match session=%lu retry=%u/%u old_inbuf=%lu scanned=%lu staged=%lu stage_total=%lu overwritten=%lu signature=%u hash=%08lX reason=%s\n",
+                      (unsigned long)m_aacOverlapSession,
+                      (unsigned)m_aacOverlapRetry,
+                      (unsigned)MAX_UNSTABLE_STREAM_FAILURES,
+                      (unsigned long)m_aacOverlapOldInbuf,
+                      (unsigned long)m_aacOverlapScanBytes,
+                      (unsigned long)m_aacOverlapStageCount,
+                      (unsigned long)m_aacOverlapStageTotal,
+                      (unsigned long)(m_aacOverlapStageTotal - m_aacOverlapStageCount),
+                      (unsigned)AAC_OVERLAP_SIGNATURE_BYTES,
+                      (unsigned long)m_aacOverlapSignatureHash,
+                      reason ? reason : "bounded_limit");
+    }
+    else {
+        const uint32_t firstOffset = m_aacOverlapFirstEnd - AAC_OVERLAP_SIGNATURE_BYTES;
+        const uint32_t overlapMs = m_nominal_bitrate
+            ? static_cast<uint32_t>((static_cast<uint64_t>(m_aacOverlapFirstEnd) * 8000ULL) / m_nominal_bitrate)
+            : 0;
+        Serial.printf("[AUDIO.DEDUP] diagnostic %s session=%lu retry=%u/%u old_inbuf=%lu scanned=%lu matches=%u first_offset=%lu first_overlap=%lu last_overlap=%lu overlap_ms=%lu signature=%u hash=%08lX reason=%s\n",
+                      m_aacOverlapMatchCount == 1 ? "unique_within_window" : "ambiguous_within_window",
+                      (unsigned long)m_aacOverlapSession,
+                      (unsigned)m_aacOverlapRetry,
+                      (unsigned)MAX_UNSTABLE_STREAM_FAILURES,
+                      (unsigned long)m_aacOverlapOldInbuf,
+                      (unsigned long)m_aacOverlapScanBytes,
+                      (unsigned)m_aacOverlapMatchCount,
+                      (unsigned long)firstOffset,
+                      (unsigned long)m_aacOverlapFirstEnd,
+                      (unsigned long)m_aacOverlapLastEnd,
+                      (unsigned long)overlapMs,
+                      (unsigned)AAC_OVERLAP_SIGNATURE_BYTES,
+                      (unsigned long)m_aacOverlapSignatureHash,
+                      reason ? reason : "bounded_limit");
+    }
+    resetAacOverlapDiagnostic(false);
+}
+
+void Audio::armAacOverlapDiagnostic() {
+    if(m_f_aacOverlapActive) {
+        if(m_aacOverlapSession == m_playbackSession && m_f_running) {
+            // Keep the active matcher intact during the reconnect grace. A
+            // transient connected() recovery can continue the same search; a
+            // real replacement socket restarts it after its HTTP header.
+            Serial.printf("[AUDIO.DEDUP] search interrupted session=%lu retry=%u/%u scanned=%lu -> keep signature\n",
+                          (unsigned long)m_aacOverlapSession,
+                          (unsigned)m_aacOverlapRetry,
+                          (unsigned)MAX_UNSTABLE_STREAM_FAILURES,
+                          (unsigned long)m_aacOverlapScanBytes);
+            return;
+        }
+        resetAacOverlapDiagnostic(false);
+    }
+    else resetAacOverlapDiagnostic(false);
+
+    const uint32_t bufferedBytes = InBuff.bufferFilled();
+    const bool eligible = m_f_running && m_f_streamHadAudio &&
+                          m_codec == CODEC_AAC && m_streamType == ST_WEBSTREAM &&
+                          m_playlistFormat != FORMAT_M3U8 && !m_f_tts && !m_f_allDataReceived &&
+                          AACGetFormat() == 2 &&
+                          bufferedBytes >= AAC_OVERLAP_SIGNATURE_BYTES &&
+                          m_aacPayloadTailCount == AAC_OVERLAP_SIGNATURE_BYTES;
+    if(!eligible) return;
+
+    if(!m_aacOverlapStaging.valid() && psramFound()) {
+        m_aacOverlapStaging.alloc(AAC_OVERLAP_STAGING_BYTES, "aac_overlap_staging");
+        if(m_aacOverlapStaging.valid()) {
+            Serial.printf("[AUDIO.DEDUP] PSRAM staging ready bytes=%lu\n",
+                          (unsigned long)m_aacOverlapStaging.size());
+        }
+    }
+
+    // m_aacPayloadTailWrite points to the oldest byte once the rolling tail is full.
+    uint32_t signatureHash = 2166136261u; // FNV-1a, log correlation only; matching remains byte-exact.
+    for(uint16_t i = 0; i < AAC_OVERLAP_SIGNATURE_BYTES; ++i) {
+        const uint16_t tailPos = (m_aacPayloadTailWrite + i) % AAC_OVERLAP_SIGNATURE_BYTES;
+        const uint8_t value = m_aacPayloadTail[tailPos];
+        m_aacOverlapSignature[i] = value;
+        signatureHash ^= value;
+        signatureHash *= 16777619u;
+    }
+
+    // Prefix table lets one exact signature match continue across network and ICY metadata chunks.
+    m_aacOverlapPrefix[0] = 0;
+    uint16_t matched = 0;
+    for(uint16_t i = 1; i < AAC_OVERLAP_SIGNATURE_BYTES; ++i) {
+        while(matched && m_aacOverlapSignature[i] != m_aacOverlapSignature[matched]) {
+            matched = m_aacOverlapPrefix[matched - 1];
+        }
+        if(m_aacOverlapSignature[i] == m_aacOverlapSignature[matched]) matched++;
+        m_aacOverlapPrefix[i] = matched;
+    }
+
+    m_f_aacOverlapArmed = true;
+    m_aacOverlapSession = m_playbackSession;
+    m_aacOverlapOldInbuf = bufferedBytes;
+    m_aacOverlapSignatureHash = signatureHash;
+}
+
+void Audio::startAacOverlapDiagnostic() {
+    if(!m_f_aacOverlapArmed) return;
+    if(m_aacOverlapSession != m_playbackSession || !m_f_running ||
+       m_codec != CODEC_AAC || m_streamType != ST_WEBSTREAM) {
+        resetAacOverlapDiagnostic(false);
+        return;
+    }
+
+    m_f_aacOverlapActive = true;
+    m_aacOverlapMatched = 0;
+    m_aacOverlapMatchCount = 0;
+    m_aacOverlapRetry = m_unstableStreamFailures;
+    m_aacOverlapStartedMs = millis();
+    m_aacOverlapScanBytes = 0;
+    m_aacOverlapFirstEnd = 0;
+    m_aacOverlapLastEnd = 0;
+    m_aacOverlapStageWrite = 0;
+    m_aacOverlapStageCount = 0;
+    m_aacOverlapStageTotal = 0;
+
+    // The frozen signature belongs to the old transport. Start the rolling tail
+    // afresh so a short-lived new connection cannot create a signature spanning
+    // the old/new socket boundary on the following reconnect.
+    m_aacPayloadTailWrite = 0;
+    m_aacPayloadTailCount = 0;
+}
+
+void Audio::stageAacOverlapPayload(const uint8_t* data, size_t len) {
+    if(!data || !len || !m_aacOverlapStaging.valid()) return;
+
+    const uint32_t capacity = static_cast<uint32_t>(m_aacOverlapStaging.size());
+    if(!capacity) return;
+
+    const size_t originalLen = len;
+    while(len) {
+        const size_t chunk = min(len, static_cast<size_t>(capacity - m_aacOverlapStageWrite));
+        memcpy(m_aacOverlapStaging.get() + m_aacOverlapStageWrite, data, chunk);
+        m_aacOverlapStageWrite = (m_aacOverlapStageWrite + chunk) % capacity;
+        m_aacOverlapStageCount = min(capacity, m_aacOverlapStageCount + static_cast<uint32_t>(chunk));
+        data += chunk;
+        len -= chunk;
+    }
+    m_aacOverlapStageTotal = originalLen > UINT32_MAX - m_aacOverlapStageTotal
+        ? UINT32_MAX
+        : m_aacOverlapStageTotal + static_cast<uint32_t>(originalLen);
+}
+
+size_t Audio::filterAacOverlapPayload(uint8_t* data, size_t len) {
+    if(!data || !len) return 0;
+    if(!m_f_aacOverlapActive) return len;
+    if(m_aacOverlapSession != m_playbackSession) {
+        resetAacOverlapDiagnostic(false);
+        return len;
+    }
+    // Keep the newest bounded, protocol-stripped payload even after the KMP
+    // search window closes. A no-match AAC restart can then continue from the
+    // current socket position instead of waiting for the same bytes again.
+    stageAacOverlapPayload(data, len);
+    if(m_aacOverlapScanBytes >= AAC_OVERLAP_SCAN_LIMIT_BYTES ||
+       (millis() - m_aacOverlapStartedMs) >= AAC_OVERLAP_SCAN_LIMIT_MS) {
+        // A bounded no-match decision has already been reached. Keep draining
+        // the socket without publishing an unproven splice while the playable
+        // old tail runs down; the PCM-stale gate performs the clean fallback.
+        return 0;
+    }
+
+    for(size_t i = 0; i < len; ++i) {
+        const uint8_t value = data[i];
+        while(m_aacOverlapMatched && value != m_aacOverlapSignature[m_aacOverlapMatched]) {
+            m_aacOverlapMatched = m_aacOverlapPrefix[m_aacOverlapMatched - 1];
+        }
+        if(value == m_aacOverlapSignature[m_aacOverlapMatched]) m_aacOverlapMatched++;
+        m_aacOverlapScanBytes++;
+
+        if(m_aacOverlapMatched == AAC_OVERLAP_SIGNATURE_BYTES) {
+            m_aacOverlapMatchCount = 1;
+            m_aacOverlapFirstEnd = m_aacOverlapScanBytes;
+            m_aacOverlapLastEnd = m_aacOverlapScanBytes;
+
+            const size_t dropFromChunk = i + 1;
+            const size_t bytesToPublish = len - dropFromChunk;
+            const uint32_t overlapMs = m_nominal_bitrate
+                ? static_cast<uint32_t>((static_cast<uint64_t>(m_aacOverlapScanBytes) * 8000ULL) / m_nominal_bitrate)
+                : 0;
+
+            Serial.printf("[AUDIO.DEDUP] applied exact_match session=%lu retry=%u/%u old_inbuf=%lu dropped=%lu overlap_ms=%lu signature=%u hash=%08lX kept=%lu\n",
+                          (unsigned long)m_aacOverlapSession,
+                          (unsigned)m_aacOverlapRetry,
+                          (unsigned)MAX_UNSTABLE_STREAM_FAILURES,
+                          (unsigned long)m_aacOverlapOldInbuf,
+                          (unsigned long)m_aacOverlapScanBytes,
+                          (unsigned long)overlapMs,
+                          (unsigned)AAC_OVERLAP_SIGNATURE_BYTES,
+                          (unsigned long)m_aacOverlapSignatureHash,
+                          (unsigned long)bytesToPublish);
+
+            // The exact match proves that the frozen old suffix and the new
+            // transport are byte-contiguous. Seed the rolling tail with that
+            // suffix, then remember only bytes after the stitch point.
+            memcpy(m_aacPayloadTail, m_aacOverlapSignature, AAC_OVERLAP_SIGNATURE_BYTES);
+            m_aacPayloadTailWrite = 0;
+            m_aacPayloadTailCount = AAC_OVERLAP_SIGNATURE_BYTES;
+            resetAacOverlapDiagnostic(false);
+            if(m_f_bufferedReconnectPcmWatch &&
+               m_bufferedReconnectPcmSession == m_playbackSession) {
+                // Give the decoder a full probation window after the actual
+                // compressed-stream stitch, not merely after TLS/header success.
+                const uint32_t stitchMs = millis();
+                m_bufferedReconnectPcmStartedMs = stitchMs;
+                // The normal stable interval is measured from the proven
+                // transport stitch; PCM produced before it belongs to old data.
+                m_streamAudioStartedMs = stitchMs;
+                m_f_streamConnectionStable = false;
+            }
+
+            if(bytesToPublish) memmove(data, data + dropFromChunk, bytesToPublish);
+            return bytesToPublish;
+        }
+
+        if(m_aacOverlapScanBytes >= AAC_OVERLAP_SCAN_LIMIT_BYTES) {
+            // The already-read remainder of this network block is intentionally
+            // withheld too. pollAacOverlapDiagnostic() performs the clean AAC
+            // fallback before any unmatched fresh payload reaches the decoder.
+            return 0;
+        }
+    }
+
+    // Until the old suffix is found, the fresh burst is consumed from the
+    // socket but not published to InBuff. The preserved old buffer keeps playing.
+    return 0;
+}
+
+void Audio::pollAacOverlapDiagnostic() {
+    if(!m_f_aacOverlapActive) return;
+    if(m_aacOverlapSession != m_playbackSession || !m_f_running) {
+        resetAacOverlapDiagnostic(false);
+        return;
+    }
+    const char* reason = nullptr;
+    if(m_aacOverlapScanBytes >= AAC_OVERLAP_SCAN_LIMIT_BYTES) reason = "scan_limit";
+    else if((millis() - m_aacOverlapStartedMs) >= AAC_OVERLAP_SCAN_LIMIT_MS) reason = "timeout";
+    if(!reason) return;
+
+    const uint32_t lastAudioProgressMs =
+        m_streamLastAudioProgressMs.load(std::memory_order_acquire);
+    const uint32_t now = millis();
+    const uint32_t pcmAgeMs = lastAudioProgressMs
+        ? now - lastAudioProgressMs
+        : now - m_aacOverlapStartedMs;
+    if(pcmAgeMs < BUFFERED_RECONNECT_PCM_STALL_MS) return;
+    restartAacAfterBufferedReconnect(pcmAgeMs, reason);
+}
+
+bool Audio::restartAacAfterBufferedReconnect(uint32_t pcmAgeMs, const char* reason) {
+    const uint32_t requestedSession = m_playbackSession;
+    if(xSemaphoreTake(mutex_audioTask, 0.3 * configTICK_RATE_HZ) != pdTRUE) return false;
+
+    if(!m_f_running || m_playbackSession != requestedSession ||
+       m_dataMode != AUDIO_DATA || m_streamType != ST_WEBSTREAM || m_codec != CODEC_AAC) {
+        xSemaphoreGive(mutex_audioTask);
+        return false;
+    }
+
+    // The audio task updates this timestamp while holding mutex_audioTask.
+    // Re-check it under the same mutex so PCM resuming between the poll and
+    // this destructive fallback cannot reset a healthy decoder.
+    const uint32_t lastAudioProgressMs =
+        m_streamLastAudioProgressMs.load(std::memory_order_acquire);
+    const uint32_t fallbackStartedMs = m_bufferedReconnectPcmStartedMs
+        ? m_bufferedReconnectPcmStartedMs
+        : m_aacOverlapStartedMs;
+    const uint32_t now = millis();
+    const uint32_t confirmedPcmAgeMs = lastAudioProgressMs
+        ? now - lastAudioProgressMs
+        : now - fallbackStartedMs;
+    if(confirmedPcmAgeMs < BUFFERED_RECONNECT_PCM_STALL_MS) {
+        xSemaphoreGive(mutex_audioTask);
+        return false;
+    }
+    pcmAgeMs = confirmedPcmAgeMs;
+
+    const uint32_t stagedWrite = m_aacOverlapStageWrite;
+    const uint32_t stagedCount = m_aacOverlapStageCount;
+    const uint32_t stagedTotal = m_aacOverlapStageTotal;
+    if(m_f_aacOverlapActive) reportAacOverlapDiagnostic(reason ? reason : "clean_fallback");
+    resetAacOverlapDiagnostic(true);
+
+    const uint32_t session = m_playbackSession;
+    const uint32_t droppedBytes = InBuff.bufferFilled();
+    const uint8_t retry = m_unstableStreamFailures;
+
+    // The old and new live AAC byte streams are not guaranteed to meet on an ADTS frame boundary.
+    // Старый и новый live AAC-потоки не обязаны стыковаться на границе ADTS-кадра.
+    clearBufferedReconnectPcmWatch();
+    m_f_lockInBuffer = true;
+    InBuff.resetBuffer();
+    AACDecoder_FreeBuffers();
+    m_validSamples = 0;
+    m_f_playing = false;
+    m_f_decode_ready = false;
+    m_f_firstPlayCall = true;
+    m_f_stream = false;
+    m_f_eof = false;
+    m_f_allDataReceived = false;
+    m_bytesNotConsumed = 0;
+    m_fnsy.nextSync = 0;
+    m_fnsy.swnf = 0;
+
+    const bool decoderReady = AACDecoder_AllocateBuffers();
+    size_t restoredBytes = 0;
+    if(decoderReady) {
+        InBuff.changeMaxBlockSize(m_frameSizeAAC);
+
+        const uint32_t stageCapacity = m_aacOverlapStaging.valid()
+            ? static_cast<uint32_t>(m_aacOverlapStaging.size())
+            : 0;
+        size_t remaining = min(static_cast<size_t>(stagedCount),
+                               static_cast<size_t>(AAC_OVERLAP_FALLBACK_RESTORE_BYTES));
+        remaining = min(remaining, InBuff.freeSpace());
+        uint32_t stagePos = stageCapacity
+            ? (stagedWrite + stageCapacity - static_cast<uint32_t>(remaining)) % stageCapacity
+            : 0;
+
+        while(stageCapacity && remaining) {
+            const size_t stageChunk = min(remaining, static_cast<size_t>(stageCapacity - stagePos));
+            const size_t copyBytes = min(stageChunk, InBuff.writeSpace());
+            if(!copyBytes) break;
+            memcpy(InBuff.getWritePtr(), m_aacOverlapStaging.get() + stagePos, copyBytes);
+            InBuff.bytesWritten(copyBytes);
+            restoredBytes += copyBytes;
+            remaining -= copyBytes;
+            stagePos = (stagePos + copyBytes) % stageCapacity;
+        }
+
+        // resetAacOverlapDiagnostic(true) cleared the previous transport tail.
+        // Re-seed it from only the restored live payload suffix.
+        const size_t historyBytes = min(restoredBytes, static_cast<size_t>(AAC_OVERLAP_SIGNATURE_BYTES));
+        if(stageCapacity && historyBytes) {
+            uint32_t historyPos =
+                (stagedWrite + stageCapacity - static_cast<uint32_t>(historyBytes)) % stageCapacity;
+            const size_t firstPart = min(historyBytes, static_cast<size_t>(stageCapacity - historyPos));
+            rememberAacWebstreamPayload(m_aacOverlapStaging.get() + historyPos, firstPart);
+            if(firstPart < historyBytes) {
+                rememberAacWebstreamPayload(m_aacOverlapStaging.get(), historyBytes - firstPart);
+            }
+        }
+
+    }
+    m_f_lockInBuffer = false;
+    xSemaphoreGive(mutex_audioTask);
+
+    if(!decoderReady) {
+        AUDIO_ERROR("The AACDecoder could not be reinitialized after buffered reconnect");
+        stopSong();
+        return true;
+    }
+
+    // Keep the same playback session and retry count; only the unsafe compressed splice is discarded.
+    // Сессия и retry-счётчик сохраняются; удаляется только небезопасный стык сжатых данных.
+    resetStreamConnectionHealth();
+    Serial.printf("[AUDIO.RETRY] buffered reconnect clean fallback reason=%s session=%lu retry=%u/%u pcm_age_ms=%lu dropped=%lu stage_total=%lu staged=%lu restored=%lu -> AAC restart prebuffer=%lu\n",
+                  reason ? reason : "pcm_stall",
+                  (unsigned long)session,
+                  (unsigned)retry,
+                  (unsigned)MAX_UNSTABLE_STREAM_FAILURES,
+                  (unsigned long)pcmAgeMs,
+                  (unsigned long)droppedBytes,
+                  (unsigned long)stagedTotal,
+                  (unsigned long)stagedCount,
+                  (unsigned long)restoredBytes,
+                  (unsigned long)AAC_WEBSTREAM_PREBUFFER_BYTES);
+    return true;
+}
+
+void Audio::pollBufferedReconnectPcmWatch() {
+    if(!m_f_bufferedReconnectPcmWatch) return;
+    if(m_bufferedReconnectPcmSession != m_playbackSession ||
+       !m_f_running || m_dataMode != AUDIO_DATA ||
+       m_streamType != ST_WEBSTREAM || m_codec != CODEC_AAC) {
+        clearBufferedReconnectPcmWatch();
+        return;
+    }
+
+    const uint32_t lastAudioProgressMs =
+        m_streamLastAudioProgressMs.load(std::memory_order_acquire);
+    const uint32_t now = millis();
+    const uint32_t pcmAgeMs = lastAudioProgressMs
+        ? now - lastAudioProgressMs
+        : now - m_bufferedReconnectPcmStartedMs;
+
+    if(pcmAgeMs >= BUFFERED_RECONNECT_PCM_STALL_MS) {
+        restartAacAfterBufferedReconnect(pcmAgeMs);
+        return;
+    }
+
+    // PCM heard while the exact-match search is still withholding fresh bytes
+    // belongs to the preserved old tail and cannot verify the new splice yet.
+    if(m_f_aacOverlapActive) return;
+
+    // Stay on probation long enough for the preserved compressed tail to drain into the new stream.
+    // Пробное окно должно пережить остаток старого сжатого буфера и дойти до нового потока.
+    if((now - m_bufferedReconnectPcmStartedMs) >= BUFFERED_RECONNECT_PCM_PROBATION_MS) {
+        Serial.printf("[AUDIO.RETRY] buffered reconnect PCM verified session=%lu\n",
+                      (unsigned long)m_playbackSession);
+        clearBufferedReconnectPcmWatch();
+    }
+}
+
+void Audio::cancelWebstreamReconnect(const char* reason) {
+    if (!m_f_webstreamReconnectPending) return;
+    Serial.printf("[AUDIO.RETRY] reconnect cancelled: %s session=%lu retry=%u/%u\n",
+                  reason ? reason : "new playback session",
+                  (unsigned long)m_webstreamReconnectSession,
+                  (unsigned)m_unstableStreamFailures,
+                  (unsigned)MAX_UNSTABLE_STREAM_FAILURES);
+    m_f_webstreamReconnectPending = false;
+    m_f_preserveStreamReconnect = false;
+    m_preservedStreamCodec = CODEC_NONE;
+    resetAacOverlapDiagnostic(false);
+    m_webstreamReconnectSession = 0;
+    m_webstreamReconnectNextMs = 0;
+}
+
+void Audio::scheduleWebstreamReconnect(bool clientConnected, uint32_t availableBytes) {
+    if (!m_f_disconnectSnapshotLogged) {
+        m_f_disconnectSnapshotLogged = true;
+        const uint32_t lastAudioProgressMs =
+            m_streamLastAudioProgressMs.load(std::memory_order_acquire);
+        const uint32_t now = millis();
+        const int32_t pcmAgeMs = lastAudioProgressMs
+            ? static_cast<int32_t>(now - lastAudioProgressMs)
+            : -1;
+        Serial.printf("[AUDIO.RETRY] disconnect detected session=%lu\n",
+                      (unsigned long)m_playbackSession);
+        Serial.printf(
+            "[AUDIO.RETRY] snapshot client.connected=%u client.available=%lu inbuf=%lu data_mode=%s(%u) stream_type=%s(%u) codec=%s(%u) stream=%u metadata=%u metacount=%lu chunked=%u all_received=%u tts=%u session=%lu retry=%u/%u pcm_age_ms=%ld\n",
+            (unsigned)clientConnected,
+            (unsigned long)availableBytes,
+            (unsigned long)InBuff.bufferFilled(),
+            dataModeStr[m_dataMode], (unsigned)m_dataMode,
+            streamTypeStr[m_streamType], (unsigned)m_streamType,
+            codecname[m_codec], (unsigned)m_codec,
+            (unsigned)m_f_stream,
+            (unsigned)m_f_metadata,
+            (unsigned long)m_metacount,
+            (unsigned)m_f_chunked,
+            (unsigned)m_f_allDataReceived,
+            (unsigned)m_f_tts,
+            (unsigned long)m_playbackSession,
+            (unsigned)m_unstableStreamFailures,
+            (unsigned)MAX_UNSTABLE_STREAM_FAILURES,
+            (long)pcmAgeMs);
+    }
+
+    if (availableBytes || m_f_webstreamReconnectPending) return;
+
+    // Give Player one non-blocking queue turn before cleanup/connect. /
+    // Даём Player один неблокирующий проход очереди до cleanup/connect.
+    armAacOverlapDiagnostic();
+    m_f_webstreamReconnectPending = true;
+    m_webstreamReconnectSession = m_playbackSession;
+    m_webstreamReconnectNextMs = millis() + WEBSTREAM_RECONNECT_GRACE_MS;
+}
+
+void Audio::pollWebstreamReconnect() {
+    if (!m_f_webstreamReconnectPending) return;
+    if (m_webstreamReconnectSession != m_playbackSession) {
+        cancelWebstreamReconnect("stale session");
+        return;
+    }
+    if (static_cast<int32_t>(millis() - m_webstreamReconnectNextMs) < 0) return;
+
+    if (m_client->connected()) {
+        m_f_webstreamReconnectPending = false;
+        m_webstreamReconnectSession = 0;
+        m_webstreamReconnectNextMs = 0;
+        m_f_disconnectSnapshotLogged = false;
+        if(m_f_aacOverlapActive) {
+            Serial.printf("[AUDIO.DEDUP] search resumed after transient disconnect session=%lu scanned=%lu\n",
+                          (unsigned long)m_playbackSession,
+                          (unsigned long)m_aacOverlapScanBytes);
+        }
+        else resetAacOverlapDiagnostic(false);
+        Serial.printf("[AUDIO.RETRY] disconnect cleared before reconnect session=%lu\n",
+                      (unsigned long)m_playbackSession);
+        return;
+    }
+
+    if (!attemptInternalReconnect(true)) {
+        finishUnstableStreamExhausted();
+        return;
+    }
+
+    const uint8_t attempt = m_unstableStreamFailures;
+    const uint32_t session = m_webstreamReconnectSession;
+    Serial.printf("[AUDIO.RETRY] reconnect attempt %u/%u session=%lu\n",
+                  (unsigned)attempt,
+                  (unsigned)MAX_UNSTABLE_STREAM_FAILURES,
+                  (unsigned long)session);
+
+    const uint32_t bufferedBytes = InBuff.bufferFilled();
+    if (bufferedBytes > 0 && tryBufferedWebstreamReconnect()) {
+        m_f_webstreamReconnectPending = false;
+        m_webstreamReconnectSession = 0;
+        m_webstreamReconnectNextMs = 0;
+        Serial.printf("[AUDIO.RETRY] buffered reconnect transport ready %u/%u session=%lu inbuf=%lu\n",
+                      (unsigned)attempt,
+                      (unsigned)MAX_UNSTABLE_STREAM_FAILURES,
+                      (unsigned long)session,
+                      (unsigned long)bufferedBytes);
+        return;
+    }
+
+    m_f_preserveStreamReconnect = false;
+
+    // connecttohost() remains the fallback cleanup/TLS/header-init funnel when the buffer cannot bridge.
+    if (connecttohost(m_lastHost.get())) {
+        m_f_webstreamReconnectPending = false;
+        m_webstreamReconnectSession = 0;
+        m_webstreamReconnectNextMs = 0;
+        Serial.printf("[AUDIO.RETRY] reconnect succeeded %u/%u session=%lu\n",
+                      (unsigned)attempt,
+                      (unsigned)MAX_UNSTABLE_STREAM_FAILURES,
+                      (unsigned long)session);
+        return;
+    }
+
+    Serial.printf("[AUDIO.RETRY] reconnect failed %u/%u session=%lu\n",
+                  (unsigned)attempt,
+                  (unsigned)MAX_UNSTABLE_STREAM_FAILURES,
+                  (unsigned long)session);
+    if (attempt >= MAX_UNSTABLE_STREAM_FAILURES) {
+        finishUnstableStreamExhausted();
+        return;
+    }
+
+    m_f_webstreamReconnectPending = true;
+    m_webstreamReconnectSession = session;
+    m_webstreamReconnectNextMs = millis() + WEBSTREAM_RECONNECT_BACKOFF_MS;
 }
 //****************************************************************************************
 bool Audio::pauseResume() {
@@ -3372,8 +4164,14 @@ exit:
 }
 //****************************************************************************************
 void Audio::loop() {
+    if(m_f_webstreamReconnectPending) {
+        pollWebstreamReconnect();
+        return;
+    }
     if(!m_f_running) return;
 
+    if(m_dataMode == AUDIO_DATA) pollAacOverlapDiagnostic();
+    if(m_dataMode == AUDIO_DATA) pollBufferedReconnectPcmWatch();
     if(m_dataMode == AUDIO_DATA) pollStreamStability();
 
     if(m_playlistFormat != FORMAT_M3U8) { // normal process
@@ -4057,13 +4855,12 @@ void Audio::processWebStream() {
     uint16_t readedBytes = 0;
 
     m_pwst.maxFrameSize = InBuff.getMaxBlockSize(); // every mp3/aac frame is not bigger
-    m_pwst.availableBytes = 0; // available from stream
     m_pwst.f_clientIsConnected = m_client->connected();
+    m_pwst.availableBytes = m_client->available(); // buffered bytes can remain after peer close
 
-    if(!m_pwst.f_clientIsConnected && !m_f_tts) {
-        AUDIO_INFO("webstream disconnected -> stop running");
-        m_f_running = false;
-        return;
+    if(!m_pwst.f_clientIsConnected && !m_f_tts && !m_f_allDataReceived) {
+        scheduleWebstreamReconnect(m_pwst.f_clientIsConnected, m_pwst.availableBytes);
+        if(!m_pwst.availableBytes) return;
     }
 
     // first call, set some values to default  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -4076,9 +4873,9 @@ void Audio::processWebStream() {
         readMetadata(0, &readedBytes, true);
         getChunkSize(0, true);
         m_audioFilePosition = 0;
+        m_sdet.tmr_lost = millis() + WEBSTREAM_STALL_RECONNECT_MS;
+        m_sdet.cnt_lost = 0;
     }
-    if(m_pwst.f_clientIsConnected) m_pwst.availableBytes = m_client->available(); // available from stream
-
     // chunked data tramsfer
     if(m_f_chunked && m_pwst.availableBytes){
         if(m_pwst.chunkSize == 0) {
@@ -4113,16 +4910,36 @@ void Audio::processWebStream() {
     // buffer fill routine - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     if(m_pwst.availableBytes) {
         m_pwst.availableBytes = min(m_pwst.availableBytes, (uint32_t)InBuff.writeSpace());
-        int32_t bytesAddedToBuffer = audioFileRead(InBuff.getWritePtr(), min(m_pwst.availableBytes, UINT16_MAX));
-        if(bytesAddedToBuffer > 0) {
-            if(m_f_metadata) m_metacount -= bytesAddedToBuffer;
-            if(m_f_chunked) m_pwst.chunkSize -= bytesAddedToBuffer;
-            InBuff.bytesWritten(bytesAddedToBuffer);
+        uint8_t* payloadWritePtr = InBuff.getWritePtr();
+        uint32_t payloadReadLimit = min(m_pwst.availableBytes, (uint32_t)UINT16_MAX);
+        if(m_f_aacOverlapActive && m_aacOverlapScanBytes < AAC_OVERLAP_SCAN_LIMIT_BYTES) {
+            payloadReadLimit = min(payloadReadLimit, AAC_OVERLAP_SCAN_LIMIT_BYTES - m_aacOverlapScanBytes);
+        }
+        int32_t bytesReadFromSocket = audioFileRead(payloadWritePtr, payloadReadLimit);
+        if(bytesReadFromSocket > 0) {
+            // ICY metadata and HTTP chunk framing have already been consumed.
+            // Protocol accounting follows every socket byte, while only the
+            // proven non-duplicate suffix is published to the decoder buffer.
+            if(m_f_metadata) m_metacount -= bytesReadFromSocket;
+            if(m_f_chunked) m_pwst.chunkSize -= bytesReadFromSocket;
+
+            const size_t bytesToBuffer = filterAacOverlapPayload(payloadWritePtr, bytesReadFromSocket);
+            if(bytesToBuffer) {
+                rememberAacWebstreamPayload(payloadWritePtr, bytesToBuffer);
+                InBuff.bytesWritten(bytesToBuffer);
+            }
         }
     }
 
     // start audio decoding - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-    if(InBuff.bufferFilled() > m_pwst.maxFrameSize && !m_f_stream) { // waiting for buffer filled
+    uint32_t streamStartThreshold = m_pwst.maxFrameSize;
+    if(m_codec == CODEC_AAC && !m_f_tts) streamStartThreshold = max(streamStartThreshold, AAC_WEBSTREAM_PREBUFFER_BYTES);
+    if(InBuff.bufferFilled() >= streamStartThreshold && !m_f_stream) { // waiting for buffer filled
+        if(m_codec == CODEC_AAC && !m_f_tts) {
+            Serial.printf("[AUDIO.BUFFER] AAC prebuffer ready bytes=%lu target=%lu\n",
+                          (unsigned long)InBuff.bufferFilled(),
+                          (unsigned long)AAC_WEBSTREAM_PREBUFFER_BYTES);
+        }
         if(m_codec == CODEC_OGG) { // AUDIO_INFO("determine correct codec here");
             uint8_t codec = determineOggCodec(InBuff.getReadPtr(), m_pwst.maxFrameSize);
             if(codec == CODEC_FLAC) {initializeDecoder(codec); m_codec = codec; AUDIO_INFO("format is flac");}
@@ -4559,7 +5376,9 @@ bool Audio::parseHttpResponseHeader() { // this is the response to a GET / reque
 
     memset(&m_phreh, 0, sizeof(m_phreh));
     m_phreh.ctime = millis();
-    m_phreh.timeout = 4500; // ms	(HEADER_TIMEOUT))
+    m_phreh.timeout = m_f_preserveStreamReconnect
+        ? BUFFERED_RECONNECT_HEADER_TIMEOUT_MS
+        : 4500; // ms (initial/clean HEADER_TIMEOUT)
 
     if(m_client->available() == 0) {
         if(!m_phreh.f_time) {
@@ -4791,6 +5610,24 @@ exit: // termination condition
 //        if(audio_icydescription) audio_icydescription("");
         if(audio_icyurl) audio_icyurl("");
 
+    if(m_f_preserveStreamReconnect) {
+        if(m_client->connected()) m_client->stop();
+        if(m_preservedStreamCodec != CODEC_NONE) m_codec = m_preservedStreamCodec;
+        m_f_preserveStreamReconnect = false;
+        m_preservedStreamCodec = CODEC_NONE;
+        m_f_timeout = false;
+        m_dataMode = AUDIO_DATA;
+        m_streamType = ST_WEBSTREAM;
+        m_f_webstreamReconnectPending = true;
+        m_webstreamReconnectSession = m_playbackSession;
+        m_webstreamReconnectNextMs = millis() + WEBSTREAM_RECONNECT_BACKOFF_MS;
+        Serial.printf("[AUDIO.RETRY] buffered reconnect header failed session=%lu retry=%u/%u inbuf=%lu\n",
+                      (unsigned long)m_playbackSession,
+                      (unsigned)m_unstableStreamFailures,
+                      (unsigned)MAX_UNSTABLE_STREAM_FAILURES,
+                      (unsigned long)InBuff.bufferFilled());
+        return false;
+    }
 
     m_dataMode = AUDIO_NONE;
     stopSong();
@@ -4815,6 +5652,48 @@ lastToDo:
     else {
         AUDIO_ERROR("unknown content found at: %s", m_currentHost.c_get());
         goto exit;
+    }
+
+    if(m_f_preserveStreamReconnect) {
+        if(m_streamType != ST_WEBSTREAM ||
+           (m_preservedStreamCodec != CODEC_NONE && m_codec != m_preservedStreamCodec)) {
+            Serial.printf("[AUDIO.RETRY] buffered reconnect rejected stream_type=%s(%u) codec=%s(%u) expected_codec=%s(%u) session=%lu\n",
+                          streamTypeStr[m_streamType], (unsigned)m_streamType,
+                          codecname[m_codec], (unsigned)m_codec,
+                          codecname[m_preservedStreamCodec], (unsigned)m_preservedStreamCodec,
+                          (unsigned long)m_playbackSession);
+            if(m_client->connected()) m_client->stop();
+            if(m_preservedStreamCodec != CODEC_NONE) m_codec = m_preservedStreamCodec;
+            m_f_preserveStreamReconnect = false;
+            m_preservedStreamCodec = CODEC_NONE;
+            resetAacOverlapDiagnostic(false);
+            m_dataMode = AUDIO_DATA;
+            m_streamType = ST_WEBSTREAM;
+            m_f_webstreamReconnectPending = true;
+            m_webstreamReconnectSession = m_playbackSession;
+            m_webstreamReconnectNextMs = millis() + WEBSTREAM_RECONNECT_BACKOFF_MS;
+            return false;
+        }
+        m_metacount = m_metaint;
+        m_rmet.pos_ml = 0;
+        m_rmet.metaDataSize = 0;
+        m_rmet.res = 0;
+        m_pwst.chunkSize = 0;
+        m_pwst.readedBytes = 0;
+        m_sdet.tmr_lost = millis() + WEBSTREAM_STALL_RECONNECT_MS;
+        m_sdet.cnt_lost = 0;
+        startAacOverlapDiagnostic();
+        m_f_preserveStreamReconnect = false;
+        m_preservedStreamCodec = CODEC_NONE;
+        m_f_bufferedReconnectPcmWatch = (m_codec == CODEC_AAC);
+        m_bufferedReconnectPcmSession = m_playbackSession;
+        m_bufferedReconnectPcmStartedMs = millis();
+        Serial.printf("[AUDIO.RETRY] reconnect succeeded %u/%u session=%lu buffered=1 inbuf=%lu socket_available=%lu\n",
+                      (unsigned)m_unstableStreamFailures,
+                      (unsigned)MAX_UNSTABLE_STREAM_FAILURES,
+                      (unsigned long)m_playbackSession,
+                      (unsigned long)InBuff.bufferFilled(),
+                      (unsigned long)m_client->available());
     }
 
     /*AUDIO_LOG_DEBUG*/AUDIO_INFO("playlistFormat %s, dataMode %s, streamType: %s", plsFmtStr[m_playlistFormat], dataModeStr[m_dataMode], streamTypeStr[m_streamType]);
@@ -6919,28 +7798,45 @@ exit:
 boolean Audio::streamDetection(uint32_t bytesAvail) {
     if(!m_lastHost.valid()) {AUDIO_ERROR("m_lastHost is empty"); return false;}
 
+    const uint32_t now = millis();
+
     // if within one second the content of the audio buffer falls below the size of an audio frame 100 times,
     // issue a message
-    if(m_sdet.tmr_slow + 1000 < millis()) {
-        m_sdet.tmr_slow = millis();
+    if(m_sdet.tmr_slow + 1000 < now) {
+        m_sdet.tmr_slow = now;
         if(m_sdet.cnt_slow > 100) AUDIO_INFO("slow stream, dropouts are possible");
         m_sdet.cnt_slow = 0;
     }
     if(InBuff.bufferFilled() < InBuff.getMaxBlockSize()) m_sdet.cnt_slow++;
     if(bytesAvail) {
-        m_sdet.tmr_lost = millis() + 1000;
+        m_sdet.tmr_lost = now + WEBSTREAM_STALL_RECONNECT_MS;
         m_sdet.cnt_lost = 0;
     }
+
+    // Sending another GET on an existing live socket makes the header parser consume audio data.
+    // Reconnect regular webstreams through the bounded scheduler only after the original
+    // five-second near-empty-buffer test below. Burst-fed AAC sockets legitimately have
+    // one-second delivery gaps while remaining connected and must not be stopped here.
+    const bool regularWebstream = m_playlistFormat != FORMAT_M3U8 &&
+                                  m_streamType == ST_WEBSTREAM &&
+                                  !m_f_tts && !m_f_allDataReceived;
+
     if(InBuff.bufferFilled() > InBuff.getMaxBlockSize() * 2) return false; // enough data available to play
 
-    // if no audio data is received within three seconds, a new connection attempt is started.
-    if(m_sdet.tmr_lost < millis()) {
+    // if no audio data is received for five seconds while the buffer is nearly empty,
+    // a new connection attempt is started.
+    if(m_sdet.tmr_lost < now) {
         m_sdet.cnt_lost++;
-        m_sdet.tmr_lost = millis() + 1000;
+        m_sdet.tmr_lost = now + 1000;
         if(m_sdet.cnt_lost == 5) { // 5s no data?
             m_sdet.cnt_lost = 0;
             AUDIO_INFO("Stream lost -> try new connection");
             m_f_reset_m3u8Codec = false;
+            if(regularWebstream) {
+                if(m_client->connected()) m_client->stop();
+                scheduleWebstreamReconnect(false, 0);
+                return true;
+            }
             if (!attemptInternalReconnect()) {
                 finishUnstableStreamExhausted();
                 return false;
