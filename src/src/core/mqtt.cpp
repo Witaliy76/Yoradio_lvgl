@@ -59,7 +59,7 @@ void mqttPublishVolume(){
     memset(topic, 0, 140);
     memset(vol, 0, 5);
     sprintf(topic, "%s%s", MQTT_ROOT_TOPIC, "volume");
-    sprintf(vol, "%d", config.store.volume);
+    sprintf(vol, "%d", player.audibleVolume());
     mqttClient.publish(topic, 0, true, vol);
   }
 }

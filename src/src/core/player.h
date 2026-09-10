@@ -22,10 +22,19 @@
 #define PLAYER_QUEUE_LENGTH 24
 #endif
 
+/* Level adopted as the remembered volume when NVS holds a legacy 0 (see Player::init).
+ * Mirrors the factory default in Config::setDefaults(). */
+#define PLAYER_VOLUME_FACTORY_DEFAULT  12
+
 #define PLERR_LN        64
 #define SET_PLAY_ERROR(...) {char buff[512 + 64]; sprintf(buff,__VA_ARGS__); setError(buff);}
 
-enum playerRequestType_e : uint8_t { PR_PLAY = 1, PR_STOP = 2, PR_PREV = 3, PR_NEXT = 4, PR_VOL = 5, PR_CHECKSD = 6, PR_VUTONUS = 7 };
+enum playerRequestType_e : uint8_t { PR_PLAY = 1, PR_STOP = 2, PR_PREV = 3, PR_NEXT = 4, PR_VOL = 5, PR_CHECKSD = 6, PR_VUTONUS = 7, PR_MUTE = 8 };
+
+/* PR_MUTE payload: the one semantic MUTE action, callable from any input source
+ * (physical BTN_MUTE, touch/UI, future IR, WebUI/telnet) without knowing audio internals.
+ * PR_MUTE payload: единственное семантическое действие MUTE для любого источника ввода. */
+enum playerMuteRequest_e : int { PMUTE_OFF = 0, PMUTE_ON = 1, PMUTE_TOGGLE = -1 };
 struct playerRequestParams_t
 {
   playerRequestType_e type;
@@ -41,10 +50,19 @@ class Player: public Audio {
     int32_t    _resumeFilePos;
     plStatus_e  _status;
     char        _plError[PLERR_LN];
+    bool        _muted = false;   /* runtime-only, not persisted (see save_manager.md) */
+    /* -1 = never written yet (boot). Dedup for the [MUTE] amp diagnostic - setOutputPins()
+     * runs on every play/stop/mute event, often with an unchanged resulting level. */
+    int8_t      _ampLastLevel = -1;
   private:
     void _stop(bool alreadyStopped = false);
     void _play(uint16_t stationId);
-    void _loadVol(uint8_t volume);
+    /* The only place that hands a level to the codec - gates config.store.volume through _muted.
+     * Единственное место, отдающее уровень в кодек, - фильтрует громкость через _muted. */
+    void _applyVolumeToAudio();
+    void _applyMuteTransition(bool wasMuted);
+    void _applyVolPayload(int payload);
+    void _applyMuteRequest(int payload);
   public:
     bool lockOutput = true;
     bool resumeAfterUrl = false;
@@ -74,6 +92,15 @@ class Player: public Audio {
     void toggle();
     void stepVol(bool up);
     void setVol(uint8_t volume);
+    /* Central semantic MUTE entry point - queue-based, safe from any task/callback.
+     * Центральная точка входа MUTE - через очередь, безопасна из любой задачи. */
+    void requestMute(int request = PMUTE_TOGGLE) { sendCommand({PR_MUTE, request}); }
+    bool isMuted() const { return _muted; }
+    /* Volume as every observer must see it: 0 while muted, otherwise the remembered level.
+     * Keeps "0 == MUTE" true on UI, WebUI, telnet and MQTT without a second state flag.
+     * Громкость для всех наблюдателей: 0 в MUTE, иначе запомненный уровень.
+     * Держит правило "0 == MUTE" единым для UI, WebUI, telnet и MQTT. */
+    uint8_t audibleVolume() const;
     uint8_t volToI2S(uint8_t volume);
     void stopInfo();
     void setOutputPins(bool isPlaying);

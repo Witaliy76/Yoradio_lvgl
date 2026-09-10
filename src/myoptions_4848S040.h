@@ -67,7 +67,30 @@
    DISABLED FEATURES
    =============================================== */
 #define VS1053_CS     255                 // Disable VS1053 (not used)
-//#define MUTE_PIN    255                 // Disable MUTE (not used)
+
+/* ===============================================
+   PHYSICAL MUTE BUTTON (optional) - INPUT
+   Momentary button to GND, internal pull-up (BTN_INTERNALPULLUP).
+   255 disables the feature cleanly - no GPIO is claimed for the product build.
+   Set to the GPIO actually wired on YOUR board before hardware testing.
+   Кнопка MUTE на GND, внутренняя подтяжка. 255 выключает без побочных эффектов.
+   Указать реальный GPIO вашей платы перед аппаратной проверкой.
+   =============================================== */
+#define BTN_MUTE      255                 // optional user input - not wired by default
+
+/* ===============================================
+   AMPLIFIER MUTE / ENABLE LINE (optional) - OUTPUT
+   3.3 V GPIO output, driven by Player::setOutputPins() (see options.h for the polarity
+   contract - MUTE_VAL/MUTE_LOCK are unchanged by this task). MUTE_VAL is the level written
+   when the amplifier must be silent: stopped, connecting, or PLAYING + semantic MUTE.
+   255 disables the feature cleanly - no GPIO is claimed, no digitalWrite() is issued.
+   Not the same input as BTN_MUTE above - this is an OUTPUT to external amp hardware.
+   3.3-В GPIO выход, управляется Player::setOutputPins(). MUTE_VAL - уровень, при котором
+   усилитель должен молчать: стоп, подключение, либо PLAYING + семантический MUTE.
+   255 выключает без побочных эффектов - GPIO не занимается, digitalWrite() не вызывается.
+   Не путать со входом BTN_MUTE выше - это ВЫХОД на внешний усилитель.
+   =============================================== */
+#define MUTE_PIN      255                 // amplifier-enable output - not wired by default
 
 /* ===============================================
    BRIGHTNESS CONTROL
