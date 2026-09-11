@@ -615,7 +615,7 @@ void NetServer::processQueue(){
       case ITEM:          wsbufFormat( "{\"current\": %d}", config.lastStation()); break;
       case TITLE:         wsbufFormat( "{\"meta\": \"%s\"}", config.station.title); telnet.printf("##CLI.META#: %s\n> ", config.station.title); break;
       case PLAYER_ERROR:  wsbufFormat( "{\"player_error\": \"%s\"}", player.lastError()); break;
-      case VOLUME:        wsbufFormat( "{\"vol\": %d}", config.store.volume); telnet.printf("##CLI.VOL#: %d\n", config.store.volume); break;
+      case VOLUME:        wsbufFormat( "{\"vol\": %d}", player.audibleVolume()); telnet.printf("##CLI.VOL#: %d\n", player.audibleVolume()); break;
       case NRSSI:         wsbufFormat( "{\"rssi\": %d}", rssi); /*rssi = 255;*/ break;
       case SDPOS:         wsbufFormat( "{\"sdpos\": %d,\"sdend\": %d,\"sdtpos\": %d,\"sdtend\": %d}", 
                                   player.getFilePos(), 
@@ -3174,8 +3174,7 @@ void handleHTTPArgs(AsyncWebServerRequest * request) {
       int v = atoi(p->value().c_str());
       if (v < 0) v = 0;
       if (v > 254) v = 254;
-      config.setVolume((uint8_t)v);
-      player.setVol((uint8_t)v);
+      player.setVol((uint8_t)v);   /* PR_VOL stores the level at the convergence point (0 == MUTE) */
       commandFound=true;
       DBGVB("[%s] vol=%d", __func__, v);
     }

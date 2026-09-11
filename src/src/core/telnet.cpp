@@ -196,7 +196,7 @@ void Telnet::info() {
   if (player.status() == PLAYING) {
     telnet.printf("##CLI.META#: %s\n",  config.station.title);
   }
-  telnet.printf("##CLI.VOL#: %d\n", config.store.volume);
+  telnet.printf("##CLI.VOL#: %d\n", player.audibleVolume());
   if (player.status() == PLAYING) {
     telnet.printf("##CLI.PLAYING#\n");
   } else {
@@ -220,6 +220,24 @@ void Telnet::on_input(const char* str, uint8_t clientId) {
       player.toggle();
       return;
     }
+    // Semantic MUTE over telnet/serial - same central action a physical BTN_MUTE or future IR calls.
+    // Reply is intentionally silent (like prev/next/toggle): Player::_applyMuteRequest emits the
+    // authoritative ##CLI.MUTE# / ##CLI.VOL# a few ms later once the queued request is processed.
+    // Семантический MUTE по telnet/serial - то же центральное действие, что кнопка / будущий IR.
+    if (strncmp(str, "mute", 4) == 0 || strncmp(str, "cli.mute", 8) == 0) {
+      const char* arg = str + (strncmp(str, "cli.", 4) == 0 ? 8 : 4);
+      while (*arg == ' ') arg++;
+      if (*arg == '\0' || strcmp(arg, "toggle") == 0) {
+        player.requestMute(PMUTE_TOGGLE);
+      } else if (strcmp(arg, "on") == 0 || strcmp(arg, "1") == 0) {
+        player.requestMute(PMUTE_ON);
+      } else if (strcmp(arg, "off") == 0 || strcmp(arg, "0") == 0) {
+        player.requestMute(PMUTE_OFF);
+      } else {
+        printf(clientId, "usage: mute [on|off|toggle]\n> ");
+      }
+      return;
+    }
     if (strcmp(str, "cli.stop") == 0 || strcmp(str, "stop") == 0) {
       player.sendCommand({PR_STOP, 0});
       //info();
@@ -230,7 +248,7 @@ void Telnet::on_input(const char* str, uint8_t clientId) {
       return;
     }
     if (strcmp(str, "cli.vol") == 0 || strcmp(str, "vol") == 0) {
-      printf(clientId, "##CLI.VOL#: %d\n> ", config.store.volume);
+      printf(clientId, "##CLI.VOL#: %d\n> ", player.audibleVolume());
       return;
     }
     if (strcmp(str, "cli.vol-") == 0 || strcmp(str, "vol-") == 0) {
@@ -304,7 +322,7 @@ void Telnet::on_input(const char* str, uint8_t clientId) {
       if (player.status() == PLAYING) {
         printf(clientId, "##CLI.META#: %s\n", config.station.title);
       }
-      printf(clientId, "##CLI.VOL#: %d\n", config.store.volume);
+      printf(clientId, "##CLI.VOL#: %d\n", player.audibleVolume());
       if (player.status() == PLAYING) {
         printf(clientId, "##CLI.PLAYING#\n");
       } else {

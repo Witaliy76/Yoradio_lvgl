@@ -1,11 +1,14 @@
 #ifndef AUDIOHANDLERS_H
 #define AUDIOHANDLERS_H
 
+#include "../audioI2S/audio_text_url_utils.h"
+
 //=============================================//
 //              Audio handlers                 //
 //=============================================//
 
 void audio_info(const char *info) {
+  if(!info) return;
   if(player.lockOutput) return;
   if(config.store.audioinfo) telnet.printf("##AUDIO.INFO#: %s\n", info);
   if (strstr(info, "format is mp3")  != NULL) { config.setBitrateFormat(BF_MP3); display.putRequest(DBITRATE); }
@@ -23,17 +26,22 @@ void audio_info(const char *info) {
     player.setError(info);
     
   }
-  char* ici; char b[20]={0};
+  const char* ici;
+  char b[20] = {0};
   // Parsed stream facts for LVGL Main meta row (same strings as Audio::showCodecParams()).
   // Факты потока для Main meta — те же строки, что шлёт библиотека после decode.
   if ((ici = strstr(info, "SampleRate: ")) != NULL) {
-    config.station.stream_sample_rate_hz = static_cast<uint32_t>(atoi(ici + 12));
+    uint32_t sampleRate = 0;
+    if(audio_safe::parseUnsignedDecimal(ici + 12, sampleRate)) config.station.stream_sample_rate_hz = sampleRate;
   }
   if ((ici = strstr(info, "BitsPerSample: ")) != NULL) {
-    config.station.stream_bits_per_sample = static_cast<uint8_t>(atoi(ici + 15));
+    uint32_t bits = 0;
+    if(audio_safe::parseUnsignedDecimal(ici + 15, bits)) {
+      config.station.stream_bits_per_sample = static_cast<uint8_t>(bits > 255u ? 255u : bits);
+    }
   }
   if ((ici = strstr(info, "BitRate: ")) != NULL) {
-    strlcpy(b, ici + 9, 50);
+    strlcpy(b, ici + 9, sizeof(b));
     audio_bitrate(b);
   }
   if (((ici = strstr(info, "StreamTitle= ")) != NULL) /*&& strlen(info) > 15*/) {
@@ -42,9 +50,10 @@ void audio_info(const char *info) {
        strstr(config.station.title, "(connection)") != NULL || strstr(config.station.title, "[ready]") != NULL ||
        strstr(config.station.title, "[готов]") != NULL || strstr(config.station.title, "[stopped]") != NULL ||
        strstr(config.station.title, "[остановлено]") != NULL){
-      char StreamTitle[strlen(info)+1]={0};
-      strlcpy(StreamTitle, ici + 13, strlen(info));
-      audio_id3album(StreamTitle);
+      char streamTitle[BUFLEN] = {0};
+      if(audio_safe::copyMetadataUtf8(streamTitle, sizeof(streamTitle), ici + 13) && streamTitle[0] != '\0') {
+        audio_id3album(streamTitle);
+      }
     }
   }
   if (((ici = strstr(info, "icy-name: ")) != NULL) && strlen(info) > 12) {
@@ -53,12 +62,14 @@ void audio_info(const char *info) {
        strstr(config.station.title, "(connection)") != NULL || strstr(config.station.title, "[ready]") != NULL ||
        strstr(config.station.title, "[готов]") != NULL || strstr(config.station.title, "[stopped]") != NULL ||
        strstr(config.station.title, "[остановлено]") != NULL) {
-      char icyName[strlen(info)+1]={0};
-      strlcpy(icyName, ici + 10, strlen(info));
+      char icyName[BUFLEN] = {0};
+      if(!audio_safe::copyMetadataUtf8(icyName, sizeof(icyName), ici + 10) || icyName[0] == '\0') return;
       #ifdef NAME_STRIM
          if ((ici = strstr(icyName, " - " )) != NULL) {
-           char icySt[strlen(icyName) - strlen(ici) + 1]={0};
-           strlcpy(icySt, icyName, strlen(icyName) - strlen(ici) + 1);
+           char icySt[BUFLEN] = {0};
+           const size_t stationLen = static_cast<size_t>(ici - icyName);
+           memcpy(icySt, icyName, stationLen);
+           icySt[stationLen] = '\0';
            config.setStation(icySt);
          } else
            config.setStation(icyName);
@@ -72,30 +83,27 @@ void audio_info(const char *info) {
 
 void audio_bitrate(const char *info)
 {
+  if(!info) return;
   if(config.store.audioinfo) telnet.printf("%s %s\n", "##AUDIO.BITRATE#:", info);
-  uint32_t br = atoi(info);
+  uint32_t br = 0;
+  if(!audio_safe::parseUnsignedDecimal(info, br)) return;
   if (br > 3000) br = br / 1000;
-  config.station.bitrate = br;
+  config.station.bitrate = static_cast<uint16_t>(br > 65535u ? 65535u : br);
   display.putRequest(DBITRATE);
   netserver.requestOnChange(BITRATE, 0);
 }
 
 bool printable(const char *info) {
-  if(L10N_LANGUAGE!=RU) return true;
-  bool p = true;
-  for (int c = 0; c < strlen(info); c++)
-  {
-    if ((uint8_t)info[c] > 0x7e || (uint8_t)info[c] < 0x20) p = false;
-  }
-  if (!p) p = (uint8_t)info[0] >= 0xC2 && (uint8_t)info[1] >= 0x80 && (uint8_t)info[1] <= 0xBF;
-  return p;
+  return audio_safe::isValidUtf8(info, true);
 }
 
 void audio_showstation(const char *info) {
-  bool p = printable(info) && (strlen(info) > 0);(void)p;
+  if(!info) return;
+  char clean[BUFLEN] = {0};
+  const bool p = audio_safe::copyMetadataUtf8(clean, sizeof(clean), info) && clean[0] != '\0';
   //config.setTitle(p?info:config.station.name);
   if(player.remoteStationName){
-    config.setStation(p?info:config.station.name);
+    if(p) config.setStation(clean);
     display.putRequest(NEWSTATION);
     netserver.requestOnChange(STATION, 0);
   }
@@ -103,15 +111,17 @@ void audio_showstation(const char *info) {
 
 void audio_showstreamtitle(const char *info) {
   DBGH();
+  if(!info) return;
   if (strstr(info, "Account already in use") != NULL || strstr(info, "HTTP/1.0 401") != NULL) player.setError(info);
-  bool p = (strlen(info) > 0) && printable(info);
+  char clean[BUFLEN] = {0};
+  const bool p = audio_safe::copyMetadataUtf8(clean, sizeof(clean), info) && clean[0] != '\0';
   #ifdef DEBUG_TITLES
     player.setError("");
     config.setTitle(DEBUG_TITLES);
   #else
     if (p) {
       player.setError("");
-      config.setTitle(info);
+      config.setTitle(clean);
     } else if (strlen(config.station.title)==0) {
       player.setError("");
       config.setTitle(config.station.name);
@@ -121,30 +131,33 @@ void audio_showstreamtitle(const char *info) {
 
 void audio_error(const char *info) {
   // E36AUD0A: setError owns ##ERROR# telnet; no title pipeline / telnet только в setError
-  player.setError(info);
+  if(info) player.setError(info);
 }
 
 void audio_id3artist(const char *info){
-  if(printable(info)) config.setStation(info);
+  char clean[BUFLEN] = {0};
+  if(audio_safe::copyMetadataUtf8(clean, sizeof(clean), info)) config.setStation(clean);
   display.putRequest(NEWSTATION);
   netserver.requestOnChange(STATION, 0);
 }
 
 void audio_id3album(const char *info){
+  if(!info) return;
   if(player.lockOutput) return;
-  if(printable(info)){
+  char clean[BUFLEN] = {0};
+  if(audio_safe::copyMetadataUtf8(clean, sizeof(clean), info)){
     player.setError("");
     if(strlen(config.station.title)==0 || strcmp(config.station.title, config.station.name)==0 || strstr(config.station.title, "timeout") != NULL ||
        strstr(config.station.title, "[соединение]") != NULL || strstr(config.station.title, "[connecting]") != NULL ||
        strstr(config.station.title, "(connection)") != NULL || strstr(config.station.title, "[ready]") != NULL ||
        strstr(config.station.title, "[готов]") != NULL || strstr(config.station.title, "[stopped]") != NULL ||
        strstr(config.station.title, "[остановлено]") != NULL){
-      config.setTitle(info);
+      config.setTitle(clean);
     }else{
       char out[BUFLEN]= {0};
       strlcat(out, config.station.title, BUFLEN);
       strlcat(out, " - ", BUFLEN);
-      strlcat(out, info, BUFLEN);
+      strlcat(out, clean, BUFLEN);
       config.setTitle(out);
     }
   }

@@ -1336,7 +1336,7 @@ void LvglMainScreen::create_bottom_zone(LvglMainScreen& self, const YoRadioPalet
             self._bar_volume = lv_bar_create(col_vol);
             if (self._bar_volume) {
                 lv_bar_set_range(self._bar_volume, 0, 254);
-                lv_bar_set_value(self._bar_volume, static_cast<int32_t>(config.store.volume), LV_ANIM_OFF);
+                lv_bar_set_value(self._bar_volume, static_cast<int32_t>(player.audibleVolume()), LV_ANIM_OFF);
                 lv_obj_set_width(self._bar_volume, LV_PCT(100));
                 // H=16: compromise between slim 10px bar and test H=20 — gradient+shadow still readable.
                 // H=16, radius=8 (capsule), pad 3 top/bottom → fill H=10, fill radius=5; pad 3 left/right.
@@ -1973,13 +1973,22 @@ void LvglMainScreen::update() {
     // Верхняя полоса — делегирование в wgt_status_line.
     wgt_status_line::update(_status_line);
 
-    snprintf(buf, sizeof(buf), "Vol: %d", config.store.volume);
+    // Label and bar both read the authoritative value (0 while muted); the UI latches no
+    // mute state of its own. Dragging the bar back above 0 unmutes via the normal PR_VOL path.
+    // Метка и бар читают авторитетное значение (0 в MUTE); UI не хранит своего состояния.
+    // Возврат бара выше 0 снимает MUTE обычным путём PR_VOL.
+    const int32_t shown_volume = static_cast<int32_t>(player.audibleVolume());
+    if (player.isMuted()) {
+        snprintf(buf, sizeof(buf), "Vol: MUTE");
+    } else {
+        snprintf(buf, sizeof(buf), "Vol: %d", static_cast<int>(shown_volume));
+    }
     main_set_text_if_changed(_lbl_volume, buf);
 
     // Sync bar from config when volume was changed elsewhere (encoder, WebUI); not during touch drag.
     // Синхронизация бара из config, если громкость менялась не слайдером; во время drag — только lv_bar в callback.
     if (_bar_volume && !s_vol_touch_active) {
-        lv_bar_set_value(_bar_volume, static_cast<int32_t>(config.store.volume), LV_ANIM_OFF);
+        lv_bar_set_value(_bar_volume, shown_volume, LV_ANIM_OFF);
     }
 
     // Lower divider/meter: fill = buffer % when audioinfo enabled AND player running; 0 otherwise.

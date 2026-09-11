@@ -20,13 +20,6 @@ static portMUX_TYPE s_vol_merge_mux = portMUX_INITIALIZER_UNLOCKED;
 static volatile bool s_vol_merge_pending = false;
 static volatile int s_vol_merge_payload = 0;
 
-static void playerApplyVolFromPayload(int payload) {
-  uint8_t v = static_cast<uint8_t>(payload);
-  if (v > 254) v = 254;
-  config.setVolume(v);
-  player.setVolume(player.volToI2S(v));
-}
-
 #if VS1053_CS!=255 && !I2S_INTERNAL
 
 #ifdef ARDUINO_ESP32S3_DEV
@@ -66,13 +59,17 @@ void Player::init() {
   playerQueue=NULL;
   _resumeFilePos = 0;
   playerQueue = xQueueCreate(PLAYER_QUEUE_LENGTH, sizeof(playerRequestParams_t));
+  /* pinMode BEFORE the first write: digitalWrite on a pin whose output driver is still off
+   * does not reach the amplifier, which left the boot-time mute assert ineffective.
+   * pinMode ДО первой записи: digitalWrite по пину с выключенным драйвером не доходит
+   * до усилителя, из-за чего стартовый mute не срабатывал. */
+  if(MUTE_PIN!=255) pinMode(MUTE_PIN, OUTPUT);
   setOutputPins(false);
   delay(50);
   memset(_plError, 0, PLERR_LN);
 #ifdef MQTT_ROOT_TOPIC
   memset(burl, 0, MQTT_BURL_SIZE);
 #endif
-  if(MUTE_PIN!=255) pinMode(MUTE_PIN, OUTPUT);
   #if I2S_DOUT!=255
     #if !I2S_INTERNAL
       setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
@@ -92,7 +89,17 @@ void Player::init() {
   #if PLAYER_FORCE_MONO
     forceMono(true);
   #endif
-  _loadVol(config.store.volume);
+  /* NVS written before "0 == MUTE" existed can hold volume 0. Adopt it as MUTE and restore a
+   * meaningful remembered level (runtime only - nothing is written back here), so the
+   * forbidden "0 but not muted" state cannot survive a reboot.
+   * NVS, записанный до правила "0 == MUTE", может содержать 0. Трактуем как MUTE и
+   * восстанавливаем осмысленный запомненный уровень (только в RAM, без записи в NVS). */
+  if (config.store.volume == 0) {
+    _muted = true;
+    config.store.volume = PLAYER_VOLUME_FACTORY_DEFAULT;
+    Serial.printf("[MUTE] semantic ON (legacy volume=0 adopted at boot)\n");
+  }
+  _applyVolumeToAudio();
   setConnectionTimeout(1700, 3700);
   // Set Audio Task core from platformio.ini define or default to 1
   // Установка ядра Audio Task из define platformio.ini или по умолчанию 1
@@ -234,8 +241,12 @@ void Player::loop() {
 
   if(xQueueReceive(playerQueue, &requestP, isRunning()?PL_QUEUE_TICKS:PL_QUEUE_TICKS_ST)){
     switch (requestP.type){
-      case PR_STOP: _stop(); break;
+      case PR_STOP:
+        cancelWebstreamReconnect("manual stop");
+        _stop();
+        break;
       case PR_PLAY: {
+        cancelWebstreamReconnect("station change");
         Serial.printf("🎵 [PLAYER] Received PR_PLAY command, payload: %d\n", requestP.payload);
         if (requestP.payload>0) {
           config.setLastStation((uint16_t)requestP.payload);
@@ -246,7 +257,11 @@ void Player::loop() {
         break;
       }
       case PR_VOL: {
-        playerApplyVolFromPayload(requestP.payload);
+        _applyVolPayload(requestP.payload);
+        break;
+      }
+      case PR_MUTE: {
+        _applyMuteRequest(requestP.payload);
         break;
       }
       #ifdef USE_SD
@@ -278,15 +293,15 @@ void Player::loop() {
     }
     portEXIT_CRITICAL(&s_vol_merge_mux);
     if(merge_now) {
-      playerApplyVolFromPayload(merge_payload);
+      _applyVolPayload(merge_payload);
     }
   }
 
   Audio::loop();
 #ifdef MEM_WATCHDOG_AUTOREBOOT
-  mwPollPlaybackRecovery(_status, isRunning());
+  mwPollPlaybackRecovery(_status, isRunning() && !isWebstreamReconnectPending());
 #endif
-  if(!isRunning() && _status==PLAYING) {
+  if(!isRunning() && !isWebstreamReconnectPending() && _status==PLAYING) {
 #ifdef MEM_WATCHDOG_AUTOREBOOT
     const AudioTerminalReason terminalReason = consumeTerminalReason();
     if (terminalReason == AudioTerminalReason::HEADER_RETRY_EXHAUSTED ||
@@ -315,10 +330,33 @@ void Player::loop() {
 #endif
 }
 
+/* LED keeps following playback only. The amplifier line follows AUDIBILITY: it is released
+ * exclusively while the radio is playing AND not semantically muted, so BTN_MUTE / IR / WebUI
+ * silence the amplifier itself instead of only zeroing the codec. Polarity is unchanged:
+ * MUTE_VAL is still the asserted (muted) level and MUTE_LOCK still pins the line to !MUTE_VAL
+ * for boards that must never assert it - there, semantic MUTE stays codec-only by design.
+ * Светодиод по-прежнему следует за воспроизведением. Линия усилителя следует за СЛЫШИМОСТЬЮ:
+ * отпускается только при playing И не в MUTE. Полярность не меняется: MUTE_VAL - активный
+ * (заглушённый) уровень, MUTE_LOCK по-прежнему фиксирует линию в !MUTE_VAL. */
 void Player::setOutputPins(bool isPlaying) {
   if(REAL_LEDBUILTIN!=255) digitalWrite(REAL_LEDBUILTIN, LED_INVERT?!isPlaying:isPlaying);
-  bool _ml = MUTE_LOCK?!MUTE_VAL:(isPlaying?!MUTE_VAL:MUTE_VAL);
-  if(MUTE_PIN!=255) digitalWrite(MUTE_PIN, _ml);
+  const bool audible = isPlaying && !_muted;
+  bool _ml = MUTE_LOCK?!MUTE_VAL:(audible?!MUTE_VAL:MUTE_VAL);
+  if(MUTE_PIN!=255) {
+    digitalWrite(MUTE_PIN, _ml);
+    // Log only on an actual level change - setOutputPins() is called on every play/stop/mute
+    // event, often with the same resulting level, and must not spam the console each time.
+    // Логируем только при реальной смене уровня - иначе спам на каждый play/stop/mute.
+    const int8_t level = _ml ? 1 : 0;
+    const char* word = (_ml == (bool)MUTE_VAL) ? "ASSERT" : "RELEASE";
+    if (_ampLastLevel < 0) {
+      Serial.printf("[MUTE] amp pin=%d init %s level=%d\n", MUTE_PIN, word, level);
+      _ampLastLevel = level;
+    } else if (level != _ampLastLevel) {
+      Serial.printf("[MUTE] amp pin=%d %s level=%d\n", MUTE_PIN, word, level);
+      _ampLastLevel = level;
+    }
+  }
 }
 
 void Player::_play(uint16_t stationId) {
@@ -346,8 +384,8 @@ void Player::_play(uint16_t stationId) {
   Serial.printf("🎵 [PLAY] About to call config.loadStation(%d)\n", stationId);
   config.loadStation(stationId);
   Serial.printf("🎵 [PLAY] config.loadStation() completed\n");
-  _loadVol(config.store.volume);
-  Serial.printf("🎵 [PLAY] _loadVol() completed\n");
+  _applyVolumeToAudio();
+  Serial.printf("🎵 [PLAY] volume applied\n");
   display.putRequest(DBITRATE);
   display.putRequest(NEWSTATION);
   netserver.requestOnChange(STATION, 0);
@@ -468,8 +506,81 @@ uint8_t Player::volToI2S(uint8_t volume) {
   return vol;
 }
 
-void Player::_loadVol(uint8_t volume) {
-  setVolume(volToI2S(volume));
+/* Single codec-level funnel. Every path that makes the radio audible or silent ends here,
+ * so MUTE survives station change, stop/play and boot without extra bookkeeping.
+ * Единственная точка выдачи уровня в кодек: MUTE переживает смену станции, stop/play и старт. */
+void Player::_applyVolumeToAudio() {
+  setVolume(_muted ? 0 : volToI2S(config.store.volume));
+}
+
+uint8_t Player::audibleVolume() const {
+  return _muted ? 0 : config.store.volume;
+}
+
+/* Authoritative volume/MUTE convergence point. Every producer - BTN/encoder, touch bar,
+ * WebUI, telnet, MQTT - reaches the codec through here, so the "0 == MUTE" contract holds
+ * in exactly one place:
+ *   requested 0  -> enter MUTE, config.store.volume keeps the last meaningful level;
+ *   requested >0 -> leave MUTE and adopt the requested level as the remembered one.
+ * config.store.volume is never set to 0: it is also the arithmetic base for relative
+ * VOL steps (controls.cpp / stepVol), and zeroing it would strand unmute at silence.
+ * Авторитетная точка схождения громкости и MUTE. Все источники приходят в кодек через неё,
+ * поэтому правило "0 == MUTE" живёт ровно в одном месте. config.store.volume никогда не 0:
+ * это ещё и база для относительных шагов громкости. */
+/* Pop-free ordering for a MUTE transition. The caller has already stored the new _muted.
+ *   mute   : assert the amplifier FIRST, then step the codec to 0 - the amp is already deaf
+ *            when the DAC jumps, so the step is inaudible;
+ *   unmute : set the codec level FIRST, then release the amplifier - the DAC step happens
+ *            behind a still-asserted amp, and the amp opens onto a steady signal.
+ * No transition: only the codec level moves.
+ * Порядок без щелчков. Mute: сначала усилитель, затем кодек в 0. Unmute: сначала кодек,
+ * затем отпускаем усилитель. Без перехода - только уровень кодека. */
+void Player::_applyMuteTransition(bool wasMuted) {
+  if (_muted == wasMuted) {
+    _applyVolumeToAudio();
+    return;
+  }
+  if (_muted) {
+    Serial.printf("[MUTE] semantic ON\n");
+    setOutputPins(_status == PLAYING);   /* amplifier asserted */
+    _applyVolumeToAudio();               /* codec -> 0 */
+  } else {
+    Serial.printf("[MUTE] semantic OFF\n");
+    _applyVolumeToAudio();               /* codec -> remembered level */
+    setOutputPins(_status == PLAYING);   /* amplifier released (only if PLAYING) */
+  }
+}
+
+void Player::_applyVolPayload(int payload) {
+  int v = payload;
+  if (v < 0) v = 0;
+  if (v > 254) v = 254;
+
+  const bool wasMuted = _muted;
+  _muted = (v == 0);
+  if (_muted) {
+    /* Remembered level intentionally untouched; only the reported/audible value goes to 0. */
+    display.putRequest(DRAWVOL);
+    netserver.requestOnChange(VOLUME, 0);
+  } else {
+    config.setVolume(static_cast<uint8_t>(v));   /* stores level + DRAWVOL + WebUI push */
+  }
+  _applyMuteTransition(wasMuted);
+}
+
+/* The one semantic MUTE action. Unmute needs no saved copy of the volume: the remembered
+ * level never left config.store.volume in the first place.
+ * Единственное семантическое действие MUTE. Отдельная копия громкости не нужна:
+ * запомненный уровень и не покидал config.store.volume. */
+void Player::_applyMuteRequest(int payload) {
+  const bool want = (payload == PMUTE_TOGGLE) ? !_muted : (payload != PMUTE_OFF);
+  if (want == _muted) return;
+  const bool wasMuted = _muted;
+  _muted = want;
+  _applyMuteTransition(wasMuted);
+  display.putRequest(DRAWVOL);   /* UI reads player.isMuted() in DspTask - no LVGL call from here */
+  netserver.requestOnChange(VOLUME, 0);
+  telnet.printf("##CLI.MUTE#: %d\n", _muted ? 1 : 0);
 }
 
 void Player::setVol(uint8_t volume) {
