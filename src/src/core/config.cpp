@@ -471,6 +471,14 @@ void Config::_setupVersion(){
     case 8:
       saveValue(&store.performance_monitor, false);
       break;
+    case 9:
+      // FU6-A: the Ai tail grew by 3 bytes. sm::v2::loadSection() zero-fills the new tail on the
+      // first boot after the update, so seed the real defaults here.
+      // FU6-A: хвост Ai вырос на 3 байта; loadSection() обнуляет новый хвост — задаём значения.
+      saveValue(&store.text_scroll_speed, static_cast<uint8_t>(40));
+      saveValue(&store.text_scroll_type, static_cast<uint8_t>(1));   // Circular
+      saveValue(&store.text_scroll_delay_s, static_cast<uint8_t>(5));
+      break;
     default:
       break;
   }
@@ -712,6 +720,10 @@ void Config::setDefaults() {
   store.autodim_level = 20;
   store.sleep_timer_action = 0;
   store.performance_monitor = false;
+  // FU6-A text scrolling: fresh-device defaults / значения по умолчанию для нового устройства
+  store.text_scroll_speed = 40;    // px/s — LVGL's own nominal default
+  store.text_scroll_type = 1;      // text_scroll::Mode::Circular — the only mode shipped pre-FU6
+  store.text_scroll_delay_s = 5;   // s — matches legacy YoRadio startscrolldelay = 5000 ms
 
   // AI settings migrated to FS /ai.json and runtime cache (see aiGetRuntimeConfig())
   // Runtime config will be applied in Config::init() after store is loaded

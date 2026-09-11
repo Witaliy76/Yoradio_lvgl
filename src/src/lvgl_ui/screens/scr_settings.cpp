@@ -27,6 +27,7 @@
 #include "../font_provider.h"
 #include "../fonts/settings_glyph_utf8.h"
 #include "../lv_page_chain.h"
+#include "../lv_text_scroll.h"
 #include "../profiles/lv_profile_select.h"
 #include "../theme/lv_theme_yoradio.h"
 #include "../widgets/wgt_footer_pill.h"
@@ -57,6 +58,18 @@ static constexpr char kStrAutoDim[]           = "AUTO DIM";
 static constexpr char kStrDimAfter[]          = "DIM AFTER";
 static constexpr char kStrDimLevel[]          = "DIM LEVEL";
 static constexpr char kStrPerformanceMonitor[] = "PERFORMANCE MONITOR";
+// FU6-A Text scrolling / Скролл текста
+static constexpr char kStrScrolling[]         = "SCROLLING";
+static constexpr char kStrScrollingPreview[]  = "SCROLLING PREVIEW";
+// Fixed preview string, deliberately long enough to overflow 480 px at font_normal_px.
+// Not persisted, not localized (Settings uses file-local constants).
+// Фиксированная строка preview — заведомо длиннее 480 px; не сохраняется.
+static constexpr char kStrScrollingPreviewText[] =
+    "Testing text scrolling speed, mode and delay - this line is intentionally long "
+    "enough to overflow the screen width";
+static constexpr char kStrScrollSpeed[]       = "SCROLL SPEED";
+static constexpr char kStrScrollType[]        = "SCROLL TYPE";
+static constexpr char kStrScrollDelay[]       = "SCROLL DELAY";
 
 // Music Rail detail labels / Подписи Music Rail detail
 static constexpr char kStrPresenceRail[]      = "PRESENCE RAIL";
@@ -73,6 +86,10 @@ static constexpr char kStrValLight[]          = "LIGHT";
 static constexpr char kStrValCustom[]           = "CUSTOM";
 static constexpr char kStrValFence[]            = "FENCE";
 static constexpr char kStrValOscilloscope[]    = "OSCILLOSCOPE";
+// FU6-A scroll type values; OFF reuses the existing kStrValOff constant.
+// Значения типа скролла; для OFF переиспользуется существующая kStrValOff.
+static constexpr char kStrValCircular[]         = "CIRCULAR";
+static constexpr char kStrValBackAndForth[]     = "BACK AND FORTH";
 
 // Autodim timeout cycle labels / Метки таймаута autodim
 static constexpr char kStrTimeout30Sec[]        = "30 SEC";
@@ -132,8 +149,35 @@ static constexpr lv_coord_t kSliderTrackH         = 16;
 static constexpr lv_coord_t kSliderRowH           = 32;
 static constexpr lv_coord_t kSliderValueGap       = 10;
 static constexpr lv_coord_t kValueColWidth        = 52;
+// FU6-A: "120 PX/S" / "BACK AND FORTH" need more room than the percent column.
+// FU6-A: «120 PX/S» шире процентной колонки.
+static constexpr lv_coord_t kScrollValueColWidth  = 86;
+// FU6 UX: Display page is a fixed viewport (no scrolling). These tighten the Auto Dim group and
+// the standalone Display rows so BRIGHTNESS + Auto Dim group + THEME + PERF + SCROLLING all fit.
+// FU6 UX: страница Display — фиксированный экран без прокрутки; константы ужимают группу
+// Auto Dim и одиночные строки, чтобы всё поместилось.
+static constexpr lv_coord_t kCompactRowHeight     = 44;  // Auto Dim group rows
+static constexpr lv_coord_t kDisplayRowHeight     = 52;  // THEME / PERF / SCROLLING rows
+static constexpr lv_coord_t kGroupRowGap          = 2;   // inside the Auto Dim group
+static constexpr lv_coord_t kSliderBlockRowGap    = 6;   // title -> slider inside a block
+// FU6 UX: left touch margin so the slider knob at minimum is not against the panel edge.
+// Full min..max range and full track travel are preserved — only the track start moves inboard.
+// FU6 UX: левый отступ, чтобы ручка слайдера в минимуме не упиралась в край панели.
+static constexpr lv_coord_t kScrollSliderLeftInset = 20;
+// FU6 UX .10: breathing room between a divider and the section title that follows it, on the
+// Scrolling sub-view. Subtle by design - the sub-view must stay fixed and non-scrollable.
+// FU6 UX .10: небольшой отступ между divider и заголовком следующей секции на подстранице
+// Scrolling. Намеренно малый - подстраница остаётся фиксированной, без прокрутки.
+static constexpr lv_coord_t kSubSectionTopGap      = 8;
+// FU6 UX .12: extra gap between the SCROLLING PREVIEW caption and the long testing label.
+// Caption stays put; only the preview text moves down. Section pad_top (8 px) is unchanged.
+// FU6 UX .12: доп. зазор между caption SCROLLING PREVIEW и длинным тестовым лейблом.
+// Caption на месте; вниз сдвигается только preview. pad_top секции (8 px) не меняется.
+static constexpr lv_coord_t kPreviewCaptionToTextGap = 14;  // prior pad_row 6 + 8 px additional
 static constexpr lv_coord_t kBrightnessBlockGap   = 10;
-static constexpr lv_coord_t kDisplayThemeSectionGap = 12;
+// (kDisplayThemeSectionGap removed: the Auto Dim group's closing divider now provides the
+//  section separation, so no spacer object is needed before THEME.)
+// (kDisplayThemeSectionGap удалён: разделение секции даёт divider в конце группы Auto Dim.)
 static constexpr lv_coord_t kBrightnessMinUi      = 1;
 static constexpr uint8_t    kBrightnessMaxUi      = 100;
 static constexpr uint8_t    kDimLevelMinUi        = 1;
@@ -165,6 +209,37 @@ static void format_brightness_pct(char* buf, size_t cap, uint8_t pct) {
 
 static const char* autodim_enabled_label() {
     return config.store.autodim_enabled ? kStrValOn : kStrValOff;
+}
+
+// FU6-A: value formatting follows the local convention (see format_brightness_pct).
+// FU6-A: форматирование значений — по местной конвенции.
+static void format_scroll_speed(char* buf, size_t cap, uint8_t px_per_sec) {
+    if (!buf || cap == 0) return;
+    snprintf(buf, cap, "%u PX/S", static_cast<unsigned>(px_per_sec));
+}
+
+static void format_scroll_delay(char* buf, size_t cap, uint8_t sec) {
+    if (!buf || cap == 0) return;
+    snprintf(buf, cap, "%u S", static_cast<unsigned>(sec));
+}
+
+static const char* scroll_type_label(text_scroll::Mode m) {
+    switch (m) {
+        case text_scroll::Mode::Circular:     return kStrValCircular;
+        case text_scroll::Mode::BackAndForth: return kStrValBackAndForth;
+        case text_scroll::Mode::Off:
+        default:                              return kStrValOff;
+    }
+}
+
+// Tap order: OFF -> CIRCULAR -> BACK AND FORTH -> OFF.
+// Порядок по тапу: OFF -> CIRCULAR -> BACK AND FORTH -> OFF.
+static void cycle_scroll_type() {
+    const uint8_t cur = static_cast<uint8_t>(text_scroll::mode());
+    const uint8_t next =
+        (cur >= static_cast<uint8_t>(text_scroll::Mode::BackAndForth)) ? 0u : static_cast<uint8_t>(cur + 1u);
+    config.saveValue(&config.store.text_scroll_type, next);
+    text_scroll::reapplyAll();
 }
 
 static const char* performance_monitor_enabled_label() {
@@ -370,7 +445,11 @@ static lv_obj_t* add_row_chevron(lv_obj_t* row, const YoRadioPalette& pal) {
     return chev;
 }
 
-static lv_obj_t* create_row_unit(lv_obj_t* parent, const YoRadioPalette& pal, lv_coord_t row_height) {
+// with_divider=false builds a row that visually merges with the next one — used to fuse
+// AUTO DIM / DIM AFTER / DIM LEVEL into a single Auto Dim block.
+// with_divider=false — строка без разделителя, чтобы слить группу Auto Dim в один блок.
+static lv_obj_t* create_row_unit(lv_obj_t* parent, const YoRadioPalette& pal, lv_coord_t row_height,
+                                 bool with_divider = true) {
     lv_obj_t* unit = lv_obj_create(parent);
     if (!unit) return nullptr;
     style_row_unit(unit);
@@ -379,7 +458,7 @@ static lv_obj_t* create_row_unit(lv_obj_t* parent, const YoRadioPalette& pal, lv
     if (!row) return nullptr;
     style_data_row(row, row_height);
 
-    add_bottom_divider(unit, pal);
+    if (with_divider) add_bottom_divider(unit, pal);
     return row;
 }
 
@@ -769,6 +848,7 @@ void LvglSettingsPage::build_display_detail(LvglSettingsPage& self, const YoRadi
         lv_obj_set_style_pad_row(self._cont_display_content, 0, LV_PART_MAIN);
 
 #ifdef ENABLE_BRIGHTNESS_CONTROL
+        // -- BRIGHTNESS ---------------------------------------------------------------------
         lv_obj_t* brightness_unit = lv_obj_create(self._cont_display_content);
         if (brightness_unit) {
             style_row_unit(brightness_unit);
@@ -779,7 +859,7 @@ void LvglSettingsPage::build_display_detail(LvglSettingsPage& self, const YoRadi
                 lv_obj_set_height(brightness_block, LV_SIZE_CONTENT);
                 lv_obj_set_flex_flow(brightness_block, LV_FLEX_FLOW_COLUMN);
                 style_transparent_flex(brightness_block);
-                lv_obj_set_style_pad_row(brightness_block, 8, LV_PART_MAIN);
+                lv_obj_set_style_pad_row(brightness_block, kSliderBlockRowGap, LV_PART_MAIN);
                 lv_obj_clear_flag(brightness_block, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
                 self._lbl_brightness_title = add_row_label(brightness_block, kStrBrightness, pal, false, false);
@@ -792,7 +872,6 @@ void LvglSettingsPage::build_display_detail(LvglSettingsPage& self, const YoRadi
                     lv_obj_set_flex_flow(slider_row, LV_FLEX_FLOW_ROW);
                     lv_obj_set_flex_align(slider_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
                     style_transparent_flex(slider_row);
-                    lv_obj_set_style_pad_column(slider_row, 0, LV_PART_MAIN);
                     lv_obj_add_flag(slider_row, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
                     lv_obj_clear_flag(slider_row, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
@@ -827,7 +906,6 @@ void LvglSettingsPage::build_display_detail(LvglSettingsPage& self, const YoRadi
                         lv_obj_set_width(gap, kSliderValueGap);
                         lv_obj_set_height(gap, 1);
                         style_transparent_flex(gap);
-                        lv_obj_set_flex_grow(gap, 0);
                     }
 
                     lv_obj_t* value_col = lv_obj_create(slider_row);
@@ -835,7 +913,6 @@ void LvglSettingsPage::build_display_detail(LvglSettingsPage& self, const YoRadi
                         lv_obj_set_width(value_col, kValueColWidth);
                         lv_obj_set_style_min_width(value_col, kValueColWidth, LV_PART_MAIN);
                         lv_obj_set_style_max_width(value_col, kValueColWidth, LV_PART_MAIN);
-                        lv_obj_set_height(value_col, LV_SIZE_CONTENT);
                         lv_obj_set_flex_grow(value_col, 0);
                         lv_obj_set_flex_flow(value_col, LV_FLEX_FLOW_ROW);
                         lv_obj_set_flex_align(
@@ -846,9 +923,9 @@ void LvglSettingsPage::build_display_detail(LvglSettingsPage& self, const YoRadi
                         style_transparent_flex(value_col);
                         lv_obj_clear_flag(value_col, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
-                        char brightness_buf[8] = "100%";
-                        format_brightness_pct(brightness_buf, sizeof(brightness_buf), config.store.brightness);
-                        self._lbl_brightness_value = add_row_value(value_col, brightness_buf, pal);
+                        char b_buf[8];
+                        format_brightness_pct(b_buf, sizeof(b_buf), config.store.brightness);
+                        self._lbl_brightness_value = add_row_value(value_col, b_buf, pal);
                     }
                 }
             }
@@ -856,34 +933,40 @@ void LvglSettingsPage::build_display_detail(LvglSettingsPage& self, const YoRadi
         }
 #endif
 
-        lv_obj_t* autodim_row = create_row_unit(self._cont_display_content, pal, kRowHeight);
-        if (autodim_row) {
-            self._row_autodim.hit = autodim_row;
-            self._row_autodim.label = add_row_label(autodim_row, kStrAutoDim, pal, false, true);
-            self._row_autodim.value = add_row_value(autodim_row, autodim_enabled_label(), pal);
-            make_row_tappable(autodim_row, autodimRowClickedEvt, &self);
-        }
+        // -- AUTO DIM group: AUTO DIM + DIM AFTER + DIM LEVEL as ONE visual block ------------
+        // No separators between the three, tight row gap, one divider closing the group.
+        // Tri kontrola kak odin blok: bez razdelitelej vnutri, plotnyj shag, odin divider v konce.
+        lv_obj_t* autodim_group = lv_obj_create(self._cont_display_content);
+        if (autodim_group) {
+            style_row_unit(autodim_group);
+            lv_obj_set_style_pad_row(autodim_group, kGroupRowGap, LV_PART_MAIN);
 
-        lv_obj_t* dim_after_row = create_row_unit(self._cont_display_content, pal, kRowHeight);
-        if (dim_after_row) {
-            self._row_dim_after.hit = dim_after_row;
-            self._row_dim_after.label = add_row_label(dim_after_row, kStrDimAfter, pal, false, true);
-            self._row_dim_after.value = add_row_value(
-                dim_after_row, autodim_timeout_label(config.store.autodim_timeout_sec), pal);
-            make_row_tappable(dim_after_row, dimAfterRowClickedEvt, &self);
-        }
+            lv_obj_t* autodim_row =
+                create_row_unit(autodim_group, pal, kCompactRowHeight, /*with_divider=*/false);
+            if (autodim_row) {
+                self._row_autodim.hit = autodim_row;
+                self._row_autodim.label = add_row_label(autodim_row, kStrAutoDim, pal, false, true);
+                self._row_autodim.value = add_row_value(autodim_row, autodim_enabled_label(), pal);
+                make_row_tappable(autodim_row, autodimRowClickedEvt, &self);
+            }
 
-        lv_obj_t* dim_level_unit = lv_obj_create(self._cont_display_content);
-        if (dim_level_unit) {
-            style_row_unit(dim_level_unit);
+            lv_obj_t* dim_after_row =
+                create_row_unit(autodim_group, pal, kCompactRowHeight, /*with_divider=*/false);
+            if (dim_after_row) {
+                self._row_dim_after.hit = dim_after_row;
+                self._row_dim_after.label = add_row_label(dim_after_row, kStrDimAfter, pal, false, true);
+                self._row_dim_after.value = add_row_value(
+                    dim_after_row, autodim_timeout_label(config.store.autodim_timeout_sec), pal);
+                make_row_tappable(dim_after_row, dimAfterRowClickedEvt, &self);
+            }
 
-            lv_obj_t* dim_level_block = lv_obj_create(dim_level_unit);
+            lv_obj_t* dim_level_block = lv_obj_create(autodim_group);
             if (dim_level_block) {
                 lv_obj_set_width(dim_level_block, LV_PCT(100));
                 lv_obj_set_height(dim_level_block, LV_SIZE_CONTENT);
                 lv_obj_set_flex_flow(dim_level_block, LV_FLEX_FLOW_COLUMN);
                 style_transparent_flex(dim_level_block);
-                lv_obj_set_style_pad_row(dim_level_block, 8, LV_PART_MAIN);
+                lv_obj_set_style_pad_row(dim_level_block, kSliderBlockRowGap, LV_PART_MAIN);
                 lv_obj_clear_flag(dim_level_block, LV_OBJ_FLAG_GESTURE_BUBBLE);
 
                 self._lbl_dim_level_title = add_row_label(dim_level_block, kStrDimLevel, pal, false, false);
@@ -956,17 +1039,13 @@ void LvglSettingsPage::build_display_detail(LvglSettingsPage& self, const YoRadi
                     }
                 }
             }
+
+            // Section separation after the Auto Dim group.
+            add_bottom_divider(autodim_group, pal);
         }
 
-        lv_obj_t* theme_gap = lv_obj_create(self._cont_display_content);
-        if (theme_gap) {
-            lv_obj_set_width(theme_gap, LV_PCT(100));
-            lv_obj_set_height(theme_gap, kDisplayThemeSectionGap);
-            style_transparent_flex(theme_gap);
-            lv_obj_clear_flag(theme_gap, LV_OBJ_FLAG_SCROLLABLE);
-        }
-
-        lv_obj_t* theme_row = create_row_unit(self._cont_display_content, pal, kRowHeight);
+        // -- THEME -------------------------------------------------------------------------
+        lv_obj_t* theme_row = create_row_unit(self._cont_display_content, pal, kDisplayRowHeight);
         if (theme_row) {
             self._row_theme.hit = theme_row;
             self._row_theme.label = add_row_label(theme_row, kStrTheme, pal, false, true);
@@ -976,13 +1055,259 @@ void LvglSettingsPage::build_display_detail(LvglSettingsPage& self, const YoRadi
             make_row_tappable(theme_row, themeRowClickedEvt, &self);
         }
 
-        lv_obj_t* perf_row = create_row_unit(self._cont_display_content, pal, kRowHeight);
+        // -- PERFORMANCE MONITOR -----------------------------------------------------------
+        lv_obj_t* perf_row = create_row_unit(self._cont_display_content, pal, kDisplayRowHeight);
         if (perf_row) {
             self._row_perf_monitor.hit = perf_row;
             self._row_perf_monitor.label = add_row_label(perf_row, kStrPerformanceMonitor, pal, false, true);
             self._row_perf_monitor.value = add_row_value(
                 perf_row, performance_monitor_enabled_label(), pal);
             make_row_tappable(perf_row, performanceMonitorRowClickedEvt, &self);
+        }
+
+        // -- SCROLLING > (opens the Scrolling sub-view) -------------------------------------
+        lv_obj_t* scrolling_row = create_row_unit(self._cont_display_content, pal, kDisplayRowHeight);
+        if (scrolling_row) {
+            self._row_scrolling.hit = scrolling_row;
+            self._row_scrolling.label = add_row_label(scrolling_row, kStrScrolling, pal, false, true);
+            self._row_scrolling.chevron = add_row_chevron(scrolling_row, pal);
+            make_row_tappable(scrolling_row, scrollingRowClickedEvt, &self);
+        }
+    }
+}
+
+// FU6 UX: one slider row with a left touch inset.
+// The inset shifts the whole track inboard so the knob at MINIMUM is not against the panel edge.
+// Range and travel are untouched: LVGL maps min..max across whatever track width results, so
+// 10..120 (and 0..10) stay fully reachable; only the geometry moves.
+// FU6 UX: ряд слайдера с левым отступом — ручка в минимуме не упирается в край панели.
+// Диапазон и ход не меняются: LVGL раскладывает min..max по любой ширине трека.
+static lv_obj_t* add_scroll_slider_row(
+    lv_obj_t*             parent,
+    lv_event_cb_t         slider_cb,
+    LvglSettingsPage*     owner,
+    int32_t               range_min,
+    int32_t               range_max,
+    int32_t               initial,
+    const char*           initial_value_text,
+    lv_obj_t**            out_slider,
+    lv_obj_t**            out_value,
+    const YoRadioPalette& pal) {
+    if (!parent || !owner) return nullptr;
+
+    lv_obj_t* slider_row = lv_obj_create(parent);
+    if (!slider_row) return nullptr;
+    lv_obj_set_width(slider_row, LV_PCT(100));
+    lv_obj_set_height(slider_row, kSliderRowH);
+    lv_obj_set_style_min_height(slider_row, kSliderRowH, LV_PART_MAIN);
+    lv_obj_set_flex_flow(slider_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(slider_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    style_transparent_flex(slider_row);
+    lv_obj_add_flag(slider_row, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    lv_obj_clear_flag(slider_row, LV_OBJ_FLAG_GESTURE_BUBBLE);
+
+    // Left touch margin (fixed-width spacer, not slider padding: padding would shrink the
+    // knob's usable travel, a spacer only moves the track).
+    // Левый отступ — спейсер, а не padding слайдера: padding урезал бы ход ручки.
+    lv_obj_t* left_inset = lv_obj_create(slider_row);
+    if (left_inset) {
+        lv_obj_set_width(left_inset, kScrollSliderLeftInset);
+        lv_obj_set_height(left_inset, 1);
+        lv_obj_set_flex_grow(left_inset, 0);
+        style_transparent_flex(left_inset);
+    }
+
+    lv_obj_t* slider_wrapper = lv_obj_create(slider_row);
+    if (slider_wrapper) {
+        lv_obj_set_height(slider_wrapper, kSliderRowH);
+        lv_obj_set_flex_grow(slider_wrapper, 1);
+        lv_obj_set_flex_flow(slider_wrapper, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(
+            slider_wrapper,
+            LV_FLEX_ALIGN_CENTER,
+            LV_FLEX_ALIGN_CENTER,
+            LV_FLEX_ALIGN_CENTER);
+        style_transparent_flex(slider_wrapper);
+        lv_obj_add_flag(slider_wrapper, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+        lv_obj_clear_flag(slider_wrapper, LV_OBJ_FLAG_GESTURE_BUBBLE);
+
+        lv_obj_t* sl = lv_slider_create(slider_wrapper);
+        if (sl) {
+            lv_obj_set_width(sl, LV_PCT(100));
+            // Full-height hit area is preserved (kSliderRowH); only the track start moved right.
+            // Высота зоны нажатия сохранена — сдвинулось только начало трека.
+            lv_slider_set_range(sl, range_min, range_max);
+            lv_slider_set_value(sl, initial, LV_ANIM_OFF);
+            style_settings_bar_slider(sl, pal);
+            lv_obj_add_flag(sl, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+            lv_obj_clear_flag(sl, LV_OBJ_FLAG_GESTURE_BUBBLE);
+            lv_obj_add_event_cb(sl, slider_cb, LV_EVENT_ALL, owner);
+        }
+        if (out_slider) *out_slider = sl;
+    }
+
+    lv_obj_t* gap = lv_obj_create(slider_row);
+    if (gap) {
+        lv_obj_set_width(gap, kSliderValueGap);
+        lv_obj_set_height(gap, 1);
+        style_transparent_flex(gap);
+    }
+
+    lv_obj_t* value_col = lv_obj_create(slider_row);
+    if (value_col) {
+        lv_obj_set_width(value_col, kScrollValueColWidth);
+        lv_obj_set_style_min_width(value_col, kScrollValueColWidth, LV_PART_MAIN);
+        lv_obj_set_style_max_width(value_col, kScrollValueColWidth, LV_PART_MAIN);
+        lv_obj_set_flex_grow(value_col, 0);
+        lv_obj_set_flex_flow(value_col, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(
+            value_col,
+            LV_FLEX_ALIGN_END,
+            LV_FLEX_ALIGN_CENTER,
+            LV_FLEX_ALIGN_CENTER);
+        style_transparent_flex(value_col);
+        lv_obj_clear_flag(value_col, LV_OBJ_FLAG_GESTURE_BUBBLE);
+
+        lv_obj_t* v = add_row_value(value_col, initial_value_text, pal);
+        if (out_value) *out_value = v;
+    }
+    return slider_row;
+}
+
+// FU6 UX: Settings -> Display -> Scrolling. Holds the three FU6 controls (behaviour unchanged)
+// plus a live preview label driven by the SAME lv_text_scroll helper as production labels.
+// FU6 UX: подстраница Scrolling — три контрола FU6 без изменения поведения плюс живой preview,
+// использующий тот же хелпер lv_text_scroll, что и продакшн-лейблы.
+void LvglSettingsPage::build_scrolling_detail(LvglSettingsPage& self, const YoRadioPalette& pal) {
+    self._cont_scrolling_content = lv_obj_create(self._view_scrolling);
+    if (!self._cont_scrolling_content) return;
+
+    lv_obj_set_width(self._cont_scrolling_content, LV_PCT(100));
+    lv_obj_set_flex_grow(self._cont_scrolling_content, 1);
+    lv_obj_set_flex_flow(self._cont_scrolling_content, LV_FLEX_FLOW_COLUMN);
+    style_transparent_flex(self._cont_scrolling_content);
+    lv_obj_set_style_pad_top(self._cont_scrolling_content, kContentTopInset, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(self._cont_scrolling_content, 0, LV_PART_MAIN);
+
+    // -- SCROLL SPEED -------------------------------------------------------------------------
+    lv_obj_t* speed_unit = lv_obj_create(self._cont_scrolling_content);
+    if (speed_unit) {
+        style_row_unit(speed_unit);
+
+        lv_obj_t* speed_block = lv_obj_create(speed_unit);
+        if (speed_block) {
+            lv_obj_set_width(speed_block, LV_PCT(100));
+            lv_obj_set_height(speed_block, LV_SIZE_CONTENT);
+            lv_obj_set_flex_flow(speed_block, LV_FLEX_FLOW_COLUMN);
+            style_transparent_flex(speed_block);
+            lv_obj_set_style_pad_row(speed_block, kSliderBlockRowGap, LV_PART_MAIN);
+            lv_obj_clear_flag(speed_block, LV_OBJ_FLAG_GESTURE_BUBBLE);
+
+            self._lbl_scroll_speed_title = add_row_label(speed_block, kStrScrollSpeed, pal, false, false);
+
+            char speed_buf[16];
+            format_scroll_speed(speed_buf, sizeof(speed_buf), text_scroll::speedPxPerSec());
+            add_scroll_slider_row(
+                speed_block,
+                scrollSpeedSliderEvt,
+                &self,
+                text_scroll::kSpeedMin,
+                text_scroll::kSpeedMax,
+                text_scroll::speedPxPerSec(),
+                speed_buf,
+                &self._scroll_speed_slider,
+                &self._lbl_scroll_speed_value,
+                pal);
+        }
+        add_bottom_divider(speed_unit, pal);
+    }
+
+    // -- SCROLL TYPE (tap to cycle OFF -> CIRCULAR -> BACK AND FORTH) --------------------------
+    lv_obj_t* type_row = create_row_unit(self._cont_scrolling_content, pal, kDisplayRowHeight);
+    if (type_row) {
+        self._row_scroll_type.hit = type_row;
+        self._row_scroll_type.label = add_row_label(type_row, kStrScrollType, pal, false, true);
+        self._row_scroll_type.value = add_row_value(
+            type_row, scroll_type_label(text_scroll::mode()), pal);
+        make_row_tappable(type_row, scrollTypeRowClickedEvt, &self);
+    }
+
+    // -- SCROLL DELAY -------------------------------------------------------------------------
+    lv_obj_t* delay_unit = lv_obj_create(self._cont_scrolling_content);
+    if (delay_unit) {
+        style_row_unit(delay_unit);
+        // .10: small top gap so SCROLL DELAY is not flush against the divider above.
+        // .10: небольшой верхний отступ, чтобы секция не липла к divider сверху.
+        lv_obj_set_style_pad_top(delay_unit, kSubSectionTopGap, LV_PART_MAIN);
+
+        lv_obj_t* delay_block = lv_obj_create(delay_unit);
+        if (delay_block) {
+            lv_obj_set_width(delay_block, LV_PCT(100));
+            lv_obj_set_height(delay_block, LV_SIZE_CONTENT);
+            lv_obj_set_flex_flow(delay_block, LV_FLEX_FLOW_COLUMN);
+            style_transparent_flex(delay_block);
+            lv_obj_set_style_pad_row(delay_block, kSliderBlockRowGap, LV_PART_MAIN);
+            lv_obj_clear_flag(delay_block, LV_OBJ_FLAG_GESTURE_BUBBLE);
+
+            self._lbl_scroll_delay_title = add_row_label(delay_block, kStrScrollDelay, pal, false, false);
+
+            char delay_buf[16];
+            format_scroll_delay(delay_buf, sizeof(delay_buf), text_scroll::delaySec());
+            add_scroll_slider_row(
+                delay_block,
+                scrollDelaySliderEvt,
+                &self,
+                text_scroll::kDelayMinSec,
+                text_scroll::kDelayMaxSec,
+                text_scroll::delaySec(),
+                delay_buf,
+                &self._scroll_delay_slider,
+                &self._lbl_scroll_delay_value,
+                pal);
+        }
+        add_bottom_divider(delay_unit, pal);
+    }
+
+    // -- SCROLLING PREVIEW --------------------------------------------------------------------
+    // The preview is an ordinary registered FU6 label: no separate animation logic, no persistence.
+    // text_scroll::registerLabel() gives it the same speed/type/delay as every production label,
+    // and reapplyAll() from the sliders reaches it live. OFF stops it exactly like the others.
+    // Preview — обычный зарегистрированный лейбл FU6: без отдельной анимации и без сохранения.
+    lv_obj_t* preview_unit = lv_obj_create(self._cont_scrolling_content);
+    if (preview_unit) {
+        style_row_unit(preview_unit);
+        // .10: same small top gap above the whole Preview section (unchanged).
+        // .12: caption-to-text gap is kPreviewCaptionToTextGap, not the slider pad_row.
+        // .10: тот же отступ над всей секцией Preview (без изменений).
+        // .12: зазор caption→текст — kPreviewCaptionToTextGap, не slider pad_row.
+        lv_obj_set_style_pad_top(preview_unit, kSubSectionTopGap, LV_PART_MAIN);
+
+        lv_obj_t* preview_block = lv_obj_create(preview_unit);
+        if (preview_block) {
+            lv_obj_set_width(preview_block, LV_PCT(100));
+            lv_obj_set_height(preview_block, LV_SIZE_CONTENT);
+            lv_obj_set_flex_flow(preview_block, LV_FLEX_FLOW_COLUMN);
+            style_transparent_flex(preview_block);
+            lv_obj_set_style_pad_row(preview_block, kPreviewCaptionToTextGap, LV_PART_MAIN);
+            lv_obj_clear_flag(preview_block, LV_OBJ_FLAG_GESTURE_BUBBLE);
+
+            self._lbl_preview_caption =
+                add_row_label(preview_block, kStrScrollingPreview, pal, true, false);
+
+            self._lbl_scroll_preview = lv_label_create(preview_block);
+            if (self._lbl_scroll_preview) {
+                lv_label_set_text(self._lbl_scroll_preview, kStrScrollingPreviewText);
+                lv_obj_set_width(self._lbl_scroll_preview, LV_PCT(100));
+                set_font_slot(self._lbl_scroll_preview, FontProvider::text(LV_ACTIVE_PROFILE.font_normal_px));
+                lv_obj_set_style_text_color(self._lbl_scroll_preview, pal.text_primary, LV_PART_MAIN);
+                lv_obj_set_style_text_align(self._lbl_scroll_preview, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
+                lv_obj_clear_flag(self._lbl_scroll_preview, LV_OBJ_FLAG_GESTURE_BUBBLE);
+                // Register LAST, once width/font/alignment are final (FU6 helper contract).
+                // Slot cleanup is automatic: lv_obj_null_on_delete() clears it when the sub-view
+                // tree is destroyed on Back, so no stale pointer survives.
+                // Регистрируем последним; слот очищается сам при удалении дерева на Back.
+                text_scroll::registerLabel(self._lbl_scroll_preview);
+            }
         }
     }
 }
@@ -1104,6 +1429,71 @@ void LvglSettingsPage::_destroyMusicRailView() {
     _row_rail_profile = {};
 }
 
+bool LvglSettingsPage::_ensureScrollingView() {
+    if (_view_scrolling) {
+        return true;
+    }
+    if (!_screen) {
+        return false;
+    }
+
+    const YoRadioPalette& pal = yoradio_palette();
+
+    _view_scrolling = lv_obj_create(_screen);
+    if (!_view_scrolling) {
+        return false;
+    }
+    lv_obj_set_width(_view_scrolling, LV_PCT(100));
+    lv_obj_set_flex_grow(_view_scrolling, 1);
+    lv_obj_set_flex_flow(_view_scrolling, LV_FLEX_FLOW_COLUMN);
+    style_transparent_flex(_view_scrolling);
+    lv_obj_set_style_pad_row(_view_scrolling, 0, LV_PART_MAIN);
+    lv_obj_add_flag(_view_scrolling, LV_OBJ_FLAG_HIDDEN);
+
+    // Reuses the Display glyph: Scrolling is a Display sub-page and the icon set is a
+    // generated font subset, so this repair introduces no new glyph.
+    // Pereispolzuem glif Display: Scrolling - podstranica Display, novyj glif ne vvodim.
+    create_detail_header(
+        _view_scrolling,
+        kStrScrolling,
+        YORA_SETTINGS_GLYPH_DISPLAY,
+        LvglSettingsPage::scrollingBackClickedEvt,
+        _scrolling_back_hit,
+        _scrolling_header_icon,
+        _lbl_scrolling_header,
+        this,
+        pal);
+
+    build_scrolling_detail(*this, pal);
+    block_gesture_bubble_deep(_view_scrolling);
+    return true;
+}
+
+void LvglSettingsPage::_destroyScrollingView() {
+    // Deleting the tree also deletes the registered preview label; lv_obj_null_on_delete()
+    // inside lv_text_scroll clears its registry slot, so no stale LVGL pointer survives.
+    // Udalenie dereva ubivaet i preview-lejbl; slot v reestre ochishchaetsya avtomaticheski.
+    if (_view_scrolling) {
+        lv_obj_del(_view_scrolling);
+    }
+    _view_scrolling = nullptr;
+    _scrolling_back_hit = nullptr;
+    _scrolling_header_icon = nullptr;
+    _lbl_scrolling_header = nullptr;
+    _cont_scrolling_content = nullptr;
+    _lbl_scroll_speed_title = nullptr;
+    _scroll_speed_slider = nullptr;
+    _lbl_scroll_speed_value = nullptr;
+    _lbl_scroll_delay_title = nullptr;
+    _scroll_delay_slider = nullptr;
+    _lbl_scroll_delay_value = nullptr;
+    _lbl_preview_caption = nullptr;
+    _lbl_scroll_preview = nullptr;
+    _row_scroll_type = {};
+    _scroll_speed_drag_active = false;
+    _scroll_delay_drag_active = false;
+}
+
 void LvglSettingsPage::create() {
     if (_screen) return;
 
@@ -1161,6 +1551,9 @@ void LvglSettingsPage::exit() {
     _brightness_drag_active = false;
     _dim_level_drag_active = false;
     _destroyMusicRailView();
+    // FU6 UX: the Scrolling sub-view (and its registered preview label) must not survive
+    // leaving the Settings slot. / Podstranica Scrolling ne dolzhna perezhit uhod so slota.
+    _destroyScrollingView();
     _view = SettingsView::Main;
     _hideSleepDeviceWarning();
 }
@@ -1174,6 +1567,9 @@ void LvglSettingsPage::_showView(SettingsView view) {
         if (_view_display) {
             lv_obj_add_flag(_view_display, LV_OBJ_FLAG_HIDDEN);
         }
+        if (_view_scrolling) {
+            lv_obj_add_flag(_view_scrolling, LV_OBJ_FLAG_HIDDEN);
+        }
         _syncMainRowValues();
     } else if (view == SettingsView::Display) {
         if (!_view_display) return;
@@ -1182,6 +1578,9 @@ void LvglSettingsPage::_showView(SettingsView view) {
         if (_view_music) {
             lv_obj_add_flag(_view_music, LV_OBJ_FLAG_HIDDEN);
         }
+        if (_view_scrolling) {
+            lv_obj_add_flag(_view_scrolling, LV_OBJ_FLAG_HIDDEN);
+        }
         _syncDisplayValues();
     } else if (view == SettingsView::MusicRail) {
         if (!_view_music) return;
@@ -1189,8 +1588,22 @@ void LvglSettingsPage::_showView(SettingsView view) {
         if (_view_display) {
             lv_obj_add_flag(_view_display, LV_OBJ_FLAG_HIDDEN);
         }
+        if (_view_scrolling) {
+            lv_obj_add_flag(_view_scrolling, LV_OBJ_FLAG_HIDDEN);
+        }
         lv_obj_clear_flag(_view_music, LV_OBJ_FLAG_HIDDEN);
         _syncMusicRailValues();
+    } else if (view == SettingsView::Scrolling) {
+        if (!_view_scrolling) return;
+        lv_obj_add_flag(_view_main, LV_OBJ_FLAG_HIDDEN);
+        if (_view_display) {
+            lv_obj_add_flag(_view_display, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (_view_music) {
+            lv_obj_add_flag(_view_music, LV_OBJ_FLAG_HIDDEN);
+        }
+        lv_obj_clear_flag(_view_scrolling, LV_OBJ_FLAG_HIDDEN);
+        _syncScrollingValues();
     }
 }
 
@@ -1255,6 +1668,28 @@ void LvglSettingsPage::_syncDisplayValues() {
         _syncDimLevelSliderRange(true);
     }
     _applyAutodimRowTreatment(yoradio_palette());
+}
+
+// FU6 UX: Scrolling sub-view value sync. Never fights an active drag.
+// FU6 UX: sinhronizaciya podstranicy Scrolling; ne meshaet aktivnomu peretaskivaniyu.
+void LvglSettingsPage::_syncScrollingValues() {
+    if (_row_scroll_type.value) {
+        lv_label_set_text(_row_scroll_type.value, scroll_type_label(text_scroll::mode()));
+    }
+    if (_scroll_speed_slider && !_scroll_speed_drag_active) {
+        const uint8_t sp = text_scroll::speedPxPerSec();
+        if (lv_slider_get_value(_scroll_speed_slider) != static_cast<int32_t>(sp)) {
+            lv_slider_set_value(_scroll_speed_slider, sp, LV_ANIM_OFF);
+        }
+        _updateScrollSpeedLabel(sp);
+    }
+    if (_scroll_delay_slider && !_scroll_delay_drag_active) {
+        const uint8_t dl = text_scroll::delaySec();
+        if (lv_slider_get_value(_scroll_delay_slider) != static_cast<int32_t>(dl)) {
+            lv_slider_set_value(_scroll_delay_slider, dl, LV_ANIM_OFF);
+        }
+        _updateScrollDelayLabel(dl);
+    }
 }
 
 void LvglSettingsPage::_syncMusicRailValues() {
@@ -1513,6 +1948,8 @@ void LvglSettingsPage::_applySliderTheme(const YoRadioPalette& pal) {
     style_settings_bar_slider(_brightness_slider, pal);
 #endif
     style_settings_bar_slider(_dim_level_slider, pal);
+    style_settings_bar_slider(_scroll_speed_slider, pal);
+    style_settings_bar_slider(_scroll_delay_slider, pal);
 }
 
 void LvglSettingsPage::footerClickedEvt(lv_event_t* e) {
@@ -1563,6 +2000,29 @@ void LvglSettingsPage::musicRowClickedEvt(lv_event_t* e) {
         return;
     }
     self->_showView(SettingsView::MusicRail);
+}
+
+void LvglSettingsPage::scrollingRowClickedEvt(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
+    if (!self) return;
+
+    notifyPageChainActivity("settings-scrolling");
+    if (!self->_ensureScrollingView()) {
+        return;
+    }
+    self->_showView(SettingsView::Scrolling);
+}
+
+void LvglSettingsPage::scrollingBackClickedEvt(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
+    if (!self) return;
+    // Back returns to Display (the parent page), not to the Settings root.
+    // Destroy first: the preview label must not outlive the sub-view.
+    // Back vozvrashchaet na Display; snachala destroy - preview ne dolzhen perezhit podstranicu.
+    self->_destroyScrollingView();
+    self->_showView(SettingsView::Display);
 }
 
 void LvglSettingsPage::musicBackClickedEvt(lv_event_t* e) {
@@ -1831,6 +2291,120 @@ void LvglSettingsPage::dimLevelSliderEvt(lv_event_t* e) {
     }
 }
 
+// ── FU6-A handlers ────────────────────────────────────────────────────────────────────────────
+// Slider pattern mirrors dimLevelSliderEvt(): VALUE_CHANGED applies live without touching NVS,
+// RELEASED persists once with force=true (the store already equals the dragged value).
+// Слайдеры повторяют dimLevelSliderEvt(): VALUE_CHANGED — живое применение без записи в NVS,
+// RELEASED — одна запись с force=true.
+
+void LvglSettingsPage::_updateScrollSpeedLabel(uint8_t px_per_sec) {
+    if (!_lbl_scroll_speed_value) return;
+    char buf[16];
+    format_scroll_speed(buf, sizeof(buf), px_per_sec);
+    lv_label_set_text(_lbl_scroll_speed_value, buf);
+}
+
+void LvglSettingsPage::_updateScrollDelayLabel(uint8_t sec) {
+    if (!_lbl_scroll_delay_value) return;
+    char buf[16];
+    format_scroll_delay(buf, sizeof(buf), sec);
+    lv_label_set_text(_lbl_scroll_delay_value, buf);
+}
+
+void LvglSettingsPage::scrollSpeedSliderEvt(lv_event_t* e) {
+    auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
+    if (!self || !self->_scroll_speed_slider) return;
+    const lv_event_code_t code = lv_event_get_code(e);
+
+    if (code == LV_EVENT_PRESSED) {
+        self->_scroll_speed_drag_active = true;
+        notifyPageChainActivity("settings-scroll-speed");
+        return;
+    }
+
+    if (code == LV_EVENT_VALUE_CHANGED) {
+        self->_scroll_speed_drag_active = true;
+        // Snap to the product step so UI, runtime and NVS stay on one grid.
+        // Привязка к шагу: UI, runtime и NVS — на одной сетке.
+        const uint8_t raw = static_cast<uint8_t>(lv_slider_get_value(self->_scroll_speed_slider));
+        const uint8_t val = text_scroll::sanitizeSpeed(raw);
+        if (val != raw) {
+            lv_slider_set_value(self->_scroll_speed_slider, val, LV_ANIM_OFF);
+        }
+        // Only re-apply when the SNAPPED value really moved. Touch samples arrive far faster than
+        // the 5 px/s grid changes, and each re-apply walks every registered label.
+        // Пересчитываем только при реальной смене значения на сетке: тач-сэмплы приходят намного
+        // чаще, чем меняется шаг 5 px/s, а каждый пересчёт обходит все зарегистрированные лейблы.
+        if (val != config.store.text_scroll_speed) {
+            config.store.text_scroll_speed = val;  // live only — no NVS write while dragging
+            text_scroll::reapplyAll();
+            self->_updateScrollSpeedLabel(val);
+        }
+        notifyPageChainActivity("settings-scroll-speed");
+        return;
+    }
+
+    if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+        const uint8_t val =
+            text_scroll::sanitizeSpeed(static_cast<uint8_t>(lv_slider_get_value(self->_scroll_speed_slider)));
+        lv_slider_set_value(self->_scroll_speed_slider, val, LV_ANIM_OFF);
+        config.store.text_scroll_speed = val;
+        // force=true after live drag (store already equals val) — mirrors dimLevelSliderEvt().
+        config.saveValue(&config.store.text_scroll_speed, val, true, true);
+        text_scroll::reapplyAll();
+        self->_updateScrollSpeedLabel(val);
+        self->_scroll_speed_drag_active = false;
+    }
+}
+
+void LvglSettingsPage::scrollDelaySliderEvt(lv_event_t* e) {
+    auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
+    if (!self || !self->_scroll_delay_slider) return;
+    const lv_event_code_t code = lv_event_get_code(e);
+
+    if (code == LV_EVENT_PRESSED) {
+        self->_scroll_delay_drag_active = true;
+        notifyPageChainActivity("settings-scroll-delay");
+        return;
+    }
+
+    if (code == LV_EVENT_VALUE_CHANGED) {
+        self->_scroll_delay_drag_active = true;
+        const uint8_t val =
+            text_scroll::sanitizeDelaySec(static_cast<uint8_t>(lv_slider_get_value(self->_scroll_delay_slider)));
+        // Same rate guard as the speed slider (11 distinct values across the whole drag).
+        // Тот же ограничитель частоты, что и у слайдера скорости.
+        if (val != config.store.text_scroll_delay_s) {
+            config.store.text_scroll_delay_s = val;  // live only — no NVS write while dragging
+            text_scroll::reapplyAll();
+            self->_updateScrollDelayLabel(val);
+        }
+        notifyPageChainActivity("settings-scroll-delay");
+        return;
+    }
+
+    if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+        const uint8_t val =
+            text_scroll::sanitizeDelaySec(static_cast<uint8_t>(lv_slider_get_value(self->_scroll_delay_slider)));
+        lv_slider_set_value(self->_scroll_delay_slider, val, LV_ANIM_OFF);
+        config.store.text_scroll_delay_s = val;
+        config.saveValue(&config.store.text_scroll_delay_s, val, true, true);
+        text_scroll::reapplyAll();
+        self->_updateScrollDelayLabel(val);
+        self->_scroll_delay_drag_active = false;
+    }
+}
+
+void LvglSettingsPage::scrollTypeRowClickedEvt(lv_event_t* e) {
+    auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
+    if (!self) return;
+    cycle_scroll_type();  // persists + text_scroll::reapplyAll()
+    if (self->_row_scroll_type.value) {
+        lv_label_set_text(self->_row_scroll_type.value, scroll_type_label(text_scroll::mode()));
+    }
+    notifyPageChainActivity("settings-scroll-type");
+}
+
 void LvglSettingsPage::liveReapplyTheme() {
     _applyThemeColors();
 }
@@ -1868,6 +2442,7 @@ void LvglSettingsPage::_applyThemeColors() {
     apply_row(_row_perf_monitor, false);
     apply_row(_row_autodim, false);
     apply_row(_row_dim_after, false);
+    apply_row(_row_scrolling, false);
     _applyAutodimRowTreatment(pal);
 
     if (_display_header_icon) {
@@ -1900,6 +2475,36 @@ void LvglSettingsPage::_applyThemeColors() {
         }
         if (_cont_music_content) {
             reapply_dividers_in(_cont_music_content, pal);
+        }
+    }
+    if (_view_scrolling) {
+        apply_row(_row_scroll_type, false);
+        if (_scrolling_header_icon) {
+            lv_obj_set_style_text_color(_scrolling_header_icon, pal.text_secondary, LV_PART_MAIN);
+        }
+        if (_lbl_scrolling_header) {
+            lv_obj_set_style_text_color(_lbl_scrolling_header, pal.text_primary, LV_PART_MAIN);
+        }
+        if (_scrolling_back_hit) {
+            lv_obj_t* back_glyph = lv_obj_get_child(_scrolling_back_hit, 0);
+            if (back_glyph) {
+                lv_obj_set_style_text_color(back_glyph, pal.text_meta, LV_PART_MAIN);
+            }
+        }
+        if (_lbl_scroll_speed_title) {
+            lv_obj_set_style_text_color(_lbl_scroll_speed_title, pal.text_primary, LV_PART_MAIN);
+        }
+        if (_lbl_scroll_delay_title) {
+            lv_obj_set_style_text_color(_lbl_scroll_delay_title, pal.text_primary, LV_PART_MAIN);
+        }
+        if (_lbl_preview_caption) {
+            lv_obj_set_style_text_color(_lbl_preview_caption, pal.text_meta, LV_PART_MAIN);
+        }
+        if (_lbl_scroll_preview) {
+            lv_obj_set_style_text_color(_lbl_scroll_preview, pal.text_primary, LV_PART_MAIN);
+        }
+        if (_cont_scrolling_content) {
+            reapply_dividers_in(_cont_scrolling_content, pal);
         }
     }
     if (_lbl_brightness_title) {
@@ -1945,6 +2550,8 @@ void LvglSettingsPage::_nullHandles() {
     _view = SettingsView::Main;
     _brightness_drag_active = false;
     _dim_level_drag_active = false;
+    _scroll_speed_drag_active = false;
+    _scroll_delay_drag_active = false;
     _screen = nullptr;
     _status_line = {};
     _view_main = nullptr;
@@ -1969,6 +2576,21 @@ void LvglSettingsPage::_nullHandles() {
     _lbl_dim_level_title = nullptr;
     _dim_level_slider = nullptr;
     _lbl_dim_level_value = nullptr;
+    _view_scrolling = nullptr;
+    _scrolling_back_hit = nullptr;
+    _scrolling_header_icon = nullptr;
+    _lbl_scrolling_header = nullptr;
+    _cont_scrolling_content = nullptr;
+    _lbl_scroll_speed_title = nullptr;
+    _scroll_speed_slider = nullptr;
+    _lbl_scroll_speed_value = nullptr;
+    _lbl_scroll_delay_title = nullptr;
+    _scroll_delay_slider = nullptr;
+    _lbl_scroll_delay_value = nullptr;
+    _lbl_preview_caption = nullptr;
+    _lbl_scroll_preview = nullptr;
+    _row_scrolling = {};
+    _row_scroll_type = {};
     _row_display = {};
     _row_music = {};
     _row_resume_startup = {};

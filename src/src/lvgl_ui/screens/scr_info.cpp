@@ -29,6 +29,7 @@
 #include "esp_wifi.h"
 
 #include "../fonts/lv_fonts.h"
+#include "../lv_text_scroll.h"
 #include "../font_provider.h"
 #include "../profiles/lv_profile_select.h"
 #include "../theme/lv_theme_yoradio.h"
@@ -183,6 +184,9 @@ static void info_set_text_if_changed(lv_obj_t* lbl, const char* s) {
     const char* cur = lv_label_get_text(lbl);
     if (cur != nullptr && strcmp(cur, s) == 0) return;
     lv_label_set_text(lbl, s);
+    // FU6-A: duration depends on the current text width — recompute on a real text change.
+    // FU6-A: длительность зависит от текущей ширины текста — пересчёт при смене текста.
+    text_scroll::notifyTextChanged(lbl);
 }
 
 static void style_transparent_flex(lv_obj_t* o) {
@@ -272,7 +276,6 @@ static void add_kv_row(
             lv_obj_set_style_min_width(slot, 0, LV_PART_MAIN);
             v = lv_label_create(slot);
             if (v) {
-                lv_label_set_long_mode(v, LV_LABEL_LONG_SCROLL_CIRCULAR);
                 lv_obj_set_width(v, LV_PCT(100));
             }
         }
@@ -289,6 +292,12 @@ static void add_kv_row(
         info_set_font(v, FontProvider::text(LV_ACTIVE_PROFILE.font_normal_px));
         lv_obj_set_style_text_color(v, pal.text_primary, LV_PART_MAIN);
         lv_obj_set_style_text_align(v, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
+        // FU6-A: the bounded-slot variant is the auto-scrolling one; the shared helper owns its
+        // long mode, duration and delay. Registered last, once styling is final.
+        // FU6-A: вариант со slot — автоскроллящийся; режим/длительность/задержка из хелпера.
+        if (val_long_mode == InfoKvValueLongMode::ScrollCircular) {
+            text_scroll::registerLabel(v);
+        }
     }
     if (out_val) {
         *out_val = v;

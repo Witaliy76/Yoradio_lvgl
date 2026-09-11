@@ -30,6 +30,7 @@
 // Author: Witaliy76 - https://github.com/Witaliy76
 #include "scr_weather.h"
 #include "../widgets/wgt_footer_pill.h"
+#include "../lv_text_scroll.h"
 
 #include "lvgl.h"
 #include "Arduino.h"
@@ -770,6 +771,9 @@ static void wx_set_text_if_changed(lv_obj_t* lbl, const char* s) {
     const char* cur = lv_label_get_text(lbl);
     if (cur != nullptr && strcmp(cur, s) == 0) return;
     lv_label_set_text(lbl, s);
+    // FU6-A: duration depends on the current text width — recompute on a real text change.
+    // FU6-A: длительность зависит от текущей ширины текста — пересчёт при смене текста.
+    text_scroll::notifyTextChanged(lbl);
 }
 
 static void wx_show(lv_obj_t* obj, bool show) {
@@ -1038,11 +1042,13 @@ void LvglWeatherPage::create_data_block(LvglWeatherPage& self, const YoRadioPale
                             lv_label_set_text(self._lbl_hero_cond, "");
                             // A3.1B: bounded width + circular scroll on overflow only (Main/Info pattern).
                             // A3.1B: фиксированная ширина + круговой скролл только при переполнении.
-                            lv_label_set_long_mode(self._lbl_hero_cond, LV_LABEL_LONG_SCROLL_CIRCULAR);
                             lv_obj_set_width(self._lbl_hero_cond, LV_PCT(100));
                             wx_set_font(self._lbl_hero_cond, font_condition());
                             lv_obj_set_style_text_color(self._lbl_hero_cond, pal.text_secondary, LV_PART_MAIN);
                             lv_obj_set_style_text_align(self._lbl_hero_cond, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+                            // FU6-A: long mode/duration/delay from the shared settings; register last.
+                            // FU6-A: режим/длительность/задержка из общих настроек; регистрируем последним.
+                            text_scroll::registerLabel(self._lbl_hero_cond);
                         }
                         self._lbl_hero_feels = lv_label_create(hero_text);
                         if (self._lbl_hero_feels) {
@@ -1220,11 +1226,13 @@ void LvglWeatherPage::create_footer(LvglWeatherPage& self, const YoRadioPalette&
                 lv_obj_set_style_text_align(self._lbl_footer, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
                 // A3.2: full-width circular scroll on overflow; tap stays on _footer_box.
                 // A3.2: полная ширина + круговой скролл при переполнении; тап на _footer_box.
-                lv_label_set_long_mode(self._lbl_footer, LV_LABEL_LONG_SCROLL_CIRCULAR);
                 lv_obj_set_width(self._lbl_footer, LV_PCT(100));
                 lv_obj_set_flex_grow(self._lbl_footer, 1);
                 lv_obj_set_style_min_width(self._lbl_footer, 0, LV_PART_MAIN);
                 wgt_footer_pill::make_child_passive(self._lbl_footer);
+                // FU6-A: register last, once width/grow/alignment are final.
+                // FU6-A: регистрируем последним, когда ширина и выравнивание уже заданы.
+                text_scroll::registerLabel(self._lbl_footer);
             }
         }
     }

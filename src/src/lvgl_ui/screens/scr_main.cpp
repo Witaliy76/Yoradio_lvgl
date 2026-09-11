@@ -41,6 +41,7 @@
 #include "../control_glyph_utf8.h"
 #include "lvgl_ui.h"
 #include "../lv_page_chain.h"
+#include "../lv_text_scroll.h"
 #include "../../core/config.h"
 #include "../../core/display.h"
 #include "../../core/network.h"
@@ -238,6 +239,10 @@ static void main_set_text_if_changed(lv_obj_t* lbl, const char* s) {
     const char* cur = lv_label_get_text(lbl);
     if (cur != nullptr && strcmp(cur, s) == 0) return;
     lv_label_set_text(lbl, s);
+    // FU6-A: true px/s depends on the CURRENT text width, so the duration must be recomputed
+    // whenever the text really changes. No-op for labels that are not FU6 scrollers.
+    // FU6-A: длительность зависит от текущей ширины текста — пересчитываем при смене текста.
+    text_scroll::notifyTextChanged(lbl);
 }
 
 static void main_set_font(lv_obj_t* obj, const void* font_slot) {
@@ -849,7 +854,6 @@ void LvglMainScreen::create_mid_block(LvglMainScreen& self, const YoRadioPalette
                 self._lbl_station_name = lv_label_create(cont_text);
                 if (self._lbl_station_name) {
                     lv_label_set_text(self._lbl_station_name, "---");
-                    lv_label_set_long_mode(self._lbl_station_name, LV_LABEL_LONG_SCROLL_CIRCULAR);
                     lv_obj_set_width(self._lbl_station_name, LV_PCT(100));
                     // Main font experiment: 32 px anchor (direct font ref, not profile slot).
                     // Эксперимент: якорь 32 px.
@@ -860,7 +864,6 @@ void LvglMainScreen::create_mid_block(LvglMainScreen& self, const YoRadioPalette
                 self._lbl_track = lv_label_create(cont_text);
                 if (self._lbl_track) {
                     lv_label_set_text(self._lbl_track, " ");
-                    lv_label_set_long_mode(self._lbl_track, LV_LABEL_LONG_SCROLL_CIRCULAR);
                     lv_obj_set_width(self._lbl_track, LV_PCT(100));
                     // Second tier: 22 px.
                     // Второй уровень: 22 px.
@@ -873,7 +876,6 @@ void LvglMainScreen::create_mid_block(LvglMainScreen& self, const YoRadioPalette
                 self._lbl_artist = lv_label_create(cont_text);
                 if (self._lbl_artist) {
                     lv_label_set_text(self._lbl_artist, " ");
-                    lv_label_set_long_mode(self._lbl_artist, LV_LABEL_LONG_SCROLL_CIRCULAR);
                     lv_obj_set_width(self._lbl_artist, LV_PCT(100));
                     // Third tier: 18 px (experiment ladder).
                     // Третий уровень: 18 px.
@@ -913,6 +915,14 @@ void LvglMainScreen::create_mid_block(LvglMainScreen& self, const YoRadioPalette
                         lv_obj_set_style_text_align(self._lbl_artist, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
                     }
                 }
+
+                // FU6-A: register AFTER width/font/alignment are final — the shared helper reads
+                // the text width and the screen's own text_align at registration time.
+                // FU6-A: регистрируем ПОСЛЕ ширины/шрифта/выравнивания — хелпер читает ширину
+                // текста и исходное выравнивание экрана в момент регистрации.
+                text_scroll::registerLabel(self._lbl_station_name);
+                text_scroll::registerLabel(self._lbl_track);
+                text_scroll::registerLabel(self._lbl_artist);
             }
         }
     }
@@ -1425,7 +1435,6 @@ void LvglMainScreen::create_bottom_zone(LvglMainScreen& self, const YoRadioPalet
         self._lbl_ai_line = lv_label_create(zone_bottom);
         if (self._lbl_ai_line) {
             lv_label_set_text(self._lbl_ai_line, "");
-            lv_label_set_long_mode(self._lbl_ai_line, LV_LABEL_LONG_SCROLL_CIRCULAR);
             lv_obj_set_width(self._lbl_ai_line, LV_PCT(100));
             lv_obj_set_style_text_align(self._lbl_ai_line, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
             // AI line: 16 px (was 14) — one tier up for readability / строка AI: 16 px, чуть крупнее
@@ -1438,6 +1447,9 @@ void LvglMainScreen::create_bottom_zone(LvglMainScreen& self, const YoRadioPalet
             // Swipe must not bubble to _screen — carousel listens on page root (5.3).
             // Свайп по строке AI не должен всплывать на экран с обработчиком карусели.
             lv_obj_clear_flag(self._lbl_ai_line, LV_OBJ_FLAG_GESTURE_BUBBLE);
+            // FU6-A: register last — width, font and CENTER alignment are all final here.
+            // FU6-A: регистрируем последним — ширина, шрифт и выравнивание уже заданы.
+            text_scroll::registerLabel(self._lbl_ai_line);
         }
 
         // Vertical divider contract: screen.y2 - heapbar.y2 == status_divider.y1 - screen.y1 (real coords after layout).

@@ -19,6 +19,9 @@ enum class SettingsView : uint8_t {
     // 6.7S6: Music Rail detail — lazy, destroy-on-Back (unlike Display MEM1).
     // 6.7S6: Music Rail detail — lazy, destroy-on-Back (в отличие от Display MEM1).
     MusicRail,
+    // FU6 UX: Display -> Scrolling sub-view. Lazy + destroy-on-Back (MusicRail pattern),
+    // so the registered preview label dies with the tree. / Ленивая, уничтожается на Back.
+    Scrolling,
 };
 
 // Settings carousel page: main category rows + optional detail views (Display first).
@@ -50,7 +53,8 @@ public:
     // 6.7S6: any Settings detail view blocks carousel swipe until Back.
     // 6.7S6: любой detail Settings блокирует swipe карусели до Back.
     bool isSettingsDetailBlockingCarousel() const {
-        return _view == SettingsView::Display || _view == SettingsView::MusicRail;
+        return _view == SettingsView::Display || _view == SettingsView::MusicRail ||
+               _view == SettingsView::Scrolling;
     }
 
 private:
@@ -60,6 +64,7 @@ private:
     static void populate_main_rows(LvglSettingsPage& self, const YoRadioPalette& pal);
     static void build_display_detail(LvglSettingsPage& self, const YoRadioPalette& pal);
     static void build_music_rail_detail(LvglSettingsPage& self, const YoRadioPalette& pal);
+    static void build_scrolling_detail(LvglSettingsPage& self, const YoRadioPalette& pal);
 
     // 6.7S-MEM1: Display detail tree — lazy once per Settings lifecycle.
     // 6.7S-MEM1: дерево Display detail — лениво один раз за lifecycle Settings.
@@ -68,14 +73,20 @@ private:
     // 6.7S6: Music Rail detail — lazy при входе, уничтожается на Back.
     bool _ensureMusicRailView();
     void _destroyMusicRailView();
+    // FU6 UX: Scrolling sub-view — same lazy/destroy-on-Back contract as Music Rail.
+    bool _ensureScrollingView();
+    void _destroyScrollingView();
     void _nullHandles();
     void _applyThemeColors();
     void _showView(SettingsView view);
     void _syncMainRowValues();
     void _syncDisplayValues();
     void _syncMusicRailValues();
+    void _syncScrollingValues();
     void _updateBrightnessLabels(uint8_t pct);
     void _updateDimLevelLabels(uint8_t pct);
+    void _updateScrollSpeedLabel(uint8_t px_per_sec);
+    void _updateScrollDelayLabel(uint8_t sec);
     void _syncDimLevelSliderRange(bool persist_clamp);
     uint8_t _normalBrightnessForDimUi() const;
     void _applySliderTheme(const YoRadioPalette& pal);
@@ -99,6 +110,11 @@ private:
     static void performanceMonitorRowClickedEvt(lv_event_t* e);
     static void dimAfterRowClickedEvt(lv_event_t* e);
     static void dimLevelSliderEvt(lv_event_t* e);
+    static void scrollingRowClickedEvt(lv_event_t* e);
+    static void scrollingBackClickedEvt(lv_event_t* e);
+    static void scrollSpeedSliderEvt(lv_event_t* e);
+    static void scrollTypeRowClickedEvt(lv_event_t* e);
+    static void scrollDelaySliderEvt(lv_event_t* e);
     static void wifiRowClickedEvt(lv_event_t* e);
     static void musicRowClickedEvt(lv_event_t* e);
     static void musicBackClickedEvt(lv_event_t* e);
@@ -109,6 +125,8 @@ private:
     SettingsView _view = SettingsView::Main;
     bool         _brightness_drag_active = false;
     bool         _dim_level_drag_active  = false;
+    bool         _scroll_speed_drag_active = false;
+    bool         _scroll_delay_drag_active = false;
 
     lv_obj_t* _screen           = nullptr;
     wgt_status_line::Instance   _status_line{};
@@ -134,6 +152,20 @@ private:
     lv_obj_t* _lbl_dim_level_title  = nullptr;
     lv_obj_t* _dim_level_slider     = nullptr;
     lv_obj_t* _lbl_dim_level_value  = nullptr;
+    // FU6 UX: Scrolling sub-view tree / Поддерево подстраницы «Scrolling»
+    lv_obj_t* _view_scrolling         = nullptr;
+    lv_obj_t* _scrolling_back_hit     = nullptr;
+    lv_obj_t* _scrolling_header_icon  = nullptr;
+    lv_obj_t* _lbl_scrolling_header   = nullptr;
+    lv_obj_t* _cont_scrolling_content = nullptr;
+    lv_obj_t* _lbl_scroll_speed_title = nullptr;
+    lv_obj_t* _scroll_speed_slider    = nullptr;
+    lv_obj_t* _lbl_scroll_speed_value = nullptr;
+    lv_obj_t* _lbl_scroll_delay_title = nullptr;
+    lv_obj_t* _scroll_delay_slider    = nullptr;
+    lv_obj_t* _lbl_scroll_delay_value = nullptr;
+    lv_obj_t* _lbl_preview_caption    = nullptr;
+    lv_obj_t* _lbl_scroll_preview     = nullptr;
     RowChrome   _row_display{};
     RowChrome   _row_music{};
     RowChrome   _row_resume_startup{};
@@ -144,6 +176,8 @@ private:
     RowChrome   _row_perf_monitor{};
     RowChrome   _row_autodim{};
     RowChrome   _row_dim_after{};
+    RowChrome   _row_scrolling{};    // SCROLLING > row on the Display page
+    RowChrome   _row_scroll_type{};  // SCROLL TYPE row inside the sub-view
     lv_obj_t*   _sleep_device_overlay = nullptr;
 };
 

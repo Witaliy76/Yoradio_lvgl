@@ -59,7 +59,7 @@
 #if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
   #define ESP_ARDUINO_3 1
 #endif
-#define CONFIG_VERSION  9  // Performance monitor (performance_monitor)
+#define CONFIG_VERSION  10 // FU6-A text scrolling (text_scroll_speed/type/delay_s)
 
 enum playMode_e      : uint8_t  { PM_WEB=0, PM_SDCARD=1 };
 enum BitrateFormat { BF_UNCNOWN, BF_MP3, BF_AAC, BF_FLAC, BF_OGG, BF_WAV, BF_VOR, BF_OPU };
@@ -138,6 +138,15 @@ struct config_t
   uint8_t   autodim_level;                 // Dim brightness 1..(brightness-1) / уровень приглушения
   uint8_t   sleep_timer_action;            // SleepTimerAction at expiry / действие по истечению
   bool      performance_monitor;           // Settings → Display overlay / оверлей Settings → Display
+  // FU6-A text scrolling. MUST stay at the tail of config_t: sm::v2::loadSection() has exactly one
+  // partial-overlay grow path and it is hardcoded to SectionId::Ai (= this tail span). Fields added
+  // anywhere else change a different section's size, which makes loadSection() fail for that whole
+  // section and silently revert it to the stale legacy EEPROM snapshot.
+  // FU6-A: скролл текста. ДОЛЖНЫ оставаться в хвосте config_t — частичный overlay в
+  // sm::v2::loadSection() реализован только для SectionId::Ai (этот хвостовой диапазон).
+  uint8_t   text_scroll_speed;             // px/s, 10..120 step 5 / скорость, px/s
+  uint8_t   text_scroll_type;              // text_scroll::Mode 0=Off 1=Circular 2=BackAndForth
+  uint8_t   text_scroll_delay_s;           // 0..10 s between passes / пауза между проходами, с
 };
 
 #if __cplusplus >= 201103L

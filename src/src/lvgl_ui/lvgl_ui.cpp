@@ -2,6 +2,7 @@
 #include "lvgl_ui.h"
 #include "lv_overlay.h"
 #include "lv_screensaver.h"
+#include "lv_text_scroll.h"
 #include "lv_touch_indev.h"
 #include "lv_ui_events.h"
 #include "font_provider.h"
@@ -645,6 +646,12 @@ void lvgl_ui::initRuntime() {
     // Stage 6.1F-b: LVGL file API → same LittleFS mount as legacy (drive L:).
     // Этап 6.1F-b: файловый API LVGL → тот же LittleFS (диск L:).
     lv_fs_littlefs_register();
+    // FU6-A: normalize the persisted text-scroll bytes once, after Config::init() (main.cpp) and
+    // before any auto-scrolling label is created. Runtime reads sanitize anyway; this only keeps
+    // NVS and the Settings UI in agreement after a migration.
+    // FU6-A: один раз приводим сохранённые байты скролла к норме — после Config::init() и до
+    // создания лейблов. Чтение и так санитизируется; здесь синхронизируем NVS и UI.
+    text_scroll::sanitizeStoredValues();
     s_inited = true;
 }
 
