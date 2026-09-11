@@ -230,6 +230,7 @@ class Audio{
 //    void         info(event_t e, std::vector<uint32_t>& v);
   private:
     void         latinToUTF8(ps_ptr<char>& buff, bool UTF8check = true);
+    void         applyExpectedFormatHints(const char* extension);
     void         htmlToUTF8(char* str);
 // displased
     int32_t      audioFileRead(uint8_t* buff = nullptr, size_t len = 0);

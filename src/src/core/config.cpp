@@ -6,6 +6,7 @@
 #include "player.h"
 #include "network.h"
 #include "netserver.h"
+#include "../audioI2S/audio_text_url_utils.h"
 #include "../ai/ai_log.h"  // AI Layer logging macros
 #ifdef USE_SD
 #include "sdmanager.h"
@@ -270,8 +271,7 @@ void aiPerformDeferredClearIfNeeded() {
 }
 
 void u8fix(char *src){
-  char last = src[strlen(src)-1]; 
-  if ((uint8_t)last >= 0xC2) src[strlen(src)-1]='\0';
+  audio_safe::truncateAtInvalidUtf8(src);
 }
 
 bool Config::_isFSempty() {
@@ -783,9 +783,14 @@ uint8_t Config::setLastSSID(uint8_t val) {
 }
 
 void Config::setTitle(const char* title) {
+  // Validate into a temporary buffer before clearing state; empty is an intentional value.
+  // Сначала проверяем во временный буфер; пустая строка остаётся намеренным значением.
+  char clean[BUFLEN] = {0};
+  if(!audio_safe::copyMetadataUtf8(clean, sizeof(clean), title)) return;
+
   vuThreshold = 0;
   memset(config.station.title, 0, BUFLEN);
-  strlcpy(config.station.title, title, BUFLEN);
+  strlcpy(config.station.title, clean, BUFLEN);
   u8fix(config.station.title);
   netserver.requestOnChange(TITLE, 0);
   // 8.1HX-B: drop re-entrant netserver.loop() drain — main loop() drains nsQueue.
@@ -794,9 +799,14 @@ void Config::setTitle(const char* title) {
 }
 
 void Config::setStation(const char* station) {
+  // A rejected/null input must not erase the previous station name (alias-safe as well).
+  // Rejected/null input не должен стирать прежнее имя станции; alias также безопасен.
+  char clean[BUFLEN] = {0};
+  if(!audio_safe::copyMetadataUtf8(clean, sizeof(clean), station)) return;
+
   memset(config.station.name, 0, BUFLEN);
-  strlcpy(config.station.name, station, BUFLEN);
-  u8fix(config.station.title);
+  strlcpy(config.station.name, clean, BUFLEN);
+  u8fix(config.station.name);
 }
 
 void Config::indexPlaylist() {

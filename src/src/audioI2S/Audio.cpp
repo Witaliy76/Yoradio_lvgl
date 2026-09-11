@@ -24,6 +24,7 @@
 #include "../core/ppm_pcm_telemetry.h"
 #endif
 #include "AudioEx.h"
+#include "audio_text_url_utils.h"
 #include "aac_decoder/aac_decoder.h"
 #include "flac_decoder/flac_decoder.h"
 #include "mp3_decoder/mp3_decoder.h"
@@ -714,56 +715,42 @@ bool Audio::openai_speech(const String& api_key, const String& model, const Stri
     return res;
 }
 //****************************************************************************************
+void Audio::applyExpectedFormatHints(const char* extension) {
+    m_expectedCodec = CODEC_NONE;
+    m_expectedPlsFmt = FORMAT_NONE;
+    if(!extension) return;
+
+    if(     audio_safe::endsWithIcase(extension, ".mp3"))    m_expectedCodec = CODEC_MP3;
+    else if(audio_safe::endsWithIcase(extension, ".aac"))    m_expectedCodec = CODEC_AAC;
+    else if(audio_safe::endsWithIcase(extension, ".aacp"))   m_expectedCodec = CODEC_AAC;
+    else if(audio_safe::endsWithIcase(extension, ".wav"))    m_expectedCodec = CODEC_WAV;
+    else if(audio_safe::endsWithIcase(extension, ".m4a"))    m_expectedCodec = CODEC_M4A;
+    else if(audio_safe::endsWithIcase(extension, ".flac"))   m_expectedCodec = CODEC_FLAC;
+    else if(audio_safe::endsWithIcase(extension, "-flac"))   m_expectedCodec = CODEC_FLAC;
+    else if(audio_safe::endsWithIcase(extension, ".vorbis") ||
+            audio_safe::endsWithIcase(extension, "/vorbis")) m_expectedCodec = CODEC_VORBIS;
+    else if(audio_safe::endsWithIcase(extension, ".opus") ||
+            audio_safe::endsWithIcase(extension, "/opus"))   m_expectedCodec = CODEC_OPUS;
+    else if(audio_safe::endsWithIcase(extension, ".ogg") ||
+            audio_safe::endsWithIcase(extension, "/ogg"))    m_expectedCodec = CODEC_OGG;
+
+    if(     audio_safe::endsWithIcase(extension, ".asx"))    m_expectedPlsFmt = FORMAT_ASX;
+    else if(audio_safe::endsWithIcase(extension, ".m3u"))    m_expectedPlsFmt = FORMAT_M3U;
+    else if(audio_safe::containsIcase(extension, ".m3u8"))   m_expectedPlsFmt = FORMAT_M3U8;
+    else if(audio_safe::endsWithIcase(extension, ".pls"))    m_expectedPlsFmt = FORMAT_PLS;
+}
+//****************************************************************************************
 audiolib::hwoe_t Audio::dismantle_host(const char* host){
-    if (!host) return {};
+    audiolib::hwoe_t result{};
+    const audio_safe::UrlParts parts = audio_safe::parseUrl(host);
+    if(!parts.valid) return result;
 
-    audiolib::hwoe_t result;
-
-    const char* p = host;
-
-    // 🔐 1. SSL check
-    if (strncmp(p, "https://", 8) == 0) {
-        result.ssl = true;
-        p += 8;
-    } else if (strncmp(p, "http://", 7) == 0) {
-        result.ssl = false;
-        p += 7;
-    } else {  // No valid scheme -> error or acceptance http
-        result.ssl = false;
-    }
-
-    // ❓ 2. extract host (from p to ':' or '/' or '?')
-    const char* host_start = p;
-    const char* port_sep = strchr(p, ':');
-    const char* path_sep = strchr(p, '/');
-    const char* query_sep = strchr(p, '?');
-
-    const char* host_end = p + strlen(p);  // default: end of string
-    if (port_sep  && port_sep  < host_end) host_end = port_sep;
-    if (path_sep  && path_sep  < host_end) host_end = path_sep;
-    if (query_sep && query_sep < host_end) host_end = query_sep;
-    result.hwoe.copy_from(host_start, host_end - host_start);
-    result.rqh_host.clone_from(result.hwoe);
-
-    // ❓ 3. extract port
-    result.port = result.ssl ? 443 : 80; // default
-    if (port_sep && (!path_sep || port_sep < path_sep)) {
-        result.port = atoi(port_sep + 1);
-        result.rqh_host.appendf(":%u", result.port);
-    }
-
-    // ❓ 4. extract extension (path)
-    if (path_sep) {
-        const char* path_start = path_sep + 1;
-        const char* path_end = query_sep ? query_sep : host + strlen(host);
-        result.extension.copy_from(path_start, path_end - path_start);
-    }
-
-    // ❓ 5. extract query string
-    if (query_sep) {
-        result.query_string.assign(query_sep + 1);
-    }
-
+    result.ssl = parts.ssl;
+    result.port = parts.port;
+    result.hwoe.copy_from(parts.host, parts.hostLength);
+    result.rqh_host.copy_from(parts.authority, parts.authorityLength);
+    if(parts.path) result.extension.copy_from(parts.path, parts.pathLength);
+    if(parts.query) result.query_string.copy_from(parts.query, parts.queryLength);
     return result;
 }
 //****************************************************************************************
@@ -860,8 +847,7 @@ bool Audio::connecttohost(const char* host, const char* user, const char* pwd) {
         res = false;
     }
 
-    m_expectedCodec = CODEC_NONE;
-    m_expectedPlsFmt = FORMAT_NONE;
+    applyExpectedFormatHints(nullptr);
 
     if(res) {
         uint32_t dt = millis() - timestamp;
@@ -881,22 +867,7 @@ bool Audio::connecttohost(const char* host, const char* user, const char* pwd) {
     if(res) {
         m_f_running = true;
         m_client->print(rqh.get());
-        if(extension.ends_with_icase( ".mp3" ))      m_expectedCodec  = CODEC_MP3;
-        if(extension.ends_with_icase( ".aac" ))      m_expectedCodec  = CODEC_AAC;
-        if(extension.ends_with_icase( ".aacp" )) m_expectedCodec  = CODEC_AAC;
-        if(extension.ends_with_icase( ".wav" ))      m_expectedCodec  = CODEC_WAV;
-        if(extension.ends_with_icase( ".m4a" ))      m_expectedCodec  = CODEC_M4A;
-        if(extension.ends_with_icase( ".ogg" ))      m_expectedCodec  = CODEC_OGG;
-        if(extension.ends_with_icase( ".vorbis"))   m_expectedCodec = CODEC_VORBIS;
-        if(extension.ends_with_icase( "/vorbis"))   m_expectedCodec = CODEC_VORBIS;
-        if(extension.ends_with_icase( ".flac"))      m_expectedCodec  = CODEC_FLAC;
-        if(extension.ends_with_icase( "-flac"))      m_expectedCodec  = CODEC_FLAC;
-        if(extension.ends_with_icase( ".opus"))      m_expectedCodec  = CODEC_OPUS;
-        if(extension.ends_with_icase( "/opus"))      m_expectedCodec  = CODEC_OPUS;
-        if(extension.ends_with_icase( ".asx" ))      m_expectedPlsFmt = FORMAT_ASX;
-        if(extension.ends_with_icase( ".m3u" ))      m_expectedPlsFmt = FORMAT_M3U;
-        if(extension.ends_with_icase( ".pls" ))      m_expectedPlsFmt = FORMAT_PLS;
-        if(extension.contains(".m3u8"))              m_expectedPlsFmt = FORMAT_M3U8;
+        applyExpectedFormatHints(extension.c_get());
 
         m_currentHost.clone_from(c_host);
         m_lastHost.clone_from(c_host);
@@ -1033,26 +1004,7 @@ bool Audio::httpPrint(const char* host) {
     m_currentHost.clone_from(c_host);
     m_client->print(rqh.get());
 
-    if(     extension.ends_with_icase(".mp3"))       m_expectedCodec  = CODEC_MP3;
-    else if(extension.ends_with_icase(".aac"))       m_expectedCodec  = CODEC_AAC;
-    else if(extension.ends_with_icase(".aacp"))       m_expectedCodec  = CODEC_AAC;
-    else if(extension.ends_with_icase(".wav"))       m_expectedCodec  = CODEC_WAV;
-    else if(extension.ends_with_icase(".m4a"))       m_expectedCodec  = CODEC_M4A;
-    else if(extension.ends_with_icase(".flac"))      m_expectedCodec  = CODEC_FLAC;
-    else if(extension.ends_with_icase("-flac"))   m_expectedCodec = CODEC_FLAC;
-    else if(extension.ends_with_icase(".vorbis"))   m_expectedCodec = CODEC_VORBIS;
-    else if(extension.ends_with_icase("/vorbis"))   m_expectedCodec = CODEC_VORBIS;
-    else if(extension.ends_with_icase(".opus"))   m_expectedCodec = CODEC_OPUS;
-    else if(extension.ends_with_icase("/opus"))   m_expectedCodec = CODEC_OPUS;
-    else if(extension.ends_with_icase(".ogg" ))   m_expectedCodec = CODEC_OGG;
-    else if(extension.ends_with_icase("/ogg" ))   m_expectedCodec = CODEC_OGG;
-    else                                             m_expectedCodec  = CODEC_NONE;
-
-    if(     extension.ends_with_icase(".asx"))       m_expectedPlsFmt = FORMAT_ASX;
-    else if(extension.ends_with_icase(".m3u"))       m_expectedPlsFmt = FORMAT_M3U;
-    else if(extension.contains(".m3u8"))             m_expectedPlsFmt = FORMAT_M3U8;
-    else if(extension.ends_with_icase(".pls"))       m_expectedPlsFmt = FORMAT_PLS;
-    else                                             m_expectedPlsFmt = FORMAT_NONE;
+    applyExpectedFormatHints(extension.c_get());
 
     m_audioFileSize = 0;
     m_dataMode = HTTP_RESPONSE_HEADER; // Handle header
@@ -1385,77 +1337,31 @@ void Audio::showID3Tag(const char* tag, const char* value) {
 }
 //****************************************************************************************
 void Audio::latinToUTF8(ps_ptr<char>& buff, bool UTF8check) {
-    // most stations send  strings in UTF-8 but a few sends in latin. To standardize this, all latin strings are
-    // converted to UTF-8. If UTF-8 is already present, nothing is done and true is returned.
-    // A conversion to UTF-8 extends the string. Therefore it is necessary to know the buffer size. If the converted
-    // string does not fit into the buffer, false is returned
+    // Most stations send UTF-8, but the historical fallback treats every invalid sequence as Latin-1.
+    // Большинство станций шлёт UTF-8, но исторический fallback трактует любую invalid sequence как Latin-1.
+    // This is not encoding detection: damaged UTF-8 can therefore become valid Latin-1 text. Strict metadata
+    // validation happens later at the callback boundary and cannot recover the original encoding.
+    // Это не определение кодировки: повреждённый UTF-8 может стать допустимым Latin-1-текстом. Строгая
+    // metadata-проверка выполняется позже, на callback boundary, и не восстанавливает исходную кодировку.
 
-    uint16_t pos = 0;
-    uint16_t in = 0;
-    uint16_t out = 0;
-    bool     isUTF8 = true;
+    if(!buff.valid()) return;
+    if(UTF8check && audio_safe::isValidUtf8(buff.c_get())) return;
 
-    // We cannot detect if a given string (or byte sequence) is a UTF-8 encoded text as for example each and every series
-    // of UTF-8 octets is also a valid (if nonsensical) series of Latin-1 (or some other encoding) octets.
-    // However not every series of valid Latin-1 octets are valid UTF-8 series. So you can rule out strings that do not conform
-    // to the UTF-8 encoding schema:
-
-    if (UTF8check) {
-        while (buff[pos] != '\0') {
-            if (buff[pos] <= 0x7F) {// 0xxxxxxx: ASCII
-                pos++;
-            }
-            else if ((buff[pos] & 0xE0) == 0xC0) {
-                if (pos + 1 >= buff.strlen()) isUTF8 = false;
-                // 110xxxxx 10xxxxxx: 2-byte
-                if ((buff[pos + 1] & 0xC0) != 0x80) isUTF8 = false;
-                if (buff[pos] < 0xC2) isUTF8 = false; // Overlong encoding
-                pos += 2;
-            }
-            else if  ((buff[pos] & 0xF0) == 0xE0) {
-                // 1110xxxx 10xxxxxx 10xxxxxx: 3-byte
-                if ((buff[pos + 1] & 0xC0) != 0x80 || (buff[pos + 2] & 0xC0) != 0x80) isUTF8 = false;
-                if (buff[pos] == 0xE0 && buff[pos + 1 ] < 0xA0) isUTF8 = false; // Overlong
-                if (buff[pos] == 0xED && buff[pos + 1] >= 0xA0) isUTF8 = false; // UTF-16 surrogate
-                pos += 3;
-            }
-            else if ((buff[pos] & 0xF8) == 0xF0) {
-                // 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx: 4-byte
-                if ((buff[pos + 1] & 0xC0) != 0x80 ||
-                    (buff[pos + 2] & 0xC0) != 0x80 ||
-                    (buff[pos + 3] & 0xC0) != 0x80) isUTF8 = false;
-                if (buff[pos] == 0xF0 && buff[pos + 1] < 0x90) isUTF8 = false; // Overlong
-                if (buff[pos] > 0xF4 || (buff[pos] == 0xF4 && buff[pos + 1] > 0x8F)) isUTF8 = false; // > U+10FFFF
-                pos += 4;
-            }
-            else{
-                isUTF8 = false; // Invalid first byte
-            }
-            if(!isUTF8)break;
-        }
-        if (isUTF8) return; // is UTF-8, do nothing
-    }
     ps_ptr<char> iso8859_1("iso8859_1");
-    iso8859_1.assign(buff.get());
+    iso8859_1.assign(buff.c_get());
+    if(!iso8859_1.valid()) return;
 
     // Worst-case: all chars are latin1 > 0x7F became 2 Bytes → max length is twice +1
-    std::size_t requiredSize = strlen(iso8859_1.get()) * 2 + 1;
+    const size_t sourceLength = iso8859_1.strlen();
+    if(sourceLength > (SIZE_MAX - 1) / 2) return;
+    const size_t requiredSize = sourceLength * 2 + 1;
 
     if (buff.size() < requiredSize) {
         buff.realloc(requiredSize);
+        if(!buff.valid() || buff.size() < requiredSize) return;
     }
 
-    // coding into UTF-8
-    while (iso8859_1[in] != '\0') {
-        if (iso8859_1[in] < 0x80) {
-            buff[out++] = iso8859_1[in++];
-        } else {
-            buff[out++] = (0xC0 | (iso8859_1[in] >> 6));
-            buff[out++] = (0x80 | (iso8859_1[in] & 0x3F));
-            in++;
-        }
-    }
-    buff[out] = '\0';
+    audio_safe::latin1ToUtf8(iso8859_1.c_get(), buff.get(), buff.size());
 }
 //****************************************************************************************
 void Audio::htmlToUTF8(char* str) { // convert HTML to UTF-8
@@ -5459,9 +5365,11 @@ bool Audio::parseHttpResponseHeader() { // this is the response to a GET / reque
         }
 
         else if(rhl.starts_with_icase("location:")) {
-            int pos = rhl.index_of_icase("http", 0);
-            if(pos >= 0) {
-                const char* c_host = (rhl.get() + pos);
+            ps_ptr<char> redirect("redirect");
+            redirect.alloc(1024);
+            if(redirect.valid() && audio_safe::resolveRedirect(m_currentHost.c_get(), rhl.c_get() + 9,
+                                                               redirect.get(), redirect.size())) {
+                const char* c_host = redirect.c_get();
                 if(!m_currentHost.equals(c_host)) { // prevent a loop
                     int pos_slash = indexOf(c_host, "/", 9);
                     if(pos_slash > 9) {
@@ -6053,12 +5961,8 @@ void Audio::showstreamtitle(char* ml) {
     }
 
     else if(indexOf(ml, "StreamTitle='") == 0){
-        titleStart = 13;
-        idx2 = indexOf(ml, ";", 12);
-        if(idx2 > titleStart + 1){
-            titleLen = idx2 - 1 - titleStart;
-            streamTitle.assign(ml + 13, titleLen);
-        }
+        const audio_safe::TextSlice value = audio_safe::streamTitleValue(ml);
+        if(value.valid && value.length > 0) streamTitle.assign(value.data, value.length);
     }
 
     else if(startsWith(ml, "#EXTINF")){
