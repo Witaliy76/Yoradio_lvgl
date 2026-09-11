@@ -8,6 +8,7 @@
 #include "netserver.h"
 #include "../audioI2S/audio_text_url_utils.h"
 #include "../ai/ai_log.h"  // AI Layer logging macros
+#include "sleep_timer.h"
 #ifdef USE_SD
 #include "sdmanager.h"
 #endif
@@ -1111,7 +1112,7 @@ void Config::doSleep(){
   if(BRIGHTNESS_PIN!=255) analogWrite(BRIGHTNESS_PIN, 0);
   display.deepsleep();
 #if !defined(ARDUINO_ESP32C3_DEV)
-  if(WAKE_PIN!=255) esp_sleep_enable_ext0_wakeup((gpio_num_t)WAKE_PIN, LOW);
+  sleep_configure_wakeup_pin();
   esp_sleep_enable_timer_wakeup(config.sleepfor * 60 * 1000000ULL);
   esp_deep_sleep_start();
 #endif
@@ -1121,7 +1122,7 @@ void Config::doSleepW(){
   if(BRIGHTNESS_PIN!=255) analogWrite(BRIGHTNESS_PIN, 0);
   display.deepsleep();
 #if !defined(ARDUINO_ESP32C3_DEV)
-  if(WAKE_PIN!=255) esp_sleep_enable_ext0_wakeup((gpio_num_t)WAKE_PIN, LOW);
+  sleep_configure_wakeup_pin();
   esp_deep_sleep_start();
 #endif
 }

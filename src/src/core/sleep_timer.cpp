@@ -94,6 +94,7 @@ static void run_shutdown_steps() {
       s_shutdown = SleepShutdownPhase::Enter;
       break;
     case SleepShutdownPhase::Enter:
+      sleep_configure_wakeup_pin();
       esp_deep_sleep_start();
       break;
     default:
@@ -101,13 +102,68 @@ static void run_shutdown_steps() {
   }
 }
 
+constexpr int kWakeLevelLow = LOW;
+constexpr int kWakeLevelHigh = HIGH;
+static_assert(kWakeLevelLow == 0, "EXT0 LOW is level 0");
+static_assert(kWakeLevelHigh == 1, "EXT0 HIGH is level 1");
+
+const char* wakeup_cause_name(esp_sleep_wakeup_cause_t cause) {
+  switch (cause) {
+    case ESP_SLEEP_WAKEUP_EXT0: return "EXT0";
+    case ESP_SLEEP_WAKEUP_EXT1: return "EXT1";
+    case ESP_SLEEP_WAKEUP_TIMER: return "TIMER";
+    case ESP_SLEEP_WAKEUP_GPIO: return "GPIO";
+    default: return nullptr;
+  }
+}
+
 }  // namespace
+
+void sleep_configure_wakeup_pin() {
+#if SOC_PM_SUPPORT_EXT0_WAKEUP
+  // Same EXT0 call for LOW and HIGH: Arduino LOW/HIGH are 0/1, matching IDF.
+  // Один и тот же вызов EXT0 для LOW и HIGH: Arduino LOW/HIGH = 0/1, как в IDF.
+  static_assert(WAKE_LEVEL == LOW || WAKE_LEVEL == HIGH,
+                "WAKE_LEVEL must be LOW or HIGH");
+
+  if (WAKE_PIN == 255) {
+    return;
+  }
+
+  const gpio_num_t pin = static_cast<gpio_num_t>(WAKE_PIN);
+  const int level = (WAKE_LEVEL == HIGH) ? kWakeLevelHigh : kWakeLevelLow;
+
+  if (!esp_sleep_is_valid_wakeup_gpio(pin)) {
+    Serial.printf("[WAKE] pin=%d unsupported\n", static_cast<int>(WAKE_PIN));
+    return;
+  }
+
+  const esp_err_t err = esp_sleep_enable_ext0_wakeup(pin, level);
+  if (err != ESP_OK) {
+    Serial.printf("[WAKE] pin=%d enable failed err=%d\n",
+                  static_cast<int>(WAKE_PIN), static_cast<int>(err));
+    return;
+  }
+
+  Serial.printf("[WAKE] pin=%d level=%s\n",
+                static_cast<int>(WAKE_PIN), (level == kWakeLevelHigh) ? "HIGH" : "LOW");
+#else
+  if (WAKE_PIN != 255) {
+    Serial.printf("[WAKE] pin=%d unsupported\n", static_cast<int>(WAKE_PIN));
+  }
+#endif
+}
 
 void sleep_timer_init() {
   s_sleep_timer = SleepTimerState{};
   s_shutdown = SleepShutdownPhase::None;
   s_shutdown_deadline_ms = 0;
   s_shutdown_settle_ms = 0;
+
+  const char* cause_name = wakeup_cause_name(esp_sleep_get_wakeup_cause());
+  if (cause_name) {
+    Serial.printf("[WAKE] cause=%s\n", cause_name);
+  }
 
   const uint8_t raw = config.store.sleep_timer_action;
   if (raw > static_cast<uint8_t>(SleepTimerAction::SleepDevice)) {
