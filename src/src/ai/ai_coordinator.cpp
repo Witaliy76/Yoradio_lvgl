@@ -80,26 +80,15 @@ String AIDisplayCoordinator::filterTrackTitle(const String& raw_title) {
     // Удаляем строки, начинающиеся с ## (служебные сообщения)
     // Remove lines starting with ## (service messages)
     String result = raw_title;
-    int newline_pos = result.indexOf('\n');
-    while (newline_pos >= 0) {
-        String line = result.substring(0, newline_pos);
-        line.trim();
-        if (line.startsWith("##")) {
-            // Удаляем строку, начинающуюся с ##
-            // Remove line starting with ##
-            if (newline_pos + 1 < result.length()) {
-                result = result.substring(newline_pos + 1);
-                result.trim();
-                newline_pos = result.indexOf('\n');
-            } else {
-                result = "";
-                break;
-            }
-        } else {
-            // Первая строка не служебная - останавливаемся
-            // First line is not service - stop
+    result.trim();
+    while (result.startsWith("##")) {
+        const int newline_pos = result.indexOf('\n');
+        if (newline_pos < 0) {
+            result = "";
             break;
         }
+        result = result.substring(newline_pos + 1);
+        result.trim();
     }
     
     // Список служебных строк для игнорирования
@@ -113,7 +102,7 @@ String AIDisplayCoordinator::filterTrackTitle(const String& raw_title) {
         "[stopped]"
     };
     
-    String filtered = raw_title;
+    String filtered = result;
     filtered.trim();
     
     // Проверяем каждый паттерн

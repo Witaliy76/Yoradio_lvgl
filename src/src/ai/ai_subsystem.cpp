@@ -18,12 +18,32 @@ extern Config config;
 extern MyNetwork network;
 extern Player player;
 
-AISubsystem::AISubsystem() : _initialized(false) {
+namespace {
+
+class AIStateLock {
+public:
+    AIStateLock(SemaphoreHandle_t mutex, TickType_t wait_ticks)
+        : _mutex(mutex), _locked(mutex && xSemaphoreTake(mutex, wait_ticks) == pdTRUE) {}
+
+    ~AIStateLock() {
+        if (_locked) xSemaphoreGive(_mutex);
+    }
+
+    bool locked() const { return _locked; }
+
+private:
+    SemaphoreHandle_t _mutex;
+    bool _locked;
+};
+
+} // namespace
+
+AISubsystem::AISubsystem() : _initialized(false), _state_mutex(nullptr) {
 }
 
 AISubsystem::~AISubsystem() {
-    // Деструктор для очистки ресурсов (если понадобится)
-    // Destructor for resource cleanup (if needed)
+    // Global-lifetime subsystem; its mutex uses static storage.
+    // Подсистема живёт всё время работы; mutex размещён статически.
 }
 
 void AISubsystem::init() {
@@ -35,6 +55,14 @@ void AISubsystem::onSetup() {
     AI_DLOG("[AISubsystem] onSetup() called - AI subsystem initialized");
     AI_DLOG("[AISubsystem] MVP-2: Architecture ready with LLM provider integration");
     AI_DLOG("[AISubsystem] Runtime Manifest: AI is optional, silence is valid");
+
+    if (!_state_mutex) {
+        _state_mutex = xSemaphoreCreateMutexStatic(&_state_mutex_storage);
+        if (!_state_mutex) {
+            AI_LOG("[AISubsystem] WARNING: state mutex initialization failed");
+            return;
+        }
+    }
     
     // Инициализация AI Task Manager для асинхронного выполнения HTTPS запросов
     // Initialize AI Task Manager for asynchronous HTTPS request execution
@@ -59,6 +87,7 @@ void AISubsystem::onSetup() {
     _tt_validation_logged_track_id = 0;  // Инициализация ID трека для диагностического лога валидации / Initialize track ID for validation diagnostic log
     _last_tt_reason = TrackTitleValidationReason::TT_EMPTY;  // Инициализация причины валидации / Initialize validation reason
     _last_tt_score = 0;  // Инициализация score валидации / Initialize validation score
+    _track_title_snapshot = "";  // Title owned by the current track_id / Title текущего track_id
     _initialized = true;
 }
 
@@ -879,6 +908,13 @@ void AISubsystem::_logTrackTitleValidation(uint32_t track_id, const String& titl
 }
 
 void AISubsystem::onTrackChange() {
+    // DspTask and the 1 Hz Ticker use the same debounce/track state. Serialize
+    // the complete transition so a ticker cannot observe a half-updated track.
+    // DspTask и Ticker используют общее состояние track/debounce. Смена трека
+    // выполняется целиком, чтобы ticker не увидел частично обновлённое состояние.
+    AIStateLock state_lock(_state_mutex, portMAX_DELAY);
+    if (!state_lock.locked()) return;
+
     // Инкрементируем ID трека при валидной смене трека
     // Increment track ID on valid track change
     _current_track_id++;
@@ -921,6 +957,7 @@ void AISubsystem::onTrackChange() {
     // MVP-2: Build context and check activation conditions
     AIContext context;
     _buildContext(context);
+    _track_title_snapshot = context.track_title;
     
     // Временное логирование для отладки / Temporary logging for debugging
     // Унифицированная проверка через strlen() / Unified check via strlen()
@@ -965,6 +1002,13 @@ void AISubsystem::onTrackChange() {
 }
 
 void AISubsystem::onTicker() {
+    // A missed 1 Hz maintenance tick is harmless; waiting here could stall the
+    // timer task while DspTask is committing a track transition.
+    // Пропуск одного сервисного тика безопасен; ожидание могло бы задержать
+    // timer task во время фиксации смены трека в DspTask.
+    AIStateLock state_lock(_state_mutex, 0);
+    if (!state_lock.locked()) return;
+
     // Вызывается из ticks() каждую секунду / Called from ticks() every second
     // Вызываем _pumpResults() для периодической обработки результатов AI Task
     // Call _pumpResults() for periodic processing of AI Task results
@@ -973,6 +1017,12 @@ void AISubsystem::onTicker() {
     uint32_t now = millis();
     AIContext context;
     _buildContext(context);
+    // Config may already contain a newer title whose NEWTITLE event DspTask has
+    // not handled yet. Keep title and track_id from different generations apart.
+    // В Config уже может быть новый title, событие NEWTITLE которого DspTask ещё
+    // не обработал. Не смешиваем title и track_id разных поколений.
+    context.track_title = _track_title_snapshot;
+    _parseTrackTitle(context.track_title, context.artist, context.song);
     
     // Проверяем, активирован ли AI (логируем только при смене состояния)
     // Check if AI is activated (log only on state change)
@@ -1119,6 +1169,9 @@ void AISubsystem::onTicker() {
 // Currently called only from _processLayers() on track change
 
 void AISubsystem::onEnabledChanged(bool enabled) {
+    AIStateLock state_lock(_state_mutex, portMAX_DELAY);
+    if (!state_lock.locked()) return;
+
     // Проверяем, не изменилось ли состояние на самом деле / Check if state actually changed
     // Избегаем повторных вызовов для одного и того же состояния / Avoid repeated calls for the same state
     if (enabled == config.store.ai_enabled) {

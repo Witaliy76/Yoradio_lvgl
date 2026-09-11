@@ -17,6 +17,8 @@
 #include "layers/moment_layer.h"
 #include "providers/openai_compat_provider.h"
 #include "ai_task.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 /**
  * Причины валидации track_title / Track title validation reasons
@@ -67,6 +69,9 @@ private:
     uint32_t _tt_validation_logged_track_id;
     TrackTitleValidationReason _last_tt_reason;
     int8_t _last_tt_score;
+    SemaphoreHandle_t _state_mutex;
+    StaticSemaphore_t _state_mutex_storage;
+    String _track_title_snapshot;
 
     AIDisplayCoordinator _coordinator;
     InterpretationLayer _interpretationLayer;
