@@ -93,6 +93,24 @@
 #define MUTE_PIN      255                 // amplifier-enable output - not wired by default
 
 /* ===============================================
+   DEEP-SLEEP WAKE PIN (optional) - INPUT
+   Compile-time integrator option. Not a Settings control and not a runtime button.
+   255 disables GPIO wake; existing sleep-timer deep sleep is unchanged.
+   ESP32-S3 EXT0 requires an RTC GPIO (0-21). This 4848S040 RGB/I2S/touch map occupies
+   that range, so the production default stays 255. Do not pick a pin that is driven
+   after boot, and do not use GPIO0 with WAKE_LEVEL=LOW (held LOW through reset can
+   enter download mode). External pull required: pull-up for LOW, pull-down for HIGH.
+   Опция платы на этапе компиляции. Не пункт Settings и не runtime-кнопка.
+   255 выключает GPIO-wake; текущий deep sleep по sleep timer не меняется.
+   ESP32-S3 EXT0 — только RTC GPIO 0-21. На 4848S040 этот диапазон занят RGB/I2S/touch,
+   поэтому production-значение 255. Не брать пин, который после boot снова станет выходом,
+   и не использовать GPIO0 + WAKE_LEVEL=LOW. Нужна внешняя подтяжка: вверх для LOW,
+   вниз для HIGH.
+   =============================================== */
+#define WAKE_PIN      255                 // deep-sleep wake GPIO - disabled by default
+#define WAKE_LEVEL    LOW                 // LOW or HIGH; LOW is the historical default
+
+/* ===============================================
    BRIGHTNESS CONTROL
    =============================================== */
 #define BRIGHTNESS_PIN 255                // Don't use standard brightness pin

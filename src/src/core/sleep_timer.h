@@ -16,6 +16,10 @@ enum class SleepTimerAction : uint8_t {
 void sleep_timer_init();
 void sleep_timer_loop();
 
+// Single GPIO wake registration, called immediately before esp_deep_sleep_start().
+// Единственная регистрация GPIO-wake, сразу перед esp_deep_sleep_start().
+void sleep_configure_wakeup_pin();
+
 SleepTimerAction sleep_timer_action();
 void sleep_timer_set_action(SleepTimerAction action);
 
