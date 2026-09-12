@@ -8,7 +8,6 @@
 #include "netserver.h"
 #include "../audioI2S/audio_text_url_utils.h"
 #include "../ai/ai_log.h"  // AI Layer logging macros
-#include "sleep_timer.h"
 #ifdef USE_SD
 #include "sdmanager.h"
 #endif
@@ -479,6 +478,21 @@ void Config::_setupVersion(){
       saveValue(&store.text_scroll_type, static_cast<uint8_t>(1));   // Circular
       saveValue(&store.text_scroll_delay_s, static_cast<uint8_t>(5));
       break;
+    case 10:
+      // Ai tail grew again by 2 bytes (deep_sleep_wake_after_minutes). Same zero-fill-then-seed
+      // contract as case 9: loadSection() zero-fills the new tail, so seed the real default here.
+      // Хвост Ai снова вырос на 2 байта; тот же контракт, что и в case 9 — задаём default здесь.
+      saveValue(&store.deep_sleep_wake_after_minutes, static_cast<uint16_t>(0));
+      break;
+    case 11:
+      // TIMERS extends the Ai tail by three new uint16_t presets. The preceding renamed wake
+      // field keeps its exact offset and value; seed only bytes that did not exist in v11.
+      // TIMERS добавляет три uint16_t в хвост Ai. Переименованный wake сохраняет offset/value;
+      // обнуляем только действительно новые поля.
+      saveValue(&store.radio_stop_after_minutes, static_cast<uint16_t>(0));
+      saveValue(&store.radio_start_after_minutes, static_cast<uint16_t>(0));
+      saveValue(&store.deep_sleep_after_minutes, static_cast<uint16_t>(0));
+      break;
     default:
       break;
   }
@@ -724,6 +738,10 @@ void Config::setDefaults() {
   store.text_scroll_speed = 40;    // px/s — LVGL's own nominal default
   store.text_scroll_type = 1;      // text_scroll::Mode::Circular — the only mode shipped pre-FU6
   store.text_scroll_delay_s = 5;   // s — matches legacy YoRadio startscrolldelay = 5000 ms
+  store.deep_sleep_wake_after_minutes = 0;  // RTC wake-after timer disabled by default
+  store.radio_stop_after_minutes = 0;
+  store.radio_start_after_minutes = 0;
+  store.deep_sleep_after_minutes = 0;
 
   // AI settings migrated to FS /ai.json and runtime cache (see aiGetRuntimeConfig())
   // Runtime config will be applied in Config::init() after store is loaded
@@ -1118,31 +1136,6 @@ void Config::setDspOn(bool dspon, bool saveval){
   analogWrite(BRIGHTNESS_PIN, map(store.brightness, 0, 100, 0, 255));
 #endif
   }
-}
-
-void Config::doSleep(){
-  if(BRIGHTNESS_PIN!=255) analogWrite(BRIGHTNESS_PIN, 0);
-  display.deepsleep();
-#if !defined(ARDUINO_ESP32C3_DEV)
-  sleep_configure_wakeup_pin();
-  esp_sleep_enable_timer_wakeup(config.sleepfor * 60 * 1000000ULL);
-  esp_deep_sleep_start();
-#endif
-}
-
-void Config::doSleepW(){
-  if(BRIGHTNESS_PIN!=255) analogWrite(BRIGHTNESS_PIN, 0);
-  display.deepsleep();
-#if !defined(ARDUINO_ESP32C3_DEV)
-  sleep_configure_wakeup_pin();
-  esp_deep_sleep_start();
-#endif
-}
-
-void Config::sleepForAfter(uint16_t sf, uint16_t sa){
-  sleepfor = sf;
-  if(sa > 0) _sleepTimer.attach(sa * 60, doSleep);
-  else doSleep();
 }
 
 void Config::bootInfo() {

@@ -10,6 +10,7 @@
 #include "core/mqtt.h"
 #include "core/optionschecker.h"
 #include "core/mem_watchdog.h"
+#include "core/sleep_timer.h"
 
 // AI subsystem (Stage 6.0) / AI-подсистема
 #include "ai/ai_subsystem.h"
@@ -22,6 +23,13 @@ extern __attribute__((weak)) void yoradio_on_setup();
 
 void setup() {
   Serial.begin(115200);
+  // Deep-sleep wake pin is still held in RTC IO here. On 4848S040 that pin is GPIO0, which
+  // doubles as the BOOT button and as the RGB panel's ST7701_R4 line, so it must be handed
+  // back to digital GPIO before config.init()/display.init() bring the panel up.
+  // Wake-пин после deep sleep всё ещё в RTC IO. На 4848S040 это GPIO0: он же кнопка BOOT
+  // и линия ST7701_R4 RGB-панели, поэтому его нужно вернуть в обычный GPIO
+  // до config.init()/display.init(), которые поднимают панель.
+  sleep_wakeup_early_init();
   if(REAL_LEDBUILTIN!=255) pinMode(REAL_LEDBUILTIN, OUTPUT);
   if (yoradio_on_setup) yoradio_on_setup();
   

@@ -96,19 +96,30 @@
    DEEP-SLEEP WAKE PIN (optional) - INPUT
    Compile-time integrator option. Not a Settings control and not a runtime button.
    255 disables GPIO wake; existing sleep-timer deep sleep is unchanged.
-   ESP32-S3 EXT0 requires an RTC GPIO (0-21). This 4848S040 RGB/I2S/touch map occupies
-   that range, so the production default stays 255. Do not pick a pin that is driven
-   after boot, and do not use GPIO0 with WAKE_LEVEL=LOW (held LOW through reset can
-   enter download mode). External pull required: pull-up for LOW, pull-down for HIGH.
+   ESP32-4848S040: the stock BOOT button sits on GPIO0 and shorts it to GND, so the
+   board wakes on WAKE_PIN=0 with WAKE_LEVEL=LOW - no extra wiring and no external pull.
+   GPIO0 is shared with the RGB panel as ST7701_R4, so it is only safe to press BOOT
+   once the device has fully entered Deep Sleep (display and backlight already off).
+   Press BOOT briefly and release; after wake sleep_wakeup_early_init() returns the pin
+   from RTC IO to digital GPIO before display init. Do NOT press BOOT while the display
+   is running, and do NOT hold BOOT through a hardware Reset - that enters download mode.
+   Other boards: pick a free RTC GPIO (ESP32-S3: 0-21) with a stable hardware pull -
+   pull-up for WAKE_LEVEL=LOW, pull-down for WAKE_LEVEL=HIGH.
    Опция платы на этапе компиляции. Не пункт Settings и не runtime-кнопка.
    255 выключает GPIO-wake; текущий deep sleep по sleep timer не меняется.
-   ESP32-S3 EXT0 — только RTC GPIO 0-21. На 4848S040 этот диапазон занят RGB/I2S/touch,
-   поэтому production-значение 255. Не брать пин, который после boot снова станет выходом,
-   и не использовать GPIO0 + WAKE_LEVEL=LOW. Нужна внешняя подтяжка: вверх для LOW,
-   вниз для HIGH.
+   ESP32-4848S040: штатная кнопка BOOT сидит на GPIO0 и замыкает его на GND, поэтому
+   пробуждение работает при WAKE_PIN=0 и WAKE_LEVEL=LOW - без доп. проводов и подтяжки.
+   GPIO0 одновременно используется RGB-панелью как ST7701_R4, поэтому нажимать BOOT
+   можно только после полного входа в Deep Sleep (экран и подсветка уже выключены).
+   Нажать BOOT коротко и отпустить; после пробуждения sleep_wakeup_early_init()
+   возвращает пин из RTC IO в digital GPIO до инициализации дисплея. НЕ нажимать
+   BOOT при работающем дисплее и НЕ удерживать его во время аппаратного Reset -
+   это включает download mode.
+   Другие платы: взять свободный RTC GPIO (ESP32-S3: 0-21) со стабильной аппаратной
+   подтяжкой: вверх для WAKE_LEVEL=LOW, вниз для WAKE_LEVEL=HIGH.
    =============================================== */
-#define WAKE_PIN      255                 // deep-sleep wake GPIO - disabled by default
-#define WAKE_LEVEL    LOW                 // LOW or HIGH; LOW is the historical default
+#define WAKE_PIN      0                   // BOOT button on ESP32-4848S040; 255 disables GPIO wake
+#define WAKE_LEVEL    LOW                 // LOW or HIGH; BOOT shorts GPIO0 to GND -> LOW
 
 /* ===============================================
    BRIGHTNESS CONTROL

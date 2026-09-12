@@ -115,6 +115,61 @@ ESP32-4848S040 uses touchscreen control; no encoder is connected in the default 
 | Downward swipe from the top edge on Info / Main / Visual / Weather | Open Preset Temporary |
 | Tap / long press in Preset Temporary | Play the saved station / save the current station to the slot |
 | Tap in Screensaver | Exit the Screensaver |
+| Short BOOT press during Deep Sleep | Wake the device (see the section below) |
+
+## Deep-Sleep wakeup
+
+Sleep Device puts the board into Deep Sleep. Touch wake is not supported: the touchscreen is not configured as a Deep-Sleep wake source.
+
+Default configuration (`src/myoptions.h`, `src/myoptions_4848S040.h`):
+
+```cpp
+#define WAKE_PIN      0     // stock BOOT button
+#define WAKE_LEVEL    LOW   // BOOT shorts GPIO0 to GND
+```
+
+The stock **BOOT** button sits on **GPIO0** and shorts it to GND when pressed, so wakeup works with no extra wiring and no external pull — the board already provides one.
+
+GPIO0 is also used by the RGB panel as `ST7701_R4` (a red-channel data line). To keep that from conflicting, the firmware calls `rtc_gpio_deinit()` at the very start of `setup()` — before config and display init — returning GPIO0 from RTC IO to digital GPIO. The log shows:
+
+```text
+[WAKE] cause=EXT0
+[WAKE] pin=0 restored to digital GPIO
+```
+
+**Procedure:**
+
+1. Enter Deep Sleep through Settings → TIMERS → DEEP SLEEP (`ENTER DEEP SLEEP NOW`, see below), or with `deepsleep` over telnet/Serial. Wait until the display and backlight are fully off.
+2. Press BOOT briefly and release.
+3. The board boots normally.
+
+> **Warning.** Do not press BOOT while the display is running — GPIO0 is carrying RGB panel data at that moment.
+
+> **Warning.** Do not hold BOOT through a hardware Reset. GPIO0 is a boot strapping pin, and holding it LOW across Reset puts the chip into download mode instead of booting.
+
+Reset and reconnecting power remain fallback ways to start the board. `WAKE_PIN=255` disables GPIO wake entirely (it does not affect the RTC timer below). The stock ESP32-4848S040 pin map has no free RTC GPIO other than GPIO0, so BOOT/GPIO0 stays the default for this profile. Another board or a modified pin map may use a different free RTC GPIO (GPIO0–21 on ESP32-S3) with LOW or HIGH as the active level.
+
+### TIMERS page and relative RTC wake
+
+Settings → **TIMERS** has **RADIO** and **DEEP SLEEP** tabs. Each tab exposes two events, each with separate `HOURS` (0–24) and `MINUTES` (0–59) sliders. `0 H 0 MIN` disables only that event. A preset is persisted as one 0…1499-minute value, while an armed countdown is runtime-only and does not survive reboot. Only one plan may run at a time.
+
+**RADIO:** `STOP RADIO AFTER` and `START RADIO AFTER` are independent intervals measured from one press of `START RADIO TIMER`. Stop-only, Start-only, and two-event plans are supported. Equal non-zero intervals are rejected. Events use the normal `PR_STOP` / `PR_PLAY` paths, and an already satisfied state is a safe no-op. Only pending Radio Stop appears on the status line as `SLEEP 10m`.
+
+**DEEP SLEEP:** `DEEP SLEEP AFTER` starts at `START DEEP SLEEP TIMER`; `WAKE AFTER SLEEP` starts only when managed shutdown actually enters Deep Sleep. A zero wake interval skips RTC timer registration while BOOT/Reset/power remain available. `ENTER DEEP SLEEP NOW` still works when both presets are zero, provided a Radio plan is not active. Cancel the active plan explicitly before switching plan types.
+
+BOOT and the RTC timer can be armed **together**; whichever fires first wins. Absolute `HH:MM` wake scheduling is not implemented. `STOPS/STARTS/SLEEP/WAKE AT ...` is only a local-time hint, and `CLOCK NOT SYNCED` never blocks a relative timer. Long RTC intervals can drift with the board's slow clock.
+
+| Telnet / Serial command | Exact semantics |
+|---|---|
+| `sleeptimer N` | Radio Stop after `N` minutes; `SLEEP Nm` status; no UI-preset change |
+| `sleeptimer 0` | Cancel only Radio Stop |
+| `playtimer N` / `playtimer 0` | Set / cancel only Radio Start; no status indicator |
+| `deepsleep` | Queue immediate managed sleep with the persisted wake preset; may cancel Radio timers |
+| `deepsleep N` / `deepsleep 0` | Set / cancel Deep Sleep after `N` minutes; no status indicator |
+| `sleep N` | Legacy: immediate Deep Sleep with a one-shot wake after `N` minutes |
+| `sleep N M` | Legacy: Deep Sleep after `M` minutes, then a one-shot wake after `N` minutes |
+
+The new `sleeptimer`, `playtimer`, and `deepsleep` commands are parsed before the Wi-Fi gate, so they work identically over Serial. Negative values, junk tails, overflow, and values above 1499 are rejected. A legacy wake override is one-shot and never changes `WAKE AFTER SLEEP`. Every entry converges on one pipeline: Display queue → DspTask → player stop → flush → display off → settle → sole EXT0/RTC registration immediately before `esp_deep_sleep_start()`.
 
 A generic left/right swipe changes pages; it does not control volume.
 
@@ -130,6 +185,7 @@ The values below follow `src/myoptions_4848S040.h`.
 | Backlight PWM | 38 |
 | GT911 touch SDA / SCL | 19 / 45 |
 | I2S DATA / BCLK / LRCK | 40 / 1 / 2 |
+| BOOT button / Deep-Sleep wake (`WAKE_PIN`, active LOW) | 0 — shared with `ST7701_R4` |
 
 The SD pins in this configuration are not used for playback in the public beta.
 

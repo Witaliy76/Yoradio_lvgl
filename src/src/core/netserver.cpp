@@ -13,6 +13,7 @@
 #include "network.h"
 #include "mqtt.h"
 #include "controls.h"
+#include "sleep_timer.h"
 #include <Update.h>
 #include <ESPmDNS.h>
 #include <ArduinoJson.h>
@@ -3201,10 +3202,32 @@ void handleHTTPArgs(AsyncWebServerRequest * request) {
         AsyncWebParameter* safter = request->getParam("after", request->method() == HTTP_POST);
         safterd = atoi(safter->value().c_str());
       }
-      if(sford > 0 && safterd >= 0){
-        request->send(200);
-        config.sleepForAfter(sford, safterd);
-        commandFound=true;
+      if(sford > 0 && sford <= kTimerMaxMinutes &&
+         safterd >= 0 && safterd <= kTimerMaxMinutes){
+        // Preserve NetServer sleep/after semantics through the unified managed timer core.
+        // Сохраняем внешнюю семантику sleep/after через единый managed timer core.
+        const DeepSleepWakeRequest wake =
+            DeepSleepWakeRequest::explicitMinutes(static_cast<uint16_t>(sford));
+        const TimerCommandResult result =
+            safterd == 0
+                ? timer_request_deep_sleep_now(wake)
+                : timer_schedule_deep_sleep(static_cast<uint16_t>(safterd), wake);
+        if (result == TimerCommandResult::Applied) {
+          commandFound=true;
+        } else if (result == TimerCommandResult::ConflictRadioActive) {
+          request->send(409, "text/plain", "radio timer active; cancel it first");
+          return;
+        } else if (result == TimerCommandResult::ConflictDeepSleepActive ||
+                   result == TimerCommandResult::ShutdownInProgress) {
+          request->send(409, "text/plain", "deep sleep timer already active");
+          return;
+        } else {
+          request->send(400, "text/plain", "invalid sleep timer");
+          return;
+        }
+      } else {
+        request->send(400, "text/plain", "invalid sleep timer");
+        return;
       }
     }
     if (request->hasArg("clearspiffs") || request->hasArg("clearfs")) {

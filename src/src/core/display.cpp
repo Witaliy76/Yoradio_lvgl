@@ -476,6 +476,11 @@ void Display::loop() {
             lvgl_ui::refreshMainScreen();
           }
           break;
+        // Runs on DspTask, same context as sleep_timer_loop() below - shutdown state stays
+        // DspTask-owned even though the request can originate from telnet/serial.
+        // Выполняется на DspTask, там же, где и sleep_timer_loop() ниже - состояние shutdown
+        // остаётся за DspTask, даже если запрос пришёл из telnet/serial.
+        case SLEEP_DEVICE_NOW: sleep_timer_request_device_sleep(); break;
         case BOOTSTRING: {
           if (lvgl_ui::isLvglBootActive()) {
             if (s_lvgl_boot_connected_latched) break;

@@ -183,7 +183,7 @@ The weather network path retries failed name resolution or connections up to thr
 
 ### Settings
 
-Settings provides direct access to Display brightness and theme, Presence Rail, Resume on Startup, Sleep Timer and its end action, and Wi-Fi setup. Tap a row with an arrow to open its settings.
+Settings provides direct access to Display brightness and theme, Presence Rail, Resume on Startup, the **TIMERS** page, and Wi-Fi setup. Tap a row with an arrow to open its settings.
 
 <p align="center">
   <img src="readme/english/settings-screen-guide.png" alt="Settings screen" width="450">
@@ -224,13 +224,28 @@ Screensaver is a full-screen analog clock for idle operation. Its behavior is co
   <img src="readme/english/screensaver-guide.png" alt="Analog clock screensaver" width="450">
 </p>
 
-### Sleep Timer and Sleep Device
+### TIMERS and Deep Sleep
 
-Sleep Timer can stop the radio or use Sleep Device as its end action. When Sleep Device is confirmed, playback stops, state is flushed, the display and backlight turn off, and the board enters Deep Sleep. The touch panel does not wake the device. Start it again with Reset or by reconnecting power.
+The **TIMERS** row opens two tabs with independent persisted presets: **RADIO** and **DEEP SLEEP**. Every event uses hour (0–24) and minute (0–59) sliders; `0 H 0 MIN` disables only that event. Active countdowns are runtime-only and do not survive a normal reboot. Only one plan can run at a time—Radio or Deep Sleep—and the active plan must be cancelled before starting the other one.
 
-<p align="center">
-  <img src="readme/english/sleep-device-guide.png" alt="Sleep Device confirmation" width="450">
-</p>
+On **RADIO**, `STOP RADIO AFTER` and `START RADIO AFTER` are independent intervals measured from the press of `START RADIO TIMER`. Stop uses the normal player stop command; Start plays the currently saved station. An event is a safe no-op when the player is already in the requested state. Equal non-zero Stop/Start intervals are rejected. The compact `SLEEP 10m` status indicator represents Radio Stop only; Radio Start and Deep Sleep never appear there.
+
+On **DEEP SLEEP**, `DEEP SLEEP AFTER` delays the managed shutdown, while `WAKE AFTER SLEEP` is an RTC interval that begins only when Deep Sleep is actually entered. `ENTER DEEP SLEEP NOW` remains available with zero presets (provided another plan is not active) and uses the visible `WAKE AFTER SLEEP`; zero means no RTC wake registration. Player stop, state flush, display-off, settle, and sleep entry remain one managed pipeline.
+
+`STOPS/STARTS/SLEEP/WAKE AT ...` is only a local-clock hint. Without clock sync the UI shows `--:--` and `CLOCK NOT SYNCED`, while monotonic relative timers continue normally. Absolute `HH:MM` scheduling is not implemented.
+
+| Telnet / Serial | Action |
+|---|---|
+| `sleeptimer N` / `sleeptimer 0` | Set / cancel only runtime Radio Stop; do not change the preset |
+| `playtimer N` / `playtimer 0` | Set / cancel only runtime Radio Start; do not change the preset |
+| `deepsleep` | Immediate managed Deep Sleep using persisted `WAKE AFTER SLEEP`; may cancel a Radio plan |
+| `deepsleep N` / `deepsleep 0` | Set / cancel delayed Deep Sleep entry; do not change the persisted wake preset |
+| `sleep N` | Legacy: immediate managed Deep Sleep with a one-shot `N`-minute wake |
+| `sleep N M` | Legacy: managed Deep Sleep after `M` minutes, then a one-shot `N`-minute wake |
+
+The new commands use the same parser over telnet and Serial even without Wi-Fi; the valid range is 0…1499 minutes. A legacy one-shot wake does not overwrite the saved preset. A Deep Sleep countdown has no status-line indicator.
+
+Touch wake is not supported. On ESP32-4848S040, EXT0 uses the stock **BOOT** button (GPIO0, active LOW); BOOT and the RTC timer can be armed together and whichever fires first wins. After any Deep-Sleep wake, GPIO0 is returned from RTC IO to digital GPIO before RGB-panel initialization. Reset and power reconnection remain fallback startup methods. See the [ESP32-4848S040 guide](README_4848S040_english.md#deep-sleep-wakeup).
 
 ## Web UI and Appearance
 
@@ -315,7 +330,7 @@ More information:
 
 - ESP32-4848S040 is the only publicly supported board.
 - Interface language is selected at compile time; there is no runtime language switch.
-- Sleep Device exits only through Reset or power reconnection.
+- Deep Sleep exits through the configured `WAKE_PIN` (BOOT / GPIO0 on ESP32-4848S040), the `WAKE AFTER SLEEP` RTC timer, or Reset/power. The touchscreen is not a wake source.
 - The Web UI is local-network HTTP without HTTPS.
 - An external I2S DAC is recommended for full audio output.
 

@@ -765,8 +765,13 @@ constexpr const char* kV2Namespace = "yo_sm_v2";
 //   v12:             Ai tail grew (FU6-A text_scroll_speed/type/delay_s, CONFIG_VERSION 10).
 //                    Partial overlay of older smaller `ai` blobs + tail defaults; the zero-filled
 //                    tail is then seeded by Config::_setupVersion() case 9.
+//   v13:             Ai tail grew (deep_sleep_wake_after_minutes, CONFIG_VERSION 11). Partial overlay
+//                    of older smaller `ai` blobs + tail defaults; the zero-filled tail is then
+//                    seeded by Config::_setupVersion() case 10.
+//   v14:             Ai tail grew (three TIMERS presets, CONFIG_VERSION 12). Partial overlay of
+//                    the v13 prefix preserves the renamed wake field; case 11 seeds only new bytes.
 constexpr const char* kV2MarkerKey = "v2m";
-constexpr uint32_t kV2SchemaVersion = 12u;
+constexpr uint32_t kV2SchemaVersion = 14u;
 
 // Legacy blob sentinel — `config.store.config_set` magic (see config.cpp / config.h).
 constexpr uint16_t kLegacyMagic = 4262u;
@@ -1015,6 +1020,8 @@ void runBootMigrationIfNeeded() {
       // v9 -> v10: Ai tail grew (sleep_timer_action); partial overlay in loadSection().
       // v10 -> v11: Ai tail grew (performance_monitor); partial overlay in loadSection().
       // v11 -> v12: Ai tail grew (FU6-A text scrolling); partial overlay in loadSection().
+      // v12 -> v13: Ai tail grew (Deep Sleep wake preset); partial overlay in loadSection().
+      // v13 -> v14: Ai tail grew (three TIMERS presets); partial overlay in loadSection().
       // Add future schema steps ABOVE in ascending order.
       if (!writeMarker()) {
         SM_LOG("v2 upgrade: writeMarker FAILED — upgrade will retry on next boot");

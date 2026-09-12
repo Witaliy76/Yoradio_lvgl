@@ -54,6 +54,8 @@ static void style_status_column(lv_obj_t* col) {
 static void format_sleep_timer_text(char* out, size_t cap, bool compact) {
     if (!out || cap == 0) return;
     out[0] = '\0';
+    // This compact SLEEP marker is intentionally Radio Stop only. Radio Start and Deep Sleep
+    // countdowns stay out of the status line. / SLEEP-индикатор означает только Radio Stop.
     if (!sleep_timer_active()) return;
 
     const uint32_t remaining_seconds = sleep_timer_remaining_seconds();

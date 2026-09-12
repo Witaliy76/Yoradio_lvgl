@@ -1,7 +1,6 @@
 #ifndef config_h
 #define config_h
 #include "Arduino.h"
-#include <Ticker.h>
 #include <SPI.h>
 #include <LittleFS.h>
 #include <EEPROM.h>
@@ -59,7 +58,7 @@
 #if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
   #define ESP_ARDUINO_3 1
 #endif
-#define CONFIG_VERSION  10 // FU6-A text scrolling (text_scroll_speed/type/delay_s)
+#define CONFIG_VERSION  12 // persisted TIMERS presets (radio stop/start + Deep Sleep)
 
 enum playMode_e      : uint8_t  { PM_WEB=0, PM_SDCARD=1 };
 enum BitrateFormat { BF_UNCNOWN, BF_MP3, BF_AAC, BF_FLAC, BF_OGG, BF_WAV, BF_VOR, BF_OPU };
@@ -136,7 +135,7 @@ struct config_t
   bool      autodim_enabled;               // Runtime Auto Dim / авто-приглушение подсветки
   uint16_t  autodim_timeout_sec;           // Inactivity timeout (seconds) / таймаут бездействия
   uint8_t   autodim_level;                 // Dim brightness 1..(brightness-1) / уровень приглушения
-  uint8_t   sleep_timer_action;            // SleepTimerAction at expiry / действие по истечению
+  uint8_t   sleep_timer_action;            // legacy/reserved; keep persistent layout / не перемещать
   bool      performance_monitor;           // Settings → Display overlay / оверлей Settings → Display
   // FU6-A text scrolling. MUST stay at the tail of config_t: sm::v2::loadSection() has exactly one
   // partial-overlay grow path and it is hardcoded to SectionId::Ai (= this tail span). Fields added
@@ -147,6 +146,16 @@ struct config_t
   uint8_t   text_scroll_speed;             // px/s, 10..120 step 5 / скорость, px/s
   uint8_t   text_scroll_type;              // text_scroll::Mode 0=Off 1=Circular 2=BackAndForth
   uint8_t   text_scroll_delay_s;           // 0..10 s between passes / пауза между проходами, с
+  // Relative RTC wake after Deep Sleep, in minutes since the moment deep sleep actually starts
+  // (not since Sleep Timer was armed). 0 = RTC timer wake disabled. Range 0..1499 (24h59m) -
+  // see sleep_timer.h for the sanitize/accessor/setter API; UI must not write this field directly.
+  // Относительное RTC-пробуждение после Deep Sleep, в минутах от фактического входа в сон
+  // (не от запуска Sleep Timer). 0 = RTC-таймер выключен. Диапазон 0..1499 (24ч59м) - см.
+  // sleep_timer.h; UI не должен писать это поле напрямую.
+  uint16_t  deep_sleep_wake_after_minutes;
+  uint16_t  radio_stop_after_minutes;
+  uint16_t  radio_start_after_minutes;
+  uint16_t  deep_sleep_after_minutes;
 };
 
 #if __cplusplus >= 201103L
@@ -195,7 +204,6 @@ class Config {
     BitrateFormat configFmt = BF_UNCNOWN;
     neworkItem ssids[5];
     uint8_t ssidsCount;
-    uint16_t sleepfor;
     uint32_t sdResumePos;
     bool     emptyFS;
     uint16_t vuThreshold;
@@ -248,9 +256,7 @@ class Config {
     uint16_t getTimezoneOffset();
     void setBrightness(bool dosave=false);
     void setDspOn(bool dspon, bool saveval = true);
-    void sleepForAfter(uint16_t sleepfor, uint16_t sleepafter=0);
     void bootInfo();
-    void doSleepW();
     void setSnuffle(bool sn);
     uint8_t getMode() { return store.play_mode/* & 0b11*/; }
     void initPlaylistMode();
@@ -317,8 +323,6 @@ class Config {
     #endif
     FS* _SDplaylistFS;
     void setDefaults();
-    Ticker   _sleepTimer;
-    static void doSleep();
     void _setupVersion();
     void _initHW();
     bool _isFSempty();

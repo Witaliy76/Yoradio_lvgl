@@ -63,6 +63,12 @@ All rows in **`kConfigSectionSpans`** are v2-managed when `isV2ManagedSection` r
 3. If the field is in an already v2-managed section, **no schema bump** is required unless you change blob layout semantics for already-shipped devices (then treat as new section / migration).
 4. Use existing **`Config::saveValue`** for persistence; routing is automatic by offset.
 
+Current TIMERS layout (schema **v14**, `CONFIG_VERSION 12`) appends three `uint16_t` presets to
+the Ai tail after the in-place rename of `sleep_wake_after_minutes` to
+`deep_sleep_wake_after_minutes`. Partial overlay preserves the old wake bytes; migration case 11
+seeds only `radio_stop_after_minutes`, `radio_start_after_minutes`, and
+`deep_sleep_after_minutes` to zero. The Ai span already ends at `sizeof(config_t)`.
+
 ### Adding a new section
 
 1. Add **`SectionId`** value (before `Count`) and a **`kConfigSectionSpans`** row that tiles the new bytes (split an existing span only if you are physically splitting `config_t` — normally you add fields at the end and extend **Ai** or insert a new enum row and **re-tile** all spans with new `static_assert`s).
@@ -158,6 +164,12 @@ IR payloads live outside **`config_t`**, at **`EEPROM_START_IR`**. **`sm::syncIr
 2. Правка **`kConfigSectionSpans`** — размер/границы строки секции; **`static_assert`** на непрерывность `config_t`.
 3. Если секция уже в v2 и семантика блоба для уже выпущенных устройств не ломается — **отдельный bump схемы не обязателен**.
 4. Сохранение через **`saveValue`** — маршрутизация по смещению автоматическая.
+
+Текущий layout TIMERS (schema **v14**, `CONFIG_VERSION 12`) добавляет три `uint16_t`-пресета в
+хвост Ai после переименования на месте `sleep_wake_after_minutes` в
+`deep_sleep_wake_after_minutes`. Partial overlay сохраняет прежние байты wake, а migration case 11
+обнуляет только `radio_stop_after_minutes`, `radio_start_after_minutes` и
+`deep_sleep_after_minutes`. Span Ai уже заканчивается через `sizeof(config_t)`.
 
 ### Новая секция
 

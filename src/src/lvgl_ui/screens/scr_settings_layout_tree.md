@@ -2,245 +2,164 @@ Author: Witaliy76 - https://github.com/Witaliy76
 
 # Settings screen — LVGL object tree (`scr_settings`)
 
-**Purpose / Назначение:**
-**English:** Parent → child hierarchy for the Settings carousel page (`LvglSettingsPage`) in `scr_settings.cpp`. Covers Main category rows, lazy Display detail (MEM1), lazy Music Rail detail (destroy-on-Back), sleep-device overlay, footer, view switching, carousel gesture blocking, and l10n constant inventory. Use when reasoning about layout contracts, lazy view lifecycle, or SETTINGSREF-A maintenance.
-**Русский:** Иерархия родитель → потомок для страницы Settings (`LvglSettingsPage`) из `scr_settings.cpp`: главный вид с категориями, lazy Display detail (MEM1), lazy Music Rail (destroy-on-Back), оверлей Sleep Device, футер, переключение видов, блокировка swipe карусели и инвентарь l10n-констант.
+This file describes the current `LvglSettingsPage` hierarchy and lifecycle. The Settings slot
+remains one fixed `PageChain` page; Display, Music Rail, Scrolling, and TIMERS are in-page views.
 
-**Source of truth:**
-`scr_settings.cpp`:
-- `LvglSettingsPage::create()` — orchestration skeleton
-- Private static builders: `create_main_structure`, `populate_main_rows`, `build_display_detail`, `build_music_rail_detail`
-- Lazy wrappers: `_ensureDisplayView`, `_ensureMusicRailView` / `_destroyMusicRailView`
-- View router: `_showView`, sync helpers `_syncMainRowValues`, `_syncDisplayValues`, `_syncMusicRailValues`
-- Overlay: `_showSleepDeviceWarning`, `_hideSleepDeviceWarning`
+## Root and Main
 
-**Maintenance / Поддержка:**
-After hierarchy, lazy lifecycle, row order, overlay copy, or `kStr*` blocks change — refresh ASCII, Mermaid, view-switching table, and string inventory sections.
+`_screen` is a non-scrollable flex column with `LV_ACTIVE_PROFILE.frame_padding`, a 6 px row gap,
+and `pal.device_background`.
 
----
-
-## Order on `_screen`
-
-`_screen` is a flex **COLUMN** (top → bottom).
-
-- `pad_all = LV_ACTIVE_PROFILE.frame_padding`
-- `pad_row = kRootRowGap` (6 px)
-- `bg_color = pal.device_background`
-- not scrollable
-
-**Creation order (load-bearing — do not reorder):**
-
-1. `_status_line.root` — `wgt_status_line::create`
-2. status divider — `add_bottom_divider`
-3. `_view_main` + `_cont_content` — `create_main_structure`
-4. Main category rows — `populate_main_rows`
-5. `_footer_area` + `_lbl_footer` — `create_footer` (inside `_view_main`)
-
-After creation: `installCarouselGesturesOnPageRoot(_screen)`.
-
-**Not created in `create()` (lazy):**
-
-- `_view_display` + Display detail — first tap on Display row → `_ensureDisplayView` → `build_display_detail`
-- `_view_music` + Music Rail detail — first tap on Music Rail row → `_ensureMusicRailView` → `build_music_rail_detail`
-- `_sleep_device_overlay` — runtime on Sleep Device action confirm path
-
----
-
-## Tree (ASCII) — Main view (default)
-
-```
-_screen  (flex COLUMN; pad_all=frame_pad; pad_row=6; not scrollable)
-│
-├── _status_line.root              wgt_status_line (clock / Wi-Fi / weather glance)
-│
-├── status divider                 1 px; bg=pal.divider
-│
-└── _view_main                     flex COLUMN; flex_grow=1; visible by default
-    │
-    ├── _cont_content              flex COLUMN; flex_grow=1; pad_top=8; pad_bottom=4
-    │   │
-    │   ├── display row unit       create_row_unit + fill_category_row → _row_display
-    │   │   └── [icon | DISPLAY | brightness% | chevron] + divider
-    │   │
-    │   ├── music row unit         → _row_music
-    │   │   └── [icon | MUSIC RAIL | ON/OFF | chevron] + divider
-    │   │
-    │   ├── resume row unit        → _row_resume_startup
-    │   │   └── [icon | RESUME ON STARTUP | ON/OFF] + divider
-    │   │
-    │   ├── sleep block unit       add_sleep_block_unit → _row_sleep, _row_sleep_sub
-    │   │   └── block (88 px)
-    │   │       ├── icon (sleep glyph)
-    │   │       └── text_col
-    │   │           ├── line_main (tap → duration cycle) → _row_sleep.label/value
-    │   │           └── line_sub  (tap → action cycle)   → _row_sleep_sub.label/value
-    │   │       + divider
-    │   │
-    │   └── wifi row unit          → _row_wifi
-    │       └── [icon | WI-FI | SSID / NOT CONNECTED | chevron] + divider
-    │
-    └── _footer_area               tappable; RETURN TO MAIN pill → _lbl_footer
+```text
+_screen
+├── _status_line.root
+├── status divider                         pal.divider
+└── _view_main                             flex column, default visible
+    ├── _cont_content
+    │   ├── _row_display                   DISPLAY          <brightness> >
+    │   ├── _row_music                     MUSIC RAIL       ON/OFF >
+    │   ├── _row_resume_startup            RESUME ON STARTUP ON/OFF
+    │   ├── _row_sleep_timer               TIMERS           OFF/RADIO/DEEP SLEEP >
+    │   └── _row_wifi                      WI-FI            <SSID> >
+    └── _footer_area                       RETURN TO MAIN
 ```
 
----
+The whole TIMERS row is tappable and reuses `YORA_SETTINGS_GLYPH_SLEEP_TIMER`; no font subset or
+PageChain slot was added.
 
-## Tree (ASCII) — Display detail (lazy, MEM1)
+## Display detail
 
-Created as sibling of `_view_main` under `_screen`. Hidden until Display row tap.
+Display is lazy-once for the Settings screen lifecycle (MEM1) and survives Back.
 
-```
-_view_display  (flex COLUMN; flex_grow=1; HIDDEN until enter Display)
-│
-├── detail header                  create_detail_header
-│   ├── _display_back_hit          back chevron tap → Main
-│   ├── _display_header_icon       DISPLAY glyph
-│   └── _lbl_display_header        "DISPLAY"
-│
-└── _cont_display_content        flex COLUMN; flex_grow=1; pad_top=8
-    │
-    ├── brightness_unit            (#ifdef ENABLE_BRIGHTNESS_CONTROL)
-    │   └── brightness_block
-    │       ├── _lbl_brightness_title   "BRIGHTNESS"
-    │       └── slider_row
-    │           ├── _brightness_slider
-    │           └── _lbl_brightness_value
-    │   + divider
-    │
-    ├── autodim row                → _row_autodim (AUTO DIM ON/OFF)
-    ├── dim after row              → _row_dim_after (timeout cycle)
-    ├── dim level unit
-    │   └── dim_level_block
-    │       ├── _lbl_dim_level_title    "DIM LEVEL"
-    │       └── slider_row
-    │           ├── _dim_level_slider
-    │           └── _lbl_dim_level_value
-    ├── theme_gap                  kDisplayThemeSectionGap spacer
-    ├── theme row                  → _row_theme (THEME preset + chevron)
-    └── perf monitor row           → _row_perf_monitor (PERFORMANCE MONITOR ON/OFF)
-
-block_gesture_bubble_deep(_view_display) — blocks carousel horizontal swipe.
+```text
+_view_display
+├── detail header                          back | display glyph | DISPLAY
+└── _cont_display_content
+    ├── BRIGHTNESS slider
+    ├── AUTO DIM / DIM AFTER / DIM LEVEL
+    ├── THEME
+    ├── PERFORMANCE MONITOR
+    └── SCROLLING >
 ```
 
----
+## Music Rail detail
 
-## Tree (ASCII) — Music Rail detail (lazy, destroy-on-Back)
+Music Rail is lazy and destroyed on Back/Settings exit.
 
-```
-_view_music  (flex COLUMN; flex_grow=1; HIDDEN; destroyed on Back)
-│
-├── detail header
-│   ├── _music_back_hit
-│   ├── _music_header_icon
-│   └── _lbl_music_header          "MUSIC RAIL"
-│
+```text
+_view_music
+├── detail header                          back | music glyph | MUSIC RAIL
 └── _cont_music_content
-    ├── presence rail row          → _row_rail_enabled
-    └── rail profile row           → _row_rail_profile (disabled styling when rail OFF)
-
-block_gesture_bubble_deep(_view_music)
-_applyMusicRailProfileRowTreatment after build
+    ├── PRESENCE RAIL
+    └── RAIL PROFILE
 ```
 
----
+## Scrolling detail
 
-## Tree (ASCII) — Sleep device overlay (layer top)
+Scrolling is lazy and destroyed on Back/Settings exit. Its established sliders, preview,
+geometry, and callbacks are unchanged by TIMERS.
 
-```
-_sleep_device_overlay  (lv_layer_top; full-screen scrim)
-└── card (88% width)
-    ├── title label                kStrValSleepDevice ("SLEEP DEVICE")
-    ├── body label                 kStrSleepOverlayBody
-    └── btn_row
-        ├── CANCEL btn             kStrButtonCancel
-        └── USE SLEEP DEVICE btn   kStrButtonUseSleepDevice
-```
-
-Gesture on overlay blocked via `sleepDeviceOverlayBlockGestureEvt`.
-
----
-
-## View switching
-
-| View | Visible root | Hidden siblings | Carousel swipe |
-|------|--------------|-----------------|----------------|
-| `SettingsView::Main` | `_view_main` | `_view_display`, `_view_music` | allowed |
-| `SettingsView::Display` | `_view_display` | `_view_main`, `_view_music` | **blocked** (`isSettingsDetailBlockingCarousel`) |
-| `SettingsView::MusicRail` | `_view_music` | `_view_main`, `_view_display` | **blocked** |
-
-**Lifecycle notes:**
-- Display detail: created once per Settings page lifecycle (MEM1); survives Back.
-- Music Rail detail: `_destroyMusicRailView` on Back and on `exit()`.
-- Overlay: `_hideSleepDeviceWarning` on cancel, confirm, and `exit()`.
-
----
-
-## Diagram (Mermaid)
-
-```mermaid
-flowchart TD
-    screen["_screen"]
-    status["_status_line.root"]
-    div1["status divider"]
-    main["_view_main"]
-    content["_cont_content"]
-    footer["_footer_area"]
-
-    screen --> status
-    screen --> div1
-    screen --> main
-    screen --> display["_view_display (lazy)"]
-    screen --> music["_view_music (lazy)"]
-
-    main --> content
-    main --> footer
-
-    content --> rowD["Display row"]
-    content --> rowM["Music Rail row"]
-    content --> rowR["Resume row"]
-    content --> sleep["Sleep block"]
-    content --> rowW["Wi-Fi row"]
-
-    display --> dHead["detail header"]
-    display --> dCont["_cont_display_content"]
-
-    music --> mHead["detail header"]
-    music --> mCont["_cont_music_content"]
+```text
+_view_scrolling
+├── detail header                          back | display glyph | SCROLLING
+└── _cont_scrolling_content
+    ├── SCROLL SPEED slider
+    ├── SCROLL TYPE
+    ├── SCROLL DELAY slider
+    └── SCROLLING PREVIEW
 ```
 
----
+## TIMERS detail
 
-## String inventory (`kStr*`)
+TIMERS is lazy, fixed-height/non-scrollable, and destroyed on Back or Settings exit. It reuses one
+control tree for both tabs, so repeated tab changes allocate no additional LVGL objects.
 
-| Constant | Usage |
-|----------|--------|
-| `kStrDisplay` | Main row + Display header |
-| `kStrMusicRail` | Main row + Music header |
-| `kStrResumeOnStartup` | Main row |
-| `kStrSleepTimer` / `kStrWhenTimerEnds` | Sleep block labels |
-| `kStrWifi` | Main row |
-| `kStrBrightness` / `kStrTheme` / `kStrAutoDim` / `kStrDimAfter` / `kStrDimLevel` / `kStrPerformanceMonitor` | Display detail |
-| `kStrPresenceRail` / `kStrRailProfile` | Music Rail detail |
-| `kStrValOn` / `kStrValOff` | Toggle values |
-| `kStrValStopRadio` / `kStrValSleepDevice` | Sleep action + overlay title |
-| `kStrValNotConnected` | Wi-Fi default value |
-| `kStrValDark` / `kStrValLight` / `kStrValCustom` | Theme preset |
-| `kStrValFence` / `kStrValOscilloscope` | Rail profile |
-| `kStrTimeout30Sec` … `kStrTimeout10Min` | Autodim timeout cycle |
-| `kStrSleep15Min` … `kStrSleep2Hours` | Sleep duration cycle |
-| `kStrFooterReturn` | Footer pill |
-| `kStrSleepOverlayBody` / `kStrButtonCancel` / `kStrButtonUseSleepDevice` | Sleep device overlay |
+```text
+_view_sleep_timer                         SettingsView::SleepTimer
+├── detail header                         back | sleep glyph | TIMERS
+└── _cont_sleep_timer_content             flex column; pad_top=4; row_gap=5
+    ├── tabs                              height=38
+    │   ├── _timer_tab_buttons[0]
+    │   │   └── _timer_tab_labels[0]      RADIO
+    │   └── _timer_tab_buttons[1]
+    │       └── _timer_tab_labels[1]      DEEP SLEEP
+    │
+    ├── _timer_event_cards[0]             height=92
+    │   ├── header
+    │   │   ├── _timer_event_titles[0]    STOP RADIO AFTER / DEEP SLEEP AFTER
+    │   │   └── _timer_at_labels[0]       STOPS AT / SLEEP AT ...
+    │   └── controls row
+    │       ├── HOURS column
+    │       │   ├── _timer_captions[0] + _timer_value_labels[0]
+    │       │   └── _timer_sliders[0]     range 0..24
+    │       └── MINUTES column
+    │           ├── _timer_captions[1] + _timer_value_labels[1]
+    │           └── _timer_sliders[1]     range 0..59
+    │
+    ├── _timer_event_cards[1]             height=92
+    │   ├── header
+    │   │   ├── _timer_event_titles[1]    START RADIO AFTER / WAKE AFTER SLEEP
+    │   │   └── _timer_at_labels[1]       STARTS AT / WAKE AT ...
+    │   └── controls row
+    │       ├── HOURS column
+    │       │   ├── _timer_captions[2] + _timer_value_labels[2]
+    │       │   └── _timer_sliders[2]     range 0..24
+    │       └── MINUTES column
+    │           ├── _timer_captions[3] + _timer_value_labels[3]
+    │           └── _timer_sliders[3]     range 0..59
+    │
+    ├── _lbl_timer_state                  height=20; conflict/clock/remaining state
+    └── buttons row                       height=42
+        ├── _btn_timer_primary
+        │   └── _lbl_timer_primary        START/CANCEL RADIO or DEEP SLEEP TIMER
+        └── _btn_deep_sleep_now           visible on DEEP SLEEP tab only
+            └── _lbl_deep_sleep_now       ENTER DEEP SLEEP NOW
+```
 
-Dynamic formatted values (not `kStr*`): brightness `%`, dim level `%`, live Wi-Fi SSID.
+Fixed content height is 304 px (`38 + 92 + 92 + 20 + 42 + four 5 px gaps`), before the detail
+header. It fits the 480×480 profile without vertical scrolling and leaves the existing status/header
+frame intact. Slider rows are 28 px high with a padded knob and full-width columns for touch.
 
----
+### Runtime and draft states
 
-## Builder map (SETTINGSREF-A)
+- With no active plan, sliders show persisted presets.
+- `LV_EVENT_VALUE_CHANGED` updates only `_timer_event1_draft` / `_timer_event2_draft` and preview.
+- `LV_EVENT_RELEASED` or `LV_EVENT_PRESS_LOST` persists one combined minute value for that event.
+- Start takes an immutable runtime snapshot. Any active plan disables all four sliders.
+- A telnet-created plan shows its runtime snapshot and remaining time in the same controls.
+- Cancel clears the runtime plan and reloads persisted presets.
+- The other tab remains visible but disabled and says which active plan must be cancelled first.
+- `0 H 0 MIN` disables one event. Equal non-zero Radio Stop/Start values disable Start and show
+  `STOP AND START TIMES MUST DIFFER`.
+- `... AT` preview follows local time before Start. Active labels use stored event epochs and do not
+  drift. `CLOCK NOT SYNCED` never blocks monotonic countdown execution.
 
-| Builder | Responsibility |
-|---------|----------------|
-| `create_main_structure` | `_view_main` + `_cont_content` shell |
-| `populate_main_rows` | All Main view category/sleep/wifi rows |
-| `build_display_detail` | `_cont_display_content` subtree only (caller owns `_view_display` shell + header) |
-| `build_music_rail_detail` | `_cont_music_content` subtree only (caller owns `_view_music` shell + header) |
+### Theme contract
 
-`create()` must remain orchestration-only — no inline row construction.
+No TIMERS color is hardcoded. `_applyTimersTheme()` reapplies all live handles for Dark, Light,
+and Custom using only `YoRadioPalette`:
+
+- detail background/header: existing Settings helpers;
+- tab and selected state: `panel_background`, `accent_soft`, `accent`, `divider`;
+- primary/secondary/meta text: `text_primary`, `text_secondary`, `text_meta`;
+- event cards/dividers: `panel_background`, `divider`;
+- slider track/fill/knob: `volume_bar_track`, `volume_bar_fill`, `accent`, `panel_border`;
+- enabled/disabled buttons: `accent`, `panel_background`, `panel_border`, palette text plus opacity;
+- conflict and cross-plan warning: `accent`.
+
+`liveReapplyTheme()` recolors the selected tab, disabled sliders/buttons, active state, and event
+cards without rebuilding the Settings screen.
+
+## View routing and cleanup
+
+| View | Lifecycle | Carousel swipe |
+|---|---|---|
+| `Main` | root lifetime | allowed |
+| `Display` | lazy once | blocked |
+| `MusicRail` | lazy, destroy-on-Back/exit | blocked |
+| `Scrolling` | lazy, destroy-on-Back/exit | blocked |
+| `SleepTimer` (TIMERS) | lazy, destroy-on-Back/exit | blocked |
+
+`block_gesture_bubble_deep(_view_sleep_timer)` prevents horizontal PageChain gestures from
+escaping any TIMERS child. `_destroySleepTimerView()` and `_nullHandles()` clear every tab, card,
+label, slider, button, draft, drag, and sync handle; callbacks die with the deleted LVGL tree.

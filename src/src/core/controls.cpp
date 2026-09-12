@@ -6,6 +6,7 @@
 #include "display.h"
 #include "network.h"
 #include "netserver.h"
+#include "sleep_timer.h"
 
 long encOldPosition  = 0;
 long enc2OldPosition  = 0;
@@ -430,7 +431,9 @@ void onBtnLongPressStop(int id) {
         break;
       }
     case EVT_BTNMODE: {
-        config.doSleepW();
+        // Long-press Mode uses the same queued managed immediate request as UI/telnet.
+        // Long-press Mode идёт через тот же queued managed request, без обходного sleep path.
+        timer_request_deep_sleep_now(DeepSleepWakeRequest::persistent());
         break;
       }
     default:
