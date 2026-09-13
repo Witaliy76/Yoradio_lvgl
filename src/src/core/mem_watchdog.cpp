@@ -74,6 +74,11 @@ static void mwPrintSnapshotLine(const char* tag, const MWSnapshot& s, bool inclu
   const unsigned failsThreshold = (s.arm_reason == MWArmReason::FAIL_STORM)
       ? FAILS_TO_FUNCTIONAL_REBOOT
       : FAILS_TO_REBOOT;
+  // E-MW2: FAIL_STORM is judged on spontaneous failures only, so report those.
+  // E-MW2: FAIL_STORM судит только по самопроизвольным отказам — их и показываем.
+  const unsigned failsValue = (s.arm_reason == MWArmReason::FAIL_STORM)
+      ? s.auto_fails
+      : s.fails;
 
   if (include_window) {
     if (reason) {
@@ -81,7 +86,7 @@ static void mwPrintSnapshotLine(const char* tag, const MWSnapshot& s, bool inclu
         "[MEMWATCH] %s reason=%s event=%s fails=%u/%u window=%lu/%lu int_free=%lu int_min_global=%lu int_min_episode=%lu int_largest=%lu psram_free=%lu psram_largest=%lu boot=%lu suppressed=%u\n",
         tag, reason,
         mwEventTag(s.last_event),
-        (unsigned)s.fails,
+        failsValue,
         failsThreshold,
         (unsigned long)s.window_age_ms,
         (unsigned long)s.window_ms,
@@ -98,7 +103,7 @@ static void mwPrintSnapshotLine(const char* tag, const MWSnapshot& s, bool inclu
         "[MEMWATCH] %s event=%s fails=%u/%u window=%lu/%lu int_free=%lu int_min_global=%lu int_min_episode=%lu int_largest=%lu psram_free=%lu psram_largest=%lu boot=%lu suppressed=%u\n",
         tag,
         mwEventTag(s.last_event),
-        (unsigned)s.fails,
+        failsValue,
         failsThreshold,
         (unsigned long)s.window_age_ms,
         (unsigned long)s.window_ms,
@@ -116,7 +121,7 @@ static void mwPrintSnapshotLine(const char* tag, const MWSnapshot& s, bool inclu
       "[MEMWATCH] %s reason=%s event=%s fails=%u/%u int_free=%lu int_min_global=%lu int_min_episode=%lu int_largest=%lu psram_free=%lu psram_largest=%lu boot=%lu suppressed=%u\n",
       tag, reason,
       mwEventTag(s.last_event),
-      (unsigned)s.fails,
+      failsValue,
       failsThreshold,
       (unsigned long)s.int_free,
       (unsigned long)s.int_min_global,
@@ -131,7 +136,7 @@ static void mwPrintSnapshotLine(const char* tag, const MWSnapshot& s, bool inclu
       "[MEMWATCH] %s event=%s fails=%u/%u int_free=%lu int_min_global=%lu int_min_episode=%lu int_largest=%lu psram_free=%lu psram_largest=%lu boot=%lu suppressed=%u\n",
       tag,
       mwEventTag(s.last_event),
-      (unsigned)s.fails,
+      failsValue,
       failsThreshold,
       (unsigned long)s.int_free,
       (unsigned long)s.int_min_global,
@@ -210,6 +215,8 @@ uint32_t MemWatchdog::mwEpisodeIntMin() const {
 void MemWatchdog::reset() {
   mwEndEpisode();
   m_fails = 0;
+  m_auto_fails = 0;
+  m_connect_fail_ack_pending = false;
   m_first_ts = 0;
   m_reboot_armed = false;
   m_hold_logged = false;
@@ -221,6 +228,7 @@ void MemWatchdog::mwMaybeExpireWindow() {
   if (m_suppressed || m_first_ts == 0) return;
   if ((millis() - m_first_ts) > WINDOW_MS) {
     m_fails = 0;
+    m_auto_fails = 0;   // E-MW2
     m_first_ts = 0;
     m_hold_logged = false;
     mwEndEpisode();
@@ -235,7 +243,14 @@ void MemWatchdog::mwCountFunctionalFailure(MWEvent ev) {
   m_last_event = ev;
   const uint32_t now = millis();
   if (m_first_ts == 0) m_first_ts = now;
+  // E-MW2: see record() - a failure that concludes a user-initiated attempt is
+  // evidence about the station, not about this device.
+  // E-MW2: см. record() - отказ, завершающий начатую пользователем попытку, —
+  // свидетельство о станции, а не о состоянии устройства.
+  const bool spontaneous = !m_user_attempt_pending;
+  m_user_attempt_pending = false;
   m_fails++;
+  if (spontaneous) m_auto_fails++;
   m_recovery_reset_pending = true;
   const MWDecision d = evaluate();
   if (d.trigger) armReboot();
@@ -253,8 +268,39 @@ void MemWatchdog::record(MWEvent ev) {
   m_last_event = ev;
   const uint32_t now = millis();
   if (m_first_ts == 0) m_first_ts = now;
+
+  // E-MW2: classify before counting. A failure that concludes a user-initiated
+  // playback attempt only tells us the station did not answer - the device may be
+  // perfectly healthy - so it must not feed the FAIL_STORM reboot, which fires
+  // precisely when memory is fine. It still feeds m_fails, because the memory
+  // triggers want every failure regardless of who started the attempt.
+  // Anything else (stream lost mid-playback, internal reconnect) is spontaneous
+  // and is exactly the evidence FAIL_STORM was meant to act on.
+  // E-MW2: классифицируем до подсчёта. Отказ, завершающий начатую пользователем
+  // попытку, говорит лишь о том, что станция не ответила — устройство может быть
+  // полностью исправно, — поэтому он не кормит перезагрузку FAIL_STORM, которая
+  // срабатывает как раз при здоровой памяти. В m_fails он по-прежнему попадает:
+  // памятным триггерам нужен любой отказ, независимо от инициатора.
+  // Всё остальное (поток развалился на ходу, внутренний reconnect) —
+  // самопроизвольное, и это ровно то, ради чего FAIL_STORM задумывался.
+  const bool spontaneous = !m_user_attempt_pending;
+  m_user_attempt_pending = false;
+
   m_fails++;
+  if (spontaneous) m_auto_fails++;
+  // E-MW1: Player logs the same connect failure one level up. Tell it this one is
+  // already counted, otherwise a single dead station costs two units and the
+  // threshold of 6 behaves like 3.
+  // E-MW1: Player сообщает об этом же отказе уровнем выше. Помечаем, что он уже
+  // учтён, иначе одна мёртвая станция стоит двух единиц и порог 6 ведёт себя как 3.
+  if (ev == MWEvent::HTTP_FAIL) m_connect_fail_ack_pending = true;
   m_recovery_reset_pending = true;
+}
+
+bool MemWatchdog::takeConnectFailureAck() {
+  const bool pending = m_connect_fail_ack_pending;
+  m_connect_fail_ack_pending = false;
+  return pending;
 }
 
 MWDecision MemWatchdog::evaluate() const {
@@ -283,8 +329,9 @@ MWDecision MemWatchdog::evaluate() const {
 
   const bool memoryTrigger = (m_fails >= FAILS_TO_REBOOT) && currentMemoryCritical;
   const bool episodeLowTrigger = (m_fails >= FAILS_TO_REBOOT) && !currentMemoryCritical && episodeLow;
+  // E-MW2: spontaneous failures only / только самопроизвольные отказы
   const bool stormTrigger =
-      (m_fails >= FAILS_TO_FUNCTIONAL_REBOOT) && !currentMemoryCritical && !episodeLow;
+      (m_auto_fails >= FAILS_TO_FUNCTIONAL_REBOOT) && !currentMemoryCritical && !episodeLow;
 
   if (memoryTrigger || episodeLowTrigger || stormTrigger)
     d.trigger = true;
@@ -312,6 +359,7 @@ MWSnapshot MemWatchdog::snapshot() const {
   MWSnapshot s = {};
   uint32_t now = millis();
   s.fails = m_fails;
+  s.auto_fails = m_auto_fails;   // E-MW2
   s.fails_threshold = FAILS_TO_REBOOT;
   s.window_ms = WINDOW_MS;
   s.window_age_ms = (m_first_ts == 0) ? 0 : (now - m_first_ts);
@@ -338,7 +386,7 @@ void MemWatchdog::armReboot() {
     m_arm_reason = mwMemoryArmReason(s);
   } else if (m_fails >= FAILS_TO_REBOOT && s.int_min_episode < INT_EPISODE_MIN_THRESHOLD) {
     m_arm_reason = MWArmReason::EPISODE_LOW;
-  } else if (m_fails >= FAILS_TO_FUNCTIONAL_REBOOT) {
+  } else if (m_auto_fails >= FAILS_TO_FUNCTIONAL_REBOOT) {   // E-MW2
     m_arm_reason = MWArmReason::FAIL_STORM;
   } else {
     m_arm_reason = MWArmReason::NONE;
@@ -362,6 +410,14 @@ bool MemWatchdog::isFunctionalReboot() const {
 void MemWatchdog::onPlaybackAttemptStarted() {
   if (m_suppressed) return;
   m_recovery_reset_pending = true;
+  // E-MW1/E-MW2: only Player calls this, and only for a user-initiated play.
+  // An internal reconnect never does, which is what makes the two cases
+  // distinguishable at all.
+  // E-MW1/E-MW2: сюда заходит только Player и только при запуске по команде
+  // пользователя; внутренний reconnect этого не делает — на этом и строится
+  // различение двух случаев.
+  m_user_attempt_pending = true;
+  m_connect_fail_ack_pending = false;
   mwStartEpisodeIfInactive();
 }
 
@@ -421,6 +477,8 @@ void MemWatchdog::onPlaybackRecovered() {
   const uint8_t prevFails = m_fails;
   const uint32_t episodeMin = mwEpisodeIntMin();
   m_fails = 0;
+  m_auto_fails = 0;              // E-MW2
+  m_user_attempt_pending = false;  // the attempt ended in healthy audio / попытка закончилась звуком
   m_first_ts = 0;
   m_hold_logged = false;
   m_recovery_reset_pending = false;
@@ -474,6 +532,7 @@ void MemWatchdog::onPlaybackAutoStopped(bool) {}
 void MemWatchdog::onStationLocalStop(AudioTerminalReason) {}
 bool MemWatchdog::canAcceptPlaybackRecovery() const { return false; }
 bool MemWatchdog::takeRecoveryTimerReset() { return false; }
+bool MemWatchdog::takeConnectFailureAck() { return false; }
 void MemWatchdog::printRebootDiagnostic() const {}
 
 #endif

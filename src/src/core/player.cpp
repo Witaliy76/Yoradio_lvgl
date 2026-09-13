@@ -421,8 +421,18 @@ void Player::_play(uint16_t stationId) {
   }else{
     SET_PLAY_ERROR("Error connecting to %s", config.station.url);
 #ifdef MEM_WATCHDOG_AUTOREBOOT
-    memWatchdog.record(MWEvent::HTTP_FAIL);
-    { auto d = memWatchdog.evaluate(); if (d.trigger) memWatchdog.armReboot(); }
+    // E-MW1: Audio already counted this very failure inside connecttohost().
+    // Counting it again made one dead station cost two units, so the FAIL_STORM
+    // threshold of 6 fired after three button presses. Only count here when the
+    // attempt failed before Audio ever got to record it (empty/too long/invalid URL).
+    // E-MW1: Audio уже посчитал этот же отказ внутри connecttohost(). Повторный
+    // счёт делал одну мёртвую станцию равной двум единицам, и порог FAIL_STORM = 6
+    // срабатывал после трёх нажатий. Считаем здесь только если попытка сорвалась
+    // до того, как Audio успел её зафиксировать (пустой/длинный/некорректный URL).
+    if (!memWatchdog.takeConnectFailureAck()) {
+      memWatchdog.record(MWEvent::HTTP_FAIL);
+      { auto d = memWatchdog.evaluate(); if (d.trigger) memWatchdog.armReboot(); }
+    }
 #endif
     _stop(true);
   };
@@ -447,8 +457,18 @@ void Player::browseUrl(){
   }else{
     SET_PLAY_ERROR("Error connecting to %s", burl);
 #ifdef MEM_WATCHDOG_AUTOREBOOT
-    memWatchdog.record(MWEvent::HTTP_FAIL);
-    { auto d = memWatchdog.evaluate(); if (d.trigger) memWatchdog.armReboot(); }
+    // E-MW1: Audio already counted this very failure inside connecttohost().
+    // Counting it again made one dead station cost two units, so the FAIL_STORM
+    // threshold of 6 fired after three button presses. Only count here when the
+    // attempt failed before Audio ever got to record it (empty/too long/invalid URL).
+    // E-MW1: Audio уже посчитал этот же отказ внутри connecttohost(). Повторный
+    // счёт делал одну мёртвую станцию равной двум единицам, и порог FAIL_STORM = 6
+    // срабатывал после трёх нажатий. Считаем здесь только если попытка сорвалась
+    // до того, как Audio успел её зафиксировать (пустой/длинный/некорректный URL).
+    if (!memWatchdog.takeConnectFailureAck()) {
+      memWatchdog.record(MWEvent::HTTP_FAIL);
+      { auto d = memWatchdog.evaluate(); if (d.trigger) memWatchdog.armReboot(); }
+    }
 #endif
     _stop(true);
   }

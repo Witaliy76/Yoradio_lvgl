@@ -43,6 +43,9 @@ struct MWDecision {
 
 struct MWSnapshot {
   uint8_t  fails;
+  // E-MW2: subset of `fails` that nobody asked for - spontaneous failures only.
+  // E-MW2: подмножество `fails` — только самопроизвольные отказы, без ручных попыток.
+  uint8_t  auto_fails;
   uint8_t  fails_threshold;
   uint32_t window_age_ms;
   uint32_t window_ms;
@@ -95,6 +98,9 @@ public:
   void onStationLocalStop(AudioTerminalReason reason);
   bool canAcceptPlaybackRecovery() const;
   bool takeRecoveryTimerReset();
+  // E-MW1: consumed by Player so one failed connect is not counted twice.
+  // E-MW1: Player забирает признак, чтобы один отказ не считался дважды.
+  bool takeConnectFailureAck();
 
   void printRebootDiagnostic() const;
 
@@ -124,6 +130,15 @@ private:
   bool m_header_overflow_observed = false;
   bool m_auto_stop_counted = false;
   bool m_player_error_observed = false;
+  // E-MW1: Audio already counted the connect failure of the current attempt.
+  // E-MW1: Audio уже посчитал отказ подключения текущей попытки.
+  bool m_connect_fail_ack_pending = false;
+  // E-MW2: a user-initiated playback attempt is in flight; its failure says
+  // nothing about device health, only that the station did not answer.
+  // E-MW2: идёт попытка воспроизведения, начатая пользователем; её отказ не
+  // говорит о здоровье устройства — только о том, что станция не ответила.
+  bool m_user_attempt_pending = false;
+  uint8_t m_auto_fails = 0;
 };
 
 extern MemWatchdog memWatchdog;
