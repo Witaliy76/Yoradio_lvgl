@@ -350,6 +350,41 @@ constexpr bool resolveRedirect(const char* currentUrl, const char* location, cha
     return parseUrl(dst).valid;
 }
 
+// ---------------------------------------------------------------------------
+// Endpoint identity for HTTP connection reuse.
+// Идентичность endpoint для повторного использования HTTP-соединения.
+//
+// A live socket may be reused only when hostname, scheme AND effective port all
+// match. Hostname alone is not enough: the same host can serve a second port,
+// and http <-> https on one host needs a different transport object entirely.
+// Сокет можно переиспользовать только при совпадении hostname, схемы и
+// эффективного порта: одного hostname недостаточно (другой порт, http<->https).
+// ---------------------------------------------------------------------------
+
+// The transport functions coerce an https URL that still carries port 80 to 443
+// just before connecting, so endpoint identity must apply the same rule.
+// Транспортные функции приводят https с портом 80 к 443 перед connect — сравнение
+// endpoint обязано использовать то же правило.
+constexpr uint16_t effectiveEndpointPort(bool ssl, uint16_t port) {
+    return (ssl && port == 80u) ? 443u : port;
+}
+
+// Host bytes are compared exactly, as the previous hostname-only check did:
+// no case folding, no IDN and no trailing-dot normalization is introduced here.
+// Байты hostname сравниваются точно, как и в прежней проверке по hostname.
+constexpr bool sameHttpEndpoint(const char* urlA, const char* urlB) {
+    const UrlParts a = parseUrl(urlA);
+    const UrlParts b = parseUrl(urlB);
+    if(!a.valid || !b.valid) return false;
+    if(a.ssl != b.ssl) return false;
+    if(effectiveEndpointPort(a.ssl, a.port) != effectiveEndpointPort(b.ssl, b.port)) return false;
+    if(a.hostLength != b.hostLength) return false;
+    for(size_t i = 0; i < a.hostLength; ++i) {
+        if(a.host[i] != b.host[i]) return false;
+    }
+    return true;
+}
+
 } // namespace audio_safe
 
 #endif

@@ -33,6 +33,8 @@
 #include <NetworkClientSecure.h>
 #include <driver/i2s_std.h>
 #include "audiolib_structs.hpp"
+#include "audio_retry_budget.h"
+#include "audio_tls_sni_client.h"
 
 #ifndef I2S_GPIO_UNUSED
   #define I2S_GPIO_UNUSED -1 // = I2S_PIN_NO_CHANGE in IDF < 5
@@ -63,7 +65,7 @@ extern __attribute__((weak)) void audio_progress(uint32_t startpos, uint32_t end
 extern __attribute__((weak)) void audio_error(const char*);
 //----------------------------------------------------------------------------------------------------------------------
 
-class AudioNetworkClientSecure : public NetworkClientSecure {
+class AudioNetworkClientSecure : public AudioTlsSniClientT<NetworkClientSecure> {
 public:
 #if defined(YORADIO_IDF_C1_CONFIG) && YORADIO_IDF_C1_CONFIG
     mbedtls_ssl_context* audioSslContext() {
@@ -237,7 +239,14 @@ class Audio{
     int32_t      audioFileSeek(uint32_t position, size_t len = 0);
     void         initInBuff();
     bool         httpPrint(const char* host);
-    bool         tryBufferedWebstreamReconnect();
+    // E-AT3: single transport connect funnel — resolved IP + original hostname.
+    // E-AT3: единая точка connect — IP из resolver + исходный hostname.
+    bool         audioTransportConnect(const IPAddress& ip, uint16_t port, const char* hostname);
+    // E-AT4: reports whether a physical connect was actually issued, so that the
+    // clean fallback can be accounted for separately.
+    // E-AT4: сообщает, была ли реальная попытка подключения, чтобы clean
+    // fallback учитывался отдельно.
+    bool         tryBufferedWebstreamReconnect(bool& transportAttempted);
     bool         httpRange(uint32_t range, uint32_t length = UINT32_MAX);
     void         processLocalFile();
     void         processWebStream();

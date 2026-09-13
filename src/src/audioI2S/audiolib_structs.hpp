@@ -132,6 +132,9 @@ namespace audiolib {
     };
 
     struct hwoe_t { // used in dismantle_host
+        // false = the URL was rejected by parseUrl(); every other field is empty.
+        // false = URL отвергнут parseUrl(); остальные поля пустые.
+        bool valid;
         bool ssl;
         ps_ptr<char> hwoe;      // host without extension
         ps_ptr<char> rqh_host;  // host in request header

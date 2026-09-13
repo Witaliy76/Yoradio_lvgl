@@ -743,8 +743,9 @@ void Audio::applyExpectedFormatHints(const char* extension) {
 audiolib::hwoe_t Audio::dismantle_host(const char* host){
     audiolib::hwoe_t result{};
     const audio_safe::UrlParts parts = audio_safe::parseUrl(host);
-    if(!parts.valid) return result;
+    if(!parts.valid) return result;   // result.valid stays false / признак ошибки сохраняется
 
+    result.valid = true;
     result.ssl = parts.ssl;
     result.port = parts.port;
     result.hwoe.copy_from(parts.host, parts.hostLength);
@@ -777,6 +778,19 @@ bool Audio::connecttohost(const char* host, const char* user, const char* pwd) {
     c_host.copy_from(host);
     c_host.trim();
     auto dismantledHost = dismantle_host(c_host.get());
+
+    // E-AT2: a malformed URL is a permanent input error, not a transient network
+    // failure — fail before setDefaults()/transport selection and do not issue a
+    // DNS/connect attempt that would be reported as "connection lost".
+    // E-AT2: некорректный URL — постоянная ошибка ввода, а не временный сетевой
+    // отказ: выходим до setDefaults()/выбора транспорта и не делаем сетевой
+    // попытки, которую потом приняли бы за "connection lost".
+    if(!dismantledHost.valid) {
+        AUDIO_ERROR("Invalid URL: %s", c_host.c_get());
+        stopSong();
+        xSemaphoreGiveRecursive(mutex_playAudioData);
+        return false;
+    }
 
 //  https://edge.live.mp3.mdn.newmedia.nacamar.net:8000/ps-charivariwb/livestream.mp3;?user=ps-charivariwb;&pwd=ps-charivariwb-------
 //      |   |                                     |    |                              |
@@ -842,7 +856,8 @@ bool Audio::connecttohost(const char* host, const char* user, const char* pwd) {
     if(m_f_ssl) tlsPreconnectCleanup();
     IPAddress resolvedIP;
     if(networkResolveHostForConnect(hwoe.get(), resolvedIP, m_f_ssl ? m_timeout_ms_ssl : m_timeout_ms)) {
-        res = m_client->connect(resolvedIP, port);
+        // E-AT3: resolver IP + original hostname for TLS / IP из resolver + hostname для TLS
+        res = audioTransportConnect(resolvedIP, port, hwoe.c_get(""));
     } else {
         res = false;
     }
@@ -896,6 +911,20 @@ bool Audio::connecttohost(const char* host, const char* user, const char* pwd) {
     return res;
 }
 //****************************************************************************************
+// E-AT3: the project resolves DNS itself, so the plain path keeps connect(ip, port)
+// while the TLS path uses the core overload that also carries the hostname.
+// Passing the IP alone makes mbedtls use ip.toString() as SNI, which is not the
+// stream's hostname. A literal-IP URL behaves exactly as before, because the
+// hostname then *is* the IP string.
+// E-AT3: DNS резолвится проектом, поэтому обычный путь сохраняет connect(ip, port),
+// а TLS использует overload ядра, принимающий ещё и hostname. Передача одного IP
+// заставляет mbedtls подставлять ip.toString() в SNI. Для URL с буквальным IP
+// поведение не меняется — hostname и есть строка IP.
+bool Audio::audioTransportConnect(const IPAddress& ip, uint16_t port, const char* hostname) {
+    if(m_f_ssl) return clientsecure.connectWithSni(ip, port, hostname) > 0;
+    return m_client->connect(ip, port) > 0;
+}
+//****************************************************************************************
 bool Audio::httpPrint(const char* host) {
     // user and pwd for authentification only, can be empty
     if(!m_f_running) return false;
@@ -909,11 +938,30 @@ bool Audio::httpPrint(const char* host) {
     ps_ptr<char> query_string; // parameter
     ps_ptr<char> path;         // extension + '?' + parameter
     ps_ptr<char> rqh;          // request header
-    ps_ptr<char> cur_hwoe;     // m_currenthost without extension
 
     c_host.copy_from(host);
     c_host.trim();
     auto dismantledHost = dismantle_host(c_host.get());
+
+    // E-AT2: reject a malformed URL before the live transport is closed and
+    // before a request is built from empty fields.
+    // E-AT2: отвергаем некорректный URL до закрытия текущего транспорта и до
+    // сборки запроса из пустых полей.
+    if(!dismantledHost.valid) {
+        AUDIO_ERROR("Invalid URL: %s", c_host.c_get());
+        if(m_f_preserveStreamReconnect) return false;
+        stopSong();
+        return false;
+    }
+
+    // E-AT1: endpoint identity of the previous URL is read here, before m_f_ssl
+    // and the port/host locals below are overwritten with the new URL.
+    // A socket may be reused only for the same hostname + scheme + effective port.
+    // E-AT1: старый endpoint читается здесь, до перезаписи m_f_ssl и локальных
+    // полей новым URL. Сокет переиспользуется только при совпадении hostname,
+    // схемы и эффективного порта.
+    if(!m_currentHost.valid()) m_currentHost.assign("");
+    const bool f_equal = audio_safe::sameHttpEndpoint(c_host.c_get(""), m_currentHost.c_get(""));
 
 //  https://edge.live.mp3.mdn.newmedia.nacamar.net:8000/ps-charivariwb/livestream.mp3;?user=ps-charivariwb;&pwd=ps-charivariwb-------
 //      |   |                                     |    |                              |
@@ -937,13 +985,6 @@ bool Audio::httpPrint(const char* host) {
 
     path = urlencode(path.get(), true);
 
-    if(!m_currentHost.valid()) m_currentHost.assign("");
-    auto dismantledLastHost = dismantle_host(m_currentHost.get());
-    cur_hwoe.clone_from(dismantledLastHost.hwoe);
-
-    bool f_equal = true;
-    if(hwoe.equals(cur_hwoe)){f_equal = true;}
-    else{                     f_equal = false;}
 #if defined(YORADIO_IDF_C1_CONFIG) && YORADIO_IDF_C1_CONFIG
     bool openedTlsNow = false;
 #endif
@@ -973,8 +1014,9 @@ bool Audio::httpPrint(const char* host) {
                                         m_preservedStreamCodec == CODEC_AAC;
         if(m_f_ssl) tlsPreconnectCleanup(preserveAacDecoder);
         IPAddress resolvedIP;
+        // E-AT3: resolver IP + original hostname for TLS / IP из resolver + hostname для TLS
         if(!networkResolveHostForConnect(hwoe.get(), resolvedIP, m_f_ssl ? m_timeout_ms_ssl : m_timeout_ms) ||
-           !m_client->connect(resolvedIP, port)) {
+           !audioTransportConnect(resolvedIP, port, hwoe.c_get(""))) {
             AUDIO_ERROR("connection lost %s", c_host.c_get());
 #ifdef MEM_WATCHDOG_AUTOREBOOT
             memWatchdog.record(MWEvent::CONN_LOST);
@@ -1043,6 +1085,16 @@ bool Audio::httpRange(uint32_t seek, uint32_t length){
     c_host.trim();
     auto dismantledHost = dismantle_host(c_host.get());
 
+    // E-AT2: same contract as httpPrint()/connecttohost() — no transport work,
+    // no cleanup and no request on a URL that did not parse.
+    // E-AT2: тот же контракт — без работы с транспортом, cleanup и запроса,
+    // если URL не разобран.
+    if(!dismantledHost.valid) {
+        AUDIO_ERROR("Invalid URL: %s", c_host.c_get());
+        stopSong();
+        return false;
+    }
+
 //  https://edge.live.mp3.mdn.newmedia.nacamar.net:8000/ps-charivariwb/livestream.mp3;?user=ps-charivariwb;&pwd=ps-charivariwb-------
 //      |   |                                     |    |                              |
 //      |   |                                     |    |                              |             (query string)
@@ -1089,8 +1141,9 @@ bool Audio::httpRange(uint32_t seek, uint32_t length){
 
     if(m_f_ssl) tlsPreconnectCleanup();
     IPAddress resolvedIP;
+    // E-AT3: resolver IP + original hostname for TLS / IP из resolver + hostname для TLS
     if(!networkResolveHostForConnect(hwoe.get(), resolvedIP, m_f_ssl ? m_timeout_ms_ssl : m_timeout_ms) ||
-       !m_client->connect(resolvedIP, port)) {
+       !audioTransportConnect(resolvedIP, port, hwoe.c_get(""))) {
         AUDIO_ERROR("connection lost %s", c_host.c_get());
 #ifdef MEM_WATCHDOG_AUTOREBOOT
         memWatchdog.record(MWEvent::CONN_LOST);
@@ -3202,7 +3255,12 @@ void Audio::noteStreamAudioProgress() {
     m_streamLastAudioProgressMs.store(now, std::memory_order_release);
 }
 
-bool Audio::tryBufferedWebstreamReconnect() {
+bool Audio::tryBufferedWebstreamReconnect(bool& transportAttempted) {
+    // E-AT4: every early return below rejects the buffered path *before* any
+    // socket work, so it costs no transport attempt.
+    // E-AT4: все ранние выходы ниже отказывают до работы с сокетом и не стоят
+    // ни одной transport-попытки.
+    transportAttempted = false;
     if (m_dataMode != AUDIO_DATA) return false;
     if (m_streamType != ST_WEBSTREAM) return false;
     // Only ADTS AAC has device evidence for decoder-preserving TLS reconnect.
@@ -3217,6 +3275,11 @@ bool Audio::tryBufferedWebstreamReconnect() {
 
     m_preservedStreamCodec = m_codec;
     m_f_preserveStreamReconnect = true;
+    // The caller only reaches here with the socket already known disconnected,
+    // so httpPrint() below always opens a new connection.
+    // Сюда попадаем только при уже разорванном сокете, поэтому httpPrint ниже
+    // всегда открывает новое соединение.
+    transportAttempted = true;
     if (httpPrint(m_lastHost.get())) return true;
 
     m_f_preserveStreamReconnect = false;
@@ -3227,8 +3290,10 @@ bool Audio::tryBufferedWebstreamReconnect() {
 bool Audio::attemptInternalReconnect(bool countTransportAttempt) {
     // E36REC1C: classify outgoing connection before reset / классификация до сброса полей
     if (countTransportAttempt) {
-        if (m_unstableStreamFailures >= MAX_UNSTABLE_STREAM_FAILURES) return false;
-        m_unstableStreamFailures++;
+        // E-AT4: one physical connect attempt = one budget unit.
+        // E-AT4: одна физическая попытка подключения = одна единица бюджета.
+        if (!audio_safe::retryBudgetTryConsume(m_unstableStreamFailures,
+                                               MAX_UNSTABLE_STREAM_FAILURES)) return false;
     }
     else if (m_f_streamHadAudio && !m_f_shortLivedCounted) {
         const uint32_t livedMs = millis() - m_streamAudioStartedMs;
@@ -3816,7 +3881,11 @@ void Audio::pollWebstreamReconnect() {
         return;
     }
 
-    const uint8_t attempt = m_unstableStreamFailures;
+    // E-AT4: `attempt` tracks the budget unit of the connect actually being made;
+    // it is re-read after the clean fallback takes its own unit below.
+    // E-AT4: `attempt` — номер единицы бюджета текущей попытки; перечитывается
+    // после того, как clean fallback ниже возьмёт собственную единицу.
+    uint8_t attempt = m_unstableStreamFailures;
     const uint32_t session = m_webstreamReconnectSession;
     Serial.printf("[AUDIO.RETRY] reconnect attempt %u/%u session=%lu\n",
                   (unsigned)attempt,
@@ -3824,7 +3893,8 @@ void Audio::pollWebstreamReconnect() {
                   (unsigned long)session);
 
     const uint32_t bufferedBytes = InBuff.bufferFilled();
-    if (bufferedBytes > 0 && tryBufferedWebstreamReconnect()) {
+    bool bufferedTransportAttempted = false;
+    if (bufferedBytes > 0 && tryBufferedWebstreamReconnect(bufferedTransportAttempted)) {
         m_f_webstreamReconnectPending = false;
         m_webstreamReconnectSession = 0;
         m_webstreamReconnectNextMs = 0;
@@ -3837,6 +3907,35 @@ void Audio::pollWebstreamReconnect() {
     }
 
     m_f_preserveStreamReconnect = false;
+
+    // E-AT4: the unit taken by attemptInternalReconnect(true) above is already
+    // spent by the buffered attempt. When that attempt really opened a socket,
+    // the clean fallback below is a *second* physical connect and takes its own
+    // unit, so one budget unit can no longer cover two attempts. When the
+    // buffered path bailed out before any socket work, the fallback keeps using
+    // the unit already taken. No second retry mechanism is introduced: the same
+    // MAX_UNSTABLE_STREAM_FAILURES budget and the same stability reset own it.
+    // E-AT4: единица, взятая в attemptInternalReconnect(true), уже израсходована
+    // buffered-попыткой. Если она действительно открывала сокет, clean fallback —
+    // вторая физическая попытка и берёт собственную единицу: одна единица больше
+    // не покрывает две попытки. Если buffered-путь отказал до работы с сокетом,
+    // fallback использует уже взятую единицу. Второй механизм retry не вводится.
+    if (bufferedTransportAttempted) {
+        if (!audio_safe::retryBudgetTryConsume(m_unstableStreamFailures,
+                                               MAX_UNSTABLE_STREAM_FAILURES)) {
+            Serial.printf("[AUDIO.RETRY] buffered failed, no budget for clean fallback %u/%u session=%lu\n",
+                          (unsigned)attempt,
+                          (unsigned)MAX_UNSTABLE_STREAM_FAILURES,
+                          (unsigned long)session);
+            finishUnstableStreamExhausted();
+            return;
+        }
+        attempt = m_unstableStreamFailures;
+        Serial.printf("[AUDIO.RETRY] buffered failed, clean fallback attempt %u/%u session=%lu\n",
+                      (unsigned)attempt,
+                      (unsigned)MAX_UNSTABLE_STREAM_FAILURES,
+                      (unsigned long)session);
+    }
 
     // connecttohost() remains the fallback cleanup/TLS/header-init funnel when the buffer cannot bridge.
     if (connecttohost(m_lastHost.get())) {
