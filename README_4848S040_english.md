@@ -119,7 +119,7 @@ ESP32-4848S040 uses touchscreen control; no encoder is connected in the default 
 
 ## Deep-Sleep wakeup
 
-Sleep Device puts the board into Deep Sleep. Touch wake is not supported: the touchscreen is not configured as a Deep-Sleep wake source.
+Sleep Device puts the board into Deep Sleep. The GT911 touchscreen is not a wake source, but wake through the configurable `WAKE_PIN` is supported; the stock setup uses the BOOT button on GPIO0 with active level LOW.
 
 Default configuration (`src/myoptions.h`, `src/myoptions_4848S040.h`):
 
@@ -153,9 +153,9 @@ Reset and reconnecting power remain fallback ways to start the board. `WAKE_PIN=
 
 Settings → **TIMERS** has **RADIO** and **DEEP SLEEP** tabs. Each tab exposes two events, each with separate `HOURS` (0–24) and `MINUTES` (0–59) sliders. `0 H 0 MIN` disables only that event. A preset is persisted as one 0…1499-minute value, while an armed countdown is runtime-only and does not survive reboot. Only one plan may run at a time.
 
-**RADIO:** `STOP RADIO AFTER` and `START RADIO AFTER` are independent intervals measured from one press of `START RADIO TIMER`. Stop-only, Start-only, and two-event plans are supported. Equal non-zero intervals are rejected. Events use the normal `PR_STOP` / `PR_PLAY` paths, and an already satisfied state is a safe no-op. Only pending Radio Stop appears on the status line as `SLEEP 10m`.
+**RADIO:** `STOP RADIO AFTER` and `START RADIO AFTER` are independent intervals measured from one press of `START RADIO TIMER`. Stop-only, Start-only, and two-event plans are supported. With both enabled, Start must be strictly later than Stop: the UI warns during a conflicting drag, then automatically moves Start one minute past Stop when the slider is released. Events use the normal `PR_STOP` / `PR_PLAY` paths, and an already satisfied state is a safe no-op. Pending Radio Stop appears as `SLEEP 10m`, delayed Deep Sleep as `DEEP SLEEP 10m`; Radio Start remains hidden.
 
-**DEEP SLEEP:** `DEEP SLEEP AFTER` starts at `START DEEP SLEEP TIMER`; `WAKE AFTER SLEEP` starts only when managed shutdown actually enters Deep Sleep. A zero wake interval skips RTC timer registration while BOOT/Reset/power remain available. `ENTER DEEP SLEEP NOW` still works when both presets are zero, provided a Radio plan is not active. Cancel the active plan explicitly before switching plan types.
+**DEEP SLEEP:** `DEEP SLEEP AFTER` starts at `START DEEP SLEEP TIMER`; the separate `WAKE AFTER SLEEP` interval starts only when managed shutdown actually enters Deep Sleep. Therefore Sleep `5 MIN` plus Wake `3 MIN` is valid: entry occurs after five minutes and RTC wake about three minutes later. A zero wake interval skips RTC timer registration while BOOT/Reset/power remain available. `ENTER DEEP SLEEP NOW` still works when both presets are zero, provided a Radio plan is not active. Cancel the active plan explicitly before switching plan types.
 
 BOOT and the RTC timer can be armed **together**; whichever fires first wins. Absolute `HH:MM` wake scheduling is not implemented. `STOPS/STARTS/SLEEP/WAKE AT ...` is only a local-time hint, and `CLOCK NOT SYNCED` never blocks a relative timer. Long RTC intervals can drift with the board's slow clock.
 
@@ -165,11 +165,11 @@ BOOT and the RTC timer can be armed **together**; whichever fires first wins. Ab
 | `sleeptimer 0` | Cancel only Radio Stop |
 | `playtimer N` / `playtimer 0` | Set / cancel only Radio Start; no status indicator |
 | `deepsleep` | Queue immediate managed sleep with the persisted wake preset; may cancel Radio timers |
-| `deepsleep N` / `deepsleep 0` | Set / cancel Deep Sleep after `N` minutes; no status indicator |
-| `sleep N` | Legacy: immediate Deep Sleep with a one-shot wake after `N` minutes |
-| `sleep N M` | Legacy: Deep Sleep after `M` minutes, then a one-shot wake after `N` minutes |
+| `deepsleep N` / `deepsleep 0` | Set / cancel Deep Sleep after `N` minutes; status `DEEP SLEEP Nm` |
+| `sleep N` | Backward compatibility with the old CLI: immediate Deep Sleep with a one-shot wake after `N` minutes |
+| `sleep N M` | Backward compatibility with the old CLI: Deep Sleep after `M` minutes, then a one-shot wake after `N` minutes |
 
-The new `sleeptimer`, `playtimer`, and `deepsleep` commands are parsed before the Wi-Fi gate, so they work identically over Serial. Negative values, junk tails, overflow, and values above 1499 are rejected. A legacy wake override is one-shot and never changes `WAKE AFTER SLEEP`. Every entry converges on one pipeline: Display queue → DspTask → player stop → flush → display off → settle → sole EXT0/RTC registration immediately before `esp_deep_sleep_start()`.
+The new `sleeptimer`, `playtimer`, and `deepsleep` commands are parsed before the Wi-Fi gate, so they work identically over Serial. Negative values, junk tails, overflow, and values above 1499 are rejected. A one-shot wake supplied by the backward-compatible old `sleep` command never changes `WAKE AFTER SLEEP`. Every entry converges on one pipeline: a mutex-guarded pending flag → DspTask accepts it in `sleep_timer_loop()` → player stop → flush → display off → settle → sole EXT0/RTC registration immediately before `esp_deep_sleep_start()`. Before entry it logs a line such as `[SLEEP] entering deep sleep; RTC wake in 60 min at 2026-09-13 14:35 local`; without a synchronized clock the exact interval is still printed without `at`.
 
 A generic left/right swipe changes pages; it does not control volume.
 

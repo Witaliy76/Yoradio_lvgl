@@ -69,6 +69,16 @@ uint32_t remaining_seconds(const TimerPhase& phase, uint32_t now) {
   return (phase.duration_ms - elapsed + 999u) / 1000u;
 }
 
+uint32_t phase_deadline_ms(const TimerPhase& phase) {
+  return phase.start_ms + phase.duration_ms;
+}
+
+bool phase_is_later(const TimerPhase& later, const TimerPhase& earlier) {
+  // Both active intervals are shorter than 2^31 ms, so signed deadline distance stays
+  // wrap-safe. / Оба интервала короче 2^31 мс, поэтому signed-разность переживает wrap.
+  return static_cast<int32_t>(phase_deadline_ms(later) - phase_deadline_ms(earlier)) > 0;
+}
+
 void clear_phase(TimerPhase& phase) {
   phase = TimerPhase{};
 }
@@ -97,7 +107,11 @@ bool raw_minutes_valid(uint16_t minutes) {
 }
 
 time_t event_epoch(time_t now, uint16_t minutes) {
-  return now > 0 ? now + static_cast<time_t>(minutes) * 60 : 0;
+  return now > 0 && minutes > 0 ? now + static_cast<time_t>(minutes) * 60 : 0;
+}
+
+time_t event_epoch_seconds(time_t now, uint32_t seconds) {
+  return now > 0 ? now + static_cast<time_t>(seconds) : 0;
 }
 
 TimerPhase make_phase(uint16_t minutes, uint32_t now_ms, time_t wall_now) {
@@ -122,7 +136,7 @@ bool resolve_wake_request(DeepSleepWakeRequest request, uint16_t* out_minutes) {
   return true;
 }
 
-bool queue_managed_sleep(uint16_t wake_minutes) {
+bool publish_managed_sleep_request(uint16_t wake_minutes) {
   time_t wall_now = 0;
   timer_local_clock_now(&wall_now);
   portENTER_CRITICAL(&s_timer_mux);
@@ -136,7 +150,9 @@ bool queue_managed_sleep(uint16_t wake_minutes) {
   s_runtime.sleep_request_pending = true;
   s_runtime.requested_wake_minutes = wake_minutes;
   portEXIT_CRITICAL(&s_timer_mux);
-  display.putRequest(SLEEP_DEVICE_NOW);
+  // pending is the cross-task ingress. DspTask accepts it from sleep_timer_loop(); no producer
+  // can block DspTask by sending to its own full display queue.
+  // pending — межзадачный вход. DspTask принимает его в sleep_timer_loop(), без self-send.
   return true;
 }
 
@@ -147,18 +163,24 @@ static void shutdown_display_off() {
   config.setDspOn(false, false);
 }
 
-static void begin_sleep_device_shutdown(uint16_t wake_after_minutes) {
-  time_t wall_now = 0;
-  timer_local_clock_now(&wall_now);
-  portENTER_CRITICAL(&s_timer_mux);
-  clear_all_countdowns_locked();
-  s_runtime.deep_sleep_wake_minutes = wake_after_minutes;
-  s_runtime.deep_sleep_wake_at = event_epoch(wall_now, wake_after_minutes);
-  s_runtime.sleep_request_pending = false;
-  s_runtime.requested_wake_minutes = 0;
-  s_runtime.shutdown_active = true;
-  portEXIT_CRITICAL(&s_timer_mux);
+static void log_deep_sleep_wake_plan(uint16_t wake_minutes) {
+  time_t now = 0;
+  if (timer_local_clock_now(&now)) {
+    const time_t wake_at = now + static_cast<time_t>(wake_minutes) * 60;
+    struct tm wake_tm {};
+    char local_time[24];
+    if (localtime_r(&wake_at, &wake_tm) != nullptr &&
+        strftime(local_time, sizeof(local_time), "%Y-%m-%d %H:%M", &wake_tm) > 0) {
+      Serial.printf("[SLEEP] entering deep sleep; RTC wake in %u min at %s local\n",
+                    static_cast<unsigned>(wake_minutes), local_time);
+      return;
+    }
+  }
+  Serial.printf("[SLEEP] entering deep sleep; RTC wake in %u min (local clock not synced)\n",
+                static_cast<unsigned>(wake_minutes));
+}
 
+static void begin_accepted_sleep_shutdown(uint16_t wake_after_minutes) {
   s_shutdown = SleepShutdownPhase::WaitPlayer;
   s_shutdown_deadline_ms = millis() + 2500u;
 
@@ -214,12 +236,14 @@ static void run_shutdown_steps() {
         const esp_err_t err = esp_sleep_enable_timer_wakeup(
             static_cast<uint64_t>(s_wake_after_minutes_snapshot) * 60ULL * 1000000ULL);
         if (err == ESP_OK) {
+          log_deep_sleep_wake_plan(s_wake_after_minutes_snapshot);
           Serial.printf("[WAKE] timer=%umin\n",
                         static_cast<unsigned>(s_wake_after_minutes_snapshot));
         } else {
           Serial.printf("[WAKE] timer enable failed err=%d\n", static_cast<int>(err));
         }
       } else {
+        Serial.println("[SLEEP] entering deep sleep; RTC wake disabled (GPIO/Reset/power only)");
         Serial.println("[WAKE] timer=disabled");
       }
       esp_deep_sleep_start();
@@ -354,11 +378,11 @@ TimerCommandResult timer_schedule_radio_plan(uint16_t stop_after_minutes,
   if (stop_after_minutes == 0 && start_after_minutes == 0) {
     return TimerCommandResult::EmptyPlan;
   }
-  if (stop_after_minutes > 0 && stop_after_minutes == start_after_minutes) {
-    return TimerCommandResult::SameRadioTimes;
+  if (stop_after_minutes > 0 && start_after_minutes > 0 &&
+      start_after_minutes <= stop_after_minutes) {
+    return TimerCommandResult::RadioStartNotAfterStop;
   }
 
-  const uint32_t now_ms = millis();
   time_t wall_now = 0;
   timer_local_clock_now(&wall_now);
   portENTER_CRITICAL(&s_timer_mux);
@@ -369,6 +393,7 @@ TimerCommandResult timer_schedule_radio_plan(uint16_t stop_after_minutes,
     return shutdown ? TimerCommandResult::ShutdownInProgress
                     : TimerCommandResult::ConflictDeepSleepActive;
   }
+  const uint32_t now_ms = millis();
   s_runtime.radio_stop = make_phase(stop_after_minutes, now_ms, wall_now);
   s_runtime.radio_start = make_phase(start_after_minutes, now_ms, wall_now);
   portEXIT_CRITICAL(&s_timer_mux);
@@ -381,7 +406,6 @@ TimerCommandResult timer_schedule_radio_stop(uint16_t minutes) {
     timer_cancel_radio_stop();
     return TimerCommandResult::Cancelled;
   }
-  const uint32_t now_ms = millis();
   time_t wall_now = 0;
   timer_local_clock_now(&wall_now);
   portENTER_CRITICAL(&s_timer_mux);
@@ -392,7 +416,13 @@ TimerCommandResult timer_schedule_radio_stop(uint16_t minutes) {
     return shutdown ? TimerCommandResult::ShutdownInProgress
                     : TimerCommandResult::ConflictDeepSleepActive;
   }
-  s_runtime.radio_stop = make_phase(minutes, now_ms, wall_now);
+  const uint32_t now_ms = millis();
+  const TimerPhase next_stop = make_phase(minutes, now_ms, wall_now);
+  if (s_runtime.radio_start.active && !phase_is_later(s_runtime.radio_start, next_stop)) {
+    portEXIT_CRITICAL(&s_timer_mux);
+    return TimerCommandResult::RadioStartNotAfterStop;
+  }
+  s_runtime.radio_stop = next_stop;
   portEXIT_CRITICAL(&s_timer_mux);
   return TimerCommandResult::Applied;
 }
@@ -403,7 +433,6 @@ TimerCommandResult timer_schedule_radio_start(uint16_t minutes) {
     timer_cancel_radio_start();
     return TimerCommandResult::Cancelled;
   }
-  const uint32_t now_ms = millis();
   time_t wall_now = 0;
   timer_local_clock_now(&wall_now);
   portENTER_CRITICAL(&s_timer_mux);
@@ -414,7 +443,13 @@ TimerCommandResult timer_schedule_radio_start(uint16_t minutes) {
     return shutdown ? TimerCommandResult::ShutdownInProgress
                     : TimerCommandResult::ConflictDeepSleepActive;
   }
-  s_runtime.radio_start = make_phase(minutes, now_ms, wall_now);
+  const uint32_t now_ms = millis();
+  const TimerPhase next_start = make_phase(minutes, now_ms, wall_now);
+  if (s_runtime.radio_stop.active && !phase_is_later(next_start, s_runtime.radio_stop)) {
+    portEXIT_CRITICAL(&s_timer_mux);
+    return TimerCommandResult::RadioStartNotAfterStop;
+  }
+  s_runtime.radio_start = next_start;
   portEXIT_CRITICAL(&s_timer_mux);
   return TimerCommandResult::Applied;
 }
@@ -447,7 +482,6 @@ TimerCommandResult timer_schedule_deep_sleep(uint16_t after_minutes,
     return TimerCommandResult::InvalidMinutes;
   }
 
-  const uint32_t now_ms = millis();
   time_t wall_now = 0;
   timer_local_clock_now(&wall_now);
   portENTER_CRITICAL(&s_timer_mux);
@@ -460,6 +494,7 @@ TimerCommandResult timer_schedule_deep_sleep(uint16_t after_minutes,
     portEXIT_CRITICAL(&s_timer_mux);
     return TimerCommandResult::ShutdownInProgress;
   }
+  const uint32_t now_ms = millis();
   s_runtime.deep_sleep = make_phase(after_minutes, now_ms, wall_now);
   s_runtime.deep_sleep_wake_minutes = wake_minutes;
   s_runtime.deep_sleep_wake_at =
@@ -492,8 +527,8 @@ TimerCommandResult timer_request_deep_sleep_now(DeepSleepWakeRequest wake_reques
   }
   // An explicit immediate sleep is allowed to cancel a Radio plan; nothing is cancelled silently
   // for delayed cross-plan requests. / Явный немедленный сон может отменить Radio plan.
-  return queue_managed_sleep(wake_minutes) ? TimerCommandResult::Applied
-                                           : TimerCommandResult::ShutdownInProgress;
+  return publish_managed_sleep_request(wake_minutes) ? TimerCommandResult::Applied
+                                                      : TimerCommandResult::ShutdownInProgress;
 }
 
 TimerPlanKind timer_active_plan() {
@@ -504,9 +539,12 @@ TimerPlanKind timer_active_plan() {
 }
 
 TimerRuntimeSnapshot timer_runtime_snapshot() {
-  const uint32_t now = millis();
   TimerRuntimeSnapshot snapshot;
   portENTER_CRITICAL(&s_timer_mux);
+  // Sample millis only after the protected state is stable. A concurrent setter can no longer
+  // publish start_ms newer than this sample and look instantly expired after unsigned subtract.
+  // millis читается после захвата state: новый start_ms не окажется новее снимка now.
+  const uint32_t now = millis();
   snapshot.plan = active_plan_locked();
   snapshot.radio_stop_active = s_runtime.radio_stop.active;
   snapshot.radio_start_active = s_runtime.radio_start.active;
@@ -515,15 +553,42 @@ TimerRuntimeSnapshot timer_runtime_snapshot() {
   snapshot.radio_stop_minutes = s_runtime.radio_stop.snapshot_minutes;
   snapshot.radio_start_minutes = s_runtime.radio_start.snapshot_minutes;
   snapshot.deep_sleep_after_minutes = s_runtime.deep_sleep.snapshot_minutes;
-  snapshot.deep_sleep_wake_after_minutes = s_runtime.deep_sleep_wake_minutes;
+  snapshot.deep_sleep_wake_after_minutes =
+      s_runtime.sleep_request_pending ? s_runtime.requested_wake_minutes
+                                      : s_runtime.deep_sleep_wake_minutes;
   snapshot.radio_stop_remaining_seconds = remaining_seconds(s_runtime.radio_stop, now);
   snapshot.radio_start_remaining_seconds = remaining_seconds(s_runtime.radio_start, now);
   snapshot.deep_sleep_remaining_seconds = remaining_seconds(s_runtime.deep_sleep, now);
-  snapshot.radio_stop_at = s_runtime.radio_stop.event_at;
-  snapshot.radio_start_at = s_runtime.radio_start.event_at;
-  snapshot.deep_sleep_at = s_runtime.deep_sleep.event_at;
-  snapshot.deep_sleep_wake_at = s_runtime.deep_sleep_wake_at;
   portEXIT_CRITICAL(&s_timer_mux);
+
+  // Event epochs are display projections, rebuilt from current wall time plus the immutable
+  // monotonic remainder. They recover after late clock sync and follow later clock corrections
+  // without restarting or retargeting a timer. / Epoch для UI строится из актуальных часов и
+  // monotonic remainder; синхронизация/коррекция часов не меняет сам countdown.
+  time_t wall_now = 0;
+  if (timer_local_clock_now(&wall_now)) {
+    if (snapshot.radio_stop_active) {
+      snapshot.radio_stop_at =
+          event_epoch_seconds(wall_now, snapshot.radio_stop_remaining_seconds);
+    }
+    if (snapshot.radio_start_active) {
+      snapshot.radio_start_at =
+          event_epoch_seconds(wall_now, snapshot.radio_start_remaining_seconds);
+    }
+    if (snapshot.deep_sleep_active) {
+      snapshot.deep_sleep_at =
+          event_epoch_seconds(wall_now, snapshot.deep_sleep_remaining_seconds);
+    }
+    if (snapshot.deep_sleep_wake_after_minutes > 0 &&
+        (snapshot.deep_sleep_active || snapshot.shutdown_active)) {
+      const uint32_t until_sleep_seconds =
+          snapshot.deep_sleep_active ? snapshot.deep_sleep_remaining_seconds : 0u;
+      snapshot.deep_sleep_wake_at = event_epoch_seconds(
+          wall_now,
+          until_sleep_seconds +
+              static_cast<uint32_t>(snapshot.deep_sleep_wake_after_minutes) * 60u);
+    }
+  }
   return snapshot;
 }
 
@@ -532,13 +597,23 @@ void sleep_timer_request_device_sleep() {
 
   uint16_t wake_minutes = 0;
   portENTER_CRITICAL(&s_timer_mux);
-  if (!s_runtime.sleep_request_pending) {
+  if (!s_runtime.sleep_request_pending || s_runtime.shutdown_active) {
     portEXIT_CRITICAL(&s_timer_mux);
-    return;  // cancelled before queued request reached DspTask / отменён до обработки queue
+    return;
   }
+
+  // Accept pending atomically: a cancellation that wins this lock prevents sleep; after this
+  // transition cancellation sees shutdown_active and must report ShutdownInProgress. No Player,
+  // storage, logging, LVGL, or peripheral work is done under the mux.
+  // Принимаем pending атомарно: отмена до этого lock предотвращает сон, после — видит shutdown.
   wake_minutes = s_runtime.requested_wake_minutes;
+  clear_all_countdowns_locked();
+  s_runtime.deep_sleep_wake_minutes = wake_minutes;
+  s_runtime.sleep_request_pending = false;
+  s_runtime.requested_wake_minutes = 0;
+  s_runtime.shutdown_active = true;
   portEXIT_CRITICAL(&s_timer_mux);
-  begin_sleep_device_shutdown(wake_minutes);
+  begin_accepted_sleep_shutdown(wake_minutes);
 }
 
 bool sleep_timer_is_shutdown_active() {
@@ -556,8 +631,8 @@ bool sleep_timer_active() {
 }
 
 uint32_t sleep_timer_remaining_seconds() {
-  const uint32_t now = millis();
   portENTER_CRITICAL(&s_timer_mux);
+  const uint32_t now = millis();
   const uint32_t seconds = remaining_seconds(s_runtime.radio_stop, now);
   portEXIT_CRITICAL(&s_timer_mux);
   return seconds;
@@ -611,7 +686,12 @@ void sleep_timer_loop() {
     return;
   }
 
-  const uint32_t now = millis();
+  // Non-display tasks and LVGL callbacks only publish pending. This DspTask safe point owns the
+  // atomic accept and every shutdown side effect. / Другие task только ставят pending; принимает
+  // и исполняет shutdown исключительно эта безопасная точка DspTask.
+  sleep_timer_request_device_sleep();
+  if (s_shutdown != SleepShutdownPhase::None) return;
+
   bool stop_expired = false;
   bool start_expired = false;
   bool deep_expired = false;
@@ -620,6 +700,7 @@ void sleep_timer_loop() {
   uint16_t wake_minutes = 0;
 
   portENTER_CRITICAL(&s_timer_mux);
+  const uint32_t now = millis();
   if (s_runtime.radio_stop.active &&
       elapsed_ms(s_runtime.radio_stop, now) >= s_runtime.radio_stop.duration_ms) {
     stop_expired = true;
@@ -637,7 +718,6 @@ void sleep_timer_loop() {
     deep_expired = true;
     wake_minutes = s_runtime.deep_sleep_wake_minutes;
     clear_phase(s_runtime.deep_sleep);
-    s_runtime.deep_sleep_wake_minutes = 0;
     s_runtime.deep_sleep_wake_at = 0;
     s_runtime.sleep_request_pending = true;
     s_runtime.requested_wake_minutes = wake_minutes;
@@ -645,7 +725,10 @@ void sleep_timer_loop() {
   portEXIT_CRITICAL(&s_timer_mux);
 
   if (deep_expired) {
-    display.putRequest(SLEEP_DEVICE_NOW);
+    // Cancellation may win after expiry published pending and before this accept. The consumer
+    // rechecks under the same mux, so a cancelled/stale expiry cannot start shutdown.
+    // Отмена может победить между publish и accept; повторная проверка не запустит старый запрос.
+    sleep_timer_request_device_sleep();
     return;
   }
 

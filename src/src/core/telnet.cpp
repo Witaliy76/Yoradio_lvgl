@@ -317,8 +317,8 @@ void Telnet::on_input(const char* str, uint8_t clientId) {
       case TimerCommandResult::ShutdownInProgress:
         printf(clientId, "deep sleep shutdown already in progress\n> ");
         break;
-      case TimerCommandResult::SameRadioTimes:
-        printf(clientId, "stop and start times must differ\n> ");
+      case TimerCommandResult::RadioStartNotAfterStop:
+        printf(clientId, "radio start must be later than radio stop\n> ");
         break;
       default:
         printf(clientId, "##CMD_ERROR#\tinvalid timer command <%s>\n> ", str);

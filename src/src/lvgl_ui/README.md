@@ -28,7 +28,7 @@ Info <-> Main <-> Visual <-> Station <-> Weather <-> Settings
 | 2 | Visual | Beocord-style stereo PPM on real pre-Gain PCM + stream metadata |
 | 3 | Station | Station list (default: simple paged renderer) |
 | 4 | Weather | Current weather + forecast from shared `WeatherState` |
-| 5 | Settings | Display, theme, Auto Dim, Sleep Timer, Music Rail, Wi-Fi service entry |
+| 5 | Settings | Display, theme, Auto Dim, TIMERS (Radio Stop/Start + Deep Sleep/Wake), Music Rail, Wi-Fi service entry |
 
 Special modes (not carousel slots):
 

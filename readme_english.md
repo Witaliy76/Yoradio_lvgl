@@ -228,9 +228,9 @@ Screensaver is a full-screen analog clock for idle operation. Its behavior is co
 
 The **TIMERS** row opens two tabs with independent persisted presets: **RADIO** and **DEEP SLEEP**. Every event uses hour (0–24) and minute (0–59) sliders; `0 H 0 MIN` disables only that event. Active countdowns are runtime-only and do not survive a normal reboot. Only one plan can run at a time—Radio or Deep Sleep—and the active plan must be cancelled before starting the other one.
 
-On **RADIO**, `STOP RADIO AFTER` and `START RADIO AFTER` are independent intervals measured from the press of `START RADIO TIMER`. Stop uses the normal player stop command; Start plays the currently saved station. An event is a safe no-op when the player is already in the requested state. Equal non-zero Stop/Start intervals are rejected. The compact `SLEEP 10m` status indicator represents Radio Stop only; Radio Start and Deep Sleep never appear there.
+On **RADIO**, `STOP RADIO AFTER` and `START RADIO AFTER` are independent intervals measured from the press of `START RADIO TIMER`. Stop uses the normal player stop command; Start plays the currently saved station. An event is a safe no-op when the player is already in the requested state. When both events are enabled, Start must be strictly later than Stop: the UI warns during a conflicting drag, then automatically moves Start one minute past Stop when the slider is released. The status line shows Radio Stop as `SLEEP 10m` and delayed Deep Sleep as `DEEP SLEEP 10m`; Radio Start remains hidden there.
 
-On **DEEP SLEEP**, `DEEP SLEEP AFTER` delays the managed shutdown, while `WAKE AFTER SLEEP` is an RTC interval that begins only when Deep Sleep is actually entered. `ENTER DEEP SLEEP NOW` remains available with zero presets (provided another plan is not active) and uses the visible `WAKE AFTER SLEEP`; zero means no RTC wake registration. Player stop, state flush, display-off, settle, and sleep entry remain one managed pipeline.
+On **DEEP SLEEP**, `DEEP SLEEP AFTER` delays the managed shutdown, while `WAKE AFTER SLEEP` is a separate RTC interval that begins only when Deep Sleep is actually entered. Therefore Sleep `5 MIN` plus Wake `3 MIN` is valid: the device sleeps after five minutes and wakes about three minutes after entry. `ENTER DEEP SLEEP NOW` remains available with zero presets (provided another plan is not active) and uses the visible `WAKE AFTER SLEEP`; zero means no RTC wake registration. Player stop, state flush, display-off, settle, and sleep entry remain one managed pipeline.
 
 `STOPS/STARTS/SLEEP/WAKE AT ...` is only a local-clock hint. Without clock sync the UI shows `--:--` and `CLOCK NOT SYNCED`, while monotonic relative timers continue normally. Absolute `HH:MM` scheduling is not implemented.
 
@@ -240,12 +240,12 @@ On **DEEP SLEEP**, `DEEP SLEEP AFTER` delays the managed shutdown, while `WAKE A
 | `playtimer N` / `playtimer 0` | Set / cancel only runtime Radio Start; do not change the preset |
 | `deepsleep` | Immediate managed Deep Sleep using persisted `WAKE AFTER SLEEP`; may cancel a Radio plan |
 | `deepsleep N` / `deepsleep 0` | Set / cancel delayed Deep Sleep entry; do not change the persisted wake preset |
-| `sleep N` | Legacy: immediate managed Deep Sleep with a one-shot `N`-minute wake |
-| `sleep N M` | Legacy: managed Deep Sleep after `M` minutes, then a one-shot `N`-minute wake |
+| `sleep N` | Backward compatibility with the old CLI: immediate managed Deep Sleep with a one-shot `N`-minute wake |
+| `sleep N M` | Backward compatibility with the old CLI: managed Deep Sleep after `M` minutes, then a one-shot `N`-minute wake |
 
-The new commands use the same parser over telnet and Serial even without Wi-Fi; the valid range is 0…1499 minutes. A legacy one-shot wake does not overwrite the saved preset. A Deep Sleep countdown has no status-line indicator.
+The new commands use the same parser over telnet and Serial even without Wi-Fi; the valid range is 0…1499 minutes. A one-shot wake supplied through the backward-compatible old `sleep` command does not overwrite the saved preset. A Deep Sleep countdown appears as `DEEP SLEEP Nm`; immediately before sleep, the Serial monitor logs the RTC interval and calculated local wake time.
 
-Touch wake is not supported. On ESP32-4848S040, EXT0 uses the stock **BOOT** button (GPIO0, active LOW); BOOT and the RTC timer can be armed together and whichever fires first wins. After any Deep-Sleep wake, GPIO0 is returned from RTC IO to digital GPIO before RGB-panel initialization. Reset and power reconnection remain fallback startup methods. See the [ESP32-4848S040 guide](README_4848S040_english.md#deep-sleep-wakeup).
+The GT911 touchscreen cannot wake the device from Deep Sleep. Wake through the configured `WAKE_PIN` is supported; on ESP32-4848S040, EXT0 uses the stock **BOOT** button (GPIO0, active LOW). BOOT and the RTC timer can be armed together and whichever fires first wins. After any Deep-Sleep wake, GPIO0 is returned from RTC IO to digital GPIO before RGB-panel initialization. Reset and power reconnection remain fallback startup methods. See the [ESP32-4848S040 guide](README_4848S040_english.md#deep-sleep-wakeup).
 
 ## Web UI and Appearance
 

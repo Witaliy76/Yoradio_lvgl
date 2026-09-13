@@ -64,11 +64,12 @@ static constexpr char kStrCancelRadioTimer[]  = "CANCEL RADIO TIMER";
 static constexpr char kStrStartDeepSleepTimer[] = "START DEEP SLEEP TIMER";
 static constexpr char kStrCancelDeepSleepTimer[] = "CANCEL DEEP SLEEP TIMER";
 static constexpr char kStrEnterDeepSleepNow[] = "ENTER DEEP SLEEP NOW";
-static constexpr char kStrStopStartConflict[] = "STOP AND START TIMES MUST DIFFER";
+static constexpr char kStrStopStartConflict[] = "START MUST BE LATER THAN STOP";
 static constexpr char kStrClockNotSynced[]    = "CLOCK NOT SYNCED";
 static constexpr char kStrCancelRadioFirst[]  = "CANCEL RADIO TIMER FIRST";
 static constexpr char kStrCancelDeepFirst[]   = "CANCEL DEEP SLEEP TIMER FIRST";
 static constexpr char kStrZeroDisabled[]      = "0 H 0 MIN = DISABLED";
+static constexpr char kStrTimerWakeOff[]      = "TIMER WAKE OFF";
 static constexpr char kStrShutdownActive[]    = "DEEP SLEEP IN PROGRESS";
 static constexpr char kStrWifi[]              = "WI-FI";
 
@@ -296,6 +297,22 @@ static void format_timer_hours(char* buf, size_t cap, uint8_t hours) {
 static void format_timer_minutes(char* buf, size_t cap, uint8_t minutes) {
     if (!buf || cap == 0) return;
     snprintf(buf, cap, "%u MIN", static_cast<unsigned>(minutes));
+}
+
+static bool normalize_radio_timer_order(uint16_t& stop_minutes, uint16_t& start_minutes) {
+    if (stop_minutes == 0 || start_minutes == 0 || start_minutes > stop_minutes) return false;
+
+    // Both Radio events share one plan-start epoch. Keep the draft usable after release by
+    // moving Start one minute past Stop; at 24:59, move the pair to the last valid minute slots.
+    // Оба Radio-события имеют общий старт. После release сдвигаем Start на минуту позже Stop;
+    // на границе 24:59 используем последнюю допустимую пару минут.
+    if (stop_minutes < kTimerMaxMinutes) {
+        start_minutes = static_cast<uint16_t>(stop_minutes + 1u);
+    } else {
+        stop_minutes = static_cast<uint16_t>(kTimerMaxMinutes - 1u);
+        start_minutes = kTimerMaxMinutes;
+    }
+    return true;
 }
 
 static int local_day_delta(time_t now, time_t event_at) {
@@ -2053,6 +2070,20 @@ void LvglSettingsPage::_loadTimerTabValues(bool force) {
         event2 = timer_preset_minutes(_timers_deep_sleep_tab
                                           ? TimerPreset::DeepSleepWakeAfter
                                           : TimerPreset::RadioStart);
+        if (!_timers_deep_sleep_tab) {
+            const uint16_t saved_stop = event1;
+            const uint16_t saved_start = event2;
+            if (normalize_radio_timer_order(event1, event2)) {
+                // Also heals a conflicting pair persisted by an earlier build.
+                // Заодно исправляем конфликтную пару, сохранённую предыдущей сборкой.
+                if (event1 != saved_stop) {
+                    timer_preset_set_minutes(TimerPreset::RadioStop, event1);
+                }
+                if (event2 != saved_start) {
+                    timer_preset_set_minutes(TimerPreset::RadioStart, event2);
+                }
+            }
+        }
     }
 
     const bool dragging = _timer_drag_active[0] || _timer_drag_active[1] ||
@@ -2127,8 +2158,17 @@ void LvglSettingsPage::_updateTimerLabels() {
     format_timer_at(at_text, sizeof(at_text), _timers_deep_sleep_tab ? "SLEEP" : "STOPS",
                     event1_at, now);
     if (_timer_at_labels[0]) lv_label_set_text(_timer_at_labels[0], at_text);
-    format_timer_at(at_text, sizeof(at_text), _timers_deep_sleep_tab ? "WAKE" : "STARTS",
-                    event2_at, now);
+    const uint16_t effective_wake_minutes =
+        active_tab ? snapshot.deep_sleep_wake_after_minutes : _timer_event2_draft;
+    const bool timer_wake_off = _timers_deep_sleep_tab && effective_wake_minutes == 0;
+    if (timer_wake_off) {
+        // Zero is an intentionally disabled RTC event, not an unknown wall-clock projection.
+        // Ноль означает отключённый RTC timer, а не неизвестное время события.
+        snprintf(at_text, sizeof(at_text), "%s", kStrTimerWakeOff);
+    } else {
+        format_timer_at(at_text, sizeof(at_text), _timers_deep_sleep_tab ? "WAKE" : "STARTS",
+                        event2_at, now);
+    }
     if (_timer_at_labels[1]) lv_label_set_text(_timer_at_labels[1], at_text);
 
     char state[96] = "";
@@ -2164,7 +2204,7 @@ void LvglSettingsPage::_updateTimerLabels() {
             strlcat(state, " | CLOCK NOT SYNCED", sizeof(state));
         }
     } else if (!_timers_deep_sleep_tab && _timer_event1_draft > 0 &&
-               _timer_event1_draft == _timer_event2_draft) {
+               _timer_event2_draft > 0 && _timer_event2_draft <= _timer_event1_draft) {
         snprintf(state, sizeof(state), "%s", kStrStopStartConflict);
     } else if (!clock_synced && (_timer_event1_draft > 0 || _timer_event2_draft > 0)) {
         snprintf(state, sizeof(state), "%s", kStrClockNotSynced);
@@ -2175,8 +2215,9 @@ void LvglSettingsPage::_updateTimerLabels() {
 }
 
 // TIMERS value sync runs on the existing Settings cadence (DspTask). Preview follows current
-// local time before Start; active ...AT values come from frozen runtime epochs and never drift.
-// Sync идёт в существующем cadence Settings на DspTask. Active ...AT берётся из snapshot.
+// local time; active ...AT projections combine the monotonic remainder with the latest valid
+// wall clock, so late sync/corrections never restart a timer. / Active ...AT строится из
+// monotonic remainder и актуальных часов, не меняя countdown.
 void LvglSettingsPage::_syncSleepTimerValues() {
     _loadTimerTabValues(false);
     _updateTimerLabels();
@@ -2236,8 +2277,8 @@ void LvglSettingsPage::_applyTimerInteractionState() {
         primary_enabled = _timers_deep_sleep_tab
                               ? (_timer_event1_draft > 0)
                               : ((_timer_event1_draft > 0 || _timer_event2_draft > 0) &&
-                                 !(_timer_event1_draft > 0 &&
-                                   _timer_event1_draft == _timer_event2_draft));
+                                 !(_timer_event1_draft > 0 && _timer_event2_draft > 0 &&
+                                   _timer_event2_draft <= _timer_event1_draft));
     }
     if (_lbl_timer_primary) {
         lv_label_set_text(_lbl_timer_primary,
@@ -2370,7 +2411,7 @@ void LvglSettingsPage::_applyTimersTheme(const YoRadioPalette& pal) {
     const bool warning =
         (snapshot.plan != TimerPlanKind::None && !active_tab) || snapshot.shutdown_active ||
         (!_timers_deep_sleep_tab && _timer_event1_draft > 0 &&
-         _timer_event1_draft == _timer_event2_draft);
+         _timer_event2_draft > 0 && _timer_event2_draft <= _timer_event1_draft);
     if (_lbl_timer_state) {
         lv_obj_set_style_text_color(_lbl_timer_state,
                                     warning ? pal.accent : pal.text_meta, LV_PART_MAIN);
@@ -2576,13 +2617,23 @@ void LvglSettingsPage::_handleTimerSliderEvent(lv_event_t* e, uint8_t slider_ind
     if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
         _updateTimerDraftFromSliders();
         const bool first_event = slider_index < 2;
+        const bool radio_order_adjusted =
+            !_timers_deep_sleep_tab &&
+            normalize_radio_timer_order(_timer_event1_draft, _timer_event2_draft);
         const TimerPreset preset = _timers_deep_sleep_tab
                                        ? (first_event ? TimerPreset::DeepSleepAfter
                                                       : TimerPreset::DeepSleepWakeAfter)
                                        : (first_event ? TimerPreset::RadioStop
                                                       : TimerPreset::RadioStart);
-        timer_preset_set_minutes(preset,
-                                 first_event ? _timer_event1_draft : _timer_event2_draft);
+        if (radio_order_adjusted) {
+            // The automatic correction can change the untouched event too, so persist the pair.
+            // Автокоррекция может изменить и второе событие, поэтому сохраняем всю пару.
+            timer_preset_set_minutes(TimerPreset::RadioStop, _timer_event1_draft);
+            timer_preset_set_minutes(TimerPreset::RadioStart, _timer_event2_draft);
+        } else {
+            timer_preset_set_minutes(preset,
+                                     first_event ? _timer_event1_draft : _timer_event2_draft);
+        }
         _timer_drag_active[slider_index] = false;
         _syncSleepTimerValues();
     }

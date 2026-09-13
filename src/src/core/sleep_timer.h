@@ -29,7 +29,7 @@ enum class TimerCommandResult : uint8_t {
   Cancelled,
   InvalidMinutes,
   EmptyPlan,
-  SameRadioTimes,
+  RadioStartNotAfterStop,
   ConflictRadioActive,
   ConflictDeepSleepActive,
   ShutdownInProgress,
@@ -99,9 +99,9 @@ TimerCommandResult timer_schedule_deep_sleep(uint16_t after_minutes,
                                              DeepSleepWakeRequest wake_request);
 TimerCommandResult timer_cancel_deep_sleep();
 
-// Safe from telnet/Serial, NetServer, controls, or UI: snapshots the wake request, clears every
-// runtime countdown, and queues SLEEP_DEVICE_NOW. The queue consumer below owns shutdown state.
-// Безопасно из любого caller: фиксирует wake, очищает countdown и ставит SLEEP_DEVICE_NOW.
+// Safe from telnet/Serial, NetServer, controls, or UI: snapshots the wake request and publishes
+// pending state. DspTask accepts it from sleep_timer_loop(); no display-queue self-send is used.
+// Безопасно из любого caller: фиксирует wake и pending; принимает его sleep_timer_loop на DspTask.
 TimerCommandResult timer_request_deep_sleep_now(DeepSleepWakeRequest wake_request);
 
 TimerPlanKind timer_active_plan();
@@ -111,7 +111,7 @@ TimerRuntimeSnapshot timer_runtime_snapshot();
 // Истина только для синхронизированных системных часов; исполнение от них не зависит.
 bool timer_local_clock_now(time_t* out_now);
 
-// DspTask-only queue consumer. Starts the sole managed shutdown pipeline
+// DspTask-only pending consumer. Starts the sole managed shutdown pipeline
 // (WaitPlayer -> Flush -> DisplayOff -> Settle -> Enter).
 // Только DspTask: запускает единственный managed shutdown pipeline.
 void sleep_timer_request_device_sleep();

@@ -129,10 +129,17 @@ frame intact. Slider rows are 28 px high with a padded knob and full-width colum
 - A telnet-created plan shows its runtime snapshot and remaining time in the same controls.
 - Cancel clears the runtime plan and reloads persisted presets.
 - The other tab remains visible but disabled and says which active plan must be cancelled first.
-- `0 H 0 MIN` disables one event. Equal non-zero Radio Stop/Start values disable Start and show
-  `STOP AND START TIMES MUST DIFFER`.
-- `... AT` preview follows local time before Start. Active labels use stored event epochs and do not
-  drift. `CLOCK NOT SYNCED` never blocks monotonic countdown execution.
+- `0 H 0 MIN` disables one event. When both Radio events are enabled, Start must be strictly
+  later than Stop. A conflicting drag shows `START MUST BE LATER THAN STOP`; on release the UI
+  automatically moves Start to one minute after Stop and persists the corrected pair.
+- Deep Sleep uses independent intervals: `WAKE AFTER SLEEP` begins at actual sleep entry, so
+  Sleep `5 MIN` plus Wake `3 MIN` is valid and does not need Radio-style ordering correction.
+- `... AT` preview follows local time before Start. Once active, `...AT` is rebuilt on every
+  snapshot from the monotonic remaining time plus the current wall clock, so a late NTP sync or a
+  system-time correction updates the shown time without restarting the countdown itself.
+- Deep Sleep `WAKE AT` shows `TIMER WAKE OFF` instead of a projected time when the wake preset is
+  `0` (RTC wake disabled), rather than a misleading current-time-looking `... AT` value.
+- `CLOCK NOT SYNCED` never blocks monotonic countdown execution.
 
 ### Theme contract
 

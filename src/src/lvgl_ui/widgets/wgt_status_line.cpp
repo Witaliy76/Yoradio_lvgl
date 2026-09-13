@@ -54,23 +54,29 @@ static void style_status_column(lv_obj_t* col) {
 static void format_sleep_timer_text(char* out, size_t cap, bool compact) {
     if (!out || cap == 0) return;
     out[0] = '\0';
-    // This compact SLEEP marker is intentionally Radio Stop only. Radio Start and Deep Sleep
-    // countdowns stay out of the status line. / SLEEP-индикатор означает только Radio Stop.
-    if (!sleep_timer_active()) return;
+    const TimerRuntimeSnapshot snapshot = timer_runtime_snapshot();
+    const bool radio_stop = snapshot.radio_stop_active;
+    const bool deep_sleep = snapshot.deep_sleep_active;
+    // Radio Stop keeps the established SLEEP marker; delayed device sleep gets an explicit
+    // DEEP SLEEP marker. Radio Start remains intentionally hidden. / Radio Start не выводим.
+    if (!radio_stop && !deep_sleep) return;
 
-    const uint32_t remaining_seconds = sleep_timer_remaining_seconds();
+    const uint32_t remaining_seconds =
+        radio_stop ? snapshot.radio_stop_remaining_seconds
+                   : snapshot.deep_sleep_remaining_seconds;
     if (remaining_seconds == 0) return;
+    const char* full_name = radio_stop ? "SLEEP" : "DEEP SLEEP";
+    const char* compact_name = radio_stop ? "" : "DEEP ";
+    const char* shown_name = compact ? compact_name : full_name;
+    const char* separator = compact ? "" : " ";
     if (remaining_seconds < 60) {
-        snprintf(out, cap, "%s", compact ? "<1m" : "SLEEP <1m");
+        snprintf(out, cap, "%s%s<1m", shown_name, separator);
         return;
     }
 
     const uint32_t remaining_minutes = (remaining_seconds + 59u) / 60u;
-    snprintf(
-        out,
-        cap,
-        compact ? "%lum" : "SLEEP %lum",
-        static_cast<unsigned long>(remaining_minutes));
+    snprintf(out, cap, "%s%s%lum", shown_name, separator,
+             static_cast<unsigned long>(remaining_minutes));
 }
 
 bool create(lv_obj_t* parent, Instance& out) {
@@ -169,7 +175,7 @@ bool create(lv_obj_t* parent, Instance& out) {
     out.lbl_sleep_timer = lv_label_create(out.root);
     if (out.lbl_sleep_timer) {
         lv_obj_add_flag(out.lbl_sleep_timer, LV_OBJ_FLAG_FLOATING);
-        lv_obj_set_width(out.lbl_sleep_timer, 84);
+        lv_obj_set_width(out.lbl_sleep_timer, 116);
         lv_label_set_text(out.lbl_sleep_timer, "");
         lv_label_set_long_mode(out.lbl_sleep_timer, LV_LABEL_LONG_CLIP);
         set_font_slot(out.lbl_sleep_timer, wx_temp_f);
@@ -243,7 +249,8 @@ void update(const Instance& inst) {
     if (inst.root && inst.lbl_sleep_timer) {
         const lv_coord_t root_w = lv_obj_get_width(inst.root);
         const bool compact = root_w > 0 && root_w < 400;
-        char sleep_text[24];
+        lv_obj_set_width(inst.lbl_sleep_timer, compact ? 84 : 116);
+        char sleep_text[32];
         format_sleep_timer_text(sleep_text, sizeof(sleep_text), compact);
         status_line_set_text_if_changed(inst.lbl_sleep_timer, sleep_text);
         if (sleep_text[0] == '\0') {
