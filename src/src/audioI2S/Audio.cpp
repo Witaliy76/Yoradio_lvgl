@@ -6133,6 +6133,16 @@ int Audio::findNextSync(uint8_t* data, size_t len) {
     if(m_codec == CODEC_VORBIS) {
         m_fnsy.nextSync = VORBISFindSyncWord(data, len);
         if(m_fnsy.nextSync == -1) return len; // OggS not found, search next block
+        // E-VS4: same treatment MP3 already gets above. Losing sync mid-page leaves a
+        // stale Ogg segment table behind; without this the realigned parser reads the
+        // next page header as audio and can walk into header parsing on garbage.
+        // The codebooks are kept, so audio resumes on the next page with no gap.
+        // E-VS4: то же, что выше уже делает MP3. Потеря синхронизации посреди страницы
+        // оставляет устаревшую таблицу сегментов Ogg; без сброса выровненный парсер
+        // примет заголовок следующей страницы за аудио и может уйти в разбор
+        // заголовков по мусору. Кодбуки сохраняются, поэтому звук продолжится со
+        // следующей страницы без разрыва.
+        VORBISDecoder_ClearBuffers();
     }
     if(m_fnsy.nextSync == -1) {
         if(m_fnsy.swnf == 0) { AUDIO_INFO("syncword not found"); }
@@ -6304,6 +6314,29 @@ int Audio::sendBytes(uint8_t* data, size_t len) {
     //        < 0: there has been an error
     //       -100: serious error, stop song
 
+    // E-VS3: a rejected Vorbis setup header is not a frame-level glitch - without the
+    // codebook/floor/residue tables the decoder cannot produce a single sample, and the
+    // next header chain may be a whole track away. Re-open the stream instead: the
+    // server always sends the header chain on connect. Recovery is handed to the
+    // EXISTING webstream reconnect, so the retry budget, the session guard, the manual
+    // STOP priority and the terminal-stop contract all stay exactly as they are - no
+    // second retry mechanism is introduced. The flag is read one-shot, and
+    // scheduleWebstreamReconnect() ignores repeat calls while one is already pending.
+    // E-VS3: отвергнутый setup-заголовок Vorbis - не сбой отдельного кадра: без таблиц
+    // codebook/floor/residue декодер не выдаст ни одного сэмпла, а следующая цепочка
+    // заголовков может прийти лишь через трек. Поэтому переоткрываем поток: сервер
+    // всегда отдаёт заголовки при подключении. Восстановление отдаётся СУЩЕСТВУЮЩЕМУ
+    // механизму reconnect, поэтому бюджет попыток, session guard, приоритет ручного
+    // STOP и terminal-stop contract не меняются - второй механизм retry не вводится.
+    // Флаг читается одноразово, а scheduleWebstreamReconnect() игнорирует повторные
+    // вызовы, пока предыдущий ещё не отработал.
+    if(res < 0 && m_codec == CODEC_VORBIS && m_streamType == ST_WEBSTREAM &&
+       VORBISConsumeSetupHeaderFailure()) {
+        Serial.printf("[AUDIO.RETRY] vorbis setup header unusable -> reopen stream session=%lu\n",
+                      (unsigned long)m_playbackSession);
+        if(m_client->connected()) m_client->stop();   // poll bails out while still connected
+        scheduleWebstreamReconnect(false, 0);
+    }
     if(res <  0){ return decodeError(res, data, bytesDecoded);} // Error, skip the frame...
     if(res > 99){ return decodeContinue(res, data, bytesDecoded);} // decoder needs more data...
 

@@ -222,6 +222,7 @@ inline int32_t CLIP_TO_15(int32_t x) {
 bool                  VORBISDecoder_AllocateBuffers();
 void                  VORBISDecoder_FreeBuffers();
 void                  VORBISDecoder_ClearBuffers();
+bool                  VORBISConsumeSetupHeaderFailure();   // E-VS3
 void                  VORBISsetDefaults();
 void                  clearGlobalConfigurations();
 int32_t               VORBISDecode(uint8_t* inbuf, int32_t* bytesLeft, int16_t* outbuf);
