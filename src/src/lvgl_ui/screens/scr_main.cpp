@@ -316,6 +316,29 @@ static void main_reapply_control_icon_btn(lv_obj_t* btn, lv_color_t fg, lv_color
     lv_obj_set_style_bg_opa(btn, pressed_opa, static_cast<lv_style_selector_t>(LV_PART_MAIN) | LV_STATE_PRESSED);
 }
 
+// Invisible hit-layer (volume strip / gesture guards): kill CARD pad + AUTO scrollbar, keep geometry.
+// LVGL 9 stores width/height/pos as styles — lv_obj_remove_style_all() zeros the hit area, so
+// volume PRESSED never fires and the gesture bubbles to the carousel on _screen.
+// Невидимый hit-layer: убрать CARD-pad и scrollbar, геометрию не трогать. В LVGL 9 w/h/pos —
+// стили; remove_style_all обнуляет зону → громкость не ловит тач, свайп уходит в карусель.
+static void main_sanitize_hit_layer(lv_obj_t* obj) {
+    if (!obj) return;
+    lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN);
+    lv_obj_set_style_outline_width(obj, 0, LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(obj, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(obj, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_left(obj, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_right(obj, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_top(obj, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_bottom(obj, 0, LV_PART_MAIN);
+    lv_obj_set_style_radius(obj, 0, LV_PART_MAIN);
+    lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollbar_mode(obj, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(obj, LV_OBJ_FLAG_GESTURE_BUBBLE);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Volume helpers / Вспомогательные функции громкости
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1429,7 +1452,10 @@ void LvglMainScreen::create_bottom_zone(LvglMainScreen& self, const YoRadioPalet
             lv_obj_set_style_bg_opa(self._bar_buffer, LV_OPA_COVER, LV_PART_MAIN);
             lv_obj_set_style_bg_color(self._bar_buffer, pal.buffer_meter_fill, LV_PART_INDICATOR);
             lv_obj_set_style_bg_opa(self._bar_buffer, LV_OPA_COVER, LV_PART_INDICATOR);
+            lv_obj_set_style_pad_all(self._bar_buffer, 0, LV_PART_MAIN);
             lv_obj_clear_flag(self._bar_buffer, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_clear_flag(self._bar_buffer, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_set_scrollbar_mode(self._bar_buffer, LV_SCROLLBAR_MODE_OFF);
         }
 
         self._lbl_ai_line = lv_label_create(zone_bottom);
@@ -1447,6 +1473,8 @@ void LvglMainScreen::create_bottom_zone(LvglMainScreen& self, const YoRadioPalet
             // Swipe must not bubble to _screen — carousel listens on page root (5.3).
             // Свайп по строке AI не должен всплывать на экран с обработчиком карусели.
             lv_obj_clear_flag(self._lbl_ai_line, LV_OBJ_FLAG_GESTURE_BUBBLE);
+            lv_obj_clear_flag(self._lbl_ai_line, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_set_scrollbar_mode(self._lbl_ai_line, LV_SCROLLBAR_MODE_OFF);
             // FU6-A: register last — width, font and CENTER alignment are all final here.
             // FU6-A: регистрируем последним — ширина, шрифт и выравнивание уже заданы.
             text_scroll::registerLabel(self._lbl_ai_line);
@@ -1501,8 +1529,7 @@ void LvglMainScreen::create_bottom_zone(LvglMainScreen& self, const YoRadioPalet
                     lv_obj_set_width(self._vol_touch_zone, LV_PCT(100));
                     lv_obj_set_height(self._vol_touch_zone, strip_h);
                     lv_obj_set_pos(self._vol_touch_zone, 0, top_rel);
-                    lv_obj_set_style_bg_opa(self._vol_touch_zone, LV_OPA_TRANSP, LV_PART_MAIN);
-                    lv_obj_set_style_border_width(self._vol_touch_zone, 0, LV_PART_MAIN);
+                    main_sanitize_hit_layer(self._vol_touch_zone);
                     lv_obj_add_flag(self._vol_touch_zone, LV_OBJ_FLAG_CLICKABLE);
                     lv_obj_clear_flag(self._vol_touch_zone, LV_OBJ_FLAG_GESTURE_BUBBLE);
                     lv_obj_set_user_data(self._vol_touch_zone, self._bar_volume);
@@ -1531,8 +1558,7 @@ void LvglMainScreen::create_bottom_zone(LvglMainScreen& self, const YoRadioPalet
                         lv_obj_set_width(self._vol_gesture_guard, LV_PCT(100));
                         lv_obj_set_height(self._vol_gesture_guard, guard_h);
                         lv_obj_set_pos(self._vol_gesture_guard, 0, guard_y_rel);
-                        lv_obj_set_style_bg_opa(self._vol_gesture_guard, LV_OPA_TRANSP, LV_PART_MAIN);
-                        lv_obj_set_style_border_width(self._vol_gesture_guard, 0, LV_PART_MAIN);
+                        main_sanitize_hit_layer(self._vol_gesture_guard);
                         lv_obj_add_flag(self._vol_gesture_guard, LV_OBJ_FLAG_CLICKABLE);
                         lv_obj_clear_flag(self._vol_gesture_guard, LV_OBJ_FLAG_GESTURE_BUBBLE);
                         // Ensure guard is above flex children (e.g. AI label) for hit-testing.
@@ -1559,8 +1585,7 @@ void LvglMainScreen::create_bottom_zone(LvglMainScreen& self, const YoRadioPalet
                     lv_obj_set_width(self._screen_bottom_carousel_guard, LV_PCT(100));
                     lv_obj_align_to(self._screen_bottom_carousel_guard, zone_bottom, LV_ALIGN_OUT_BOTTOM_MID, 0, 0);
                     lv_obj_set_height(self._screen_bottom_carousel_guard, gap_px);
-                    lv_obj_set_style_bg_opa(self._screen_bottom_carousel_guard, LV_OPA_TRANSP, LV_PART_MAIN);
-                    lv_obj_set_style_border_width(self._screen_bottom_carousel_guard, 0, LV_PART_MAIN);
+                    main_sanitize_hit_layer(self._screen_bottom_carousel_guard);
                     lv_obj_add_flag(self._screen_bottom_carousel_guard, LV_OBJ_FLAG_CLICKABLE);
                     lv_obj_clear_flag(self._screen_bottom_carousel_guard, LV_OBJ_FLAG_GESTURE_BUBBLE);
                     lv_obj_move_foreground(self._screen_bottom_carousel_guard);
@@ -2116,6 +2141,12 @@ void LvglMainScreen::liveReapplyTheme() {
         lv_obj_set_style_text_color(_lbl_vol_popup, pal.text_primary,    LV_PART_MAIN);
         lv_obj_set_style_bg_color(_lbl_vol_popup,   pal.panel_background, LV_PART_MAIN);
     }
+
+    // Hit-layers: theme reinit reattaches CARD pad/scrollbar styles; flags survive, styles may not.
+    // Hit-layer: reinit темы возвращает CARD; флаги живут, стили — нет. Повторяем sanitize.
+    main_sanitize_hit_layer(_vol_touch_zone);
+    main_sanitize_hit_layer(_vol_gesture_guard);
+    main_sanitize_hit_layer(_screen_bottom_carousel_guard);
 
     // Art slot frame (Main chrome): reuses control_band border token (6.6R-GA) / Рамка арта
     if (_art_slot) {
