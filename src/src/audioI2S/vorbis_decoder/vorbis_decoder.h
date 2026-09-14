@@ -356,7 +356,17 @@ void VORBIS_LOG_IMPL(uint8_t level, const char* path, int line, const char* fmt,
     char* dest = final.get();
     if (!dest) return;  // Or error treatment
     if(audio_info){
-        if     (level == 1 && CORE_DEBUG_LEVEL >= 1) snprintf(dest, total_len + 1, "%s:%d:" ANSI_ESC_RED " %s" ANSI_ESC_RESET, file.c_get(), line, dst);
+        // E-VS6: decoder errors are not tied to CORE_DEBUG_LEVEL any more. They are
+        // rare by construction and were the one thing missing while the fu4.2.15
+        // crash was investigated - every VORBIS_LOG_ERROR was formatted, allocated
+        // and then discarded. The runtime "audioinfo" switch still governs output,
+        // so this can be turned off from the UI without a rebuild.
+        // E-VS6: ошибки декодера больше не зависят от CORE_DEBUG_LEVEL. Они редки по
+        // построению, и именно их не хватало при разборе аварии fu4.2.15 — каждый
+        // VORBIS_LOG_ERROR форматировался, выделял память и выбрасывался. Рантайм-
+        // переключатель "audioinfo" по-прежнему управляет выводом, так что отключить
+        // это можно из интерфейса, без пересборки.
+        if     (level == 1) snprintf(dest, total_len + 1, "%s:%d:" ANSI_ESC_RED " %s" ANSI_ESC_RESET, file.c_get(), line, dst);
         else if(level == 2 && CORE_DEBUG_LEVEL >= 2) snprintf(dest, total_len + 1, "%s:%d:" ANSI_ESC_YELLOW " %s" ANSI_ESC_RESET, file.c_get(), line, dst);
         else if(level == 3 && CORE_DEBUG_LEVEL >= 3) snprintf(dest, total_len + 1, "%s:%d:" ANSI_ESC_GREEN " %s" ANSI_ESC_RESET, file.c_get(), line, dst);
         else if(level == 4 && CORE_DEBUG_LEVEL >= 4) snprintf(dest, total_len + 1, "%s:%d:" ANSI_ESC_CYAN " %s" ANSI_ESC_RESET, file.c_get(), line, dst);  // debug
