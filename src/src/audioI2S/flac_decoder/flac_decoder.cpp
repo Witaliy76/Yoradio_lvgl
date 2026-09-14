@@ -430,7 +430,17 @@ int32_t parseMetaDataBlockHeader(uint8_t *inbuf, int16_t nBytes){
                 //FLAC_LOG_INFO("nrOfChannels %i", nrOfChannels);
                 FLACMetadataBlock->numChannels = nrOfChannels;
 
-                bitsPerSample  =  (*(inbuf + pos + 12) & 0x01) << 5;
+                // E-FL1: STREAMINFO stores bits-per-sample as 5 bits holding (bps - 1):
+                // the top bit is bit 0 of byte 12, the low four are the high nibble of
+                // byte 13. The shift was 5, so the top bit contributed 32 instead of 16
+                // and a 24-bit stream was reported as 40. Invisible on 16-bit streams,
+                // where (bps - 1) = 15 leaves that bit clear.
+                // E-FL1: в STREAMINFO разрядность записана пятью битами как (bps - 1):
+                // старший бит — бит 0 байта 12, младшие четыре — верхний ниббл байта 13.
+                // Сдвиг был на 5, поэтому старший бит давал 32 вместо 16 и 24-битный
+                // поток показывался как 40. На 16-битных потоках не проявлялось: там
+                // (bps - 1) = 15 и этот бит нулевой.
+                bitsPerSample  =  (*(inbuf + pos + 12) & 0x01) << 4;
                 bitsPerSample += ((*(inbuf + pos + 13) & 0xF0) >> 4) + 1;
                 FLACMetadataBlock->bitsPerSample = bitsPerSample;
                 //FLAC_LOG_INFO("bitsPerSample %i", bitsPerSample);

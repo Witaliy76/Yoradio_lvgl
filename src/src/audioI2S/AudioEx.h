@@ -851,6 +851,29 @@ private:
     static constexpr uint32_t WEBSTREAM_RECONNECT_BACKOFF_MS = 500;
     static constexpr uint32_t WEBSTREAM_STALL_RECONNECT_MS = 1000;
     static constexpr uint32_t AAC_WEBSTREAM_PREBUFFER_BYTES = 32 * 1024;
+    // E-FL2: start cushion for Ogg-carried streams, aimed at roughly half a second
+    // of audio. One fixed size cannot serve both a 192 kbit/s Vorbis and a
+    // 1.4 Mbit/s FLAC, so it is derived from the announced bitrate and bounded:
+    // the floor keeps low-bitrate starts from being pointless, the ceiling keeps a
+    // high-bitrate start from feeling slow.
+    // E-FL2: стартовый запас для потоков в контейнере Ogg, ориентир — примерно
+    // полсекунды звука. Одна константа не может обслужить и Vorbis 192 кбит/с, и
+    // FLAC 1,4 Мбит/с, поэтому размер считается от заявленного битрейта и
+    // ограничивается: нижняя граница — чтобы запас не был бессмысленным, верхняя —
+    // чтобы старт на высоком битрейте не казался медленным.
+    static constexpr uint32_t OGG_WEBSTREAM_PREBUFFER_MIN_BYTES = 16 * 1024;
+    // E-FL2: used when the station announces no icy-bitrate. The floor above would
+    // give such a stream only a token cushion - 16 KiB is 0.13 s at ~1 Mbit/s - and
+    // every no-bitrate Ogg station observed here turned out to be high-rate FLAC.
+    // Sized for ~0.5 s at 1 Mbit/s; deliberately below the ceiling, because on a
+    // low-rate stream this only shows up as a slower start.
+    // E-FL2: используется, когда станция не сообщает icy-bitrate. Нижняя граница выше
+    // дала бы такому потоку символический запас — 16 КиБ это 0,13 с при ~1 Мбит/с, —
+    // а все встреченные Ogg-станции без битрейта оказались высокобитрейтным FLAC.
+    // Рассчитано на ~0,5 с при 1 Мбит/с; намеренно ниже верхнего предела, потому что
+    // на низкобитрейтном потоке это проявится только как более медленный старт.
+    static constexpr uint32_t OGG_WEBSTREAM_PREBUFFER_UNKNOWN_BYTES = 64 * 1024;
+    static constexpr uint32_t OGG_WEBSTREAM_PREBUFFER_MAX_BYTES = 96 * 1024;
     static constexpr uint32_t BUFFERED_RECONNECT_HEADER_TIMEOUT_MS = 2000;
     static constexpr uint32_t BUFFERED_RECONNECT_PCM_STALL_MS = 2500;
     static constexpr uint32_t BUFFERED_RECONNECT_PCM_PROBATION_MS = 10000;

@@ -5028,11 +5028,33 @@ void Audio::processWebStream() {
     // start audio decoding - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     uint32_t streamStartThreshold = m_pwst.maxFrameSize;
     if(m_codec == CODEC_AAC && !m_f_tts) streamStartThreshold = max(streamStartThreshold, AAC_WEBSTREAM_PREBUFFER_BYTES);
+    // E-FL2: an Ogg station is still CODEC_OGG at this point - the real codec is only
+    // resolved inside the branch below - so the gate must key on CODEC_OGG. Keying on
+    // CODEC_FLAC here would never fire.
+    // E-FL2: станция в Ogg здесь ещё CODEC_OGG — настоящий кодек определяется только
+    // внутри условия ниже, — поэтому проверять надо CODEC_OGG. Проверка на CODEC_FLAC
+    // не сработала бы никогда.
+    uint32_t oggPrebufferTarget = 0;
+    if(m_codec == CODEC_OGG && m_streamType == ST_WEBSTREAM &&
+       m_playlistFormat != FORMAT_M3U8 && !m_f_tts) {
+        oggPrebufferTarget = m_nominal_bitrate
+            ? (m_nominal_bitrate / 8) / 2            // ~0.5 s of audio
+            : OGG_WEBSTREAM_PREBUFFER_UNKNOWN_BYTES; // station announced no bitrate
+        oggPrebufferTarget = max(OGG_WEBSTREAM_PREBUFFER_MIN_BYTES,
+                                 min(oggPrebufferTarget, OGG_WEBSTREAM_PREBUFFER_MAX_BYTES));
+        streamStartThreshold = max(streamStartThreshold, oggPrebufferTarget);
+    }
     if(InBuff.bufferFilled() >= streamStartThreshold && !m_f_stream) { // waiting for buffer filled
         if(m_codec == CODEC_AAC && !m_f_tts) {
             Serial.printf("[AUDIO.BUFFER] AAC prebuffer ready bytes=%lu target=%lu\n",
                           (unsigned long)InBuff.bufferFilled(),
                           (unsigned long)AAC_WEBSTREAM_PREBUFFER_BYTES);
+        }
+        if(oggPrebufferTarget) {
+            Serial.printf("[AUDIO.BUFFER] OGG prebuffer ready bytes=%lu target=%lu bitrate=%lu\n",
+                          (unsigned long)InBuff.bufferFilled(),
+                          (unsigned long)oggPrebufferTarget,
+                          (unsigned long)m_nominal_bitrate);
         }
         if(m_codec == CODEC_OGG) { // AUDIO_INFO("determine correct codec here");
             uint8_t codec = determineOggCodec(InBuff.getReadPtr(), m_pwst.maxFrameSize);
