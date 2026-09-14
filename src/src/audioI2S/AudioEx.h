@@ -358,6 +358,10 @@ class Audio{
     // E-VS7: consumes a reopen request published by the audio task.
     // E-VS7: разбирает запрос на переоткрытие, выставленный аудиозадачей.
     void         pollVorbisReopenRequest();
+    // E-ST1: the audio task asks for a stop instead of performing one.
+    // E-ST1: аудиозадача просит остановку, а не выполняет её сама.
+    void         requestStopFromAudioTask(const char* reason);
+    void         pollAudioTaskStopRequest();
     uint32_t     m4a_correctResumeFilePos();
     uint32_t     ogg_correctResumeFilePos();
     int32_t      flac_correctResumeFilePos();
@@ -901,6 +905,21 @@ private:
     // отбрасывает устаревший после STOP или смены станции.
     volatile bool m_f_vorbisReopenRequested = false;
     uint32_t      m_vorbisReopenSession     = 0;
+    // E-ST1: stopSong() is a cross-task call by design - it raises m_f_lockInBuffer
+    // and waits for m_f_audioTaskIsDecoding to clear. Called from the audio task
+    // that wait is on itself: it spins out after ~100 ms and then frees the decoder
+    // buffers while that very decoder is on the stack, and closes m_client while the
+    // player task may be inside m_client->read(). So the audio task publishes a
+    // request instead, and Audio::loop() performs the stop.
+    // E-ST1: stopSong() по устройству межзадачный — он поднимает m_f_lockInBuffer и
+    // ждёт сброса m_f_audioTaskIsDecoding. При вызове из аудиозадачи это ожидание
+    // самого себя: оно отваливается по таймауту ~100 мс, после чего освобождает
+    // буферы декодера, находясь внутри него, и закрывает m_client, пока задача
+    // Player может быть в m_client->read(). Поэтому аудиозадача публикует запрос,
+    // а выполняет остановку Audio::loop().
+    volatile bool m_f_audioTaskStopRequested = false;
+    uint32_t      m_audioTaskStopSession     = 0;
+    const char*   m_audioTaskStopReason      = nullptr;
     bool     m_f_streamHadAudio             = false;
     bool     m_f_shortLivedCounted          = false;
     bool     m_f_streamConnectionStable     = false;

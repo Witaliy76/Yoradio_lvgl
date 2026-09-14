@@ -3921,6 +3921,54 @@ void Audio::scheduleWebstreamReconnect(bool clientConnected, uint32_t availableB
 // E-VS7: выполняется в задаче Player — владельце m_client. Запрос, не совпадающий
 // с текущей playback session, отбрасывается: ручной STOP и смена станции сохраняют
 // приоритет, и reconnect не планируется для потока, который никто не слушает.
+// E-ST1: called on the audio task. Publishes intent only - no socket, no decoder
+// buffers, no cross-task wait. Repeat calls before the owner runs are harmless:
+// the first reason wins, which is the one closest to the actual failure.
+// E-ST1: вызывается в аудиозадаче. Публикует только намерение — ни сокета, ни
+// буферов декодера, ни межзадачного ожидания. Повторные вызовы до обработки
+// безвредны: побеждает первая причина, то есть ближайшая к самому сбою.
+void Audio::requestStopFromAudioTask(const char* reason) {
+    if(m_f_audioTaskStopRequested) return;
+    m_audioTaskStopReason = reason;
+    m_audioTaskStopSession = m_playbackSession;
+    m_f_audioTaskStopRequested = true;
+    // Stop feeding the decoder until the owner task acts, so the few milliseconds
+    // in between are not spent decoding data we already know is unusable.
+    // Перестаём кормить декодер до реакции владельца, чтобы эти несколько
+    // миллисекунд не ушли на разбор заведомо негодных данных.
+    m_f_playing = false;
+    Serial.printf("[AUDIO.STOP] requested by audio task reason=%s session=%lu\n",
+                  reason ? reason : "unknown",
+                  (unsigned long)m_playbackSession);
+}
+//****************************************************************************************
+// E-ST1: runs on the player task, the owner of m_client and of stopSong()'s
+// cross-task handshake. A request from a playback session that has already been
+// replaced is dropped, so a manual STOP or a station change keeps priority.
+// E-ST1: выполняется в задаче Player — владельце m_client и межзадачного
+// рукопожатия stopSong(). Запрос от уже сменившейся playback session отбрасывается,
+// поэтому ручной STOP и смена станции сохраняют приоритет.
+void Audio::pollAudioTaskStopRequest() {
+    if(!m_f_audioTaskStopRequested) return;
+    m_f_audioTaskStopRequested = false;
+    const uint32_t session = m_audioTaskStopSession;
+    const char* reason = m_audioTaskStopReason;
+    m_audioTaskStopSession = 0;
+    m_audioTaskStopReason = nullptr;
+
+    if(session != m_playbackSession) {
+        Serial.printf("[AUDIO.STOP] dropped (stale) reason=%s requested=%lu current=%lu\n",
+                      reason ? reason : "unknown",
+                      (unsigned long)session,
+                      (unsigned long)m_playbackSession);
+        return;
+    }
+    Serial.printf("[AUDIO.STOP] executing reason=%s session=%lu\n",
+                  reason ? reason : "unknown",
+                  (unsigned long)session);
+    stopSong();
+}
+//****************************************************************************************
 void Audio::pollVorbisReopenRequest() {
     if(!m_f_vorbisReopenRequested) return;
     m_f_vorbisReopenRequested = false;
@@ -4257,6 +4305,7 @@ exit:
 }
 //****************************************************************************************
 void Audio::loop() {
+    pollAudioTaskStopRequest();  // E-ST1: a pending stop outranks everything below
     pollVorbisReopenRequest();   // E-VS7: owner task consumes the audio-task request
     if(m_f_webstreamReconnectPending) {
         pollWebstreamReconnect();
@@ -6436,11 +6485,11 @@ void Audio::setDecoderItems() {
     }
     if(getBitsPerSample() != 8 && getBitsPerSample() != 16) {
         AUDIO_ERROR("Bits per sample must be 8 or 16, found %i", getBitsPerSample());
-        stopSong();
+        requestStopFromAudioTask("bits per sample");   // E-ST1
     }
     if(getChannels() != 1 && getChannels() != 2) {
         AUDIO_ERROR("Num of channels must be 1 or 2, found %i", getChannels());
-        stopSong();
+        requestStopFromAudioTask("channel count");     // E-ST1
     }
     memset(m_filterBuff, 0, sizeof(m_filterBuff)); // Clear FilterBuffer
     IIR_calculateCoefficients(m_gain0, m_gain1, m_gain2); // must be recalculated after each samplerate change
@@ -6449,7 +6498,13 @@ void Audio::setDecoderItems() {
 //****************************************************************************************
 uint32_t Audio::decodeError(int8_t res, uint8_t* data, int32_t bytesDecoded){
         // for(int i = 0; i < 10; i++){printf("0x%02X ", data[i]);} printf("\n");
-        if(res == -100){stopSong(); return bytesDecoded;} // serious error, e.g. decoder could not be initialized
+        // E-ST1: this runs on the audio task - ask, do not stop. FLAC_STOP is -100, so
+        // a station that keeps failing to decode used to close the socket from here
+        // while the player task was reading it.
+        // E-ST1: выполняется в аудиозадаче — просим, а не останавливаем. FLAC_STOP это
+        // -100, поэтому станция с постоянными ошибками декодирования закрывала отсюда
+        // сокет, пока задача Player из него читала.
+        if(res == -100){requestStopFromAudioTask("decoder fatal"); return bytesDecoded;}
         if(m_codec == CODEC_AAC && res == -21){ // mono <-> stereo change
             //  According to the specification, the channel configuration is transferred in the first ADTS header and no longer changes in the entire
             //  stream. Some streams send short mono blocks in a stereo stream. e.g. http://mp3.ffh.de/ffhchannels/soundtrack.aac
@@ -6513,7 +6568,7 @@ int Audio::sendBytes(uint8_t* data, size_t len) {
         case CODEC_VORBIS: res = VORBISDecode(data, &m_sbyt.bytesLeft, m_outBuff.get()); break;
         default: {
             AUDIO_ERROR("no valid codec found codec = %d", m_codec);
-            stopSong();
+            requestStopFromAudioTask("no valid codec");   // E-ST1
         }
     }
     bytesDecoded = len - m_sbyt.bytesLeft;
