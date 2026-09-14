@@ -320,6 +320,9 @@ void Telnet::on_input(const char* str, uint8_t clientId) {
       case TimerCommandResult::RadioStartNotAfterStop:
         printf(clientId, "radio start must be later than radio stop\n> ");
         break;
+      case TimerCommandResult::WakeIntervalRequired:
+        printf(clientId, "deep sleep wake is ON; set a non-zero wake interval first\n> ");
+        break;
       default:
         printf(clientId, "##CMD_ERROR#\tinvalid timer command <%s>\n> ", str);
         break;

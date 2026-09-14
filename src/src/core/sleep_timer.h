@@ -29,6 +29,7 @@ enum class TimerCommandResult : uint8_t {
   Cancelled,
   InvalidMinutes,
   EmptyPlan,
+  WakeIntervalRequired,
   RadioStartNotAfterStop,
   ConflictRadioActive,
   ConflictDeepSleepActive,
@@ -86,6 +87,8 @@ void sleep_timer_loop();
 uint16_t timer_sanitize_minutes(uint16_t raw_minutes);
 uint16_t timer_preset_minutes(TimerPreset preset);
 void timer_preset_set_minutes(TimerPreset preset, uint16_t total_minutes);
+bool timer_preset_enabled(TimerPreset preset);
+void timer_preset_set_enabled(TimerPreset preset, bool enabled);
 
 TimerCommandResult timer_schedule_radio_plan(uint16_t stop_after_minutes,
                                              uint16_t start_after_minutes);

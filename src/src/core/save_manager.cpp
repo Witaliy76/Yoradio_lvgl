@@ -770,8 +770,10 @@ constexpr const char* kV2Namespace = "yo_sm_v2";
 //                    seeded by Config::_setupVersion() case 10.
 //   v14:             Ai tail grew (three TIMERS presets, CONFIG_VERSION 12). Partial overlay of
 //                    the v13 prefix preserves the renamed wake field; case 11 seeds only new bytes.
+//   v15:             Ai tail grew (four TIMERS enabled flags, CONFIG_VERSION 13). Case 12 derives
+//                    migrated enabled state from the preserved duration presets.
 constexpr const char* kV2MarkerKey = "v2m";
-constexpr uint32_t kV2SchemaVersion = 14u;
+constexpr uint32_t kV2SchemaVersion = 15u;
 
 // Legacy blob sentinel — `config.store.config_set` magic (see config.cpp / config.h).
 constexpr uint16_t kLegacyMagic = 4262u;
@@ -1022,6 +1024,7 @@ void runBootMigrationIfNeeded() {
       // v11 -> v12: Ai tail grew (FU6-A text scrolling); partial overlay in loadSection().
       // v12 -> v13: Ai tail grew (Deep Sleep wake preset); partial overlay in loadSection().
       // v13 -> v14: Ai tail grew (three TIMERS presets); partial overlay in loadSection().
+      // v14 -> v15: Ai tail grew (four TIMERS enabled flags); partial overlay in loadSection().
       // Add future schema steps ABOVE in ascending order.
       if (!writeMarker()) {
         SM_LOG("v2 upgrade: writeMarker FAILED — upgrade will retry on next boot");

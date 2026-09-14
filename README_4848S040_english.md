@@ -139,7 +139,7 @@ GPIO0 is also used by the RGB panel as `ST7701_R4` (a red-channel data line). To
 
 **Procedure:**
 
-1. Enter Deep Sleep through Settings → TIMERS → DEEP SLEEP (`ENTER DEEP SLEEP NOW`, see below), or with `deepsleep` over telnet/Serial. Wait until the display and backlight are fully off.
+1. Enter Deep Sleep through Settings → TIMERS → DEEP SLEEP (`SLEEP NOW`, see below), or with `deepsleep` over telnet/Serial. Wait until the display and backlight are fully off.
 2. Press BOOT briefly and release.
 3. The board boots normally.
 
@@ -151,11 +151,11 @@ Reset and reconnecting power remain fallback ways to start the board. `WAKE_PIN=
 
 ### TIMERS page and relative RTC wake
 
-Settings → **TIMERS** has **RADIO** and **DEEP SLEEP** tabs. Each tab exposes two events, each with separate `HOURS` (0–24) and `MINUTES` (0–59) sliders. `0 H 0 MIN` disables only that event. A preset is persisted as one 0…1499-minute value, while an armed countdown is runtime-only and does not survive reboot. Only one plan may run at a time.
+Settings → **TIMERS** has **RADIO** and **DEEP SLEEP** tabs. Each tab exposes two events with independent ON/OFF switches and `−/+` controls for `HOURS` (0–24) and `MINUTES` (0–59). A short press changes only that field by one without wrapping or carrying; holding repeats and accelerates. OFF preserves the displayed value while disabling its controls. ON with `00:00` shows `SET INTERVAL` and cannot start that event. A preset is persisted as one 0…1499-minute value, while an armed countdown is runtime-only and does not survive reboot. Only one plan may run at a time.
 
-**RADIO:** `STOP RADIO AFTER` and `START RADIO AFTER` are independent intervals measured from one press of `START RADIO TIMER`. Stop-only, Start-only, and two-event plans are supported. With both enabled, Start must be strictly later than Stop: the UI warns during a conflicting drag, then automatically moves Start one minute past Stop when the slider is released. Events use the normal `PR_STOP` / `PR_PLAY` paths, and an already satisfied state is a safe no-op. Pending Radio Stop appears as `SLEEP 10m`, delayed Deep Sleep as `DEEP SLEEP 10m`; Radio Start remains hidden.
+**RADIO:** `STOP RADIO AFTER` and `START RADIO AFTER` are independent intervals measured from one press of `START TIMER`. Stop-only, Start-only, and two-event plans are supported. With both switches ON, Start must be strictly later than Stop: a conflict shows a warning and disables the start button without changing either value automatically. Events use the normal `PR_STOP` / `PR_PLAY` paths, and an already satisfied state is a safe no-op. Pending Radio Stop appears as `SLEEP 10m`, delayed Deep Sleep as `DEEP SLEEP 10m`; Radio Start remains hidden.
 
-**DEEP SLEEP:** `DEEP SLEEP AFTER` starts at `START DEEP SLEEP TIMER`; the separate `WAKE AFTER SLEEP` interval starts only when managed shutdown actually enters Deep Sleep. Therefore Sleep `5 MIN` plus Wake `3 MIN` is valid: entry occurs after five minutes and RTC wake about three minutes later. A zero wake interval skips RTC timer registration while BOOT/Reset/power remain available. `ENTER DEEP SLEEP NOW` still works when both presets are zero, provided a Radio plan is not active. Cancel the active plan explicitly before switching plan types.
+**DEEP SLEEP:** `DEEP SLEEP AFTER` starts at `START TIMER`; the separate `WAKE AFTER SLEEP` interval starts only when managed shutdown actually enters Deep Sleep. Therefore Sleep `5 MIN` plus Wake `3 MIN` is valid: entry occurs after five minutes and RTC wake about three minutes later. With Sleep OFF and Wake ON, `WAKE AFTER NEXT SLEEP` is a persisted preset rather than an active countdown; it is applied by the next `SLEEP NOW` or `deepsleep`. Wake OFF skips RTC timer registration while BOOT/Reset/power remain available. Wake ON with `00:00` blocks sleep until an interval is set. Cancel an active plan explicitly before switching plan types.
 
 BOOT and the RTC timer can be armed **together**; whichever fires first wins. Absolute `HH:MM` wake scheduling is not implemented. `STOPS/STARTS/SLEEP/WAKE AT ...` is only a local-time hint, and `CLOCK NOT SYNCED` never blocks a relative timer. Long RTC intervals can drift with the board's slow clock.
 

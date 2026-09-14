@@ -125,15 +125,20 @@ TimerPhase make_phase(uint16_t minutes, uint32_t now_ms, time_t wall_now) {
   return phase;
 }
 
-bool resolve_wake_request(DeepSleepWakeRequest request, uint16_t* out_minutes) {
-  if (!out_minutes) return false;
+TimerCommandResult resolve_wake_request(DeepSleepWakeRequest request, uint16_t* out_minutes) {
+  if (!out_minutes) return TimerCommandResult::InvalidMinutes;
   if (request.source == DeepSleepWakeRequest::Source::PersistentPreset) {
+    if (!timer_preset_enabled(TimerPreset::DeepSleepWakeAfter)) {
+      *out_minutes = 0;
+      return TimerCommandResult::Applied;
+    }
     *out_minutes = timer_preset_minutes(TimerPreset::DeepSleepWakeAfter);
-    return true;
+    return *out_minutes > 0 ? TimerCommandResult::Applied
+                            : TimerCommandResult::WakeIntervalRequired;
   }
-  if (!raw_minutes_valid(request.minutes)) return false;
+  if (!raw_minutes_valid(request.minutes)) return TimerCommandResult::InvalidMinutes;
   *out_minutes = request.minutes;
-  return true;
+  return TimerCommandResult::Applied;
 }
 
 bool publish_managed_sleep_request(uint16_t wake_minutes) {
@@ -358,6 +363,33 @@ void timer_preset_set_minutes(TimerPreset preset, uint16_t total_minutes) {
   }
 }
 
+bool timer_preset_enabled(TimerPreset preset) {
+  switch (preset) {
+    case TimerPreset::RadioStop: return config.store.radio_stop_timer_enabled;
+    case TimerPreset::RadioStart: return config.store.radio_start_timer_enabled;
+    case TimerPreset::DeepSleepAfter: return config.store.deep_sleep_timer_enabled;
+    case TimerPreset::DeepSleepWakeAfter: return config.store.deep_sleep_wake_timer_enabled;
+  }
+  return false;
+}
+
+void timer_preset_set_enabled(TimerPreset preset, bool enabled) {
+  switch (preset) {
+    case TimerPreset::RadioStop:
+      config.saveValue(&config.store.radio_stop_timer_enabled, enabled);
+      break;
+    case TimerPreset::RadioStart:
+      config.saveValue(&config.store.radio_start_timer_enabled, enabled);
+      break;
+    case TimerPreset::DeepSleepAfter:
+      config.saveValue(&config.store.deep_sleep_timer_enabled, enabled);
+      break;
+    case TimerPreset::DeepSleepWakeAfter:
+      config.saveValue(&config.store.deep_sleep_wake_timer_enabled, enabled);
+      break;
+  }
+}
+
 bool timer_local_clock_now(time_t* out_now) {
   if (!out_now) return false;
   const time_t now = time(nullptr);
@@ -478,9 +510,8 @@ TimerCommandResult timer_schedule_deep_sleep(uint16_t after_minutes,
   if (!raw_minutes_valid(after_minutes)) return TimerCommandResult::InvalidMinutes;
   if (after_minutes == 0) return TimerCommandResult::EmptyPlan;
   uint16_t wake_minutes = 0;
-  if (!resolve_wake_request(wake_request, &wake_minutes)) {
-    return TimerCommandResult::InvalidMinutes;
-  }
+  const TimerCommandResult wake_result = resolve_wake_request(wake_request, &wake_minutes);
+  if (wake_result != TimerCommandResult::Applied) return wake_result;
 
   time_t wall_now = 0;
   timer_local_clock_now(&wall_now);
@@ -522,9 +553,8 @@ TimerCommandResult timer_cancel_deep_sleep() {
 
 TimerCommandResult timer_request_deep_sleep_now(DeepSleepWakeRequest wake_request) {
   uint16_t wake_minutes = 0;
-  if (!resolve_wake_request(wake_request, &wake_minutes)) {
-    return TimerCommandResult::InvalidMinutes;
-  }
+  const TimerCommandResult wake_result = resolve_wake_request(wake_request, &wake_minutes);
+  if (wake_result != TimerCommandResult::Applied) return wake_result;
   // An explicit immediate sleep is allowed to cancel a Radio plan; nothing is cancelled silently
   // for delayed cross-plan requests. / Явный немедленный сон может отменить Radio plan.
   return publish_managed_sleep_request(wake_minutes) ? TimerCommandResult::Applied

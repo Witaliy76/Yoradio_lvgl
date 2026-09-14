@@ -493,6 +493,16 @@ void Config::_setupVersion(){
       saveValue(&store.radio_start_after_minutes, static_cast<uint16_t>(0));
       saveValue(&store.deep_sleep_after_minutes, static_cast<uint16_t>(0));
       break;
+    case 12:
+      // Existing installations used duration > 0 as the enabled state. New bytes were appended
+      // to the Ai tail, so migrate that intent without changing any stored interval.
+      // Раньше enabled означал duration > 0; сохраняем это намерение без изменения интервалов.
+      saveValue(&store.radio_stop_timer_enabled, store.radio_stop_after_minutes > 0);
+      saveValue(&store.radio_start_timer_enabled, store.radio_start_after_minutes > 0);
+      saveValue(&store.deep_sleep_timer_enabled, store.deep_sleep_after_minutes > 0);
+      saveValue(&store.deep_sleep_wake_timer_enabled,
+                store.deep_sleep_wake_after_minutes > 0);
+      break;
     default:
       break;
   }
@@ -742,6 +752,10 @@ void Config::setDefaults() {
   store.radio_stop_after_minutes = 0;
   store.radio_start_after_minutes = 0;
   store.deep_sleep_after_minutes = 0;
+  store.radio_stop_timer_enabled = false;
+  store.radio_start_timer_enabled = false;
+  store.deep_sleep_timer_enabled = false;
+  store.deep_sleep_wake_timer_enabled = false;
 
   // AI settings migrated to FS /ai.json and runtime cache (see aiGetRuntimeConfig())
   // Runtime config will be applied in Config::init() after store is loaded

@@ -77,68 +77,79 @@ control tree for both tabs, so repeated tab changes allocate no additional LVGL 
 ```text
 _view_sleep_timer                         SettingsView::SleepTimer
 ├── detail header                         back | sleep glyph | TIMERS
-└── _cont_sleep_timer_content             flex column; pad_top=4; row_gap=5
+└── _cont_sleep_timer_content             flex column; pad_top=2; row_gap=3
     ├── tabs                              height=38
     │   ├── _timer_tab_buttons[0]
     │   │   └── _timer_tab_labels[0]      RADIO
     │   └── _timer_tab_buttons[1]
     │       └── _timer_tab_labels[1]      DEEP SLEEP
     │
-    ├── _timer_event_cards[0]             height=92
+    ├── _timer_event_cards[0]             height=118
     │   ├── header
     │   │   ├── _timer_event_titles[0]    STOP RADIO AFTER / DEEP SLEEP AFTER
-    │   │   └── _timer_at_labels[0]       STOPS AT / SLEEP AT ...
-    │   └── controls row
+    │   │   └── toggle group
+    │   │       ├── _timer_switches[0]
+    │   │       └── _timer_switch_labels[0] ON / OFF
+    │   ├── controls row
     │       ├── HOURS column
-    │       │   ├── _timer_captions[0] + _timer_value_labels[0]
-    │       │   └── _timer_sliders[0]     range 0..24
+    │       │   ├── _timer_captions[0]
+    │       │   └── step row              - | _timer_value_labels[0] | +
     │       └── MINUTES column
-    │           ├── _timer_captions[1] + _timer_value_labels[1]
-    │           └── _timer_sliders[1]     range 0..59
+    │           ├── _timer_captions[1]
+    │           └── step row              - | _timer_value_labels[1] | +
+    │   └── _timer_at_labels[0]           OFF / SET INTERVAL / STOPS AT / SLEEP AT ...
     │
-    ├── _timer_event_cards[1]             height=92
+    ├── _timer_event_cards[1]             height=118
     │   ├── header
     │   │   ├── _timer_event_titles[1]    START RADIO AFTER / WAKE AFTER SLEEP
-    │   │   └── _timer_at_labels[1]       STARTS AT / WAKE AT ...
-    │   └── controls row
+    │   │   └── toggle group
+    │   │       ├── _timer_switches[1]
+    │   │       └── _timer_switch_labels[1] ON / OFF
+    │   ├── controls row
     │       ├── HOURS column
-    │       │   ├── _timer_captions[2] + _timer_value_labels[2]
-    │       │   └── _timer_sliders[2]     range 0..24
+    │       │   ├── _timer_captions[2]
+    │       │   └── step row              - | _timer_value_labels[2] | +
     │       └── MINUTES column
-    │           ├── _timer_captions[3] + _timer_value_labels[3]
-    │           └── _timer_sliders[3]     range 0..59
+    │           ├── _timer_captions[3]
+    │           └── step row              - | _timer_value_labels[3] | +
+    │   └── _timer_at_labels[1]           OFF / SET INTERVAL / STARTS AT / WAKE AT ...
     │
-    ├── _lbl_timer_state                  height=20; conflict/clock/remaining state
-    └── buttons row                       height=42
+    ├── _lbl_timer_state                  height=18; conflict/clock/remaining state
+    ├── buttons row                       height=44
         ├── _btn_timer_primary
-        │   └── _lbl_timer_primary        START/CANCEL RADIO or DEEP SLEEP TIMER
+        │   └── _lbl_timer_primary        START TIMER / CANCEL TIMER
         └── _btn_deep_sleep_now           visible on DEEP SLEEP tab only
-            └── _lbl_deep_sleep_now       ENTER DEEP SLEEP NOW
+            └── _lbl_deep_sleep_now       SLEEP NOW
+    └── _lbl_timer_hint                   HOLD -/+ TO CHANGE FASTER
 ```
 
-Fixed content height is 304 px (`38 + 92 + 92 + 20 + 42 + four 5 px gaps`), before the detail
-header. It fits the 480×480 profile without vertical scrolling and leaves the existing status/header
-frame intact. Slider rows are 28 px high with a padded knob and full-width columns for touch.
+The fixed controls occupy 367 px (`38 + 118 + 118 + 18 + 44 + 14 + five 3 px gaps + 2 px top
+padding`) before the detail header. They fit the 480×480 profile without vertical scrolling.
+Every step button is 44×44 px; each card's bottom state label is translated 6 px down.
 
 ### Runtime and draft states
 
-- With no active plan, sliders show persisted presets.
-- `LV_EVENT_VALUE_CHANGED` updates only `_timer_event1_draft` / `_timer_event2_draft` and preview.
-- `LV_EVENT_RELEASED` or `LV_EVENT_PRESS_LOST` persists one combined minute value for that event.
-- Start takes an immutable runtime snapshot. Any active plan disables all four sliders.
+- With no active plan, the values and independent ON/OFF switches show four persisted presets.
+- OFF keeps the stored value visible but disables that card's step buttons; ON with `00:00` shows
+  `SET INTERVAL` and cannot start an event.
+- A short press changes only its HOURS or MINUTES field by one, with no wrap or carry. A hold uses
+  LVGL long-press repeat and accelerates from 1 to 5 and then 10 units.
+- A short press persists immediately. A hold updates the draft live and persists once on release,
+  press lost, input reset, tab/Back navigation, or Settings teardown.
+- Start takes an immutable runtime snapshot. Any active plan disables all switches and step buttons.
 - A telnet-created plan shows its runtime snapshot and remaining time in the same controls.
 - Cancel clears the runtime plan and reloads persisted presets.
 - The other tab remains visible but disabled and says which active plan must be cancelled first.
-- `0 H 0 MIN` disables one event. When both Radio events are enabled, Start must be strictly
-  later than Stop. A conflicting drag shows `START MUST BE LATER THAN STOP`; on release the UI
-  automatically moves Start to one minute after Stop and persists the corrected pair.
+- When both Radio events are ON, Start must be strictly later than Stop. A conflict shows
+  `START MUST BE LATER THAN STOP` and disables `START TIMER`; neither value is auto-corrected.
 - Deep Sleep uses independent intervals: `WAKE AFTER SLEEP` begins at actual sleep entry, so
   Sleep `5 MIN` plus Wake `3 MIN` is valid and does not need Radio-style ordering correction.
+- Wake-only is a persisted RTC preset for the next `SLEEP NOW`; it does not create a countdown.
+  Wake OFF explicitly disables RTC timer wake, while configured GPIO wake remains available.
 - `... AT` preview follows local time before Start. Once active, `...AT` is rebuilt on every
   snapshot from the monotonic remaining time plus the current wall clock, so a late NTP sync or a
   system-time correction updates the shown time without restarting the countdown itself.
-- Deep Sleep `WAKE AT` shows `TIMER WAKE OFF` instead of a projected time when the wake preset is
-  `0` (RTC wake disabled), rather than a misleading current-time-looking `... AT` value.
+- A Wake-only preset shows `WAKE AFTER NEXT SLEEP` rather than a misleading projected time.
 - `CLOCK NOT SYNCED` never blocks monotonic countdown execution.
 
 ### Theme contract
@@ -150,11 +161,11 @@ and Custom using only `YoRadioPalette`:
 - tab and selected state: `panel_background`, `accent_soft`, `accent`, `divider`;
 - primary/secondary/meta text: `text_primary`, `text_secondary`, `text_meta`;
 - event cards/dividers: `panel_background`, `divider`;
-- slider track/fill/knob: `volume_bar_track`, `volume_bar_fill`, `accent`, `panel_border`;
+- switches and step buttons: `volume_bar_track`, `accent`, `panel_background`, `panel_border`;
 - enabled/disabled buttons: `accent`, `panel_background`, `panel_border`, palette text plus opacity;
 - conflict and cross-plan warning: `accent`.
 
-`liveReapplyTheme()` recolors the selected tab, disabled sliders/buttons, active state, and event
+`liveReapplyTheme()` recolors the selected tab, disabled switches/buttons, active state, and event
 cards without rebuilding the Settings screen.
 
 ## View routing and cleanup
@@ -168,5 +179,6 @@ cards without rebuilding the Settings screen.
 | `SleepTimer` (TIMERS) | lazy, destroy-on-Back/exit | blocked |
 
 `block_gesture_bubble_deep(_view_sleep_timer)` prevents horizontal PageChain gestures from
-escaping any TIMERS child. `_destroySleepTimerView()` and `_nullHandles()` clear every tab, card,
-label, slider, button, draft, drag, and sync handle; callbacks die with the deleted LVGL tree.
+escaping any TIMERS child. `_destroySleepTimerView()` resets the active input before deleting the
+tree; it and `_nullHandles()` clear every tab, card, label, switch, step button, draft, repeat, and
+sync handle.

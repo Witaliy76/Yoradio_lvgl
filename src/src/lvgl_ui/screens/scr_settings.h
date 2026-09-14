@@ -95,8 +95,11 @@ private:
     void _updateDimLevelLabels(uint8_t pct);
     void _updateScrollSpeedLabel(uint8_t px_per_sec);
     void _updateScrollDelayLabel(uint8_t sec);
-    void _updateTimerDraftFromSliders();
-    void _handleTimerSliderEvent(lv_event_t* e, uint8_t slider_index);
+    void _handleTimerAdjustEvent(lv_event_t* e);
+    void _handleTimerSwitchEvent(lv_event_t* e, uint8_t event_index);
+    void _adjustTimerField(uint8_t field_index, int8_t direction, uint8_t step);
+    void _persistTimerDraft(uint8_t event_index);
+    void _finishTimerEditing(bool persist);
     void _loadTimerTabValues(bool force);
     void _updateTimerLabels();
     void _syncDimLevelSliderRange(bool persist_clamp);
@@ -114,10 +117,9 @@ private:
     static void sleepTimerBackClickedEvt(lv_event_t* e);
     static void timersRadioTabClickedEvt(lv_event_t* e);
     static void timersDeepSleepTabClickedEvt(lv_event_t* e);
-    static void timerEvent1HoursSliderEvt(lv_event_t* e);
-    static void timerEvent1MinutesSliderEvt(lv_event_t* e);
-    static void timerEvent2HoursSliderEvt(lv_event_t* e);
-    static void timerEvent2MinutesSliderEvt(lv_event_t* e);
+    static void timerAdjustButtonEvt(lv_event_t* e);
+    static void timerEvent1SwitchEvt(lv_event_t* e);
+    static void timerEvent2SwitchEvt(lv_event_t* e);
     static void timerPrimaryClickedEvt(lv_event_t* e);
     static void enterDeepSleepNowClickedEvt(lv_event_t* e);
     static void themeRowClickedEvt(lv_event_t* e);
@@ -145,7 +147,9 @@ private:
     bool         _scroll_delay_drag_active = false;
     bool         _timers_deep_sleep_tab = false;
     bool         _timer_syncing_controls = false;
-    bool         _timer_drag_active[4] = {false, false, false, false};
+    bool         _timer_event_enabled[2] = {false, false};
+    bool         _timer_edit_dirty[2] = {false, false};
+    uint8_t      _timer_repeat_count[8] = {0, 0, 0, 0, 0, 0, 0, 0};
     uint16_t     _timer_event1_draft = 0;
     uint16_t     _timer_event2_draft = 0;
 
@@ -198,11 +202,18 @@ private:
     lv_obj_t* _timer_event_cards[2]      = {nullptr, nullptr};
     lv_obj_t* _timer_event_titles[2]     = {nullptr, nullptr};
     lv_obj_t* _timer_at_labels[2]        = {nullptr, nullptr};
-    // [event1 hours, event1 minutes, event2 hours, event2 minutes]
-    lv_obj_t* _timer_sliders[4]          = {nullptr, nullptr, nullptr, nullptr};
+    lv_obj_t* _timer_switches[2]         = {nullptr, nullptr};
+    lv_obj_t* _timer_switch_labels[2]    = {nullptr, nullptr};
+    // Fields: [event1 hours, event1 minutes, event2 hours, event2 minutes].
+    // Step buttons: [field0 -, field0 +, field1 -, field1 +, ...].
+    lv_obj_t* _timer_step_buttons[8]     = {nullptr, nullptr, nullptr, nullptr,
+                                            nullptr, nullptr, nullptr, nullptr};
+    lv_obj_t* _timer_step_labels[8]      = {nullptr, nullptr, nullptr, nullptr,
+                                            nullptr, nullptr, nullptr, nullptr};
     lv_obj_t* _timer_captions[4]         = {nullptr, nullptr, nullptr, nullptr};
     lv_obj_t* _timer_value_labels[4]     = {nullptr, nullptr, nullptr, nullptr};
     lv_obj_t* _lbl_timer_state           = nullptr;
+    lv_obj_t* _lbl_timer_hint            = nullptr;
     lv_obj_t* _btn_timer_primary         = nullptr;
     lv_obj_t* _lbl_timer_primary         = nullptr;
     lv_obj_t* _btn_deep_sleep_now        = nullptr;

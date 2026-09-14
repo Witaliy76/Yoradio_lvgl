@@ -58,7 +58,7 @@
 #if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
   #define ESP_ARDUINO_3 1
 #endif
-#define CONFIG_VERSION  12 // persisted TIMERS presets (radio stop/start + Deep Sleep)
+#define CONFIG_VERSION  13 // TIMERS durations + independent enabled presets
 
 enum playMode_e      : uint8_t  { PM_WEB=0, PM_SDCARD=1 };
 enum BitrateFormat { BF_UNCNOWN, BF_MP3, BF_AAC, BF_FLAC, BF_OGG, BF_WAV, BF_VOR, BF_OPU };
@@ -156,6 +156,13 @@ struct config_t
   uint16_t  radio_stop_after_minutes;
   uint16_t  radio_start_after_minutes;
   uint16_t  deep_sleep_after_minutes;
+  // Keep every new persisted field at the Ai tail: older v2 blobs are prefix-loaded and the
+  // missing tail is zero-filled before Config::_setupVersion() migrates it.
+  // Новые persisted-поля остаются в хвосте Ai: старый blob загружается как prefix.
+  bool      radio_stop_timer_enabled;
+  bool      radio_start_timer_enabled;
+  bool      deep_sleep_timer_enabled;
+  bool      deep_sleep_wake_timer_enabled;
 };
 
 #if __cplusplus >= 201103L

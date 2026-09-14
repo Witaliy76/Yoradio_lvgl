@@ -59,17 +59,17 @@ static constexpr char kStrDeepSleepAfter[]    = "DEEP SLEEP AFTER";
 static constexpr char kStrWakeAfterSleep[]    = "WAKE AFTER SLEEP";
 static constexpr char kStrHours[]             = "HOURS";
 static constexpr char kStrMinutes[]           = "MINUTES";
-static constexpr char kStrStartRadioTimer[]   = "START RADIO TIMER";
-static constexpr char kStrCancelRadioTimer[]  = "CANCEL RADIO TIMER";
-static constexpr char kStrStartDeepSleepTimer[] = "START DEEP SLEEP TIMER";
-static constexpr char kStrCancelDeepSleepTimer[] = "CANCEL DEEP SLEEP TIMER";
-static constexpr char kStrEnterDeepSleepNow[] = "ENTER DEEP SLEEP NOW";
+static constexpr char kStrStartTimer[]        = "START TIMER";
+static constexpr char kStrCancelTimer[]       = "CANCEL TIMER";
+static constexpr char kStrEnterDeepSleepNow[] = "SLEEP NOW";
 static constexpr char kStrStopStartConflict[] = "START MUST BE LATER THAN STOP";
 static constexpr char kStrClockNotSynced[]    = "CLOCK NOT SYNCED";
 static constexpr char kStrCancelRadioFirst[]  = "CANCEL RADIO TIMER FIRST";
 static constexpr char kStrCancelDeepFirst[]   = "CANCEL DEEP SLEEP TIMER FIRST";
-static constexpr char kStrZeroDisabled[]      = "0 H 0 MIN = DISABLED";
-static constexpr char kStrTimerWakeOff[]      = "TIMER WAKE OFF";
+static constexpr char kStrSetInterval[]       = "SET INTERVAL";
+static constexpr char kStrSetWakeInterval[]   = "SET WAKE INTERVAL";
+static constexpr char kStrWakeAfterNextSleep[] = "WAKE AFTER NEXT SLEEP";
+static constexpr char kStrHoldTimerButtons[]  = "HOLD -/+ TO CHANGE FASTER";
 static constexpr char kStrShutdownActive[]    = "DEEP SLEEP IN PROGRESS";
 static constexpr char kStrWifi[]              = "WI-FI";
 
@@ -188,9 +188,12 @@ static constexpr uint8_t    kDimLevelMinUi        = 1;
 
 static constexpr uint16_t kAutodimTimeoutsSec[] = {30, 60, 120, 300, 600};
 static constexpr lv_coord_t kTimerTabsHeight      = 38;
-static constexpr lv_coord_t kTimerEventHeight     = 92;
-static constexpr lv_coord_t kTimerButtonHeight    = 42;
+static constexpr lv_coord_t kTimerEventHeight     = 118;
+static constexpr lv_coord_t kTimerButtonHeight    = 44;
 static constexpr lv_coord_t kTimerColumnGap       = 12;
+static constexpr lv_coord_t kTimerStepButtonSize  = 44;
+static constexpr lv_coord_t kTimerSwitchWidth     = 48;
+static constexpr lv_coord_t kTimerSwitchHeight    = 28;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Layout helpers / Вспомогательные функции разметки
@@ -291,28 +294,12 @@ static const char* sleep_timer_settings_value_label() {
 
 static void format_timer_hours(char* buf, size_t cap, uint8_t hours) {
     if (!buf || cap == 0) return;
-    snprintf(buf, cap, "%u H", static_cast<unsigned>(hours));
+    snprintf(buf, cap, "%02u", static_cast<unsigned>(hours));
 }
 
 static void format_timer_minutes(char* buf, size_t cap, uint8_t minutes) {
     if (!buf || cap == 0) return;
-    snprintf(buf, cap, "%u MIN", static_cast<unsigned>(minutes));
-}
-
-static bool normalize_radio_timer_order(uint16_t& stop_minutes, uint16_t& start_minutes) {
-    if (stop_minutes == 0 || start_minutes == 0 || start_minutes > stop_minutes) return false;
-
-    // Both Radio events share one plan-start epoch. Keep the draft usable after release by
-    // moving Start one minute past Stop; at 24:59, move the pair to the last valid minute slots.
-    // Оба Radio-события имеют общий старт. После release сдвигаем Start на минуту позже Stop;
-    // на границе 24:59 используем последнюю допустимую пару минут.
-    if (stop_minutes < kTimerMaxMinutes) {
-        start_minutes = static_cast<uint16_t>(stop_minutes + 1u);
-    } else {
-        stop_minutes = static_cast<uint16_t>(kTimerMaxMinutes - 1u);
-        start_minutes = kTimerMaxMinutes;
-    }
-    return true;
+    snprintf(buf, cap, "%02u", static_cast<unsigned>(minutes));
 }
 
 static int local_day_delta(time_t now, time_t event_at) {
@@ -1307,22 +1294,33 @@ void LvglSettingsPage::build_scrolling_detail(LvglSettingsPage& self, const YoRa
     }
 }
 
-static void style_timers_slider(lv_obj_t* slider, const YoRadioPalette& pal) {
-    if (!slider) return;
-    lv_obj_set_height(slider, 28);
-    lv_obj_set_style_bg_color(slider, pal.volume_bar_track, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_color(slider, pal.panel_border, LV_PART_MAIN);
-    lv_obj_set_style_border_width(slider, 1, LV_PART_MAIN);
-    lv_obj_set_style_radius(slider, 8, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(slider, pal.volume_bar_fill, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_INDICATOR);
-    lv_obj_set_style_radius(slider, 8, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(slider, pal.accent, LV_PART_KNOB);
-    lv_obj_set_style_bg_opa(slider, LV_OPA_COVER, LV_PART_KNOB);
-    lv_obj_set_style_border_color(slider, pal.panel_border, LV_PART_KNOB);
-    lv_obj_set_style_border_width(slider, 1, LV_PART_KNOB);
-    lv_obj_set_style_pad_all(slider, 7, LV_PART_KNOB);
+static void style_timer_step_button(lv_obj_t* button, const YoRadioPalette& pal) {
+    if (!button) return;
+    lv_obj_set_style_bg_color(button, pal.panel_background, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(button, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_color(button, pal.panel_border, LV_PART_MAIN);
+    lv_obj_set_style_border_width(button, 1, LV_PART_MAIN);
+    lv_obj_set_style_radius(button, 8, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(button, pal.main_chrome_pressed_bg,
+                              LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_obj_set_style_opa(button, LV_OPA_40, LV_PART_MAIN | LV_STATE_DISABLED);
+}
+
+static void style_timer_switch(lv_obj_t* sw, const YoRadioPalette& pal) {
+    if (!sw) return;
+    lv_obj_set_style_bg_color(sw, pal.volume_bar_track, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(sw, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_border_color(sw, pal.panel_border, LV_PART_MAIN);
+    lv_obj_set_style_border_width(sw, 1, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(sw, pal.main_chrome_pressed_bg,
+                              LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(sw, pal.accent, LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_opa(sw, LV_OPA_COVER, LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_color(sw, pal.accent_soft,
+                              LV_PART_INDICATOR | LV_STATE_CHECKED | LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(sw, pal.text_primary, LV_PART_KNOB);
+    lv_obj_set_style_bg_opa(sw, LV_OPA_COVER, LV_PART_KNOB);
+    lv_obj_set_style_opa(sw, LV_OPA_40, LV_PART_MAIN | LV_STATE_DISABLED);
 }
 
 static void style_timer_action_button(lv_obj_t* button, const YoRadioPalette& pal,
@@ -1333,17 +1331,21 @@ static void style_timer_action_button(lv_obj_t* button, const YoRadioPalette& pa
     lv_obj_set_style_border_color(button, primary ? pal.accent : pal.panel_border, LV_PART_MAIN);
     lv_obj_set_style_border_width(button, 1, LV_PART_MAIN);
     lv_obj_set_style_radius(button, 8, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(button, primary ? pal.accent_soft : pal.main_chrome_pressed_bg,
+                              LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_obj_set_style_opa(button, LV_OPA_40, LV_PART_MAIN | LV_STATE_DISABLED);
     if (enabled) {
+        lv_obj_clear_state(button, LV_STATE_DISABLED);
         lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
     } else {
+        lv_obj_add_state(button, LV_STATE_DISABLED);
         lv_obj_clear_flag(button, LV_OBJ_FLAG_CLICKABLE);
     }
 }
 
-// TIMERS detail reuses one fixed 480x480 control tree for both tabs. The active runtime plan
-// shows its immutable snapshot in disabled controls; cancelling restores persisted presets.
-// TIMERS использует одно фиксированное дерево для вкладок. Active plan показывает snapshot,
-// а после Cancel возвращаются сохранённые presets.
+// TIMERS detail reuses one fixed 480x480 control tree for both tabs. Runtime plans show their
+// immutable snapshot; idle controls edit four independent persisted presets.
+// TIMERS использует одно фиксированное дерево: active plan показывает snapshot, idle — presets.
 void LvglSettingsPage::build_sleep_timer_detail(LvglSettingsPage& self, const YoRadioPalette& pal) {
     self._cont_sleep_timer_content = lv_obj_create(self._view_sleep_timer);
     if (!self._cont_sleep_timer_content) return;
@@ -1352,8 +1354,8 @@ void LvglSettingsPage::build_sleep_timer_detail(LvglSettingsPage& self, const Yo
     lv_obj_set_flex_grow(self._cont_sleep_timer_content, 1);
     lv_obj_set_flex_flow(self._cont_sleep_timer_content, LV_FLEX_FLOW_COLUMN);
     style_transparent_flex(self._cont_sleep_timer_content);
-    lv_obj_set_style_pad_top(self._cont_sleep_timer_content, 4, LV_PART_MAIN);
-    lv_obj_set_style_pad_row(self._cont_sleep_timer_content, 5, LV_PART_MAIN);
+    lv_obj_set_style_pad_top(self._cont_sleep_timer_content, 2, LV_PART_MAIN);
+    lv_obj_set_style_pad_row(self._cont_sleep_timer_content, 3, LV_PART_MAIN);
 
     lv_obj_t* tabs = lv_obj_create(self._cont_sleep_timer_content);
     if (tabs) {
@@ -1389,12 +1391,7 @@ void LvglSettingsPage::build_sleep_timer_detail(LvglSettingsPage& self, const Yo
         }
     }
 
-    lv_event_cb_t slider_callbacks[4] = {
-        timerEvent1HoursSliderEvt,
-        timerEvent1MinutesSliderEvt,
-        timerEvent2HoursSliderEvt,
-        timerEvent2MinutesSliderEvt,
-    };
+    lv_event_cb_t switch_callbacks[2] = {timerEvent1SwitchEvt, timerEvent2SwitchEvt};
     for (uint8_t event_index = 0; event_index < 2; ++event_index) {
         lv_obj_t* event_card = lv_obj_create(self._cont_sleep_timer_content);
         if (!event_card) continue;
@@ -1402,8 +1399,8 @@ void LvglSettingsPage::build_sleep_timer_detail(LvglSettingsPage& self, const Yo
         lv_obj_set_width(event_card, LV_PCT(100));
         lv_obj_set_height(event_card, kTimerEventHeight);
         lv_obj_set_flex_flow(event_card, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_style_pad_all(event_card, 6, LV_PART_MAIN);
-        lv_obj_set_style_pad_row(event_card, 3, LV_PART_MAIN);
+        lv_obj_set_style_pad_all(event_card, 4, LV_PART_MAIN);
+        lv_obj_set_style_pad_row(event_card, 1, LV_PART_MAIN);
         lv_obj_set_style_bg_color(event_card, pal.panel_background, LV_PART_MAIN);
         lv_obj_set_style_bg_opa(event_card, LV_OPA_COVER, LV_PART_MAIN);
         lv_obj_set_style_border_color(event_card, pal.divider, LV_PART_MAIN);
@@ -1414,11 +1411,12 @@ void LvglSettingsPage::build_sleep_timer_detail(LvglSettingsPage& self, const Yo
         lv_obj_t* event_header = lv_obj_create(event_card);
         if (event_header) {
             lv_obj_set_width(event_header, LV_PCT(100));
-            lv_obj_set_height(event_header, 20);
+            lv_obj_set_height(event_header, 28);
             lv_obj_set_flex_flow(event_header, LV_FLEX_FLOW_ROW);
             lv_obj_set_flex_align(event_header, LV_FLEX_ALIGN_SPACE_BETWEEN,
                                   LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
             style_transparent_flex(event_header);
+            lv_obj_add_flag(event_header, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
 
             self._timer_event_titles[event_index] = lv_label_create(event_header);
             if (self._timer_event_titles[event_index]) {
@@ -1429,23 +1427,44 @@ void LvglSettingsPage::build_sleep_timer_detail(LvglSettingsPage& self, const Yo
                 lv_obj_set_flex_grow(self._timer_event_titles[event_index], 1);
                 lv_label_set_long_mode(self._timer_event_titles[event_index], LV_LABEL_LONG_CLIP);
             }
-            self._timer_at_labels[event_index] = lv_label_create(event_header);
-            if (self._timer_at_labels[event_index]) {
-                set_font_slot(self._timer_at_labels[event_index],
-                              FontProvider::text(LV_ACTIVE_PROFILE.font_small_px));
-                lv_obj_set_style_text_color(self._timer_at_labels[event_index],
-                                            pal.text_meta, LV_PART_MAIN);
-                lv_obj_set_style_text_align(self._timer_at_labels[event_index],
-                                            LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
-                lv_obj_set_width(self._timer_at_labels[event_index], LV_PCT(58));
-                lv_label_set_long_mode(self._timer_at_labels[event_index], LV_LABEL_LONG_CLIP);
+
+            lv_obj_t* toggle_group = lv_obj_create(event_header);
+            if (toggle_group) {
+                lv_obj_set_width(toggle_group, 82);
+                lv_obj_set_height(toggle_group, 28);
+                lv_obj_set_flex_flow(toggle_group, LV_FLEX_FLOW_ROW);
+                lv_obj_set_flex_align(toggle_group, LV_FLEX_ALIGN_END,
+                                      LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+                style_transparent_flex(toggle_group);
+                lv_obj_set_style_pad_column(toggle_group, 6, LV_PART_MAIN);
+                lv_obj_add_flag(toggle_group, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+
+                self._timer_switches[event_index] = lv_switch_create(toggle_group);
+                if (self._timer_switches[event_index]) {
+                    lv_obj_set_size(self._timer_switches[event_index],
+                                    kTimerSwitchWidth, kTimerSwitchHeight);
+                    lv_obj_set_ext_click_area(self._timer_switches[event_index], 8);
+                    lv_obj_clear_flag(self._timer_switches[event_index], LV_OBJ_FLAG_GESTURE_BUBBLE);
+                    lv_obj_add_event_cb(self._timer_switches[event_index],
+                                        switch_callbacks[event_index], LV_EVENT_VALUE_CHANGED, &self);
+                    style_timer_switch(self._timer_switches[event_index], pal);
+                }
+                self._timer_switch_labels[event_index] = lv_label_create(toggle_group);
+                if (self._timer_switch_labels[event_index]) {
+                    lv_obj_set_width(self._timer_switch_labels[event_index], 28);
+                    set_font_slot(self._timer_switch_labels[event_index],
+                                  FontProvider::text(LV_ACTIVE_PROFILE.font_small_px));
+                    lv_obj_set_style_text_align(self._timer_switch_labels[event_index],
+                                                LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
+                    lv_obj_clear_flag(self._timer_switch_labels[event_index], LV_OBJ_FLAG_CLICKABLE);
+                }
             }
         }
 
         lv_obj_t* controls = lv_obj_create(event_card);
         if (!controls) continue;
         lv_obj_set_width(controls, LV_PCT(100));
-        lv_obj_set_flex_grow(controls, 1);
+        lv_obj_set_height(controls, 60);
         lv_obj_set_flex_flow(controls, LV_FLEX_FLOW_ROW);
         lv_obj_set_style_pad_all(controls, 0, LV_PART_MAIN);
         lv_obj_set_style_pad_column(controls, kTimerColumnGap, LV_PART_MAIN);
@@ -1454,7 +1473,7 @@ void LvglSettingsPage::build_sleep_timer_detail(LvglSettingsPage& self, const Yo
         lv_obj_clear_flag(controls, LV_OBJ_FLAG_SCROLLABLE);
 
         for (uint8_t part = 0; part < 2; ++part) {
-            const uint8_t slider_index = event_index * 2 + part;
+            const uint8_t field_index = event_index * 2 + part;
             lv_obj_t* column = lv_obj_create(controls);
             if (!column) continue;
             lv_obj_set_height(column, LV_PCT(100));
@@ -1466,48 +1485,86 @@ void LvglSettingsPage::build_sleep_timer_detail(LvglSettingsPage& self, const Yo
             lv_obj_set_style_border_width(column, 0, LV_PART_MAIN);
             lv_obj_clear_flag(column, LV_OBJ_FLAG_SCROLLABLE);
 
-            lv_obj_t* caption_row = lv_obj_create(column);
-            if (caption_row) {
-                lv_obj_set_width(caption_row, LV_PCT(100));
-                lv_obj_set_height(caption_row, 18);
-                lv_obj_set_flex_flow(caption_row, LV_FLEX_FLOW_ROW);
-                lv_obj_set_flex_align(caption_row, LV_FLEX_ALIGN_SPACE_BETWEEN,
-                                      LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-                style_transparent_flex(caption_row);
-                self._timer_captions[slider_index] = lv_label_create(caption_row);
-                if (self._timer_captions[slider_index]) {
-                    lv_label_set_text(self._timer_captions[slider_index],
-                                      part == 0 ? kStrHours : kStrMinutes);
-                    set_font_slot(self._timer_captions[slider_index],
-                                  FontProvider::text(LV_ACTIVE_PROFILE.font_small_px));
-                    lv_obj_set_style_text_color(self._timer_captions[slider_index],
-                                                pal.text_secondary, LV_PART_MAIN);
-                }
-                self._timer_value_labels[slider_index] = lv_label_create(caption_row);
-                if (self._timer_value_labels[slider_index]) {
-                    set_font_slot(self._timer_value_labels[slider_index],
-                                  FontProvider::text(LV_ACTIVE_PROFILE.font_small_px));
-                    lv_obj_set_style_text_color(self._timer_value_labels[slider_index],
-                                                pal.text_meta, LV_PART_MAIN);
-                }
+            self._timer_captions[field_index] = lv_label_create(column);
+            if (self._timer_captions[field_index]) {
+                lv_obj_set_width(self._timer_captions[field_index], LV_PCT(100));
+                lv_obj_set_height(self._timer_captions[field_index], 14);
+                lv_label_set_text(self._timer_captions[field_index],
+                                  part == 0 ? kStrHours : kStrMinutes);
+                set_font_slot(self._timer_captions[field_index],
+                              FontProvider::text(LV_ACTIVE_PROFILE.font_small_px));
+                lv_obj_set_style_text_color(self._timer_captions[field_index],
+                                            pal.text_secondary, LV_PART_MAIN);
+                lv_obj_set_style_text_align(self._timer_captions[field_index],
+                                            LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
             }
 
-            self._timer_sliders[slider_index] = lv_slider_create(column);
-            if (self._timer_sliders[slider_index]) {
-                lv_obj_set_width(self._timer_sliders[slider_index], LV_PCT(100));
-                lv_slider_set_range(self._timer_sliders[slider_index], 0, part == 0 ? 24 : 59);
-                style_timers_slider(self._timer_sliders[slider_index], pal);
-                lv_obj_clear_flag(self._timer_sliders[slider_index], LV_OBJ_FLAG_GESTURE_BUBBLE);
-                lv_obj_add_event_cb(self._timer_sliders[slider_index],
-                                    slider_callbacks[slider_index], LV_EVENT_ALL, &self);
+            lv_obj_t* step_row = lv_obj_create(column);
+            if (step_row) {
+                lv_obj_set_width(step_row, LV_PCT(100));
+                lv_obj_set_height(step_row, kTimerStepButtonSize);
+                lv_obj_set_flex_flow(step_row, LV_FLEX_FLOW_ROW);
+                lv_obj_set_flex_align(step_row, LV_FLEX_ALIGN_SPACE_BETWEEN,
+                                      LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+                style_transparent_flex(step_row);
+                lv_obj_set_style_pad_column(step_row, 4, LV_PART_MAIN);
+
+                for (uint8_t direction_index = 0; direction_index < 2; ++direction_index) {
+                    const uint8_t button_index = field_index * 2 + direction_index;
+                    self._timer_step_buttons[button_index] = lv_obj_create(step_row);
+                    lv_obj_t* button = self._timer_step_buttons[button_index];
+                    if (!button) continue;
+                    lv_obj_set_size(button, kTimerStepButtonSize, kTimerStepButtonSize);
+                    lv_obj_set_style_pad_all(button, 0, LV_PART_MAIN);
+                    lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
+                    lv_obj_clear_flag(button, LV_OBJ_FLAG_SCROLLABLE);
+                    lv_obj_clear_flag(button, LV_OBJ_FLAG_GESTURE_BUBBLE);
+                    style_timer_step_button(button, pal);
+                    lv_obj_add_event_cb(button, timerAdjustButtonEvt, LV_EVENT_ALL, &self);
+
+                    self._timer_step_labels[button_index] = lv_label_create(button);
+                    if (self._timer_step_labels[button_index]) {
+                        lv_label_set_text(self._timer_step_labels[button_index],
+                                          direction_index == 0 ? "-" : "+");
+                        set_font_slot(self._timer_step_labels[button_index], FontProvider::text(28));
+                        lv_obj_center(self._timer_step_labels[button_index]);
+                        lv_obj_clear_flag(self._timer_step_labels[button_index],
+                                          LV_OBJ_FLAG_CLICKABLE);
+                    }
+                }
+
+                self._timer_value_labels[field_index] = lv_label_create(step_row);
+                if (self._timer_value_labels[field_index]) {
+                    lv_obj_set_width(self._timer_value_labels[field_index], 56);
+                    lv_obj_set_flex_grow(self._timer_value_labels[field_index], 1);
+                    set_font_slot(self._timer_value_labels[field_index], FontProvider::text(28));
+                    lv_obj_set_style_text_align(self._timer_value_labels[field_index],
+                                                LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+                    lv_obj_clear_flag(self._timer_value_labels[field_index], LV_OBJ_FLAG_CLICKABLE);
+                    lv_obj_move_to_index(self._timer_value_labels[field_index], 1);
+                }
             }
+        }
+
+        self._timer_at_labels[event_index] = lv_label_create(event_card);
+        if (self._timer_at_labels[event_index]) {
+            lv_obj_set_width(self._timer_at_labels[event_index], LV_PCT(100));
+            lv_obj_set_height(self._timer_at_labels[event_index], 16);
+            lv_obj_set_style_translate_y(self._timer_at_labels[event_index], 6, LV_PART_MAIN);
+            set_font_slot(self._timer_at_labels[event_index],
+                          FontProvider::text(LV_ACTIVE_PROFILE.font_small_px));
+            lv_obj_set_style_text_color(self._timer_at_labels[event_index],
+                                        pal.text_meta, LV_PART_MAIN);
+            lv_obj_set_style_text_align(self._timer_at_labels[event_index],
+                                        LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+            lv_label_set_long_mode(self._timer_at_labels[event_index], LV_LABEL_LONG_CLIP);
         }
     }
 
     self._lbl_timer_state = lv_label_create(self._cont_sleep_timer_content);
     if (self._lbl_timer_state) {
         lv_obj_set_width(self._lbl_timer_state, LV_PCT(100));
-        lv_obj_set_height(self._lbl_timer_state, 20);
+        lv_obj_set_height(self._lbl_timer_state, 18);
         lv_label_set_long_mode(self._lbl_timer_state, LV_LABEL_LONG_CLIP);
         lv_obj_set_style_text_align(self._lbl_timer_state, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
         set_font_slot(self._lbl_timer_state, FontProvider::text(LV_ACTIVE_PROFILE.font_small_px));
@@ -1535,7 +1592,7 @@ void LvglSettingsPage::build_sleep_timer_detail(LvglSettingsPage& self, const Yo
             self._lbl_timer_primary = lv_label_create(self._btn_timer_primary);
             if (self._lbl_timer_primary) {
                 set_font_slot(self._lbl_timer_primary,
-                              FontProvider::text(LV_ACTIVE_PROFILE.font_small_px));
+                              FontProvider::text(LV_ACTIVE_PROFILE.font_normal_px));
                 lv_obj_center(self._lbl_timer_primary);
                 lv_obj_clear_flag(self._lbl_timer_primary, LV_OBJ_FLAG_CLICKABLE);
             }
@@ -1553,11 +1610,20 @@ void LvglSettingsPage::build_sleep_timer_detail(LvglSettingsPage& self, const Yo
             if (self._lbl_deep_sleep_now) {
                 lv_label_set_text(self._lbl_deep_sleep_now, kStrEnterDeepSleepNow);
                 set_font_slot(self._lbl_deep_sleep_now,
-                              FontProvider::text(LV_ACTIVE_PROFILE.font_small_px));
+                              FontProvider::text(LV_ACTIVE_PROFILE.font_normal_px));
                 lv_obj_center(self._lbl_deep_sleep_now);
                 lv_obj_clear_flag(self._lbl_deep_sleep_now, LV_OBJ_FLAG_CLICKABLE);
             }
         }
+    }
+
+    self._lbl_timer_hint = lv_label_create(self._cont_sleep_timer_content);
+    if (self._lbl_timer_hint) {
+        lv_obj_set_width(self._lbl_timer_hint, LV_PCT(100));
+        lv_obj_set_height(self._lbl_timer_hint, 14);
+        lv_label_set_text(self._lbl_timer_hint, kStrHoldTimerButtons);
+        lv_obj_set_style_text_align(self._lbl_timer_hint, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+        set_font_slot(self._lbl_timer_hint, FontProvider::text(LV_ACTIVE_PROFILE.font_small_px));
     }
 
     self._loadTimerTabValues(true);
@@ -1785,7 +1851,11 @@ bool LvglSettingsPage::_ensureSleepTimerView() {
 }
 
 void LvglSettingsPage::_destroySleepTimerView() {
+    _finishTimerEditing(true);
     if (_view_sleep_timer) {
+        // Cancels LVGL long-press repeat before any button handle is deleted.
+        // Останавливает long-press repeat до удаления дерева и его кнопок.
+        lv_indev_reset(nullptr, nullptr);
         lv_obj_del(_view_sleep_timer);
     }
     _view_sleep_timer = nullptr;
@@ -1799,14 +1869,22 @@ void LvglSettingsPage::_destroySleepTimerView() {
         _timer_event_cards[i] = nullptr;
         _timer_event_titles[i] = nullptr;
         _timer_at_labels[i] = nullptr;
+        _timer_switches[i] = nullptr;
+        _timer_switch_labels[i] = nullptr;
+        _timer_event_enabled[i] = false;
+        _timer_edit_dirty[i] = false;
     }
     for (uint8_t i = 0; i < 4; ++i) {
-        _timer_sliders[i] = nullptr;
         _timer_captions[i] = nullptr;
         _timer_value_labels[i] = nullptr;
-        _timer_drag_active[i] = false;
+    }
+    for (uint8_t i = 0; i < 8; ++i) {
+        _timer_step_buttons[i] = nullptr;
+        _timer_step_labels[i] = nullptr;
+        _timer_repeat_count[i] = 0;
     }
     _lbl_timer_state = nullptr;
+    _lbl_timer_hint = nullptr;
     _btn_timer_primary = nullptr;
     _lbl_timer_primary = nullptr;
     _btn_deep_sleep_now = nullptr;
@@ -2039,15 +2117,108 @@ void LvglSettingsPage::_syncScrollingValues() {
     }
 }
 
-void LvglSettingsPage::_updateTimerDraftFromSliders() {
-    if (!_timer_sliders[0] || !_timer_sliders[1] ||
-        !_timer_sliders[2] || !_timer_sliders[3]) return;
-    _timer_event1_draft = timer_sanitize_minutes(
-        static_cast<uint16_t>(lv_slider_get_value(_timer_sliders[0])) * 60u +
-        static_cast<uint16_t>(lv_slider_get_value(_timer_sliders[1])));
-    _timer_event2_draft = timer_sanitize_minutes(
-        static_cast<uint16_t>(lv_slider_get_value(_timer_sliders[2])) * 60u +
-        static_cast<uint16_t>(lv_slider_get_value(_timer_sliders[3])));
+void LvglSettingsPage::_persistTimerDraft(uint8_t event_index) {
+    if (event_index > 1) return;
+    const TimerPreset preset = _timers_deep_sleep_tab
+                                   ? (event_index == 0 ? TimerPreset::DeepSleepAfter
+                                                       : TimerPreset::DeepSleepWakeAfter)
+                                   : (event_index == 0 ? TimerPreset::RadioStop
+                                                       : TimerPreset::RadioStart);
+    timer_preset_set_minutes(preset,
+                             event_index == 0 ? _timer_event1_draft : _timer_event2_draft);
+    _timer_edit_dirty[event_index] = false;
+}
+
+void LvglSettingsPage::_finishTimerEditing(bool persist) {
+    for (uint8_t event_index = 0; event_index < 2; ++event_index) {
+        if (_timer_edit_dirty[event_index] && persist) {
+            _persistTimerDraft(event_index);
+        } else if (!persist) {
+            _timer_edit_dirty[event_index] = false;
+        }
+    }
+    for (uint8_t& repeats : _timer_repeat_count) repeats = 0;
+}
+
+void LvglSettingsPage::_adjustTimerField(uint8_t field_index, int8_t direction, uint8_t step) {
+    if (field_index >= 4 || direction == 0 || step == 0) return;
+    const uint8_t event_index = field_index / 2u;
+    uint16_t& draft = event_index == 0 ? _timer_event1_draft : _timer_event2_draft;
+    uint8_t hours = static_cast<uint8_t>(draft / 60u);
+    uint8_t minutes = static_cast<uint8_t>(draft % 60u);
+    uint8_t& value = (field_index & 1u) == 0 ? hours : minutes;
+    const int16_t limit = (field_index & 1u) == 0 ? 24 : 59;
+    int16_t next = static_cast<int16_t>(value) + static_cast<int16_t>(direction) * step;
+    if (next < 0) next = 0;
+    if (next > limit) next = limit;
+    if (next == value) return;
+    value = static_cast<uint8_t>(next);
+    draft = timer_sanitize_minutes(static_cast<uint16_t>(hours) * 60u + minutes);
+    _timer_edit_dirty[event_index] = true;
+    _updateTimerLabels();
+    _applyTimerInteractionState();
+    _applyTimersTheme(yoradio_palette());
+}
+
+void LvglSettingsPage::_handleTimerAdjustEvent(lv_event_t* e) {
+    if (!e || _timer_syncing_controls) return;
+    lv_obj_t* target = static_cast<lv_obj_t*>(lv_event_get_target(e));
+    uint8_t button_index = 8;
+    for (uint8_t i = 0; i < 8; ++i) {
+        if (_timer_step_buttons[i] == target) {
+            button_index = i;
+            break;
+        }
+    }
+    if (button_index >= 8) return;
+
+    const lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST ||
+        code == LV_EVENT_INDEV_RESET) {
+        _finishTimerEditing(true);
+        _syncSleepTimerValues();
+        return;
+    }
+    if (code == LV_EVENT_PRESSED) {
+        _timer_repeat_count[button_index] = 0;
+        notifyPageChainActivity("settings-timer-step");
+        return;
+    }
+
+    const TimerRuntimeSnapshot snapshot = timer_runtime_snapshot();
+    const uint8_t field_index = button_index / 2u;
+    const uint8_t event_index = field_index / 2u;
+    if (snapshot.plan != TimerPlanKind::None || !_timer_event_enabled[event_index]) return;
+    const int8_t direction = (button_index & 1u) == 0 ? -1 : 1;
+
+    if (code == LV_EVENT_SHORT_CLICKED) {
+        _adjustTimerField(field_index, direction, 1);
+        _persistTimerDraft(event_index);
+        _syncSleepTimerValues();
+    } else if (code == LV_EVENT_LONG_PRESSED || code == LV_EVENT_LONG_PRESSED_REPEAT) {
+        uint8_t& repeats = _timer_repeat_count[button_index];
+        if (repeats < 255u) ++repeats;
+        const uint8_t accelerated_step = repeats >= 18 ? 10 : (repeats >= 7 ? 5 : 1);
+        _adjustTimerField(field_index, direction, accelerated_step);
+        notifyPageChainActivity("settings-timer-hold");
+    }
+}
+
+void LvglSettingsPage::_handleTimerSwitchEvent(lv_event_t* e, uint8_t event_index) {
+    if (!e || event_index > 1 || _timer_syncing_controls ||
+        lv_event_get_target(e) != _timer_switches[event_index] ||
+        timer_active_plan() != TimerPlanKind::None) return;
+    _finishTimerEditing(true);
+    const bool enabled = lv_obj_has_state(_timer_switches[event_index], LV_STATE_CHECKED);
+    _timer_event_enabled[event_index] = enabled;
+    const TimerPreset preset = _timers_deep_sleep_tab
+                                   ? (event_index == 0 ? TimerPreset::DeepSleepAfter
+                                                       : TimerPreset::DeepSleepWakeAfter)
+                                   : (event_index == 0 ? TimerPreset::RadioStop
+                                                       : TimerPreset::RadioStart);
+    timer_preset_set_enabled(preset, enabled);
+    _syncSleepTimerValues();
+    notifyPageChainActivity("settings-timer-switch");
 }
 
 void LvglSettingsPage::_loadTimerTabValues(bool force) {
@@ -2058,11 +2229,18 @@ void LvglSettingsPage::_loadTimerTabValues(bool force) {
 
     uint16_t event1 = 0;
     uint16_t event2 = 0;
+    bool event1_enabled = false;
+    bool event2_enabled = false;
     if (active_tab) {
         event1 = _timers_deep_sleep_tab ? snapshot.deep_sleep_after_minutes
                                         : snapshot.radio_stop_minutes;
         event2 = _timers_deep_sleep_tab ? snapshot.deep_sleep_wake_after_minutes
                                         : snapshot.radio_start_minutes;
+        event1_enabled = _timers_deep_sleep_tab ? snapshot.deep_sleep_active
+                                                : snapshot.radio_stop_active;
+        event2_enabled = _timers_deep_sleep_tab
+                             ? snapshot.deep_sleep_wake_after_minutes > 0
+                             : snapshot.radio_start_active;
     } else {
         event1 = timer_preset_minutes(_timers_deep_sleep_tab
                                           ? TimerPreset::DeepSleepAfter
@@ -2070,37 +2248,27 @@ void LvglSettingsPage::_loadTimerTabValues(bool force) {
         event2 = timer_preset_minutes(_timers_deep_sleep_tab
                                           ? TimerPreset::DeepSleepWakeAfter
                                           : TimerPreset::RadioStart);
-        if (!_timers_deep_sleep_tab) {
-            const uint16_t saved_stop = event1;
-            const uint16_t saved_start = event2;
-            if (normalize_radio_timer_order(event1, event2)) {
-                // Also heals a conflicting pair persisted by an earlier build.
-                // Заодно исправляем конфликтную пару, сохранённую предыдущей сборкой.
-                if (event1 != saved_stop) {
-                    timer_preset_set_minutes(TimerPreset::RadioStop, event1);
-                }
-                if (event2 != saved_start) {
-                    timer_preset_set_minutes(TimerPreset::RadioStart, event2);
-                }
-            }
-        }
+        event1_enabled = timer_preset_enabled(_timers_deep_sleep_tab
+                                                  ? TimerPreset::DeepSleepAfter
+                                                  : TimerPreset::RadioStop);
+        event2_enabled = timer_preset_enabled(_timers_deep_sleep_tab
+                                                  ? TimerPreset::DeepSleepWakeAfter
+                                                  : TimerPreset::RadioStart);
     }
 
-    const bool dragging = _timer_drag_active[0] || _timer_drag_active[1] ||
-                          _timer_drag_active[2] || _timer_drag_active[3];
-    if (!force && dragging) return;
+    const bool editing = _timer_edit_dirty[0] || _timer_edit_dirty[1];
+    if (!force && editing) return;
     _timer_event1_draft = event1;
     _timer_event2_draft = event2;
-    const uint16_t values[4] = {
-        static_cast<uint16_t>(event1 / 60u),
-        static_cast<uint16_t>(event1 % 60u),
-        static_cast<uint16_t>(event2 / 60u),
-        static_cast<uint16_t>(event2 % 60u),
-    };
+    _timer_event_enabled[0] = event1_enabled;
+    _timer_event_enabled[1] = event2_enabled;
     _timer_syncing_controls = true;
-    for (uint8_t i = 0; i < 4; ++i) {
-        if (_timer_sliders[i] && lv_slider_get_value(_timer_sliders[i]) != values[i]) {
-            lv_slider_set_value(_timer_sliders[i], values[i], LV_ANIM_OFF);
+    for (uint8_t i = 0; i < 2; ++i) {
+        if (!_timer_switches[i]) continue;
+        if (_timer_event_enabled[i]) {
+            lv_obj_add_state(_timer_switches[i], LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(_timer_switches[i], LV_STATE_CHECKED);
         }
     }
     _timer_syncing_controls = false;
@@ -2132,6 +2300,12 @@ void LvglSettingsPage::_updateTimerLabels() {
         }
         lv_label_set_text(_timer_value_labels[i], value);
     }
+    for (uint8_t i = 0; i < 2; ++i) {
+        if (_timer_switch_labels[i]) {
+            lv_label_set_text(_timer_switch_labels[i],
+                              _timer_event_enabled[i] ? kStrValOn : kStrValOff);
+        }
+    }
 
     const TimerRuntimeSnapshot snapshot = timer_runtime_snapshot();
     const bool active_tab =
@@ -2139,37 +2313,46 @@ void LvglSettingsPage::_updateTimerLabels() {
         (_timers_deep_sleep_tab && snapshot.plan == TimerPlanKind::DeepSleep);
     time_t now = 0;
     const bool clock_synced = timer_local_clock_now(&now);
-    time_t event1_at = 0;
-    time_t event2_at = 0;
+    time_t event_at[2] = {0, 0};
     if (active_tab) {
-        event1_at = _timers_deep_sleep_tab ? snapshot.deep_sleep_at : snapshot.radio_stop_at;
-        event2_at = _timers_deep_sleep_tab ? snapshot.deep_sleep_wake_at : snapshot.radio_start_at;
+        event_at[0] = _timers_deep_sleep_tab ? snapshot.deep_sleep_at : snapshot.radio_stop_at;
+        event_at[1] = _timers_deep_sleep_tab ? snapshot.deep_sleep_wake_at
+                                             : snapshot.radio_start_at;
     } else if (clock_synced) {
-        if (_timer_event1_draft > 0) {
-            event1_at = now + static_cast<time_t>(_timer_event1_draft) * 60;
+        if (_timer_event_enabled[0] && _timer_event1_draft > 0) {
+            event_at[0] = now + static_cast<time_t>(_timer_event1_draft) * 60;
         }
-        if (_timer_event2_draft > 0) {
-            const uint16_t base_minutes = _timers_deep_sleep_tab ? _timer_event1_draft : 0;
-            event2_at = now + static_cast<time_t>(base_minutes + _timer_event2_draft) * 60;
+        if (_timer_event_enabled[1] && _timer_event2_draft > 0) {
+            const bool projected_after_scheduled_sleep =
+                _timers_deep_sleep_tab && _timer_event_enabled[0] &&
+                _timer_event1_draft > 0;
+            const uint16_t base_minutes =
+                projected_after_scheduled_sleep ? _timer_event1_draft : 0;
+            event_at[1] = now + static_cast<time_t>(base_minutes + _timer_event2_draft) * 60;
         }
     }
 
-    char at_text[48];
-    format_timer_at(at_text, sizeof(at_text), _timers_deep_sleep_tab ? "SLEEP" : "STOPS",
-                    event1_at, now);
-    if (_timer_at_labels[0]) lv_label_set_text(_timer_at_labels[0], at_text);
-    const uint16_t effective_wake_minutes =
-        active_tab ? snapshot.deep_sleep_wake_after_minutes : _timer_event2_draft;
-    const bool timer_wake_off = _timers_deep_sleep_tab && effective_wake_minutes == 0;
-    if (timer_wake_off) {
-        // Zero is an intentionally disabled RTC event, not an unknown wall-clock projection.
-        // Ноль означает отключённый RTC timer, а не неизвестное время события.
-        snprintf(at_text, sizeof(at_text), "%s", kStrTimerWakeOff);
-    } else {
-        format_timer_at(at_text, sizeof(at_text), _timers_deep_sleep_tab ? "WAKE" : "STARTS",
-                        event2_at, now);
+    const uint16_t durations[2] = {_timer_event1_draft, _timer_event2_draft};
+    const char* verbs[2] = {
+        _timers_deep_sleep_tab ? "SLEEP" : "STOPS",
+        _timers_deep_sleep_tab ? "WAKE" : "STARTS",
+    };
+    for (uint8_t event_index = 0; event_index < 2; ++event_index) {
+        if (!_timer_at_labels[event_index]) continue;
+        char at_text[48] = "";
+        if (!_timer_event_enabled[event_index]) {
+            snprintf(at_text, sizeof(at_text), "%s", kStrValOff);
+        } else if (durations[event_index] == 0) {
+            snprintf(at_text, sizeof(at_text), "%s", kStrSetInterval);
+        } else if (_timers_deep_sleep_tab && event_index == 1 && !active_tab &&
+                   (!_timer_event_enabled[0] || _timer_event1_draft == 0)) {
+            snprintf(at_text, sizeof(at_text), "%s", kStrWakeAfterNextSleep);
+        } else {
+            format_timer_at(at_text, sizeof(at_text), verbs[event_index],
+                            event_at[event_index], now);
+        }
+        lv_label_set_text(_timer_at_labels[event_index], at_text);
     }
-    if (_timer_at_labels[1]) lv_label_set_text(_timer_at_labels[1], at_text);
 
     char state[96] = "";
     if (snapshot.plan != TimerPlanKind::None && !active_tab) {
@@ -2203,13 +2386,25 @@ void LvglSettingsPage::_updateTimerLabels() {
             (snapshot.deep_sleep_wake_after_minutes > 0 && snapshot.deep_sleep_wake_at <= 0)) {
             strlcat(state, " | CLOCK NOT SYNCED", sizeof(state));
         }
-    } else if (!_timers_deep_sleep_tab && _timer_event1_draft > 0 &&
+    } else if (!_timers_deep_sleep_tab && _timer_event_enabled[0] &&
+               _timer_event_enabled[1] && _timer_event1_draft > 0 &&
                _timer_event2_draft > 0 && _timer_event2_draft <= _timer_event1_draft) {
         snprintf(state, sizeof(state), "%s", kStrStopStartConflict);
-    } else if (!clock_synced && (_timer_event1_draft > 0 || _timer_event2_draft > 0)) {
+    } else if (_timers_deep_sleep_tab && _timer_event_enabled[1] &&
+               _timer_event2_draft == 0) {
+        snprintf(state, sizeof(state), "%s", kStrSetWakeInterval);
+    } else if ((_timer_event_enabled[0] && _timer_event1_draft == 0) ||
+               (!_timers_deep_sleep_tab && _timer_event_enabled[1] &&
+                _timer_event2_draft == 0)) {
+        snprintf(state, sizeof(state), "%s", kStrSetInterval);
+    } else if (_timers_deep_sleep_tab && !_timer_event_enabled[0] &&
+               _timer_event_enabled[1]) {
+        snprintf(state, sizeof(state), "%s", kStrWakeAfterNextSleep);
+    } else if (!clock_synced &&
+               ((_timer_event_enabled[0] && _timer_event1_draft > 0) ||
+                (!_timers_deep_sleep_tab && _timer_event_enabled[1] &&
+                 _timer_event2_draft > 0))) {
         snprintf(state, sizeof(state), "%s", kStrClockNotSynced);
-    } else {
-        snprintf(state, sizeof(state), "%s", kStrZeroDisabled);
     }
     if (_lbl_timer_state) lv_label_set_text(_lbl_timer_state, state);
 }
@@ -2259,14 +2454,30 @@ void LvglSettingsPage::_applyTimerInteractionState() {
         (!_timers_deep_sleep_tab && snapshot.plan == TimerPlanKind::Radio) ||
         (_timers_deep_sleep_tab && snapshot.plan == TimerPlanKind::DeepSleep);
     const bool other_active = snapshot.plan != TimerPlanKind::None && !active_tab;
-    const bool sliders_enabled = snapshot.plan == TimerPlanKind::None;
-    for (lv_obj_t* slider : _timer_sliders) {
-        if (!slider) continue;
-        lv_obj_set_style_opa(slider, sliders_enabled ? LV_OPA_COVER : LV_OPA_50, LV_PART_MAIN);
-        if (sliders_enabled) {
-            lv_obj_clear_state(slider, LV_STATE_DISABLED);
+    const bool presets_editable = snapshot.plan == TimerPlanKind::None;
+    if (!presets_editable && (_timer_edit_dirty[0] || _timer_edit_dirty[1])) {
+        _finishTimerEditing(true);
+    }
+    for (lv_obj_t* sw : _timer_switches) {
+        if (!sw) continue;
+        if (presets_editable) {
+            lv_obj_clear_state(sw, LV_STATE_DISABLED);
         } else {
-            lv_obj_add_state(slider, LV_STATE_DISABLED);
+            lv_obj_add_state(sw, LV_STATE_DISABLED);
+        }
+    }
+    for (uint8_t button_index = 0; button_index < 8; ++button_index) {
+        lv_obj_t* button = _timer_step_buttons[button_index];
+        if (!button) continue;
+        const uint8_t event_index = (button_index / 2u) / 2u;
+        const bool enabled = presets_editable && _timer_event_enabled[event_index];
+        if (enabled) {
+            lv_obj_clear_state(button, LV_STATE_DISABLED);
+            lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
+        } else {
+            lv_obj_add_state(button, LV_STATE_DISABLED);
+            lv_obj_clear_flag(button, LV_OBJ_FLAG_CLICKABLE);
+            _timer_repeat_count[button_index] = 0;
         }
     }
 
@@ -2274,22 +2485,27 @@ void LvglSettingsPage::_applyTimerInteractionState() {
     if (active_tab) {
         primary_enabled = !snapshot.shutdown_active;
     } else if (!other_active) {
-        primary_enabled = _timers_deep_sleep_tab
-                              ? (_timer_event1_draft > 0)
-                              : ((_timer_event1_draft > 0 || _timer_event2_draft > 0) &&
-                                 !(_timer_event1_draft > 0 && _timer_event2_draft > 0 &&
-                                   _timer_event2_draft <= _timer_event1_draft));
+        if (_timers_deep_sleep_tab) {
+            primary_enabled = _timer_event_enabled[0] && _timer_event1_draft > 0 &&
+                              (!_timer_event_enabled[1] || _timer_event2_draft > 0);
+        } else {
+            const bool any_enabled = _timer_event_enabled[0] || _timer_event_enabled[1];
+            const bool enabled_values_ready =
+                (!_timer_event_enabled[0] || _timer_event1_draft > 0) &&
+                (!_timer_event_enabled[1] || _timer_event2_draft > 0);
+            const bool valid_order =
+                !(_timer_event_enabled[0] && _timer_event_enabled[1]) ||
+                _timer_event2_draft > _timer_event1_draft;
+            primary_enabled = any_enabled && enabled_values_ready && valid_order;
+        }
     }
     if (_lbl_timer_primary) {
-        lv_label_set_text(_lbl_timer_primary,
-                          active_tab
-                              ? (_timers_deep_sleep_tab ? kStrCancelDeepSleepTimer
-                                                        : kStrCancelRadioTimer)
-                              : (_timers_deep_sleep_tab ? kStrStartDeepSleepTimer
-                                                        : kStrStartRadioTimer));
+        lv_label_set_text(_lbl_timer_primary, active_tab ? kStrCancelTimer : kStrStartTimer);
     }
 
-    const bool now_enabled = _timers_deep_sleep_tab && snapshot.plan == TimerPlanKind::None;
+    const bool now_enabled =
+        _timers_deep_sleep_tab && snapshot.plan == TimerPlanKind::None &&
+        (!_timer_event_enabled[1] || _timer_event2_draft > 0);
     if (_btn_deep_sleep_now) {
         if (_timers_deep_sleep_tab) {
             lv_obj_clear_flag(_btn_deep_sleep_now, LV_OBJ_FLAG_HIDDEN);
@@ -2394,15 +2610,40 @@ void LvglSettingsPage::_applyTimersTheme(const YoRadioPalette& pal) {
         if (_timer_at_labels[i]) {
             lv_obj_set_style_text_color(_timer_at_labels[i], pal.text_meta, LV_PART_MAIN);
         }
+        style_timer_switch(_timer_switches[i], pal);
+        if (_timer_switch_labels[i]) {
+            lv_obj_set_style_text_color(_timer_switch_labels[i],
+                                        _timer_event_enabled[i] &&
+                                                snapshot.plan == TimerPlanKind::None
+                                            ? pal.text_secondary
+                                            : pal.text_meta,
+                                        LV_PART_MAIN);
+        }
     }
     for (uint8_t i = 0; i < 4; ++i) {
+        const uint8_t event_index = i / 2u;
+        const lv_color_t value_color =
+            _timer_event_enabled[event_index] && snapshot.plan == TimerPlanKind::None
+                ? pal.text_primary
+                : pal.text_meta;
         if (_timer_captions[i]) {
-            lv_obj_set_style_text_color(_timer_captions[i], pal.text_secondary, LV_PART_MAIN);
+            lv_obj_set_style_text_color(_timer_captions[i],
+                                        _timer_event_enabled[event_index]
+                                            ? pal.text_secondary
+                                            : pal.text_meta,
+                                        LV_PART_MAIN);
         }
         if (_timer_value_labels[i]) {
-            lv_obj_set_style_text_color(_timer_value_labels[i], pal.text_meta, LV_PART_MAIN);
+            lv_obj_set_style_text_color(_timer_value_labels[i], value_color, LV_PART_MAIN);
         }
-        style_timers_slider(_timer_sliders[i], pal);
+        for (uint8_t direction_index = 0; direction_index < 2; ++direction_index) {
+            const uint8_t button_index = i * 2u + direction_index;
+            style_timer_step_button(_timer_step_buttons[button_index], pal);
+            if (_timer_step_labels[button_index]) {
+                lv_obj_set_style_text_color(_timer_step_labels[button_index], value_color,
+                                            LV_PART_MAIN);
+            }
+        }
     }
 
     const bool active_tab =
@@ -2410,8 +2651,11 @@ void LvglSettingsPage::_applyTimersTheme(const YoRadioPalette& pal) {
         (_timers_deep_sleep_tab && snapshot.plan == TimerPlanKind::DeepSleep);
     const bool warning =
         (snapshot.plan != TimerPlanKind::None && !active_tab) || snapshot.shutdown_active ||
-        (!_timers_deep_sleep_tab && _timer_event1_draft > 0 &&
-         _timer_event2_draft > 0 && _timer_event2_draft <= _timer_event1_draft);
+        (!_timers_deep_sleep_tab && _timer_event_enabled[0] &&
+         _timer_event_enabled[1] && _timer_event1_draft > 0 &&
+         _timer_event2_draft > 0 && _timer_event2_draft <= _timer_event1_draft) ||
+        (_timers_deep_sleep_tab && _timer_event_enabled[1] &&
+         _timer_event2_draft == 0);
     if (_lbl_timer_state) {
         lv_obj_set_style_text_color(_lbl_timer_state,
                                     warning ? pal.accent : pal.text_meta, LV_PART_MAIN);
@@ -2432,6 +2676,9 @@ void LvglSettingsPage::_applyTimersTheme(const YoRadioPalette& pal) {
         lv_obj_set_style_text_color(_lbl_deep_sleep_now,
                                     now_enabled ? pal.text_secondary : pal.text_meta,
                                     LV_PART_MAIN);
+    }
+    if (_lbl_timer_hint) {
+        lv_obj_set_style_text_color(_lbl_timer_hint, pal.text_meta, LV_PART_MAIN);
     }
 }
 
@@ -2575,8 +2822,8 @@ void LvglSettingsPage::timersRadioTabClickedEvt(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
     if (!self) return;
+    self->_finishTimerEditing(true);
     self->_timers_deep_sleep_tab = false;
-    for (bool& dragging : self->_timer_drag_active) dragging = false;
     self->_loadTimerTabValues(true);
     self->_syncSleepTimerValues();
     notifyPageChainActivity("settings-timers-radio-tab");
@@ -2586,77 +2833,26 @@ void LvglSettingsPage::timersDeepSleepTabClickedEvt(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
     if (!self) return;
+    self->_finishTimerEditing(true);
     self->_timers_deep_sleep_tab = true;
-    for (bool& dragging : self->_timer_drag_active) dragging = false;
     self->_loadTimerTabValues(true);
     self->_syncSleepTimerValues();
     notifyPageChainActivity("settings-timers-deep-tab");
 }
 
-void LvglSettingsPage::_handleTimerSliderEvent(lv_event_t* e, uint8_t slider_index) {
-    if (!e || _timer_syncing_controls || slider_index >= 4 || !_timer_sliders[slider_index] ||
-        lv_event_get_target(e) != _timer_sliders[slider_index]) return;
-    if (timer_active_plan() != TimerPlanKind::None) return;
-    const lv_event_code_t code = lv_event_get_code(e);
-    if (code == LV_EVENT_PRESSED) {
-        _timer_drag_active[slider_index] = true;
-        notifyPageChainActivity("settings-timer-slider");
-        return;
-    }
-    if (code == LV_EVENT_VALUE_CHANGED) {
-        // Preview-only draft: no config/NVS mutation during drag. Runtime plans use their own
-        // immutable snapshot. / Во время drag меняется только preview, без config/NVS.
-        _timer_drag_active[slider_index] = true;
-        _updateTimerDraftFromSliders();
-        _updateTimerLabels();
-        _applyTimerInteractionState();
-        _applyTimersTheme(yoradio_palette());
-        notifyPageChainActivity("settings-timer-slider");
-        return;
-    }
-    if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
-        _updateTimerDraftFromSliders();
-        const bool first_event = slider_index < 2;
-        const bool radio_order_adjusted =
-            !_timers_deep_sleep_tab &&
-            normalize_radio_timer_order(_timer_event1_draft, _timer_event2_draft);
-        const TimerPreset preset = _timers_deep_sleep_tab
-                                       ? (first_event ? TimerPreset::DeepSleepAfter
-                                                      : TimerPreset::DeepSleepWakeAfter)
-                                       : (first_event ? TimerPreset::RadioStop
-                                                      : TimerPreset::RadioStart);
-        if (radio_order_adjusted) {
-            // The automatic correction can change the untouched event too, so persist the pair.
-            // Автокоррекция может изменить и второе событие, поэтому сохраняем всю пару.
-            timer_preset_set_minutes(TimerPreset::RadioStop, _timer_event1_draft);
-            timer_preset_set_minutes(TimerPreset::RadioStart, _timer_event2_draft);
-        } else {
-            timer_preset_set_minutes(preset,
-                                     first_event ? _timer_event1_draft : _timer_event2_draft);
-        }
-        _timer_drag_active[slider_index] = false;
-        _syncSleepTimerValues();
-    }
+void LvglSettingsPage::timerAdjustButtonEvt(lv_event_t* e) {
+    auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
+    if (self) self->_handleTimerAdjustEvent(e);
 }
 
-void LvglSettingsPage::timerEvent1HoursSliderEvt(lv_event_t* e) {
+void LvglSettingsPage::timerEvent1SwitchEvt(lv_event_t* e) {
     auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
-    if (self) self->_handleTimerSliderEvent(e, 0);
+    if (self) self->_handleTimerSwitchEvent(e, 0);
 }
 
-void LvglSettingsPage::timerEvent1MinutesSliderEvt(lv_event_t* e) {
+void LvglSettingsPage::timerEvent2SwitchEvt(lv_event_t* e) {
     auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
-    if (self) self->_handleTimerSliderEvent(e, 1);
-}
-
-void LvglSettingsPage::timerEvent2HoursSliderEvt(lv_event_t* e) {
-    auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
-    if (self) self->_handleTimerSliderEvent(e, 2);
-}
-
-void LvglSettingsPage::timerEvent2MinutesSliderEvt(lv_event_t* e) {
-    auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
-    if (self) self->_handleTimerSliderEvent(e, 3);
+    if (self) self->_handleTimerSwitchEvent(e, 1);
 }
 
 void LvglSettingsPage::timerPrimaryClickedEvt(lv_event_t* e) {
@@ -2675,14 +2871,22 @@ void LvglSettingsPage::timerPrimaryClickedEvt(lv_event_t* e) {
         }
     } else if (snapshot.plan == TimerPlanKind::None) {
         if (self->_timers_deep_sleep_tab) {
-            timer_schedule_deep_sleep(
-                self->_timer_event1_draft,
-                DeepSleepWakeRequest::explicitMinutes(self->_timer_event2_draft));
+            if (self->_timer_event_enabled[0] && self->_timer_event1_draft > 0 &&
+                (!self->_timer_event_enabled[1] || self->_timer_event2_draft > 0)) {
+                timer_schedule_deep_sleep(
+                    self->_timer_event1_draft,
+                    DeepSleepWakeRequest::explicitMinutes(
+                        self->_timer_event_enabled[1] ? self->_timer_event2_draft : 0));
+            }
         } else {
-            timer_schedule_radio_plan(self->_timer_event1_draft, self->_timer_event2_draft);
+            const uint16_t stop_minutes =
+                self->_timer_event_enabled[0] ? self->_timer_event1_draft : 0;
+            const uint16_t start_minutes =
+                self->_timer_event_enabled[1] ? self->_timer_event2_draft : 0;
+            timer_schedule_radio_plan(stop_minutes, start_minutes);
         }
     }
-    for (bool& dragging : self->_timer_drag_active) dragging = false;
+    self->_finishTimerEditing(true);
     self->_loadTimerTabValues(true);
     self->_syncSleepTimerValues();
     wgt_status_line::update(self->_status_line);
@@ -2705,11 +2909,16 @@ void LvglSettingsPage::enterDeepSleepNowClickedEvt(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     auto* self = static_cast<LvglSettingsPage*>(lv_event_get_user_data(e));
     if (!self || timer_active_plan() != TimerPlanKind::None) return;
+    if (self->_timer_event_enabled[1] && self->_timer_event2_draft == 0) {
+        self->_syncSleepTimerValues();
+        return;
+    }
     notifyPageChainActivity("settings-enter-deep-sleep-now");
-    // Same queued path as bare deepsleep; visible WAKE AFTER SLEEP is an explicit snapshot.
-    // Тот же queued path, что bare deepsleep; видимый WAKE AFTER SLEEP фиксируется snapshot-ом.
+    // Manual sleep ignores the delayed Sleep switch and snapshots only the independent Wake preset.
+    // Ручной сон не зависит от Sleep switch и фиксирует только независимый Wake preset.
     timer_request_deep_sleep_now(
-        DeepSleepWakeRequest::explicitMinutes(self->_timer_event2_draft));
+        DeepSleepWakeRequest::explicitMinutes(
+            self->_timer_event_enabled[1] ? self->_timer_event2_draft : 0));
 }
 
 void LvglSettingsPage::sleepTimerBackClickedEvt(lv_event_t* e) {
@@ -3133,7 +3342,9 @@ void LvglSettingsPage::_applyThemeColors() {
 }
 
 void LvglSettingsPage::destroy() {
+    _finishTimerEditing(true);
     if (_screen) {
+        if (_view_sleep_timer) lv_indev_reset(nullptr, nullptr);
         lv_obj_del(_screen);
         _screen = nullptr;
     }
@@ -3141,6 +3352,7 @@ void LvglSettingsPage::destroy() {
 }
 
 void LvglSettingsPage::releaseAfterAutoDelete() {
+    _finishTimerEditing(true);
     _nullHandles();
 }
 
@@ -3152,7 +3364,9 @@ void LvglSettingsPage::_nullHandles() {
     _scroll_delay_drag_active = false;
     _timers_deep_sleep_tab = false;
     _timer_syncing_controls = false;
-    for (bool& dragging : _timer_drag_active) dragging = false;
+    for (bool& enabled : _timer_event_enabled) enabled = false;
+    for (bool& dirty : _timer_edit_dirty) dirty = false;
+    for (uint8_t& repeats : _timer_repeat_count) repeats = 0;
     _timer_event1_draft = 0;
     _timer_event2_draft = 0;
     _screen = nullptr;
@@ -3203,13 +3417,19 @@ void LvglSettingsPage::_nullHandles() {
         _timer_event_cards[i] = nullptr;
         _timer_event_titles[i] = nullptr;
         _timer_at_labels[i] = nullptr;
+        _timer_switches[i] = nullptr;
+        _timer_switch_labels[i] = nullptr;
     }
     for (uint8_t i = 0; i < 4; ++i) {
-        _timer_sliders[i] = nullptr;
         _timer_captions[i] = nullptr;
         _timer_value_labels[i] = nullptr;
     }
+    for (uint8_t i = 0; i < 8; ++i) {
+        _timer_step_buttons[i] = nullptr;
+        _timer_step_labels[i] = nullptr;
+    }
     _lbl_timer_state = nullptr;
+    _lbl_timer_hint = nullptr;
     _btn_timer_primary = nullptr;
     _lbl_timer_primary = nullptr;
     _btn_deep_sleep_now = nullptr;
