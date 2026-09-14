@@ -548,7 +548,7 @@ void Audio::setDefaults() {
     m_resampleCursor = 0.0f;
 }
 //****************************************************************************************
-void Audio::tlsPreconnectCleanup(bool preserveAacDecoder) {
+void Audio::tlsPreconnectCleanup(uint8_t preserveCodec) {
     // shrink_to_fit to reduce fragmentation before TLS connect
     if(m_playlistURL.size() > 1024) m_playlistURL.shrink_to_fit();
     if(m_playlistContent.size() > 1024) m_playlistContent.shrink_to_fit();
@@ -557,9 +557,19 @@ void Audio::tlsPreconnectCleanup(bool preserveAacDecoder) {
     if(m_hashQueue.size() > 1024) m_hashQueue.shrink_to_fit();
     if(m_linesWithURL.size() > 1024) m_linesWithURL.shrink_to_fit();
     if(m_linesWithEXTINF.size() > 1024) m_linesWithEXTINF.shrink_to_fit();
-    MP3Decoder_FreeBuffers();
+    // E-MP1: the preserved codec's decoder must stay allocated - the audio task is
+    // still decoding the retained buffer while this runs on the player task.
+    // E-MP1: декодер сохраняемого кодека остаётся выделенным — аудиозадача всё ещё
+    // декодирует удержанный буфер, пока это выполняется в задаче Player.
+    if(preserveCodec == CODEC_MP3) {
+        Serial.printf("[AUDIO.RETRY] TLS cleanup preserving MP3 decoder inbuf=%lu\n",
+                      (unsigned long)InBuff.bufferFilled());
+    }
+    else {
+        MP3Decoder_FreeBuffers();
+    }
     FLACDecoder_FreeBuffers();
-    if(preserveAacDecoder) {
+    if(preserveCodec == CODEC_AAC) {
         Serial.printf("[AUDIO.RETRY] TLS cleanup preserving AAC decoder inbuf=%lu\n",
                       (unsigned long)InBuff.bufferFilled());
     }
@@ -1010,9 +1020,10 @@ bool Audio::httpPrint(const char* host) {
          else        { m_client = static_cast<NetworkClient*>(&client); }
         if(f_equal) AUDIO_INFO("The host has disconnected, reconnecting");
 
-        const bool preserveAacDecoder = m_f_preserveStreamReconnect &&
-                                        m_preservedStreamCodec == CODEC_AAC;
-        if(m_f_ssl) tlsPreconnectCleanup(preserveAacDecoder);
+        const uint8_t preserveCodec = m_f_preserveStreamReconnect
+                                      ? m_preservedStreamCodec
+                                      : (uint8_t)CODEC_NONE;   // E-MP1
+        if(m_f_ssl) tlsPreconnectCleanup(preserveCodec);
         IPAddress resolvedIP;
         // E-AT3: resolver IP + original hostname for TLS / IP из resolver + hostname для TLS
         if(!networkResolveHostForConnect(hwoe.get(), resolvedIP, m_f_ssl ? m_timeout_ms_ssl : m_timeout_ms) ||
@@ -3263,15 +3274,55 @@ bool Audio::tryBufferedWebstreamReconnect(bool& transportAttempted) {
     transportAttempted = false;
     if (m_dataMode != AUDIO_DATA) return false;
     if (m_streamType != ST_WEBSTREAM) return false;
-    // Only ADTS AAC has device evidence for decoder-preserving TLS reconnect.
-    // MP3 needs its own PCM watchdog; Ogg/FLAC codecs carry container/decoder state.
-    if (m_codec != CODEC_AAC) return false;
+    // E-MP2: AAC and plain MP3 only. Ogg/FLAC carry container state across packets,
+    // so a retained buffer cannot simply be continued for them.
+    // E-MP2: только AAC и обычный MP3. У Ogg/FLAC состояние контейнера переходит
+    // между пакетами, поэтому удержанный буфер для них просто так не продолжить.
+    if (m_codec != CODEC_AAC && m_codec != CODEC_MP3) return false;
     if (m_f_tts || m_f_allDataReceived) return false;
     if (!m_lastHost.valid()) return false;
     if (InBuff.bufferFilled() == 0) return false;
-    // Preserving the compressed tail is safe only when a byte-exact stitch
-    // signature was frozen at the old socket boundary.
+    // AAC continues the old tail by byte-exact dedup, so it needs a frozen stitch
+    // signature. MP3 has no matcher: the retained frames are simply played out and
+    // the new stream lands after them, where the existing MP3 resync takes over.
+    // That costs a glitched frame at the seam instead of a full re-buffer gap -
+    // seamlessness is not claimed.
+    // AAC продолжает старый хвост побайтовой дедупликацией, поэтому ему нужна
+    // замороженная сигнатура стыка. У MP3 матчера нет: удержанные кадры просто
+    // доигрываются, новый поток ложится за ними, и дальше работает существующий
+    // resync MP3. Цена — испорченный кадр на стыке вместо полной паузы на
+    // пере-буферизацию; бесшовность не обещается.
+    // E-MP4: both codecs now continue the old tail by byte-exact dedup, so both
+    // require a frozen stitch signature. Without one the clean path runs instead -
+    // that is what stops the duplicated audio the append-only attempt produced.
+    // E-MP4: оба кодека продолжают старый хвост побайтовой дедупликацией, поэтому
+    // обоим нужна замороженная сигнатура стыка. Без неё идёт чистый путь — именно
+    // это убирает повторы, которые давала простая дописка.
     if (!m_f_aacOverlapArmed) return false;
+
+    // E-MP3: MP3 has no dedup, so each reconnect re-appends the burst the server
+    // replays from its own buffer and the retained data only ever grows. Device
+    // evidence: +80 KiB per cycle, 126 KiB -> 629 KiB over seven reconnects, i.e.
+    // about 39 s behind live and heading for the buffer ceiling. Cap what we are
+    // willing to retain - above it the clean reconnect runs instead and resets both
+    // the buffer and the drift. AAC is exempt: its byte-exact dedup drops the
+    // duplicate prefix, so it does not accumulate.
+    // E-MP3: у MP3 нет дедупликации, поэтому каждое переподключение дописывает burst,
+    // который сервер отдаёт из своего буфера, и удержанные данные только растут.
+    // Данные с устройства: +80 КиБ за цикл, 126 КиБ -> 629 КиБ за семь
+    // переподключений, то есть около 39 с отставания от эфира и путь к потолку
+    // буфера. Ограничиваем то, что готовы удержать: выше порога отрабатывает обычный
+    // clean reconnect, сбрасывая и буфер, и отставание. AAC не затронут — его
+    // побайтовая дедупликация отбрасывает дубль, накопления нет.
+    if (m_codec == CODEC_MP3) {
+        const int32_t retainCap = InBuff.getBufsize() / MP3_BUFFERED_RETAIN_DIVISOR;
+        const int32_t retained  = (int32_t)InBuff.bufferFilled();
+        if (retainCap > 0 && retained > retainCap) {
+            Serial.printf("[AUDIO.RETRY] buffered reconnect declined: mp3 retain inbuf=%ld cap=%ld\n",
+                          (long)retained, (long)retainCap);
+            return false;
+        }
+    }
 
     m_preservedStreamCodec = m_codec;
     m_f_preserveStreamReconnect = true;
@@ -3375,7 +3426,9 @@ void Audio::resetAacOverlapDiagnostic(bool clearHistory) {
 }
 
 void Audio::rememberAacWebstreamPayload(const uint8_t* data, size_t len) {
-    if(!data || !len || m_codec != CODEC_AAC ||
+    // E-MP4: the tail is raw post-ICY, post-chunk payload - codec-neutral by nature.
+    // E-MP4: хвост — сырой payload после ICY и chunk, по природе кодеко-нейтрален.
+    if(!data || !len || !overlapDedupEligibleCodec() ||
        m_streamType != ST_WEBSTREAM || m_playlistFormat == FORMAT_M3U8 || m_f_tts) return;
 
     for(size_t i = 0; i < len; ++i) {
@@ -3446,9 +3499,11 @@ void Audio::armAacOverlapDiagnostic() {
 
     const uint32_t bufferedBytes = InBuff.bufferFilled();
     const bool eligible = m_f_running && m_f_streamHadAudio &&
-                          m_codec == CODEC_AAC && m_streamType == ST_WEBSTREAM &&
+                          overlapDedupEligibleCodec() && m_streamType == ST_WEBSTREAM &&
                           m_playlistFormat != FORMAT_M3U8 && !m_f_tts && !m_f_allDataReceived &&
-                          AACGetFormat() == 2 &&
+                          // ADTS check applies to AAC only; an ICY MP3 stream is always raw frames.
+                          // Проверка ADTS относится только к AAC; ICY MP3 — всегда сырые кадры.
+                          (m_codec != CODEC_AAC || AACGetFormat() == 2) &&
                           bufferedBytes >= AAC_OVERLAP_SIGNATURE_BYTES &&
                           m_aacPayloadTailCount == AAC_OVERLAP_SIGNATURE_BYTES;
     if(!eligible) return;
@@ -3491,7 +3546,7 @@ void Audio::armAacOverlapDiagnostic() {
 void Audio::startAacOverlapDiagnostic() {
     if(!m_f_aacOverlapArmed) return;
     if(m_aacOverlapSession != m_playbackSession || !m_f_running ||
-       m_codec != CODEC_AAC || m_streamType != ST_WEBSTREAM) {
+       !overlapDedupEligibleCodec() || m_streamType != ST_WEBSTREAM) {   // E-MP4
         resetAacOverlapDiagnostic(false);
         return;
     }
@@ -3646,7 +3701,8 @@ bool Audio::restartAacAfterBufferedReconnect(uint32_t pcmAgeMs, const char* reas
     if(xSemaphoreTake(mutex_audioTask, 0.3 * configTICK_RATE_HZ) != pdTRUE) return false;
 
     if(!m_f_running || m_playbackSession != requestedSession ||
-       m_dataMode != AUDIO_DATA || m_streamType != ST_WEBSTREAM || m_codec != CODEC_AAC) {
+       m_dataMode != AUDIO_DATA || m_streamType != ST_WEBSTREAM ||
+       !overlapDedupEligibleCodec()) {   // E-MP4
         xSemaphoreGive(mutex_audioTask);
         return false;
     }
@@ -3681,10 +3737,16 @@ bool Audio::restartAacAfterBufferedReconnect(uint32_t pcmAgeMs, const char* reas
 
     // The old and new live AAC byte streams are not guaranteed to meet on an ADTS frame boundary.
     // Старый и новый live AAC-потоки не обязаны стыковаться на границе ADTS-кадра.
+    // E-MP4: restore the decoder that actually owns this stream. AAC keeps the exact
+    // previous behaviour; the MP3 branch is new and cannot affect it.
+    // E-MP4: восстанавливаем декодер, которому принадлежит поток. Для AAC поведение
+    // прежнее байт в байт; ветка MP3 новая и на него не влияет.
+    const bool restartMp3 = (m_codec == CODEC_MP3);
     clearBufferedReconnectPcmWatch();
     m_f_lockInBuffer = true;
     InBuff.resetBuffer();
-    AACDecoder_FreeBuffers();
+    if(restartMp3) MP3Decoder_FreeBuffers();
+    else           AACDecoder_FreeBuffers();
     m_validSamples = 0;
     m_f_playing = false;
     m_f_decode_ready = false;
@@ -3696,10 +3758,11 @@ bool Audio::restartAacAfterBufferedReconnect(uint32_t pcmAgeMs, const char* reas
     m_fnsy.nextSync = 0;
     m_fnsy.swnf = 0;
 
-    const bool decoderReady = AACDecoder_AllocateBuffers();
+    const bool decoderReady = restartMp3 ? MP3Decoder_AllocateBuffers()
+                                        : AACDecoder_AllocateBuffers();   // E-MP4
     size_t restoredBytes = 0;
     if(decoderReady) {
-        InBuff.changeMaxBlockSize(m_frameSizeAAC);
+        InBuff.changeMaxBlockSize(restartMp3 ? m_frameSizeMP3 : m_frameSizeAAC);   // E-MP4
 
         const uint32_t stageCapacity = m_aacOverlapStaging.valid()
             ? static_cast<uint32_t>(m_aacOverlapStaging.size())
@@ -3766,7 +3829,7 @@ void Audio::pollBufferedReconnectPcmWatch() {
     if(!m_f_bufferedReconnectPcmWatch) return;
     if(m_bufferedReconnectPcmSession != m_playbackSession ||
        !m_f_running || m_dataMode != AUDIO_DATA ||
-       m_streamType != ST_WEBSTREAM || m_codec != CODEC_AAC) {
+       m_streamType != ST_WEBSTREAM || !overlapDedupEligibleCodec()) {   // E-MP4
         clearBufferedReconnectPcmWatch();
         return;
     }
@@ -3852,6 +3915,31 @@ void Audio::scheduleWebstreamReconnect(bool clientConnected, uint32_t availableB
     m_webstreamReconnectNextMs = millis() + WEBSTREAM_RECONNECT_GRACE_MS;
 }
 
+// E-VS7: runs on the player task, the owner of m_client. A request that no longer
+// matches the current playback session is dropped: manual STOP and station change
+// keep priority, and a reconnect is never scheduled for a stream nobody plays.
+// E-VS7: выполняется в задаче Player — владельце m_client. Запрос, не совпадающий
+// с текущей playback session, отбрасывается: ручной STOP и смена станции сохраняют
+// приоритет, и reconnect не планируется для потока, который никто не слушает.
+void Audio::pollVorbisReopenRequest() {
+    if(!m_f_vorbisReopenRequested) return;
+    m_f_vorbisReopenRequested = false;
+    const uint32_t session = m_vorbisReopenSession;
+    m_vorbisReopenSession = 0;
+
+    if(session != m_playbackSession || !m_f_running || m_streamType != ST_WEBSTREAM) {
+        Serial.printf("[AUDIO.RETRY] vorbis reopen dropped (stale) requested=%lu current=%lu\n",
+                      (unsigned long)session,
+                      (unsigned long)m_playbackSession);
+        return;
+    }
+
+    Serial.printf("[AUDIO.RETRY] vorbis setup header unusable -> reopen stream session=%lu\n",
+                  (unsigned long)session);
+    if(m_client->connected()) m_client->stop();   // poll bails out while still connected
+    scheduleWebstreamReconnect(false, 0);
+}
+//****************************************************************************************
 void Audio::pollWebstreamReconnect() {
     if (!m_f_webstreamReconnectPending) return;
     if (m_webstreamReconnectSession != m_playbackSession) {
@@ -4169,6 +4257,7 @@ exit:
 }
 //****************************************************************************************
 void Audio::loop() {
+    pollVorbisReopenRequest();   // E-VS7: owner task consumes the audio-task request
     if(m_f_webstreamReconnectPending) {
         pollWebstreamReconnect();
         return;
@@ -5692,7 +5781,7 @@ lastToDo:
         startAacOverlapDiagnostic();
         m_f_preserveStreamReconnect = false;
         m_preservedStreamCodec = CODEC_NONE;
-        m_f_bufferedReconnectPcmWatch = (m_codec == CODEC_AAC);
+        m_f_bufferedReconnectPcmWatch = overlapDedupEligibleCodec();   // E-MP4
         m_bufferedReconnectPcmSession = m_playbackSession;
         m_bufferedReconnectPcmStartedMs = millis();
         Serial.printf("[AUDIO.RETRY] reconnect succeeded %u/%u session=%lu buffered=1 inbuf=%lu socket_available=%lu\n",
@@ -6429,12 +6518,20 @@ int Audio::sendBytes(uint8_t* data, size_t len) {
     // STOP и terminal-stop contract не меняются - второй механизм retry не вводится.
     // Флаг читается одноразово, а scheduleWebstreamReconnect() игнорирует повторные
     // вызовы, пока предыдущий ещё не отработал.
+    // E-VS7: sendBytes() runs on the audio task; the socket is read and written by
+    // Audio::loop() on the player task, and the two share no mutex on this path.
+    // Closing the client here raced with its owner. Publish the request plus the
+    // session it belongs to and let the owner task act on it.
+    // E-VS7: sendBytes() выполняется в аудиозадаче, а сокет читает и пишет
+    // Audio::loop() в задаче Player, и общего мьютекса на этом пути у них нет.
+    // Закрытие клиента отсюда конфликтовало с владельцем. Публикуем запрос вместе
+    // с сессией, к которой он относится, и отдаём исполнение задаче-владельцу.
     if(res < 0 && m_codec == CODEC_VORBIS && m_streamType == ST_WEBSTREAM &&
        VORBISConsumeSetupHeaderFailure()) {
-        Serial.printf("[AUDIO.RETRY] vorbis setup header unusable -> reopen stream session=%lu\n",
+        m_vorbisReopenSession = m_playbackSession;
+        m_f_vorbisReopenRequested = true;
+        Serial.printf("[AUDIO.RETRY] vorbis setup header unusable -> reopen requested session=%lu\n",
                       (unsigned long)m_playbackSession);
-        if(m_client->connected()) m_client->stop();   // poll bails out while still connected
-        scheduleWebstreamReconnect(false, 0);
     }
     if(res <  0){ return decodeError(res, data, bytesDecoded);} // Error, skip the frame...
     if(res > 99){ return decodeContinue(res, data, bytesDecoded);} // decoder needs more data...

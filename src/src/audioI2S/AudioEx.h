@@ -247,6 +247,15 @@ class Audio{
     // E-AT4: сообщает, была ли реальная попытка подключения, чтобы clean
     // fallback учитывался отдельно.
     bool         tryBufferedWebstreamReconnect(bool& transportAttempted);
+    // E-MP4: codecs whose raw webstream bytes may be de-duplicated across a
+    // reconnect. The matcher itself is byte-exact and knows nothing about codecs;
+    // this is only about which streams are framed suitably for it.
+    // E-MP4: кодеки, чьи сырые байты webstream можно дедуплицировать при
+    // переподключении. Сам матчер побайтовый и о кодеках ничего не знает — здесь
+    // только о том, у каких потоков подходящее обрамление.
+    bool         overlapDedupEligibleCodec() const {
+        return m_codec == CODEC_AAC || m_codec == CODEC_MP3;
+    }
     bool         httpRange(uint32_t range, uint32_t length = UINT32_MAX);
     void         processLocalFile();
     void         processWebStream();
@@ -288,7 +297,13 @@ class Audio{
     bool         parseContentType(char* ct);
     bool         parseHttpResponseHeader();
     bool         parseHttpRangeHeader();
-    void         tlsPreconnectCleanup(bool preserveAacDecoder = false);
+    // E-MP1: takes the codec whose decoder must survive the cleanup, because the
+    // audio task keeps decoding the preserved buffer while this runs on the player
+    // task - freeing that decoder underneath it is a use-after-free.
+    // E-MP1: принимает кодек, чей декодер обязан пережить cleanup: аудиозадача
+    // продолжает декодировать сохранённый буфер, пока это выполняется в задаче
+    // Player, и освобождение её декодера — use-after-free.
+    void         tlsPreconnectCleanup(uint8_t preserveCodec = CODEC_NONE);
     bool         initializeDecoder(uint8_t codec);
     esp_err_t    I2Sstart();
     esp_err_t    I2Sstop();
@@ -340,6 +355,9 @@ class Audio{
     void         reportAacOverlapDiagnostic(const char* reason);
     void         scheduleWebstreamReconnect(bool clientConnected, uint32_t availableBytes);
     void         pollWebstreamReconnect();
+    // E-VS7: consumes a reopen request published by the audio task.
+    // E-VS7: разбирает запрос на переоткрытие, выставленный аудиозадачей.
+    void         pollVorbisReopenRequest();
     uint32_t     m4a_correctResumeFilePos();
     uint32_t     ogg_correctResumeFilePos();
     int32_t      flac_correctResumeFilePos();
@@ -836,6 +854,13 @@ private:
     static constexpr uint32_t BUFFERED_RECONNECT_HEADER_TIMEOUT_MS = 2000;
     static constexpr uint32_t BUFFERED_RECONNECT_PCM_STALL_MS = 2500;
     static constexpr uint32_t BUFFERED_RECONNECT_PCM_PROBATION_MS = 10000;
+    // E-MP3: fraction of InBuff we let an MP3 stream carry across a reconnect.
+    // 1/4 of 640 KiB is about 10 s at 128 kbit/s - enough to cover a reconnect many
+    // times over, small enough that the ICY title cannot drift far ahead of the audio.
+    // E-MP3: доля InBuff, которую MP3-потоку разрешено пронести через переподключение.
+    // 1/4 от 640 КиБ — примерно 10 с на 128 кбит/с: с запасом перекрывает
+    // переподключение и не даёт ICY-заголовку заметно убежать вперёд звука.
+    static constexpr int32_t  MP3_BUFFERED_RETAIN_DIVISOR = 4;
     static constexpr uint16_t AAC_OVERLAP_SIGNATURE_BYTES = 1024;
     static constexpr uint32_t AAC_OVERLAP_SCAN_LIMIT_BYTES = 192 * 1024;
     static constexpr uint32_t AAC_OVERLAP_STAGING_BYTES = 192 * 1024;
@@ -843,6 +868,16 @@ private:
     static constexpr uint32_t AAC_OVERLAP_SCAN_LIMIT_MS = 10000;
     uint8_t  m_unstableStreamFailures     = 0;
     uint8_t  m_preservedStreamCodec       = CODEC_NONE;
+    // E-VS7: cross-task hand-off. sendBytes() runs on the audio task, but the
+    // socket belongs to Audio::loop() on the player task, so the audio side only
+    // publishes a request plus the session it belongs to; the owner task acts on
+    // it and drops anything stale after STOP or a station change.
+    // E-VS7: передача между задачами. sendBytes() работает в аудиозадаче, а сокетом
+    // владеет Audio::loop() в задаче Player, поэтому аудио-сторона только публикует
+    // запрос и сессию, которой он принадлежит; задача-владелец его исполняет и
+    // отбрасывает устаревший после STOP или смены станции.
+    volatile bool m_f_vorbisReopenRequested = false;
+    uint32_t      m_vorbisReopenSession     = 0;
     bool     m_f_streamHadAudio             = false;
     bool     m_f_shortLivedCounted          = false;
     bool     m_f_streamConnectionStable     = false;
