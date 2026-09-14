@@ -84,6 +84,20 @@ bitReader_t            s_bitReader;
 
 ps_ptr<char>                  s_vorbisChbuf;
 ps_ptr<uint8_t>               s_lastSegmentTable;
+// E-VS5: capacity of the deferred-packet buffer and the hard bound for both
+// memcpy sites that fill it. One Ogg lacing entry accumulates runs of 255, so
+// segmentLength can legitimately reach 255*255 = 65025 - far past the previous
+// bare 4096 literal, which one of the two copies used without any check at all.
+// 16 KiB covers a worst-case Vorbis packet (an 8192-sample block at the highest
+// practical bitrate is about 12 KiB) and costs nothing in PSRAM.
+// E-VS5: ёмкость буфера отложенного пакета и жёсткая граница для обеих записей
+// в него. Одна запись Ogg lacing суммирует серии по 255, поэтому segmentLength
+// законно доходит до 255*255 = 65025 — намного больше прежнего литерала 4096,
+// в который одна из двух копий писала вообще без проверки.
+// 16 КиБ покрывают худший реальный пакет Vorbis (блок 8192 сэмплов на
+// максимальном практическом битрейте — около 12 КиБ) и ничего не стоят в PSRAM.
+static const uint32_t VORBIS_LAST_SEGMENT_CAPACITY = 16384;
+
 ps_ptr<uint16_t>              s_vorbisSegmentTable;
 ps_ptr<codebook_t>            s_codebooks;
 ps_ptr<ps_ptr<vorbis_info_floor_t>> s_floor_param;
@@ -98,7 +112,7 @@ vector<uint32_t>s_vorbisBlockPicItem;
 
 bool VORBISDecoder_AllocateBuffers(){
     s_vorbisSegmentTable.alloc(256 * sizeof(uint16_t)); s_vorbisSegmentTable.clear();
-    s_lastSegmentTable.alloc(4096);
+    s_lastSegmentTable.alloc(VORBIS_LAST_SEGMENT_CAPACITY);
     VORBISsetDefaults();
     return true;
 }
@@ -427,7 +441,18 @@ int32_t vorbisDecodePage4(uint8_t* inbuf, int32_t* bytesLeft, uint32_t segmentLe
     if(s_f_parseOggDone) { // first loop after VORBISparseOGG()
         if(s_f_oggContinuedPage) {
             if(s_lastSegmentTableLen > 0 || segmentLength > 0) {
-                if(s_lastSegmentTableLen + segmentLength > 1024) {VORBIS_LOG_ERROR("continued page too big, %i", s_lastSegmentTableLen + segmentLength); return VORBIS_ERR;}
+                // E-VS5: was a bare 1024 while the buffer held 4096 - it under-used the
+                // buffer and dropped legitimate large continued packets. Now the bound
+                // is the real capacity, so this path stays safe and stops rejecting
+                // packets it could actually hold.
+                // E-VS5: здесь стоял литерал 1024 при буфере 4096 — он и не использовал
+                // буфер целиком, и терял законные большие continued-пакеты. Теперь
+                // граница равна реальной ёмкости: путь остаётся безопасным и перестаёт
+                // отвергать пакеты, которые на самом деле помещаются.
+                if(s_lastSegmentTableLen + segmentLength > VORBIS_LAST_SEGMENT_CAPACITY) {
+                    VORBIS_LOG_ERROR("continued page too big, %i", s_lastSegmentTableLen + segmentLength);
+                    return VORBIS_ERR;
+                }
                 memcpy(s_lastSegmentTable.get() + s_lastSegmentTableLen, inbuf, segmentLength);
                 bitReader_setData(s_lastSegmentTable.get(), s_lastSegmentTableLen + segmentLength);
                 ret = vorbis_dsp_synthesis(s_lastSegmentTable.get(), s_lastSegmentTableLen + segmentLength, outbuf);
@@ -471,6 +496,20 @@ int32_t vorbisDecodePage4(uint8_t* inbuf, int32_t* bytesLeft, uint32_t segmentLe
         }
         else { // last segment
             if(segmentLength) {
+                // E-VS5: this copy had no bound whatsoever. A packet larger than the
+                // buffer - legitimate on a high-bitrate stream, or fabricated by a
+                // misparsed lacing table after a false OggS - overran the heap and
+                // would surface later as an unrelated crash. Reject the page instead:
+                // the caller resyncs, which costs one packet rather than the heap.
+                // E-VS5: у этой копии не было границы вообще. Пакет больше буфера —
+                // законный на высоком битрейте либо выдуманный битой lacing-таблицей
+                // после ложного OggS — затирал кучу и всплыл бы позже как посторонняя
+                // авария. Теперь страница отвергается: вызывающий делает resync, и это
+                // стоит одного пакета, а не кучи.
+                if(segmentLength > VORBIS_LAST_SEGMENT_CAPACITY) {
+                    VORBIS_LOG_ERROR("last segment too big, %i", segmentLength);
+                    return VORBIS_ERR;
+                }
                 memcpy(s_lastSegmentTable.get(), inbuf, segmentLength);
                 s_lastSegmentTableLen = segmentLength;
                 s_vorbisValidSamples = 0;
