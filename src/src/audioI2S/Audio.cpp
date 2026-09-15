@@ -4426,7 +4426,11 @@ void Audio::loop() {
     }
     else { // m3u8 datastream only
         ps_ptr<char> host("host");
-        if(m_lVar.no_host_timer > millis()) {return;}
+        // E-HL1: signed difference, so the back-off keeps working across the ~49 day
+        // millis() rollover instead of silently expiring for the rest of the wrap.
+        // E-HL1: знаковая разность, чтобы пауза продолжала работать через
+        // переполнение millis() (~49 суток), а не пропадала до конца оборота.
+        if((int32_t)(m_lVar.no_host_timer - millis()) > 0) {return;}
         switch(m_dataMode) {
             case HTTP_RESPONSE_HEADER:
                 if(!parseHttpResponseHeader()) {
@@ -4465,10 +4469,45 @@ void Audio::loop() {
                 }
             case AUDIO_PLAYLISTDATA:
                 host = parsePlaylist_M3U8();
-                if(!host.valid()) m_lVar.no_host_cnt++;
-                else {m_lVar.no_host_cnt = 0; m_lVar.no_host_timer = millis();}
+                // E-HL1: the counter only ever grows, so an equality test armed the
+                // back-off exactly once - on the second empty playlist - and every
+                // later one refetched with no pause at all. A station whose playlist
+                // stops advancing then hammers the CDN: measured at ~80 full TLS
+                // playlist requests in 54 s, which burns CPU the audio path needs and
+                // is a good way to earn a rate limit, i.e. it can prolong the very
+                // state it is trying to leave. The counter is uint8_t, so it is also
+                // clamped: wrapping past 255 would drop the back-off for two rounds.
+                // E-HL1: счётчик только растёт, поэтому сравнение на равенство
+                // включало паузу ровно один раз — на второй пустой выборке, — а все
+                // последующие шли вообще без паузы. Станция с переставшим обновляться
+                // плейлистом начинала долбить CDN: замерено ~80 полных TLS-запросов
+                // плейлиста за 54 с. Это отъедает CPU у аудиопути и хорошо зарабатывает
+                // rate limit, то есть продлевает то самое состояние, из которого
+                // пытается выйти. Счётчик uint8_t, поэтому ещё и ограничен сверху:
+                // переполнение через 255 сняло бы паузу на два круга.
+                if(!host.valid()) {
+                    if(m_lVar.no_host_cnt < 255) m_lVar.no_host_cnt++;
+                }
+                else {
+                    m_lVar.no_host_cnt = 0;
+                    m_lVar.no_host_timer = millis();
+                    m_m3u8StallBeganMs = 0;
+                }
 
-                if(m_lVar.no_host_cnt == 2){m_lVar.no_host_timer = millis() + 2000;} // no new url? wait 2 seconds
+                if(m_lVar.no_host_cnt >= 2) {
+                    if(!m_m3u8StallBeganMs) m_m3u8StallBeganMs = millis();
+                    m_lVar.no_host_timer = millis() + M3U8_EMPTY_PLAYLIST_BACKOFF_MS;
+                    // stalled= is the whole point of the line: it turns "the refetches
+                    // look sparser now" into a number. empty x backoff should track it.
+                    // stalled= — главное в этой строке: он превращает «выборки вроде
+                    // стали реже» в число. empty x backoff должно с ним сходиться.
+                    if(m_lVar.no_host_cnt == 2 || (m_lVar.no_host_cnt % 4) == 0) {
+                        Serial.printf("[AUDIO.HLS] playlist has no new segment, empty=%u stalled=%lums backoff=%ums\n",
+                                      (unsigned)m_lVar.no_host_cnt,
+                                      (unsigned long)(millis() - m_m3u8StallBeganMs),
+                                      (unsigned)M3U8_EMPTY_PLAYLIST_BACKOFF_MS);
+                    }
+                }
                 if(host.valid()) { // host contains the next playlist URL
                     httpPrint(host.get());
                     m_dataMode = HTTP_RESPONSE_HEADER;

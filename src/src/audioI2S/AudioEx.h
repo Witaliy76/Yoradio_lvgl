@@ -885,6 +885,14 @@ private:
     // E-FL3: how long any start threshold above maxFrameSize may hold playback back.
     // E-FL3: сколько любой порог старта выше maxFrameSize может держать старт.
     static constexpr uint32_t STREAM_START_PREBUFFER_DEADLINE_MS = 5000;
+    // E-HL1: pause between refetches of an HLS playlist that returned no new
+    // segment. Kept at the value the one-shot back-off already used.
+    // E-HL1: пауза между повторными выборками плейлиста HLS, не давшего нового
+    // сегмента. Сохранено значение, которое уже использовала одноразовая пауза.
+    static constexpr uint32_t M3U8_EMPTY_PLAYLIST_BACKOFF_MS = 2000;
+    // E-HL1: when the current playlist stall began; 0 means it is advancing.
+    // E-HL1: когда начался текущий простой плейлиста; 0 — он обновляется.
+    uint32_t m_m3u8StallBeganMs = 0;
     static constexpr uint32_t OGG_WEBSTREAM_PREBUFFER_MIN_BYTES = 16 * 1024;
     // E-FL2: used when the station announces no icy-bitrate. The floor above would
     // give such a stream only a token cushion - 16 KiB is 0.13 s at ~1 Mbit/s - and
