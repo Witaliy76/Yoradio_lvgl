@@ -294,7 +294,15 @@ class Audio{
     void         computeLimit();
     void         Gain(int16_t* sample);
     void         showstreamtitle(char* ml);
+    void         finishPreserveReconnectFallback();   // E-HO2
     bool         parseContentType(char* ct);
+    // E-HO2: the same parser writing into caller-chosen fields. While an old buffer
+    // is still being played out, the response of the replacement connection must
+    // land in staging, never in the live fields the audio task reads.
+    // E-HO2: тот же парсер, пишущий в поля, выбранные вызывающим. Пока
+    // доигрывается старый буфер, ответ нового соединения должен попадать в
+    // staging, а не в живые поля, которые читает аудиозадача.
+    bool         parseContentTypeInto(char* ct, uint8_t& codec, bool& isOgg, uint8_t& plsFmt);
     bool         parseHttpResponseHeader();
     bool         parseHttpRangeHeader();
     // E-MP1: takes the codec whose decoder must survive the cleanup, because the
@@ -358,6 +366,15 @@ class Audio{
     // E-VS7: consumes a reopen request published by the audio task.
     // E-VS7: разбирает запрос на переоткрытие, выставленный аудиозадачей.
     void         pollVorbisReopenRequest();
+    void         requestVorbisReopenFromAudioTask();
+    // E-HO1: one decode epoch = one stream the audio task is actually decoding.
+    // Bumped where that stream is really torn down (setDefaults), not where a new
+    // one is merely intended (beginPlaybackSession).
+    // E-HO1: одна decode epoch = один поток, который реально декодирует
+    // аудиозадача. Инкремент там, где поток действительно снесён (setDefaults), а
+    // не там, где новый только намечен (beginPlaybackSession).
+    void         beginDecodeEpoch();
+    bool         audioTaskStopGateActive() const { return m_f_audioTaskStopGate; }
     // E-ST1: the audio task asks for a stop instead of performing one.
     // E-ST1: аудиозадача просит остановку, а не выполняет её сама.
     void         requestStopFromAudioTask(const char* reason);
@@ -895,6 +912,14 @@ private:
     static constexpr uint32_t AAC_OVERLAP_SCAN_LIMIT_MS = 10000;
     uint8_t  m_unstableStreamFailures     = 0;
     uint8_t  m_preservedStreamCodec       = CODEC_NONE;
+    // E-HO2: staging for the replacement response. Verified against the preserved
+    // stream before anything live is touched; discarded if incompatible.
+    // E-HO2: staging для ответа нового соединения. Проверяется против
+    // сохранённого потока до изменения живых полей; при несовместимости
+    // отбрасывается.
+    uint8_t  m_stagedCodec                = CODEC_NONE;
+    uint8_t  m_stagedPlaylistFormat       = FORMAT_NONE;
+    bool     m_f_stagedOgg                = false;
     // E-VS7: cross-task hand-off. sendBytes() runs on the audio task, but the
     // socket belongs to Audio::loop() on the player task, so the audio side only
     // publishes a request plus the session it belongs to; the owner task acts on
@@ -903,8 +928,25 @@ private:
     // владеет Audio::loop() в задаче Player, поэтому аудио-сторона только публикует
     // запрос и сессию, которой он принадлежит; задача-владелец его исполняет и
     // отбрасывает устаревший после STOP или смены станции.
-    volatile bool m_f_vorbisReopenRequested = false;
-    uint32_t      m_vorbisReopenSession     = 0;
+    // E-HO1: a request is published and taken as one unit under a short spinlock.
+    // The previous volatile flag was cleared before its session/reason were read,
+    // so a request published in that window kept its flag but lost its payload and
+    // was then dropped as stale. No network, cleanup or wait runs inside the
+    // section - it only copies a POD.
+    // E-HO1: запрос публикуется и забирается целиком под коротким spinlock.
+    // Прежний volatile-флаг снимался до чтения session/reason, поэтому запрос,
+    // опубликованный в этом окне, сохранял флаг, но терял содержимое и дальше
+    // отбрасывался как устаревший. Внутри секции нет ни сети, ни cleanup, ни
+    // ожиданий — только копирование POD.
+    struct AudioTaskRequest {
+        bool        pending = false;
+        uint32_t    epoch   = 0;
+        const char* reason  = nullptr;   // string literal, always valid
+    };
+    portMUX_TYPE      m_audioRequestMux = portMUX_INITIALIZER_UNLOCKED;
+    AudioTaskRequest  m_stopRequest{};
+    AudioTaskRequest  m_vorbisReopenRequest{};
+    uint32_t          m_decodeEpoch     = 1;
     // E-ST1: stopSong() is a cross-task call by design - it raises m_f_lockInBuffer
     // and waits for m_f_audioTaskIsDecoding to clear. Called from the audio task
     // that wait is on itself: it spins out after ~100 ms and then frees the decoder
@@ -917,9 +959,16 @@ private:
     // буферы декодера, находясь внутри него, и закрывает m_client, пока задача
     // Player может быть в m_client->read(). Поэтому аудиозадача публикует запрос,
     // а выполняет остановку Audio::loop().
-    volatile bool m_f_audioTaskStopRequested = false;
-    uint32_t      m_audioTaskStopSession     = 0;
-    const char*   m_audioTaskStopReason      = nullptr;
+    // E-HO1: hard gate. m_f_playing=false is not a stop - sendBytes() reads it as
+    // "lost sync", resyncs and resumes decoding and publishing PCM. This gate is
+    // checked by performAudioTask/playAudioData/sendBytes and is the only thing
+    // that actually holds the audio task still until the owner acts.
+    // E-HO1: жёсткий затвор. m_f_playing=false — не остановка: sendBytes()
+    // читает его как «потеряна синхронизация», делает resync и продолжает
+    // декодировать и публиковать PCM. Этот затвор проверяют
+    // performAudioTask/playAudioData/sendBytes, и только он реально удерживает
+    // аудиозадачу до реакции владельца.
+    volatile bool m_f_audioTaskStopGate      = false;
     bool     m_f_streamHadAudio             = false;
     bool     m_f_shortLivedCounted          = false;
     bool     m_f_streamConnectionStable     = false;
