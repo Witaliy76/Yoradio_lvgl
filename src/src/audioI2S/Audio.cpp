@@ -5084,6 +5084,7 @@ void Audio::processWebStream() {
         m_audioFilePosition = 0;
         m_sdet.tmr_lost = millis() + WEBSTREAM_STALL_RECONNECT_MS;
         m_sdet.cnt_lost = 0;
+        m_streamStartWaitBeganMs = millis();   // E-FL3
     }
     // chunked data tramsfer
     if(m_f_chunked && m_pwst.availableBytes){
@@ -5159,6 +5160,29 @@ void Audio::processWebStream() {
                                  min(oggPrebufferTarget, OGG_WEBSTREAM_PREBUFFER_MAX_BYTES));
         streamStartThreshold = max(streamStartThreshold, oggPrebufferTarget);
     }
+    // E-FL3: a prebuffer must not be able to wait forever. A server that hands over a
+    // short burst and then goes quiet without closing the socket leaves the target
+    // unreachable, and the station stays silent for good while the UI shows PLAYING.
+    // After the deadline the threshold falls back to the library's original
+    // maxFrameSize, so the worst case is the pre-prebuffer behaviour - play what
+    // arrived, then starve - instead of permanent silence. Lowering only, never raising.
+    // E-FL3: prebuffer не должен уметь ждать вечно. Сервер, отдавший короткий пакет и
+    // замолчавший, не закрывая сокет, делает порог недостижимым, и станция молчит
+    // навсегда, показывая в UI PLAYING. По истечении срока порог возвращается к
+    // исходному maxFrameSize библиотеки, и худший случай — поведение до prebuffer:
+    // играем то, что пришло, потом голодаем, — вместо вечной тишины. Порог только
+    // понижается, никогда не повышается.
+    if(!m_f_stream && m_streamStartWaitBeganMs && streamStartThreshold > m_pwst.maxFrameSize &&
+       (millis() - m_streamStartWaitBeganMs) >= STREAM_START_PREBUFFER_DEADLINE_MS &&
+       InBuff.bufferFilled() >= m_pwst.maxFrameSize) {
+        Serial.printf("[AUDIO.BUFFER] prebuffer deadline after %lums filled=%lu want=%lu -> start at %lu\n",
+                      (unsigned long)(millis() - m_streamStartWaitBeganMs),
+                      (unsigned long)InBuff.bufferFilled(),
+                      (unsigned long)streamStartThreshold,
+                      (unsigned long)m_pwst.maxFrameSize);
+        streamStartThreshold = m_pwst.maxFrameSize;
+        oggPrebufferTarget = 0;
+    }
     if(InBuff.bufferFilled() >= streamStartThreshold && !m_f_stream) { // waiting for buffer filled
         if(m_codec == CODEC_AAC && !m_f_tts) {
             Serial.printf("[AUDIO.BUFFER] AAC prebuffer ready bytes=%lu target=%lu\n",
@@ -5178,6 +5202,7 @@ void Audio::processWebStream() {
             if(codec == CODEC_VORBIS) {initializeDecoder(codec); m_codec = codec; AUDIO_INFO("format is vorbis");}
         }
         AUDIO_INFO("stream ready");
+        m_streamStartWaitBeganMs = 0;   // E-FL3: not waiting any more
         m_f_stream = true;  // ready to play the audio data
     }
 

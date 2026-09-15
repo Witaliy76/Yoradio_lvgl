@@ -882,6 +882,9 @@ private:
     // FLAC 1,4 Мбит/с, поэтому размер считается от заявленного битрейта и
     // ограничивается: нижняя граница — чтобы запас не был бессмысленным, верхняя —
     // чтобы старт на высоком битрейте не казался медленным.
+    // E-FL3: how long any start threshold above maxFrameSize may hold playback back.
+    // E-FL3: сколько любой порог старта выше maxFrameSize может держать старт.
+    static constexpr uint32_t STREAM_START_PREBUFFER_DEADLINE_MS = 5000;
     static constexpr uint32_t OGG_WEBSTREAM_PREBUFFER_MIN_BYTES = 16 * 1024;
     // E-FL2: used when the station announces no icy-bitrate. The floor above would
     // give such a stream only a token cushion - 16 KiB is 0.13 s at ~1 Mbit/s - and
@@ -968,6 +971,11 @@ private:
     // декодировать и публиковать PCM. Этот затвор проверяют
     // performAudioTask/playAudioData/sendBytes, и только он реально удерживает
     // аудиозадачу до реакции владельца.
+    // E-FL3: when the current connection began waiting for the start threshold;
+    // 0 means the stream is already running.
+    // E-FL3: когда текущее соединение начало ждать стартовый порог;
+    // 0 означает, что поток уже идёт.
+    uint32_t      m_streamStartWaitBeganMs   = 0;
     volatile bool m_f_audioTaskStopGate      = false;
     bool     m_f_streamHadAudio             = false;
     bool     m_f_shortLivedCounted          = false;
