@@ -890,6 +890,20 @@ private:
     // E-HL1: пауза между повторными выборками плейлиста HLS, не давшего нового
     // сегмента. Сохранено значение, которое уже использовала одноразовая пауза.
     static constexpr uint32_t M3U8_EMPTY_PLAYLIST_BACKOFF_MS = 2000;
+    // E-HL2: how long a playlist may publish nothing before the HLS session is
+    // restarted. Segments here run about 5 s, so this is three missed segments in
+    // a row - clearly not normal, but not yet panic. The worst case a listener can
+    // experience is this window times MAX_UNSTABLE_STREAM_FAILURES, because a
+    // restart cannot revive a playlist that only offers already-played segments;
+    // that product is what keeps the silence bounded, so the two must be read
+    // together.
+    // E-HL2: сколько плейлист может ничего не публиковать до перезапуска сессии
+    // HLS. Сегменты здесь около 5 с, то есть это три пропущенных подряд — уже явно
+    // не норма, но ещё не паника. Худшее, что услышит слушатель, — это окно,
+    // умноженное на MAX_UNSTABLE_STREAM_FAILURES, потому что перезапуск не оживляет
+    // плейлист, отдающий только уже проигранные сегменты; именно это произведение
+    // ограничивает тишину, поэтому читать их надо вместе.
+    static constexpr uint32_t M3U8_STALL_GIVEUP_MS = 15000;
     // E-HL1: when the current playlist stall began; 0 means it is advancing.
     // E-HL1: когда начался текущий простой плейлиста; 0 — он обновляется.
     uint32_t m_m3u8StallBeganMs = 0;

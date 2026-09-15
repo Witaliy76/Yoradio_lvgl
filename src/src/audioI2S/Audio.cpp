@@ -4507,6 +4507,62 @@ void Audio::loop() {
                                       (unsigned long)(millis() - m_m3u8StallBeganMs),
                                       (unsigned)M3U8_EMPTY_PLAYLIST_BACKOFF_MS);
                     }
+
+                    // E-HL2: a stalled playlist must not look like playback. Polling it
+                    // forever leaves the UI on PLAYING with no audio - the outcome
+                    // rejected for the Ogg prebuffer in E-FL3, reached by another road.
+                    // The session is restarted from the master playlist rather than
+                    // stopped: on a CDN this stall is usually temporary, and a restart
+                    // renews the TLS connection and the playlist state machine.
+                    // It does NOT make already-played segments playable again:
+                    // m_playlistBuff, the URL of the last segment played, survives
+                    // setDefaults(), and replaying known segments would be audible
+                    // repetition rather than recovery. A playlist that only ever offers
+                    // known segments therefore burns the budget and ends in the terminal
+                    // stop below - which is the honest outcome.
+                    // The shared unstable-stream budget is reused, not duplicated: a
+                    // session restart is one physical connect attempt, which is exactly
+                    // one budget unit by the contract in audio_retry_budget.h. A dead
+                    // station therefore ends in an honest terminal stop instead of
+                    // reconnecting forever, and a station that recovers gets its budget
+                    // back from pollStreamStability().
+                    // E-HL2: замерший плейлист не должен выглядеть как воспроизведение.
+                    // Бесконечный опрос оставляет UI в PLAYING без звука — тот самый
+                    // исход, который забракован для Ogg-prebuffer в E-FL3, только другой
+                    // дорогой. Сессия перезапускается с мастер-плейлиста, а не
+                    // останавливается: на CDN такой простой обычно временный, и перезапуск
+                    // обновляет TLS-соединение и конечный автомат плейлиста.
+                    // Он НЕ делает уже проигранные сегменты пригодными снова:
+                    // m_playlistBuff — URL последнего проигранного сегмента — переживает
+                    // setDefaults(), а повтор известных сегментов был бы слышимым
+                    // повтором, а не восстановлением. Плейлист, отдающий только известные
+                    // сегменты, поэтому исчерпывает бюджет и заканчивается терминальной
+                    // остановкой ниже — это честный исход.
+                    // Общий бюджет нестабильного потока переиспользуется, а не дублируется:
+                    // перезапуск сессии — одна физическая попытка подключения, то есть
+                    // ровно одна единица бюджета по контракту audio_retry_budget.h.
+                    // Мёртвая станция поэтому заканчивается честной терминальной
+                    // остановкой, а восстановившаяся получает бюджет назад из
+                    // pollStreamStability().
+                    const uint32_t stalledMs = millis() - m_m3u8StallBeganMs;
+                    if(stalledMs >= M3U8_STALL_GIVEUP_MS && m_lastHost.valid()) {
+                        m_m3u8StallBeganMs = 0;
+                        m_lVar.no_host_cnt = 0;
+                        m_lVar.no_host_timer = millis();
+                        if(attemptInternalReconnect(true)) {
+                            Serial.printf("[AUDIO.HLS] playlist stalled %lums -> restart session retry=%u/%u\n",
+                                          (unsigned long)stalledMs,
+                                          (unsigned)m_unstableStreamFailures,
+                                          (unsigned)MAX_UNSTABLE_STREAM_FAILURES);
+                            connecttohost(m_lastHost.get());
+                        }
+                        else {
+                            Serial.printf("[AUDIO.HLS] playlist stalled %lums -> retry budget exhausted, terminal stop\n",
+                                          (unsigned long)stalledMs);
+                            finishUnstableStreamExhausted();
+                        }
+                        break;
+                    }
                 }
                 if(host.valid()) { // host contains the next playlist URL
                     httpPrint(host.get());
