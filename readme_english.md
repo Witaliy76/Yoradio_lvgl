@@ -257,6 +257,10 @@ Normal interface text can be replaced with a **TTF** file (not OTF, and not icon
 
 If no user file is present or the file is rejected, factory Montserrat remains. Tabler icons are unchanged. Optional Play and PT Sans samples live in [`fonts/samples/`](fonts/samples/); they are not firmware assets and are not copied into LittleFS at build time.
 
+<p align="center">
+  <img src="readme/english/webui-user-font-guide.png" alt="Web UI user text font setup" width="700">
+</p>
+
 ## Differences from upstream
 
 This fork develops YoRadio as a touchscreen device with an LVGL interface and board-specific hardware profiles. Compared with [e2002/yoradio](https://github.com/e2002/yoradio), it adds:
