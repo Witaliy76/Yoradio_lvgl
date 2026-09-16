@@ -34,6 +34,7 @@
 #include "../theme/lv_theme_yoradio.h"
 #include "../widgets/wgt_status_line.h"
 #include "../lv_img_disk_header.h"
+#include "../lv_text_scroll.h"
 #include "lvgl_ui.h"
 
 namespace lvgl_ui {
@@ -75,13 +76,21 @@ static constexpr lv_coord_t kMetaStationX = 19;
 static constexpr lv_coord_t kMetaStationY = 74;
 static constexpr lv_coord_t kMetaStationW = 432;
 static constexpr lv_coord_t kMetaStationH = 28;
-static constexpr lv_coord_t kMetaArtistX  = 40;
+// Artist/song share one box so centered text stays on one axis. With frame_padding=8 the old
+// x=40/w=400 sat at panel 48..448 (visible while song scrolls left-origin): left edge moved 12 px left,
+// right edge unchanged. Song H=22 is below the 18 px font line height ON PURPOSE: LVGL rolls short
+// text vertically (kept by request).
+// Artist/song — одна рамка, чтобы центрированный текст был на одной оси. Со frame_padding=8 старые
+// x=40/w=400 давали 48..448 на панели (видно при скролле песни): левый край сдвинут на 12 px влево,
+// правый не менялся. H=22 у песни меньше высоты строки шрифта НАМЕРЕННО — LVGL прокручивает короткий
+// текст по вертикали (оставлено по решению).
+static constexpr lv_coord_t kMetaArtistX  = 28;
 static constexpr lv_coord_t kMetaArtistY  = 352;
-static constexpr lv_coord_t kMetaArtistW  = 400;
+static constexpr lv_coord_t kMetaArtistW  = 412;
 static constexpr lv_coord_t kMetaArtistH  = 28;
-static constexpr lv_coord_t kMetaSongX    = 40;
+static constexpr lv_coord_t kMetaSongX    = 28;
 static constexpr lv_coord_t kMetaSongY    = 384;
-static constexpr lv_coord_t kMetaSongW    = 400;
+static constexpr lv_coord_t kMetaSongW    = 412;
 static constexpr lv_coord_t kMetaSongH    = 22;
 
 static void visual_set_font(lv_obj_t* obj, const void* font_slot) {
@@ -95,6 +104,9 @@ static void visual_set_text_if_changed(lv_obj_t* lbl, const char* s) {
     const char* cur = lv_label_get_text(lbl);
     if (cur != nullptr && strcmp(cur, s) == 0) return;
     lv_label_set_text(lbl, s);
+    // FU6-A: no-op for station/artist (not registered); recomputes duration for _lbl_song.
+    // FU6-A: для station/artist — no-op (не зарегистрированы); для _lbl_song — пересчёт длительности.
+    text_scroll::notifyTextChanged(lbl);
 }
 
 // In-place split for mutable copy of title (Main UI pattern). / Разбор копии title как на Main.
@@ -411,6 +423,13 @@ void LvglVisualPage::create_metadata_layer(LvglVisualPage& self, const YoRadioPa
             pal.text_meta,
             LV_TEXT_ALIGN_CENTER);
         lv_label_set_text(self._lbl_song, "");
+        // FU6-A: only the song/track title is a scroll consumer (station/artist stay LONG_DOT).
+        // Shared helper reads the CENTER alignment set above and restores it whenever the text
+        // fits again; register last, once width/font/alignment are final (contract in lv_text_scroll.h).
+        // FU6-A: скроллится только song/title (station/artist остаются LONG_DOT). Общий хелпер
+        // читает заданное выше CENTER и возвращает его, когда текст снова помещается; регистрируем
+        // последним, когда ширина/шрифт/выравнивание уже заданы.
+        text_scroll::registerLabel(self._lbl_song);
     }
 }
 

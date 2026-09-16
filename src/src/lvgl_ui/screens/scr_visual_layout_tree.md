@@ -83,8 +83,8 @@ _screen  (flex COLUMN; pad_all=frame_pad; pad_row=4; not scrollable)
 ├── _metadata_layer              FLOATING; pos(0,0); size(480×480)
 │                                bg_opa=TRANSP; border=0; pad=0; opa=COVER (static)
 │   ├── _lbl_station             pos(19, 74);  size(432×28); M22; text_secondary; LONG_DOT
-│   ├── _lbl_artist              pos(40,352);  size(400×28); M22; text_secondary; LONG_DOT
-│   └── _lbl_song                pos(40,384);  size(400×22); M18; text_meta;      LONG_DOT
+│   ├── _lbl_artist              pos(28,352);  size(412×28); M22; text_secondary; LONG_DOT
+│   └── _lbl_song                pos(28,384);  size(412×22); M18; text_meta;      FU6 scroll (shared)
 │
 ├── _status_line.root            flex-managed (not FLOATING); lv_obj_move_foreground ↑
 └── _status_divider              flex-managed (not FLOATING); 1 px; lv_obj_move_foreground ↑
@@ -148,8 +148,8 @@ This compensates the root `pad_all = frame_padding`, so both layers fill the ful
 Positions in px (content-area coordinates):
 ```
 _lbl_station:  x=19,  y=74,  w=432, h=28
-_lbl_artist:   x=40,  y=352, w=400, h=28
-_lbl_song:     x=40,  y=384, w=400, h=22
+_lbl_artist:   x=28,  y=352, w=412, h=28
+_lbl_song:     x=28,  y=384, w=412, h=22   (FU6 scroll; H < line height → vertical roll when short)
 ```
 
 ### Segments
