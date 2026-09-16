@@ -263,8 +263,8 @@ Exactly one of `_cont_data` / `_cont_empty_center` is shown; `_cont_footer` is a
 
 - **data** — `wxEnabled && current+forecast valid`: `_cont_data` visible (hero / hourly / daily), footer shows location + age + tap hint.
 - **loading** — enabled, no data, `fetch_in_progress` or `InternalLow`: centered message `kStrPleaseWait`.
-- **unavailable / error** — enabled, no data, terminal error (`FetchFailed` / `NotConfigured` / `NotConnected`): message `kStrTemporarilyUnavailable`, footer offers retry.
-- **disabled / no data** — `!wxEnabled`: message `kStrWeatherUnavail`, footer offers retry.
+- **unavailable / error** — enabled, no data, terminal error (`FetchFailed` / `NotConfigured` / `NotConnected`): message `kStrTemporarilyUnavailable`, footer shows the status + tap-to-return-to-Main hint.
+- **disabled / no data** — `!wxEnabled`: message `kStrWeatherUnavail`, footer shows the status + tap-to-return-to-Main hint.
 - **waiting** — enabled, no data, no error yet: message `kStrForecastWaiting`.
 - **stale** — has data but `stale` flag or age > `WEATHER_STALE_AFTER_MS`: footer shows `kStrDataMayBeOutdated` + tap-to-return-to-Main hint.
 - **refreshing footer** — has data and an automatic fetch is in progress: footer shows `kStrFooterRefreshing`.
@@ -333,3 +333,4 @@ Behavior and on-screen output remain unchanged; this document tracks the pipelin
 - **W2 narrowing:** `WeatherState.current` is filled from the forecast, so "current valid" == "forecast valid"; the data body requires both.
 - Widget `wgt_status_line` is defined in `[../widgets/wgt_status_line.cpp](../widgets/wgt_status_line.cpp)`; only its `root` container is relevant to the Weather layout contract.
 - All `lv_*` calls run on `DspTask` only, via `Display::loop()` → `lvgl_ui::taskHandler` / `refreshWeatherScreen()`.
+- **Pressure unit:** `WeatherState.current.pressure_hpa` stays in hPa end to end; `_val_pressure` is the only place it is converted, via `weatherHpaToMmHg()` (`kHpaToMmHg`, `weather_state.h`), and rendered as `"%d mmHg"`.

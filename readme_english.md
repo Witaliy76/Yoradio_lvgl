@@ -31,10 +31,15 @@ Each page has a distinct role: Main is for listening, Visual for atmosphere, Inf
 - Internet radio playback: MP3, AAC, FLAC, OGG/Vorbis, and Opus.
 - Six-page LVGL 9.5 touchscreen interface: Info, Main, Visual, Stations, Weather, and Settings.
 - Paged station list with eight visible rows.
-- Weather with current conditions and a forecast from OpenWeatherMap.
+- Weather with current conditions and a forecast from OpenWeatherMap; pressure is shown in mmHg.
 - Beocord-inspired Visual with two channels and eight signal segments per channel.
+- TIMERS — independent Radio Stop/Start and Deep Sleep presets with a relative RTC wake (WAKE AFTER SLEEP).
+- Configurable text scrolling (Settings → Display → Scrolling: speed, type, delay), shared by Main, Info, Weather, and Visual.
+- Performance monitor — an FPS/CPU overlay in Settings → Display, toggled without a reboot; off by default.
 - Preset Temporary for quick access to eight saved stations.
 - Analog Screensaver for idle operation.
+- Hardware amplifier MUTE: a central semantic MUTE drives a dedicated `MUTE_PIN` GPIO line; an independent, optional `BTN_MUTE` button uses GND with an internal pull-up. Neither is wired by default on ESP32-4848S040.
+- Configurable `WAKE_PIN` for Deep Sleep wake (BOOT / GPIO0 on ESP32-4848S040).
 - Web UI for playback, stations, settings, Appearance, and firmware updates.
 - Dark, Light, and Custom themes, station artwork, and separate Main backgrounds for each theme.
 - Compile-time RU / EN / PL / SK interface localization.
@@ -159,6 +164,8 @@ The display follows the decoded audio signal through two independent channels. E
 
 Strongly compressed radio streams may keep the segments within a narrow range. That is a normal reflection of the stream dynamics, not a Visual fault. The indicators operate only while a stream is playing.
 
+The song title below the indicator scrolls using the shared Scrolling settings (Settings → Display → Scrolling) when it does not fit the available width.
+
 <p align="center">
   <img src="readme/english/visual-screen-guide.png" alt="Dual-channel Visual meter" width="450">
 </p>
@@ -173,7 +180,9 @@ Stations shows the station list, the current position and total count, the activ
 
 ### Weather
 
-Weather shows current conditions, feels-like temperature, wind, humidity, pressure, precipitation, hourly points, and a three-day forecast from OpenWeatherMap.
+Weather shows current conditions, feels-like temperature, wind, humidity, atmospheric pressure (in mmHg), precipitation, hourly points, and a three-day forecast from OpenWeatherMap.
+
+Open Weather with a swipe, or by tapping the weather icon in the status line from any other page (Info, Main, Visual, Stations, Settings). Refresh is automatic only, on a timer; there is no separate manual Refresh action on the screen. The bottom pill is not a refresh indicator — it is a Return-to-Main button, and tapping it switches to Main immediately.
 
 The weather network path retries failed name resolution or connections up to three times in one update cycle. It tries the system DNS first, then Cloudflare at `1.1.1.1`, and Quad9 at `9.9.9.9`. Addresses already attempted in the same cycle are deduplicated, and a working IP from current conditions is preferred for the forecast request. This reduces failures caused by temporary router or provider DNS problems, but it does not guarantee uninterrupted service.
 
@@ -210,7 +219,9 @@ There are eight slots. Tap a filled slot to play it; long press to save the curr
 
 ### Display settings
 
-Settings → Display contains brightness, Auto Dim, Performance monitor, and the theme selector.
+Settings → Display contains brightness, Auto Dim, Performance monitor, the theme selector, and Scrolling.
+
+**Scrolling** configures how long text moves: **Speed** (px/s), **Type** (Off / Circular / Back and forth), and **Delay** (pause before the next pass). The settings are shared and apply on Main (station name, track, artist, AI line), Info (long values), Weather (current condition and the footer), and Visual (track title).
 
 <p align="center">
   <img src="readme/english/display-settings-guide.png" alt="Display settings" width="450">
@@ -367,7 +378,9 @@ The custom **LwIP** profile supports long playback of demanding network streams,
 
 The custom **mbedTLS** profile is not merely an HTTPS switch. AI Layer can make a TLS request while LVGL and the audio decoder are active. With the stock profile, the TLS handshake could fail when a sufficiently large contiguous internal-memory block was unavailable. The dynamic-buffer mode lowers those requirements, while a guard skips a request if the available block is still too small. The archives form one matched profile, together with their link options, and must not be replaced individually with arbitrary versions.
 
-The rebuilt **esp_lcd** is what the RGB display needs: the automatic per-VSYNC RGB panel restart is disabled in it, and YoRadio's own Display layer owns resynchronisation instead. Stock `esp_lcd` cannot reproduce that behaviour.
+The **Wi-Fi** and **LwIP** builds place their buffers in PSRAM first. This keeps large contiguous internal-memory blocks available for audio and TLS during demanding streams.
+
+**esp_lcd** is not part of the set: the RGB display uses the stock ESP-IDF 5.5.5 library with the automatic per-VSYNC RGB panel restart enabled (`RESTART_IN_VSYNC=ON`). The earlier rebuild with that restart disabled has been retired, and the build helper rejects an overlay directory that contains it again.
 
 - ESP32-S3 and ESP32-P4 are separate profiles. A custom archive set is currently adopted for S3 only; a P4 build uses stock ESP-IDF libraries throughout and never inherits the S3 archives.
 - The Windows build is device-verified. Building with the local overlay on Linux/macOS has not been exercised yet — that is an open portability item, not a known firmware problem.

@@ -186,8 +186,12 @@ The values below follow `src/myoptions_4848S040.h`.
 | GT911 touch SDA / SCL | 19 / 45 |
 | I2S DATA / BCLK / LRCK | 40 / 1 / 2 |
 | BOOT button / Deep-Sleep wake (`WAKE_PIN`, active LOW) | 0 — shared with `ST7701_R4` |
+| Physical MUTE button (`BTN_MUTE`, optional) | 255 — not wired by default |
+| Amplifier mute/enable output (`MUTE_PIN`, optional) | 255 — not wired by default |
 
 The SD pins in this configuration are not used for playback in the public beta.
+
+**MUTE.** `BTN_MUTE` is an optional physical button to GND with an internal pull-up (`BTN_INTERNALPULLUP`). `MUTE_PIN` is an independent, optional 3.3 V GPIO output that `Player::setOutputPins()` drives as a separate amplifier mute/enable line — not the same signal as the button. Both default to disabled (`255`) on ESP32-4848S040: no GPIO is claimed and no handler is registered. If your board or amplifier supports a hardware mute/enable line, set a free GPIO in `src/myoptions_4848S040.h`.
 
 ## Links
 
