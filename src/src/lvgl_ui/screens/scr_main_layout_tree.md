@@ -39,10 +39,10 @@ _screen
 │   │   └── lbl_wifi
 │   ├── col_center  (one of three equal flex columns)
 │   │   └── lbl_clock
-│   ├── col_right  (one of three equal flex columns)
-│   │   └── cont_weather
-│   │       ├── lbl_weather_glyph
-│   │       └── lbl_weather_temp
+│   ├── col_right  (one of three equal flex columns; passive geometry anchor)
+│   ├── cont_weather  (FLOATING transparent 112×42 hit owner; aligned over col_right)
+│   │   ├── lbl_weather_glyph
+│   │   └── lbl_weather_temp
 │   └── lbl_sleep_timer  (FLOATING; hidden when OFF; left-aligned at LEFT_MID +76)
 ├── status_divider
 ├── _spacer_top
@@ -108,7 +108,7 @@ flowchart TB
     CR[col_right]
     WIFI[lbl_wifi]
     CLK[lbl_clock]
-    CWX[cont_weather]
+    CWX[cont_weather FLOATING 112x42 hit owner]
     SLEEP[lbl_sleep_timer FLOATING]
   end
 
@@ -172,7 +172,7 @@ flowchart TB
   SL --> SLEEP
   CL --> WIFI
   CC --> CLK
-  CR --> CWX
+  SL --> CWX
   CWX --> WG
   CWX --> WT
   CM --> CMR

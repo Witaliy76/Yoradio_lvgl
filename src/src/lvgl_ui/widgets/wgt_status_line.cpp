@@ -14,6 +14,8 @@
 
 #include "../fonts/lv_fonts.h"
 #include "../font_provider.h"
+#include "../lv_page_chain.h"
+#include "../lvgl_ui.h"
 #include "../profiles/lv_profile_select.h"
 #include "../theme/lv_theme_yoradio.h"
 #include "../weather_owm_glyph.h"
@@ -33,6 +35,44 @@ static const lv_font_t* wifi_icon_font() { return FontProvider::icon(22); }
 // Мини-погода: на ступень меньше 22 px глифа Wi‑Fi на status row.
 static const lv_font_t* weather_icon_font() { return FontProvider::icon(20); }
 
+// 480x480 geometry: 112 px stays inside the right status column; 42 px uses the top frame,
+// the 30 px status row and the smallest 4 px divider gap without touching that divider.
+// Геометрия 480x480: 112 px остаются справа, а 42 px используют верхнюю рамку, status row
+// и минимальный зазор до divider, не сдвигая видимую строку.
+static constexpr lv_coord_t kWeatherHitWidth = 112;
+static constexpr lv_coord_t kWeatherHitHeight = 42;
+static constexpr lv_coord_t kWeatherHitPadHorizontal = 8;
+static constexpr lv_coord_t kWeatherHitPadTop = 4;
+static constexpr lv_coord_t kStatusRootPadVertical = 4;
+static constexpr int32_t kWeatherHitRootOverflow = 8;
+
+static bool s_weather_navigation_pending = false;
+
+static void status_root_ext_draw_size_cb(lv_event_t* e) {
+    if (!e || lv_event_get_code(e) != LV_EVENT_REFR_EXT_DRAW_SIZE) return;
+    lv_event_set_ext_draw_size(e, kWeatherHitRootOverflow);
+}
+
+static void open_weather_async_cb(void* /*data*/) {
+    s_weather_navigation_pending = false;
+    if (isLvglCarouselOnWeatherSlot()) return;
+    goToCarouselPage(PageChain::WEATHER_INDEX);
+}
+
+static void weather_clicked_cb(lv_event_t* e) {
+    if (!e || lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+
+    notifyPageChainActivity("status-weather");
+    if (isLvglCarouselOnWeatherSlot() || s_weather_navigation_pending) return;
+
+    // PageChain owns Weather lifecycle. Defer until LVGL finishes this click dispatch because
+    // goTo() may synchronously delete the active page tree. / Жизненным циклом владеет PageChain;
+    // переход откладываем, чтобы goTo() не удалял active tree внутри обработки клика.
+    if (lv_async_call(open_weather_async_cb, nullptr) == LV_RES_OK) {
+        s_weather_navigation_pending = true;
+    }
+}
+
 static void set_font_slot(lv_obj_t* obj, const void* font_slot) {
     if (!obj || !font_slot) return;
     lv_obj_set_style_text_font(obj, static_cast<const lv_font_t*>(font_slot), LV_PART_MAIN);
@@ -49,6 +89,7 @@ static void style_status_column(lv_obj_t* col) {
     lv_obj_set_style_border_width(col, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(col, 0, LV_PART_MAIN);
     lv_obj_clear_flag(col, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(col, LV_OBJ_FLAG_CLICKABLE);
 }
 
 static void format_sleep_timer_text(char* out, size_t cap, bool compact) {
@@ -102,7 +143,17 @@ bool create(lv_obj_t* parent, Instance& out) {
     lv_obj_set_style_pad_all(out.root, 0, LV_PART_MAIN);
     const void* clock_f = FontProvider::text(18);
     const void* wx_temp_f = FontProvider::text(14);
-    lv_obj_set_style_pad_ver(out.root, 4, LV_PART_MAIN);
+    lv_obj_set_style_pad_ver(out.root, kStatusRootPadVertical, LV_PART_MAIN);
+    // Passive shell: the floating weather wrapper below is the only status-line click owner.
+    // Пассивная оболочка: единственный владелец клика — floating-контейнер погоды ниже.
+    lv_obj_clear_flag(out.root, LV_OBJ_FLAG_CLICKABLE);
+    // The 42 px child intentionally reaches into the screen frame/gap while root stays 30 px high.
+    // Extend only clipping/search bounds; flex geometry remains unchanged. / Дочерняя зона 42 px
+    // заходит в рамку/зазор, поэтому расширяем только clip/hit bounds, не flex-геометрию.
+    lv_obj_add_flag(out.root, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    lv_obj_add_event_cb(
+        out.root, status_root_ext_draw_size_cb, LV_EVENT_REFR_EXT_DRAW_SIZE, nullptr);
+    lv_obj_refresh_ext_draw_size(out.root);
 
     lv_obj_t* col_left = lv_obj_create(out.root);
     lv_obj_t* col_center = lv_obj_create(out.root);
@@ -137,21 +188,42 @@ bool create(lv_obj_t* parent, Instance& out) {
         lv_obj_set_style_text_color(out.lbl_clock, pal.clock_text, LV_PART_MAIN);
     }
 
-    out.cont_weather = lv_obj_create(col_right);
+    out.cont_weather = lv_obj_create(out.root);
     if (out.cont_weather) {
-        lv_obj_set_width(out.cont_weather, LV_SIZE_CONTENT);
-        lv_obj_set_height(out.cont_weather, LV_SIZE_CONTENT);
+        // Larger invisible hit owner, floating outside flex so glyph/text keep their old position
+        // and the status/divider geometry does not move. / Увеличенная прозрачная зона вне flex:
+        // видимые glyph/text и геометрия status/divider остаются на прежнем месте.
+        lv_obj_add_flag(out.cont_weather, LV_OBJ_FLAG_FLOATING);
+        lv_obj_set_size(out.cont_weather, kWeatherHitWidth, kWeatherHitHeight);
+        const lv_coord_t frame_pad = static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.frame_padding);
+        lv_obj_align(
+            out.cont_weather,
+            LV_ALIGN_TOP_RIGHT,
+            frame_pad,
+            -frame_pad);
         lv_obj_set_flex_flow(out.cont_weather, LV_FLEX_FLOW_ROW);
         lv_obj_set_flex_align(
             out.cont_weather,
-            LV_FLEX_ALIGN_START,
+            LV_FLEX_ALIGN_END,
             LV_FLEX_ALIGN_CENTER,
             LV_FLEX_ALIGN_CENTER);
         lv_obj_set_style_pad_all(out.cont_weather, 0, LV_PART_MAIN);
+        lv_obj_set_style_pad_hor(out.cont_weather, kWeatherHitPadHorizontal, LV_PART_MAIN);
+        // Top-only padding keeps the visible glyph/text on the original status-row center while
+        // the transparent hit owner spans y=0..41. / Верхний padding сохраняет прежний центр
+        // glyph/text, пока прозрачная зона касания занимает y=0..41.
+        lv_obj_set_style_pad_top(out.cont_weather, kWeatherHitPadTop, LV_PART_MAIN);
         lv_obj_set_style_pad_column(out.cont_weather, 4, LV_PART_MAIN);
         lv_obj_set_style_bg_opa(out.cont_weather, LV_OPA_TRANSP, LV_PART_MAIN);
         lv_obj_set_style_border_width(out.cont_weather, 0, LV_PART_MAIN);
+        lv_obj_set_style_outline_width(out.cont_weather, 0, LV_PART_MAIN);
+        lv_obj_set_style_shadow_width(out.cont_weather, 0, LV_PART_MAIN);
         lv_obj_clear_flag(out.cont_weather, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(out.cont_weather, LV_OBJ_FLAG_CLICKABLE);
+        // Preserve carousel ownership for a deliberate horizontal swipe begun on this zone.
+        // Сохраняем владельца карусели для горизонтального свайпа, начатого на этой зоне.
+        lv_obj_add_flag(out.cont_weather, LV_OBJ_FLAG_GESTURE_BUBBLE);
+        lv_obj_add_event_cb(out.cont_weather, weather_clicked_cb, LV_EVENT_CLICKED, nullptr);
 
         out.lbl_weather_glyph = lv_label_create(out.cont_weather);
         if (out.lbl_weather_glyph) {
@@ -161,6 +233,7 @@ bool create(lv_obj_t* parent, Instance& out) {
             // Theme: status_weather_icon / status_weather_temp (glance row, not bottom_weather).
             // Тема: отдельные токены глифа и °C для верхней полосы.
             lv_obj_set_style_text_color(out.lbl_weather_glyph, pal.status_weather_icon, LV_PART_MAIN);
+            lv_obj_clear_flag(out.lbl_weather_glyph, LV_OBJ_FLAG_CLICKABLE);
         }
         out.lbl_weather_temp = lv_label_create(out.cont_weather);
         if (out.lbl_weather_temp) {
@@ -168,6 +241,7 @@ bool create(lv_obj_t* parent, Instance& out) {
             lv_label_set_long_mode(out.lbl_weather_temp, LV_LABEL_LONG_CLIP);
             set_font_slot(out.lbl_weather_temp, wx_temp_f);
             lv_obj_set_style_text_color(out.lbl_weather_temp, pal.status_weather_temp, LV_PART_MAIN);
+            lv_obj_clear_flag(out.lbl_weather_temp, LV_OBJ_FLAG_CLICKABLE);
         }
         lv_obj_add_flag(out.cont_weather, LV_OBJ_FLAG_HIDDEN);
     }
