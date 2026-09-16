@@ -201,6 +201,42 @@ size_t read_line(WiFiClient& client, char* buf, size_t cap, uint32_t timeoutMs) 
     return n;
 }
 
+// POST-S6: legacy altitude fallback, compile-time only — no Settings/myoptions.h wiring.
+// Reachable only when the provider omits grnd_level; 0 means "no correction" (default).
+// POST-S6: legacy-поправка на высоту, только compile-time — не вынесена в Settings/myoptions.h.
+// Применяется только когда провайдер не прислал grnd_level; 0 = без поправки (по умолчанию).
+#ifndef GRND_HEIGHT
+#define GRND_HEIGHT 0
+#endif
+
+// POST-S6: single surface-pressure precedence, shared by /weather and /forecast so both
+// produce the same current.pressure_hpa semantics (§4/§6):
+//   1. grnd_level (true ground/surface pressure) wins whenever the provider sends it.
+//   2. otherwise main.pressure, optionally corrected by the legacy GRND_HEIGHT fallback.
+//   3. otherwise unavailable (0).
+// grnd_level побеждает — это истинное давление у земли; GRND_HEIGHT — только legacy-фолбэк,
+// когда провайдер его не прислал; иначе main.pressure без изменений; иначе недоступно (0).
+//
+// Legacy formula being preserved was mmHg-domain: mmHg ≈ pressure_hPa/1.333 − GRND_HEIGHT/11.
+// Moved into the hPa normalization layer so pressure_hpa itself is the surface estimate:
+// the GRND_HEIGHT/11 correction (originally in mmHg) is converted to hPa via the same
+// physical constant used for UI display (kHpaToMmHg), so there is only one conversion
+// formula in the codebase (§8) instead of two independently-tuned ones.
+// Сохраняемая legacy-формула была в мм.рт.ст.: мм.рт.ст. ≈ pressure_hPa/1.333 − GRND_HEIGHT/11.
+// Перенесена в hPa-слой нормализации: поправка GRND_HEIGHT/11 (изначально в мм.рт.ст.)
+// переводится в hPa тем же физическим коэффициентом, что и для UI (kHpaToMmHg) — одна
+// формула конвертации на весь проект вместо двух независимых.
+static inline uint16_t resolveSurfacePressureHpa(int grnd_val, int pres_hpa) {
+    if (grnd_val > 0) return static_cast<uint16_t>(grnd_val);
+    if (pres_hpa <= 0) return 0;
+    if (GRND_HEIGHT > 0) {
+        const float correction_hpa = (GRND_HEIGHT / 11.0f) / kHpaToMmHg;
+        const float adjusted = static_cast<float>(pres_hpa) - correction_hpa;
+        return static_cast<uint16_t>(adjusted > 0.0f ? lroundf(adjusted) : 0);
+    }
+    return static_cast<uint16_t>(pres_hpa);
+}
+
 } // namespace
 
 // ── A4.0: current-conditions JSON parser (ArduinoJson v7, PSRAM allocator) ──────────────
@@ -256,12 +292,13 @@ bool weatherParseCurrentBody(const char* body, WeatherCurrentParsed* out) {
     out->tc.owm_code     = doc["weather"][0]["id"]   | 0;
     out->tc.updated_at   = doc["dt"]                 | 0u;
 
-    // Pressure: prefer grnd_level (more accurate at altitude) over sea-level pressure.
-    // Давление: grnd_level предпочтительнее sea-level при наличии.
+    // Surface pressure: grnd_level (true ground pressure) wins; otherwise main.pressure
+    // with the optional legacy GRND_HEIGHT correction — see resolveSurfacePressureHpa().
+    // Давление у земли: grnd_level в приоритете; иначе main.pressure с опциональной
+    // legacy-поправкой GRND_HEIGHT — см. resolveSurfacePressureHpa().
     const int grnd_val  = doc["main"]["grnd_level"] | -1;
     const int pres_hpa  = doc["main"]["pressure"]   | 0;
-    const bool has_grnd = (grnd_val > 0);
-    out->tc.pressure_hpa = (uint16_t)(has_grnd ? grnd_val : pres_hpa);
+    out->tc.pressure_hpa = resolveSurfacePressureHpa(grnd_val, pres_hpa);
 
     const char* icon = doc["weather"][0]["icon"] | "";
     const char* desc = doc["weather"][0]["description"] | "";
@@ -280,17 +317,11 @@ bool weatherParseCurrentBody(const char* body, WeatherCurrentParsed* out) {
 
     // ── Human-readable ##WEATHER### diagnostic helper fields ─────────────────
     // ── Вспомогательные поля для serial-диагностики ##WEATHER### ─────────────
-    // pressure_mmhg: OWM hPa → mmHg with optional altitude adjustment.
-    // Давление: OWM hPa → мм.рт.ст. с поправкой на высоту.
-#ifndef GRND_HEIGHT
-#define GRND_HEIGHT 0
-#endif
-    const int g_height = (int)((float)GRND_HEIGHT / 11.0f);
-    if (has_grnd) {
-        out->pressure_mmhg = (int)((float)grnd_val / 1.333f);       // no altitude adjustment
-    } else {
-        out->pressure_mmhg = (int)((float)pres_hpa / 1.333f) - g_height;
-    }
+    // pressure_mmhg: derived from the already-normalized surface pressure_hpa via the
+    // shared conversion helper — single formula, no separate diagnostic-only math.
+    // pressure_mmhg: считается из уже нормализованного pressure_hpa общим хелпером —
+    // одна формула конвертации, без отдельной diagnostic-only математики.
+    out->pressure_mmhg = weatherHpaToMmHg(out->tc.pressure_hpa);
 
     // wind_dir_idx: raw degrees → 0..15 compass index for wind[] PROGMEM array.
     out->wind_dir_idx = (int)((float)out->tc.wind_deg / 22.5f);
@@ -729,6 +760,7 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
     filter["list"][0]["main"]["temp_max"] = true;
     filter["list"][0]["main"]["feels_like"] = true;
     filter["list"][0]["main"]["pressure"] = true;
+    filter["list"][0]["main"]["grnd_level"] = true;  // POST-S6: same surface-pressure precedence as /weather
     filter["list"][0]["main"]["humidity"] = true;
     filter["list"][0]["weather"][0]["id"] = true;
     filter["list"][0]["weather"][0]["icon"] = true;
@@ -796,6 +828,7 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
         const float    tmax     = item["main"]["temp_max"] | temp;
         const float    feels    = item["main"]["feels_like"] | temp;
         const uint16_t pressure = item["main"]["pressure"] | 0;
+        const int      grnd_level = item["main"]["grnd_level"] | -1;
         const uint8_t  humidity = item["main"]["humidity"] | 0;
         const float    wspeed   = item["wind"]["speed"] | 0.0f;
         const uint16_t wdeg     = item["wind"]["deg"] | 0;
@@ -810,7 +843,7 @@ WeatherForecastFetchResult weatherFetchForecast(const char* units, const char* l
             s_builder.current.temp_c           = temp;
             s_builder.current.feels_like_c     = feels;
             s_builder.current.humidity         = humidity;
-            s_builder.current.pressure_hpa     = pressure;
+            s_builder.current.pressure_hpa     = resolveSurfacePressureHpa(grnd_level, pressure);
             s_builder.current.wind_speed       = wspeed;
             s_builder.current.wind_deg         = wdeg;
             s_builder.current.rain_probability = pop;

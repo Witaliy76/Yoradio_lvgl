@@ -67,7 +67,7 @@ struct WeatherTrueCurrent {
 // A4.0: полный результат парсинга — WeatherTrueCurrent для WeatherState + поля для ##WEATHER###.
 struct WeatherCurrentParsed {
     WeatherTrueCurrent tc;        // A4.0 state fields
-    int    pressure_mmhg;         // hPa→mmHg for ##WEATHER### (with GRND_HEIGHT adjustment)
+    int    pressure_mmhg;         // tc.pressure_hpa→mmHg for ##WEATHER### (GRND_HEIGHT already folded into tc.pressure_hpa)
     int    wind_dir_idx;          // 0..15 compass index for wind[] PROGMEM array
     bool   has_gust;              // true if wind.gust present in response
     int    gust_mps;              // gust speed m/s integer

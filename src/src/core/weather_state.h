@@ -2,6 +2,7 @@
 #define weather_state_h
 
 #include <stdint.h>
+#include <math.h>
 
 /*
  * Shared weather model (current + hourly + daily snapshot), owned by core.
@@ -23,6 +24,17 @@
  *
  * Author: Witaliy76 - https://github.com/Witaliy76
  */
+
+// POST-S6: canonical hPa→mmHg conversion, shared by UI display and serial diagnostics
+// so the two never drift onto separate formulas. Internal state stays hPa (§8); mmHg
+// is a presentation-only conversion applied at render/log time.
+// POST-S6: единая конвертация hPa→мм.рт.ст., общая для UI и serial-диагностики, чтобы
+// не разошлись на две формулы. Внутреннее состояние остаётся в hPa; мм.рт.ст. — только
+// для отображения/лога.
+static constexpr float kHpaToMmHg = 0.750061683f;
+static inline int weatherHpaToMmHg(float hpa) {
+    return static_cast<int>(lroundf(hpa * kHpaToMmHg));
+}
 
 // W-R3/W-R4: single compile-time regular refresh interval (seconds).
 // W-R3/W-R4: единый compile-time интервал регулярного обновления (секунды).

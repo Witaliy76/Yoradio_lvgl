@@ -1500,8 +1500,10 @@ void LvglWeatherPage::_renderWeatherData(const WeatherState& snap) {
     wx_set_text_if_changed(_val_wind, buf);
     wx_format_checked(buf, sizeof(buf), "--", "%u%%", static_cast<unsigned>(cur.humidity));
     wx_set_text_if_changed(_val_humidity, buf);
-    wx_format_checked(buf, sizeof(buf), "--", "%u hPa",
-                      static_cast<unsigned>(cur.pressure_hpa));
+    // Canonical state stays hPa; convert to mmHg for display only (weatherHpaToMmHg, weather_state.h).
+    // Внутреннее состояние остаётся в hPa; в мм.рт.ст. переводим только для отображения.
+    wx_format_checked(buf, sizeof(buf), "--", "%d mmHg",
+                      weatherHpaToMmHg(static_cast<float>(cur.pressure_hpa)));
     wx_set_text_if_changed(_val_pressure, buf);
     wx_format_checked(buf, sizeof(buf), "--", "%u%%",
                       static_cast<unsigned>(cur.rain_probability));
