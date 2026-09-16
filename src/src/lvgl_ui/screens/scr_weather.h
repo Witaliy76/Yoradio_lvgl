@@ -18,7 +18,7 @@ namespace lvgl_ui {
 struct YoRadioPalette;
 
 // Weather W2 — LVGL-native 480×480 Weather Page (read-only consumer of core WeatherState).
-// Reads weatherGetStateSnapshot() only; network fetch stays in W1 / doSync (A2b: footer requests refresh via flag).
+// Reads weatherGetStateSnapshot() only; network fetch stays in W1 / doSync (footer tap returns to Main).
 // Renders: hero (icon + temp + condition + feels), metrics (wind/humidity/pressure/rain),
 // hourly strip (4), daily strip (3), footer status. Handles valid / waiting / unavailable states.
 //
@@ -70,7 +70,6 @@ private:
     struct WeatherRenderDecision;
 
     WeatherViewState _deriveViewState(const WeatherState& snap, uint32_t now_ms) const;
-    void _resolveManualRefresh(const WeatherState& snap, uint32_t now_ms);
     WeatherRenderDecision _makeRenderDecision(const WeatherState& snap,
                                               const WeatherViewState& view) const;
     void _renderWeatherData(const WeatherState& snap);
@@ -157,15 +156,11 @@ private:
     lv_obj_t* _cont_daily = nullptr;
     DailyCell _daily[kDailyCells]{};
 
-    // A2b: footer tap → async weather refresh (no HTTP in LVGL callback).
-    // A2b: тап по футеру → асинхронный refresh (без HTTP в LVGL-callback).
-    static void _onFooterRefreshClick(lv_event_t* e);
-    uint32_t _last_refresh_tap_ms = 0;
-    bool     _manual_refresh_pending = false;
-    uint32_t _refresh_watch_version = 0;
-    uint32_t _refresh_pending_since_ms = 0;
-    static constexpr uint32_t kRefreshTapThrottleMs = 12000u;
-    static constexpr uint32_t kRefreshPendingTimeoutMs = 90000u;
+    // FU4.2.25: footer pill tap → Main via PageChain (status text stays informational; weather
+    // refreshes automatically, so the manual refresh action was retired).
+    // FU4.2.25: тап по футеру → Main через PageChain (текст статуса остаётся; погода обновляется
+    // автоматически, ручной refresh убран).
+    static void _onFooterReturnToMainClick(lv_event_t* e);
 
     // A3.2 perf: differential-render cache — invalidated on enter()/destroy()/releaseAfterAutoDelete().
     // Skips body rebuild when visible state is unchanged; footer updated separately on minute change.

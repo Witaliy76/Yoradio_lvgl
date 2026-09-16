@@ -56,8 +56,7 @@ enum class TextId : uint16_t {
   WeatherTemporarilyUnavailable,
   WeatherDataMayBeOutdated,
   WeatherRefreshing,
-  WeatherTapToRefresh,
-  WeatherTapToRetry,
+  WeatherTapToReturnToMain,
   WeatherUpdatedJustNow,
   WeatherUpdatedMinutesAgoFormat,
   WeatherUpdatedHoursAgoFormat,
@@ -398,8 +397,7 @@ inline constexpr std::array<TextSpec, textCount()> kTextSpecs{{
   makeTextSpec("", 80),    // WeatherTemporarilyUnavailable
   makeTextSpec("", 80),    // WeatherDataMayBeOutdated
   makeTextSpec("", 64),    // WeatherRefreshing
-  makeTextSpec("", 64),    // WeatherTapToRefresh
-  makeTextSpec("", 64),    // WeatherTapToRetry
+  makeTextSpec("", 80),    // WeatherTapToReturnToMain
   makeTextSpec("", 64),    // WeatherUpdatedJustNow
   makeTextSpec("%u", 80),  // WeatherUpdatedMinutesAgoFormat
   makeTextSpec("%u", 80),  // WeatherUpdatedHoursAgoFormat

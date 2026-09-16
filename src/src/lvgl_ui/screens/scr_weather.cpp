@@ -5,7 +5,7 @@
  * - Implements ILvglScreen: create → enter → update → exit → destroy (+ liveReapplyTheme).
  * - DspTask-only lv_* via Display::loop → lvgl_ui::taskHandler / refreshWeatherScreen().
  * - Data: weatherGetStateSnapshot() ONLY (W1 double-buffer seqlock). No network from UI.
- *   A2b: footer tap calls weatherRequestManualRefresh() (async flag only; HTTP in doSync).
+ *   FU4.2.25: footer tap returns to Main via PageChain (deferred); refresh is automatic only.
  * - Layout: LV_ACTIVE_PROFILE + yoradio_palette() only; reuse OWM glyph map + weather icon fonts.
  *
  * Accepted W2 narrowing (no WeatherState change):
@@ -44,9 +44,9 @@
 #include "../theme/lv_theme_yoradio.h"
 #include "../weather_owm_glyph.h"
 #include "lvgl_ui.h"
+#include "../lv_page_chain.h"
 #include "../../core/config.h"
 #include "../../core/network.h"  // A3.1: network.timeinfo (NTP-synced local date, read-only) / дата из NTP
-#include "../../core/weather_fetch.h"  // A2b: weatherRequestManualRefresh() / async refresh flag
 #include "../../core/weather_state.h"
 #include "../../i18n/i18n.h"
 
@@ -833,31 +833,31 @@ static void wx_format_footer(char* buf, size_t cap, bool wx_enabled, bool have_d
     if (!wx_enabled) {
         wx_format_footer_action(buf, cap,
                                 i18n::text(i18n::TextId::WeatherUnavailable),
-                                i18n::text(i18n::TextId::WeatherTapToRetry), nullptr);
+                                i18n::text(i18n::TextId::WeatherTapToReturnToMain), nullptr);
         return;
     }
     if (resource_deferred) {
         wx_format_footer_action(buf, cap,
                                 i18n::text(i18n::TextId::WeatherMemoryDeferredStatus),
-                                i18n::text(i18n::TextId::WeatherTapToRefresh), loc_p);
+                                i18n::text(i18n::TextId::WeatherTapToReturnToMain), loc_p);
         return;
     }
     if (!have_data) {
         if (unavailable_no_data) {
             wx_format_footer_action(
                 buf, cap, i18n::text(i18n::TextId::WeatherTemporarilyUnavailable),
-                i18n::text(i18n::TextId::WeatherTapToRetry), nullptr);
+                i18n::text(i18n::TextId::WeatherTapToReturnToMain), nullptr);
         } else {
             wx_format_footer_action(buf, cap,
                                     i18n::text(i18n::TextId::WeatherForecastNotLoaded),
-                                    i18n::text(i18n::TextId::WeatherTapToRefresh), nullptr);
+                                    i18n::text(i18n::TextId::WeatherTapToReturnToMain), nullptr);
         }
         return;
     }
     if (effective_stale) {
         wx_format_footer_action(buf, cap,
                                 i18n::text(i18n::TextId::WeatherDataMayBeOutdated),
-                                i18n::text(i18n::TextId::WeatherTapToRefresh), loc_p);
+                                i18n::text(i18n::TextId::WeatherTapToReturnToMain), loc_p);
         return;
     }
     char age[kFooterAgeCap];
@@ -866,7 +866,7 @@ static void wx_format_footer(char* buf, size_t cap, bool wx_enabled, bool have_d
     // E33: no trailing sep — appended by caller only if text overflows the label.
     // E33: trailing sep убран — вызывающий добавит только если текст переполняет label.
     wx_format_checked(inner, sizeof(inner), age, "%s%s%s", age, kStrFooterSep,
-                      i18n::text(i18n::TextId::WeatherTapToRefresh));
+                      i18n::text(i18n::TextId::WeatherTapToReturnToMain));
     wx_footer_prepend_location(buf, cap, loc_p, inner);
 }
 
@@ -1209,7 +1209,10 @@ void LvglWeatherPage::create_footer(LvglWeatherPage& self, const YoRadioPalette&
             lv_obj_set_flex_align(self._footer_box, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
             lv_obj_add_flag(self._footer_box, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_clear_flag(self._footer_box, LV_OBJ_FLAG_SCROLLABLE);
-            lv_obj_add_event_cb(self._footer_box, _onFooterRefreshClick, LV_EVENT_CLICKED, &self);
+            // A horizontal swipe started on the pill still belongs to the carousel (Settings/status-line convention).
+            // Горизонтальный свайп, начатый на pill, остаётся за каруселью (как в Settings/status line).
+            lv_obj_add_flag(self._footer_box, LV_OBJ_FLAG_GESTURE_BUBBLE);
+            lv_obj_add_event_cb(self._footer_box, _onFooterReturnToMainClick, LV_EVENT_CLICKED, nullptr);
 
             self._lbl_footer = lv_label_create(self._footer_box);
             if (self._lbl_footer) {
@@ -1218,7 +1221,7 @@ void LvglWeatherPage::create_footer(LvglWeatherPage& self, const YoRadioPalette&
                     wx_format_footer_action(
                         fb, sizeof(fb),
                         i18n::text(i18n::TextId::WeatherForecastNotLoaded),
-                        i18n::text(i18n::TextId::WeatherTapToRefresh), nullptr);
+                        i18n::text(i18n::TextId::WeatherTapToReturnToMain), nullptr);
                     lv_label_set_text(self._lbl_footer, fb);
                 }
                 wx_set_font(self._lbl_footer, font_condition());
@@ -1241,36 +1244,32 @@ void LvglWeatherPage::create_footer(LvglWeatherPage& self, const YoRadioPalette&
 // ─────────────────────────────────────────────────────────────────────────────
 // Class methods / Методы класса LvglWeatherPage
 // ─────────────────────────────────────────────────────────────────────────────
-void LvglWeatherPage::_onFooterRefreshClick(lv_event_t* e) {
+// Deferred PageChain navigation shared by every Weather instance; the flag lives outside the page
+// tree because goTo(MAIN) auto-deletes that tree. / Отложенная навигация PageChain; флаг вне дерева
+// страницы, потому что goTo(MAIN) удаляет это дерево.
+static bool s_return_to_main_pending = false;
+
+static void weather_return_to_main_async_cb(void* /*data*/) {
+    s_return_to_main_pending = false;
+    // A swipe may already have left Weather before this ran — never yank the user back to Main.
+    // Свайп мог уже увести с Weather до вызова — не перебрасываем пользователя на Main.
+    if (!isLvglCarouselOnWeatherSlot()) return;
+    goToCarouselPage(PageChain::MAIN_INDEX);
+}
+
+void LvglWeatherPage::_onFooterReturnToMainClick(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    auto* self = static_cast<LvglWeatherPage*>(lv_event_get_user_data(e));
-    if (!self || !self->_lbl_footer) return;
 
-    const uint32_t now = millis();
-    if (now - self->_last_refresh_tap_ms < LvglWeatherPage::kRefreshTapThrottleMs) {
-        return; // throttle spam / антиспам тапов
+    notifyPageChainActivity("weather-return-main");
+    if (s_return_to_main_pending) return;
+
+    // PageChain owns the Weather→Main lifecycle. goTo() synchronously deletes this page tree
+    // (the pill included), so it must run after LVGL finishes this click dispatch.
+    // Жизненным циклом Weather→Main владеет PageChain; goTo() синхронно удаляет дерево страницы
+    // (вместе с pill), поэтому переход выполняем после завершения обработки клика.
+    if (lv_async_call(weather_return_to_main_async_cb, nullptr) == LV_RES_OK) {
+        s_return_to_main_pending = true;
     }
-    self->_last_refresh_tap_ms = now;
-    self->_manual_refresh_pending = true;
-    self->_refresh_pending_since_ms = now;
-
-    // Snapshot version at request time — update() clears pending when it changes.
-    // Версия на момент запроса — update() сбросит pending при изменении.
-    WeatherState snap{};
-    if (weatherGetStateSnapshot(&snap)) {
-        self->_refresh_watch_version = snap.version;
-    } else {
-        self->_refresh_watch_version = 0;
-    }
-
-    weatherRequestManualRefresh(); // flag only — no HTTP in LVGL / только флаг, без HTTP
-    char fb[kFooterTextCap];
-    const bool wxEnabled = config.store.showweather && (strlen(config.store.weatherkey) > 0);
-    const bool haveData = snap.forecast_valid && snap.current.valid;
-    wx_format_footer(fb, sizeof(fb), wxEnabled, haveData, true, false, false,
-                     snap.forecast_updated_at, false, &snap.location);
-    wx_footer_maybe_add_trailing_sep(fb, sizeof(fb), self->_lbl_footer);
-    wx_set_text_if_changed(self->_lbl_footer, fb);
 }
 
 ScreenType LvglWeatherPage::screenType() const {
@@ -1340,8 +1339,6 @@ struct LvglWeatherPage::WeatherRenderDecision {
 
 // Pure derivation — no snapshot read, no member mutation, no LVGL, no formatting, no network.
 // Чистое вычисление — без чтения снапшота, мутации членов, LVGL, форматирования и сети.
-// NB: show_refreshing_footer and view_sig are captured here, BEFORE _resolveManualRefresh, so they
-// reflect the pre-resolve _manual_refresh_pending exactly as the baseline did.
 LvglWeatherPage::WeatherViewState
 LvglWeatherPage::_deriveViewState(const WeatherState& snap, uint32_t now_ms) const {
     WeatherViewState v{};
@@ -1362,7 +1359,7 @@ LvglWeatherPage::_deriveViewState(const WeatherState& snap, uint32_t now_ms) con
     v.resource_deferred =
         v.wx_enabled && (snap.last_error == WeatherLastError::InternalLow);
     v.show_refreshing_footer =
-        v.have_data && (_manual_refresh_pending || snap.fetch_in_progress);
+        v.have_data && snap.fetch_in_progress;
 
     // A3.2 perf: compact visible-state signature — detects all transitions that require a body/footer rebuild.
     // A3.2 perf: компактная сигнатура видимого состояния; ловит все переходы, требующие rebuild.
@@ -1393,24 +1390,6 @@ LvglWeatherPage::_deriveViewState(const WeatherState& snap, uint32_t now_ms) con
     return v;
 }
 
-// W-R3: clear pending on attempt completion, new published version, or timeout. Affects FUTURE
-// passes only — this pass already captured show_refreshing_footer pre-resolve (baseline order).
-// W-R3: сброс pending при завершении попытки, новой версии или таймауте; влияет на будущие проходы.
-void LvglWeatherPage::_resolveManualRefresh(const WeatherState& snap, uint32_t now_ms) {
-    if (_manual_refresh_pending) {
-        const bool fetch_done = !snap.fetch_in_progress;
-        const int32_t attempt_after_request =
-            (int32_t)(snap.last_attempt_at_ms - _refresh_pending_since_ms);
-        if (fetch_done && snap.last_attempt_at_ms != 0u && attempt_after_request >= 0) {
-            _manual_refresh_pending = false;
-        } else if (snap.version != _refresh_watch_version) {
-            _manual_refresh_pending = false;
-        } else if (now_ms - _refresh_pending_since_ms >= kRefreshPendingTimeoutMs) {
-            _manual_refresh_pending = false;
-        }
-    }
-}
-
 // Dirty-category derivation / Вычисление категорий изменений.
 LvglWeatherPage::WeatherRenderDecision
 LvglWeatherPage::_makeRenderDecision(const WeatherState& snap, const WeatherViewState& view) const {
@@ -1435,6 +1414,14 @@ void LvglWeatherPage::_updateFooterText(const WeatherState& snap, const WeatherV
                      view.resource_deferred,
                      snap.forecast_updated_at, view.unavailable_without_data,
                      &snap.location);
+    // Resolve footer geometry first: the empty-state path (unlike _renderWeatherData) forces no layout,
+    // so on enter() the label is still 0 px wide — the overflow separator is skipped, the text equals
+    // the create() placeholder and text_scroll is never notified, leaving the line static.
+    // Сначала валидируем геометрию: пустое состояние layout не форсирует, ширина лейбла 0 — разделитель
+    // не добавляется, текст совпадает с placeholder из create(), text_scroll не уведомляется.
+    if (_lbl_footer && lv_obj_get_content_width(_lbl_footer) <= 0) {
+        lv_obj_update_layout(_lbl_footer);
+    }
     wx_footer_maybe_add_trailing_sep(footer_buf, sizeof(footer_buf), _lbl_footer);
     wx_set_text_if_changed(_lbl_footer, footer_buf);
 }
@@ -1598,18 +1585,14 @@ void LvglWeatherPage::update() {
         return; // writer busy → keep last rendered state / писатель занят — оставляем кадр
     }
 
-    // Single time read per pass — used by age/stale, minute bucket and pending timeout (same formulas).
-    // Одно чтение времени за проход — для age/stale, minute bucket и таймаута (формулы те же).
+    // Single time read per pass — used by age/stale and minute bucket (same formulas).
+    // Одно чтение времени за проход — для age/stale и minute bucket (формулы те же).
     const uint32_t now_ms = millis();
 
-    // 1) Derive visible state (pre-resolve: show_refreshing_footer + view_sig use current pending).
+    // 1) Derive visible state.
     const WeatherViewState view = _deriveViewState(s_snap, now_ms);
 
-
-    // 2) Resolve manual-refresh lifecycle (future passes only; footer this pass already captured).
-    _resolveManualRefresh(s_snap, now_ms);
-
-    // 3) Render decision (dirty categories).
+    // 2) Render decision (dirty categories).
     const WeatherRenderDecision decision = _makeRenderDecision(s_snap, view);
 
     if (!decision.full_render_needed && !decision.footer_only_needed) {

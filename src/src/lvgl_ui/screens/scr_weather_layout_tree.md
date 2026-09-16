@@ -10,7 +10,7 @@ Author: Witaliy76 - https://github.com/Witaliy76
 `scr_weather.cpp`:
 `LvglWeatherPage::create()` + private static `create_*` layout builders
 (`create_chrome`, `create_data_block`, `create_empty_center`, `create_footer`)
-are the source of truth for the object tree. `LvglWeatherPage::update()` plus its WEATHERREF-B pipeline helpers (`_deriveViewState`, `_resolveManualRefresh`, `_makeRenderDecision`, `_renderWeatherData`, `_renderEmptyState`, `_updateFooterText`, `_commitFullRenderCache`, `_commitFooterOnlyCache`) are the source of truth for the data/render flow described below.
+are the source of truth for the object tree. `LvglWeatherPage::update()` plus its WEATHERREF-B pipeline helpers (`_deriveViewState`, `_makeRenderDecision`, `_renderWeatherData`, `_renderEmptyState`, `_updateFooterText`, `_commitFullRenderCache`, `_commitFooterOnlyCache`) are the source of truth for the data/render flow described below.
 
 **Maintenance / Поддержка:**
 After any of the following, refresh the ASCII tree, the Mermaid block, and the data/render flow section so they stay accurate:
@@ -33,7 +33,7 @@ After any of the following, refresh the ASCII tree, the Mermaid block, and the d
 
 `_content` is a flex **column**:
 - `_body_area` — `flex_grow = 1`; hosts `_cont_data` (forecast) **and** `_cont_empty_center` (message), toggled by visibility
-- `_cont_footer` — `flex_grow = 0`; pinned at the bottom (status / refresh pill)
+- `_cont_footer` — `flex_grow = 0`; pinned at the bottom (status pill; tap returns to Main)
 
 **Sibling/creation order is load-bearing:** inside `_body_area`, `_cont_data` is created **before** `_cont_empty_center`; `_cont_footer` is created last inside `_content`. Only one of `_cont_data` / `_cont_empty_center` is visible at a time; `_cont_footer` is always visible.
 
@@ -103,7 +103,7 @@ _screen
     │   └── _cont_empty_center   (flex_grow=1; centered message; sibling AFTER _cont_data)
     │       └── _lbl_message     (LV_LABEL_LONG_WRAP)
     └── _cont_footer             (flex_grow=0; pinned bottom)
-        └── _footer_box          (clickable pill via wgt_footer_pill; _onFooterRefreshClick)
+        └── _footer_box          (clickable pill via wgt_footer_pill; _onFooterReturnToMainClick)
             └── _lbl_footer      (LV_LABEL_LONG_SCROLL_CIRCULAR; passivated via wgt_footer_pill::make_child_passive)
 ```
 
@@ -216,9 +216,7 @@ flowchart TB
 ```
 weatherGetStateSnapshot() — one snapshot per update pass
         ↓
-WeatherViewState derivation              (_deriveViewState; pure, pre-resolve)
-        ↓
-manual refresh resolution                (_resolveManualRefresh; affects FUTURE passes only)
+WeatherViewState derivation              (_deriveViewState; pure)
         ↓
 WeatherRenderDecision                    (_makeRenderDecision)
         ├── no-op            → return; cache untouched
@@ -239,8 +237,7 @@ POD render types — stack-only, never published, no dynamic allocation:
 - `LvglWeatherPage::WeatherRenderDecision` — `force_full` / `version_changed` / `view_changed` / `day_changed` / `minute_changed` / `full_render_needed` / `footer_only_needed`.
 
 Private methods:
-- `_deriveViewState(snap, now_ms) const` — pure derivation; no snapshot read, no member mutation, no LVGL, no formatting, no network. Captures `show_refreshing_footer` and `view_sig` **before** the manual-refresh resolve (baseline order).
-- `_resolveManualRefresh(snap, now_ms)` — clears `_manual_refresh_pending` on attempt completion / new version / timeout; affects **future** passes only.
+- `_deriveViewState(snap, now_ms) const` — pure derivation; no snapshot read, no member mutation, no LVGL, no formatting, no network. Captures `show_refreshing_footer` (automatic fetch in progress) and `view_sig`.
 - `_makeRenderDecision(snap, view) const` — dirty categories from the render cache + snapshot version + derived view.
 - `_renderWeatherData(snap)` — hero / metrics / hourly / daily (verbatim from the old body).
 - `_renderEmptyState(view)` — hide data, show centered message (disabled / unavailable / loading / waiting).
@@ -249,7 +246,7 @@ Private methods:
 - `_commitFooterOnlyCache(view)` — advances **only** `_rendered_minute_bucket`.
 
 Invariants:
-- **Exactly one** `weatherGetStateSnapshot()` per update pass (into a function-`static WeatherState` to keep it off the DspTask stack). The `_onFooterRefreshClick` callback performs its **own** separate snapshot read at tap time — this is not a second snapshot of the render pass, and render helpers never re-read `WeatherState`.
+- **Exactly one** `weatherGetStateSnapshot()` per update pass (into a function-`static WeatherState` to keep it off the DspTask stack). Render helpers never re-read `WeatherState`; the footer tap callback reads no weather data.
 - **One `millis()` read** per pass (`now_ms`) feeds age/stale, the minute bucket and the pending timeout (same formulas as baseline).
 - **No-op fast path** — returns without touching the cache when the visible state is unchanged.
 - **Footer-only path** — changes only `_rendered_minute_bucket`.
@@ -269,8 +266,8 @@ Exactly one of `_cont_data` / `_cont_empty_center` is shown; `_cont_footer` is a
 - **unavailable / error** — enabled, no data, terminal error (`FetchFailed` / `NotConfigured` / `NotConnected`): message `kStrTemporarilyUnavailable`, footer offers retry.
 - **disabled / no data** — `!wxEnabled`: message `kStrWeatherUnavail`, footer offers retry.
 - **waiting** — enabled, no data, no error yet: message `kStrForecastWaiting`.
-- **stale** — has data but `stale` flag or age > `WEATHER_STALE_AFTER_MS`: footer shows `kStrDataMayBeOutdated` + tap to refresh.
-- **refreshing footer** — has data and (manual refresh pending or fetch in progress): footer shows `kStrFooterRefreshing`.
+- **stale** — has data but `stale` flag or age > `WEATHER_STALE_AFTER_MS`: footer shows `kStrDataMayBeOutdated` + tap-to-return-to-Main hint.
+- **refreshing footer** — has data and an automatic fetch is in progress: footer shows `kStrFooterRefreshing`.
 
 These are documentation of existing behavior; neither WEATHERREF-A nor WEATHERREF-B changes the logic.
 
@@ -285,11 +282,10 @@ These are documentation of existing behavior; neither WEATHERREF-A nor WEATHERRE
 
 ---
 
-## Footer overflow and refresh behavior
+## Footer overflow and tap behavior
 
-- **Manual refresh:** tapping `_footer_box` calls `_onFooterRefreshClick` → `weatherRequestManualRefresh()` (async flag only; HTTP happens in `doSync`, never in LVGL).
-- **Tap throttle:** `kRefreshTapThrottleMs` (12 s) between accepted taps.
-- **Pending timeout:** `kRefreshPendingTimeoutMs` (90 s); `update()` also clears pending on attempt completion or new version.
+- **Return to Main (FU4.2.25):** tapping `_footer_box` calls `_onFooterReturnToMainClick` → `lv_async_call` → `goToCarouselPage(PageChain::MAIN_INDEX)`. Deferred because `goTo()` synchronously auto-deletes this page tree; a file-static pending flag drops repeat taps, and the async step skips navigation if the carousel already left Weather. The manual refresh action was retired — weather refreshes automatically; the pill text stays informational (location / age / stale / updating) with the action hint `WeatherTapToReturnToMain`.
+- **Gestures:** `_footer_box` has `LV_OBJ_FLAG_GESTURE_BUBBLE`, so a horizontal swipe started on the pill still reaches the carousel handler on the screen root.
 - **Composition:** optional `location` prefix + body (`age` / status + action), segments joined by `kStrFooterSep` (U+2022 •).
 - **Trailing separator:** appended **only when the text overflows** the footer label width — circular scroll needs the gap between repeated copies; static text that fits does not (`wx_footer_maybe_add_trailing_sep`).
 - `_lbl_footer` uses `LV_LABEL_LONG_SCROLL_CIRCULAR`.
