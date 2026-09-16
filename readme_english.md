@@ -48,68 +48,17 @@ Each page has a distinct role: Main is for listening, Visual for atmosphere, Inf
 
 ## Change history
 
-### 03 September 2026 — 0.9.434m-r2-lvgl-beta.2-s6.4
+### 2026-09-16 — 0.9.434m-r2-lvgl-beta.3
 
-Final acceptance of the ESP32-4848S040 board is complete.
+Major update to the user interface, audio subsystem, power management and customization features.
 
-**RGB scanout stabilization.** A long-standing defect is fixed: repeatedly saving a preset, or
-switching themes, could leave the screen black and then bring the image back shifted horizontally.
-The cause was the RGB panel driver policy — the project build of `libesp_lcd` disabled the
-automatic scanout restart on VSYNC. The stock ESP-IDF 5.5.5 build with `RESTART_IN_VSYNC=ON` is now
-used, and a build-time check prevents the obsolete library override from being reintroduced by
-accident. Neither the black screen nor the residual shift reproduces on the device any more.
-
-**Rapid theme switching.** Every tap on the Theme row used to run the whole heavy operation
-synchronously — reinitializing the LVGL theme, refreshing styles across the interface, reapplying
-pages and writing the choice to a file. A quick burst of switches could therefore trip the watchdog
-and reboot the device. Requests are now coalesced: only the final selection is applied, intermediate
-ones are discarded, and the file is written once. The Theme row shows the selected value
-immediately, and the final background matches the final theme.
-
-**Diagnostics cleanup.** Eight families of debug macros and temporary counters left over from closed
-investigations were removed from the sources (about 1070 lines), making the console output much
-quieter. PCM/VU telemetry and the touch, AI-layer and LVGL-stack debug switches are retained — they
-will be useful for upcoming work.
-
-Public beta remains `0.9.434m-r2-lvgl-beta.2`. This is not a separate public release.
-
-### 30 August 2026 — 0.9.434m-r2-lvgl-beta.2-s5.6
-
-Settings → Display now has a **Performance monitor**: the FPS/CPU overlay can be turned on or off without a reboot. It is off by default, and the choice is persisted. Compile-time LVGL sysmon was not disabled.
-
-Public beta remains `0.9.434m-r2-lvgl-beta.2`. This is not a separate public release.
-
-### 30 August 2026 — 0.9.434m-r2-lvgl-beta.2-s5.5
-
-Appearance can upload a user **TTF** for normal interface text (512 KiB maximum). A reboot is required to apply it; the live font does not hot-swap, and the device does not reboot by itself. If the file is missing or rejected, factory text remains. Play and PT Sans samples are in the repository and are not embedded in firmware.
-
-Public beta remains `0.9.434m-r2-lvgl-beta.2`. This is not a separate public release.
-
-### 29 August 2026 — 0.9.434m-r2-lvgl-beta.2-s5.3
-
-Main now uses factory JPEG backgrounds and browser-normalized user JPEGs. That reduces the LittleFS footprint. After a theme change or background upload, the RGB frame recovers automatically.
-
-Public beta remains `0.9.434m-r2-lvgl-beta.2`.
-
-### 29 August 2026 — 0.9.434m-r2-lvgl-beta.2-s4.8d
-
-A major modernization of YoRadio's graphics stack is complete.
-
-The interface now uses **LVGL 9.5**, and the ESP32-4848S040 display uses a direct **esp_lcd** path without Arduino_GFX. Appearance, navigation, and device behaviour were preserved through the change.
-
-Fonts now use **TTF/TinyTTF**: text and icons scale at runtime instead of a separate generated font for each size. Interface languages **RU / EN / PL / SK** are supported.
-
-The same work also includes a series of display, page-transition, Station Artwork, and RGB-panel fixes and optimizations.
-
-Public beta remains `0.9.434m-r2-lvgl-beta.2`; current sources continue active development.
-
-### 13 August 2026 — build environment update
-
-The project now uses **PIOArduino 55.03.311**, Arduino-ESP32 **3.3.11**, and ESP-IDF **5.5.5**.
-
-The system libraries YoRadio needs are stored and linked by the project itself. They support more robust networking and playback of demanding streams, including FLAC, and keep TLS and the RGB display working as a matched set.
-
-Manual replacement of files inside `.platformio` is no longer required. A normal build is PlatformIO → **Build**.
+- **Display & UI:** migrated to LVGL 9.5 and a new display backend; improved UI stability and display recovery.
+- **Fonts & backgrounds:** new TTF font system with user `user.ttf` upload through WebUI (applied after reboot); Main backgrounds are now stored as JPEG, user backgrounds can be uploaded through WebUI and automatically fit the display while preserving aspect ratio.
+- **Audio & Network:** significantly improved stream stability, HTTPS/AAC/AACP handling, URL/metadata processing and recovery from temporary network/server disconnects.
+- **Hardware Mute:** full `MUTE_PIN` / `BTN_MUTE` support with unified device/UI mute state.
+- **Power & Timers:** Radio Stop/Start timers, Deep Sleep/Wake timer, playback resume after wake, configurable WAKE_PIN; on 4848S040 GPIO0/BOOT is the current default wake path.
+- **UI improvements:** configurable shared text scrolling, Performance Monitor runtime control, Visual/Weather/navigation improvements, Weather quick access and mmHg pressure.
+- **Reliability:** persistence, display recovery, metadata and general runtime stability fixes.
 
 ### 28 July 2026 — 0.9.434m-r2-lvgl-beta.2
 
