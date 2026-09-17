@@ -83,7 +83,7 @@ The language selector belongs in `src/myoptions.h`; it is not a `platformio.ini`
 
 ## Ready-to-flash packages
 
-Ready-to-flash packages for `0.9.434m-r2-lvgl-beta.2` are in [`build_bin/4848S040/`](build_bin/4848S040/) for **RU / EN / PL / SK**.
+Ready-to-flash packages are in [`build_bin/4848S040/`](build_bin/4848S040/) for **RU / EN / PL / SK**. The current version, source commit, and hashes are in that directory's README.
 
 Each language folder contains:
 
