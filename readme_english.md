@@ -8,8 +8,8 @@ The device is accompanied by a Web UI for playback, stations, behavior settings,
 
 The project is based on [e2002/yoradio](https://github.com/e2002/yoradio). The current repository is [Witaliy76/Yoradio_lvgl](https://github.com/Witaliy76/Yoradio_lvgl).
 
-> **Public version:** `0.9.434m-r2-lvgl-beta.2`
-> **Current source:** `0.9.434m-r2-lvgl-beta.2-s6.4`
+> **Public version:** `0.9.434m-r2-lvgl-beta.3`
+> **Current source:** `0.9.434m-r2-lvgl-beta.3`
 > **Validated board:** ESP32-4848S040
 
 <p align="center">

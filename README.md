@@ -8,8 +8,8 @@ YoRadio LVGL — Wi-Fi интернет-радио на ESP32-S3 с сенсор
 
 Проект основан на [e2002/yoradio](https://github.com/e2002/yoradio); текущий репозиторий — [Yoradio_lvgl](https://github.com/Witaliy76/Yoradio_lvgl).
 
-> **Публичная версия:** `0.9.434m-r2-lvgl-beta.2`
-> **Текущие исходники:** `0.9.434m-r2-lvgl-beta.2-s6.4`
+> **Публичная версия:** `0.9.434m-r2-lvgl-beta.3`
+> **Текущие исходники:** `0.9.434m-r2-lvgl-beta.3`
 > **Проверенная плата:** ESP32-4848S040
 
 <p align="center">
