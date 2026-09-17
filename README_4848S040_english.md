@@ -83,7 +83,7 @@ The language selector belongs in `src/myoptions.h`; it is not a `platformio.ini`
 
 ## Ready-to-flash packages
 
-Ready-to-flash packages are in [`build_bin/4848S040/`](build_bin/4848S040/) for **RU / EN / PL / SK**. The current version, source commit, and hashes are in that directory's README.
+Ready-to-flash packages for `0.9.434m-r2-lvgl-beta.3` are in [`build_bin/4848S040/`](build_bin/4848S040/) for **RU / EN / PL / SK**. Firmware source commit: `eaeef984666499f47d006538841b355259b3352c`. Hashes are in the language-folder READMEs. Device RC smoke (B3-P7) is still pending.
 
 Each language folder contains:
 
