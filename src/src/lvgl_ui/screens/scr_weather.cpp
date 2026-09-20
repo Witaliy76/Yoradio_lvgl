@@ -111,7 +111,16 @@ static constexpr lv_coord_t kHeroInnerPadLeft = 16;
 // Fixed slot heights — keep icon / value / label rows aligned across all 4 metric cells.
 // Фиксированные высоты слотов — иконки и подписи на одной линии во всех ячейках.
 static constexpr lv_coord_t k_metric_icon_slot_h  = 26;
-static constexpr lv_coord_t k_metric_value_slot_h = 18;
+// 18→20: TinyTTF text(14) line_height=17 + 'g' AA descender needs a 1–2 px safety margin.
+// 18→20: TinyTTF text(14) line_height=17 + AA-вынос 'g' требует запас 1–2 px.
+static constexpr lv_coord_t k_metric_value_slot_h = 20;
+// Bounded pressure value width: covers factory "799 mmHg" (~81 px) with a small user.ttf margin.
+// Slot/cell stay OVERFLOW_VISIBLE so the centered 84 px label may use the inter-cell gutter;
+// text_scroll clips/scrolls inside this bound — never paints past it into neighbors.
+// Фикс. ширина давления: factory «799 mmHg» (~81 px) + запас под user.ttf.
+// OVERFLOW_VISIBLE на slot/cell — центрированные 84 px используют gutter; скролл/clip
+// только внутри этой ширины, без бесконтрольной отрисовки на соседние метрики.
+static constexpr lv_coord_t k_metric_pressure_value_w = 84;
 static constexpr lv_coord_t k_metric_label_slot_h = 17;
 // A3.1j: synced top row + small bump over pre-A3.1i baseline (hero/hourly readable).
 // A3.1j: выравнивание top row + небольшой прирост над baseline до A3.1i.
@@ -586,6 +595,24 @@ static void add_metric_cell(lv_obj_t* row, const char* icon_glyph, const char* l
         lv_obj_set_style_text_line_space(cap_lbl, 0, LV_PART_MAIN);
     }
     if (out_lbl) *out_lbl = cap_lbl;
+}
+
+// Pressure value: bounded width + overflow-visible parents + shared text_scroll fallback.
+// Factory NNN mmHg fits statically inside k_metric_pressure_value_w; wider user.ttf scrolls
+// only when global Scrolling is On and text exceeds the bound (Off → CLIP inside 84 px).
+// Давление: фикс. ширина + OVERFLOW_VISIBLE у родителей + общий text_scroll.
+// Factory NNN mmHg статичен; более широкий user.ttf скроллится только при включённом
+// глобальном Scrolling и переполнении (Off → CLIP внутри 84 px).
+static void wx_metric_pressure_value_setup(lv_obj_t* val) {
+    if (!val) return;
+    lv_obj_set_width(val, k_metric_pressure_value_w);
+    lv_obj_t* slot = lv_obj_get_parent(val);
+    if (slot) lv_obj_add_flag(slot, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    lv_obj_t* cell = slot ? lv_obj_get_parent(slot) : nullptr;
+    if (cell) lv_obj_add_flag(cell, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    // Register last — width/font/align already final (FU6-A contract).
+    // Регистрация последней — ширина/шрифт/выравнивание уже финальны.
+    text_scroll::registerLabel(val);
 }
 
 // A3b: hourly row — time (left, wide gap) | compact group: wx icon | temp | umbrella | pop%.
@@ -1082,6 +1109,7 @@ void LvglWeatherPage::create_data_block(LvglWeatherPage& self, const YoRadioPale
                     add_metric_cell(self._cont_metrics, YORA_WEATHER_METRIC_GLYPH_PRESSURE,
                                     i18n::text(i18n::TextId::WeatherMetricPressure),
                                     &self._val_pressure, &self._lbl_pressure, pal);
+                    wx_metric_pressure_value_setup(self._val_pressure);
                     add_metric_cell(self._cont_metrics, YORA_WEATHER_METRIC_GLYPH_UMBRELLA,
                                     i18n::text(i18n::TextId::WeatherMetricRain),
                                     &self._val_rain,     &self._lbl_rain,     pal);
