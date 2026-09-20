@@ -45,11 +45,8 @@ void audio_info(const char *info) {
     audio_bitrate(b);
   }
   if (((ici = strstr(info, "StreamTitle= ")) != NULL) /*&& strlen(info) > 15*/) {
-    if(strlen(config.station.title)==0 || strcmp(config.station.title, config.station.name)==0 || strstr(config.station.title, "timeout") != NULL ||
-       strstr(config.station.title, "[соединение]") != NULL || strstr(config.station.title, "[connecting]") != NULL ||
-       strstr(config.station.title, "(connection)") != NULL || strstr(config.station.title, "[ready]") != NULL ||
-       strstr(config.station.title, "[готов]") != NULL || strstr(config.station.title, "[stopped]") != NULL ||
-       strstr(config.station.title, "[остановлено]") != NULL){
+    if(strlen(config.station.title)==0 || strcmp(config.station.title, config.station.name)==0 ||
+       isTransientPlaybackTitle(config.station.title)){
       char streamTitle[BUFLEN] = {0};
       if(audio_safe::copyMetadataUtf8(streamTitle, sizeof(streamTitle), ici + 13) && streamTitle[0] != '\0') {
         audio_id3album(streamTitle);
@@ -57,11 +54,8 @@ void audio_info(const char *info) {
     }
   }
   if (((ici = strstr(info, "icy-name: ")) != NULL) && strlen(info) > 12) {
-    if(strlen(config.station.title)==0 || strcmp(config.station.title, config.station.name)==0 || strstr(config.station.title, "timeout") != NULL ||
-       strstr(config.station.title, "[соединение]") != NULL || strstr(config.station.title, "[connecting]") != NULL ||
-       strstr(config.station.title, "(connection)") != NULL || strstr(config.station.title, "[ready]") != NULL ||
-       strstr(config.station.title, "[готов]") != NULL || strstr(config.station.title, "[stopped]") != NULL ||
-       strstr(config.station.title, "[остановлено]") != NULL) {
+    if(strlen(config.station.title)==0 || strcmp(config.station.title, config.station.name)==0 ||
+       isTransientPlaybackTitle(config.station.title)) {
       char icyName[BUFLEN] = {0};
       if(!audio_safe::copyMetadataUtf8(icyName, sizeof(icyName), ici + 10) || icyName[0] == '\0') return;
       #ifdef NAME_STRIM
@@ -147,11 +141,8 @@ void audio_id3album(const char *info){
   char clean[BUFLEN] = {0};
   if(audio_safe::copyMetadataUtf8(clean, sizeof(clean), info)){
     player.setError("");
-    if(strlen(config.station.title)==0 || strcmp(config.station.title, config.station.name)==0 || strstr(config.station.title, "timeout") != NULL ||
-       strstr(config.station.title, "[соединение]") != NULL || strstr(config.station.title, "[connecting]") != NULL ||
-       strstr(config.station.title, "(connection)") != NULL || strstr(config.station.title, "[ready]") != NULL ||
-       strstr(config.station.title, "[готов]") != NULL || strstr(config.station.title, "[stopped]") != NULL ||
-       strstr(config.station.title, "[остановлено]") != NULL){
+    if(strlen(config.station.title)==0 || strcmp(config.station.title, config.station.name)==0 ||
+       isTransientPlaybackTitle(config.station.title)){
       config.setTitle(clean);
     }else{
       char out[BUFLEN]= {0};

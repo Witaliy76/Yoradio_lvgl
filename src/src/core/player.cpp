@@ -338,6 +338,16 @@ void Player::loop() {
  * Светодиод по-прежнему следует за воспроизведением. Линия усилителя следует за СЛЫШИМОСТЬЮ:
  * отпускается только при playing И не в MUTE. Полярность не меняется: MUTE_VAL - активный
  * (заглушённый) уровень, MUTE_LOCK по-прежнему фиксирует линию в !MUTE_VAL. */
+// Connecting placeholder may live only for the duration of the connect attempt.
+// After connecttohost/connecttoFS returns, replace it with station.name IFF metadata did not.
+// Плейсхолдер «соединение» живёт только на время попытки connect; после возврата
+// connecttohost/connecttoFS меняем на station.name, если метаданные его ещё не сменили.
+static void clearTransientTitleAfterConnectAttempt() {
+  if (isTransientPlaybackTitle(config.station.title)) {
+    config.setTitle(config.station.name);
+  }
+}
+
 void Player::setOutputPins(bool isPlaying) {
   if(REAL_LEDBUILTIN!=255) digitalWrite(REAL_LEDBUILTIN, LED_INVERT?!isPlaying:isPlaying);
   const bool audible = isPlaying && !_muted;
@@ -418,6 +428,7 @@ void Player::_play(uint16_t stationId) {
     setOutputPins(true);
     display.putRequest(NEWMODE, PLAYER);
     if (player_on_start_play) player_on_start_play();
+    clearTransientTitleAfterConnectAttempt();
   }else{
     SET_PLAY_ERROR("Error connecting to %s", config.station.url);
 #ifdef MEM_WATCHDOG_AUTOREBOOT
@@ -435,6 +446,9 @@ void Player::_play(uint16_t stationId) {
     }
 #endif
     _stop(true);
+    // _stop skips PlayerStopped when hasError(); still drop a stuck [connecting] title.
+    // _stop не ставит «остановлено» при hasError(); убираем зависшее «соединение».
+    clearTransientTitleAfterConnectAttempt();
   };
 }
 
@@ -454,6 +468,7 @@ void Player::browseUrl(){
     netserver.requestOnChange(MODE, 0);
     setOutputPins(true);
     if (player_on_start_play) player_on_start_play();
+    clearTransientTitleAfterConnectAttempt();
   }else{
     SET_PLAY_ERROR("Error connecting to %s", burl);
 #ifdef MEM_WATCHDOG_AUTOREBOOT
@@ -471,6 +486,7 @@ void Player::browseUrl(){
     }
 #endif
     _stop(true);
+    clearTransientTitleAfterConnectAttempt();
   }
   memset(burl, 0, MQTT_BURL_SIZE);
 }

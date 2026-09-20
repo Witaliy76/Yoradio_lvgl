@@ -361,6 +361,11 @@ struct AIConfig {
 // Returns true if cache is loaded, false if using defaults / Возвращает true если кеш загружен, false если используются дефолты
 bool aiGetRuntimeConfig(AIConfig& out);
 
+// True for known transport placeholders ([connecting]/[stopped]/timeout/…).
+// Used by audiohandlers replace gates and post-connect title cleanup.
+// Известные транспортные плейсхолдеры ([соединение]/[остановлено]/timeout/…).
+bool isTransientPlaybackTitle(const char* title);
+
 // Check if filesystem is ready (mounted successfully) / Проверить готовность FS (успешно смонтирована)
 bool fsIsReady();
 

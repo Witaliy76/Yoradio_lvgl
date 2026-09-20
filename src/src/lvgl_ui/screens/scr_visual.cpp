@@ -121,15 +121,7 @@ static char* visual_split_inplace_at(char* str, const char* sep) {
 // Transport / service titles must not appear as artist/song. / Служебные строки не в artist/song.
 static bool visual_is_transport_title(const char* title) {
     if (!title || title[0] == '\0') return true;
-    if (strstr(title, "[соединение]") != nullptr) return true;
-    if (strstr(title, "[connecting]") != nullptr) return true;
-    if (strstr(title, "(connection)") != nullptr) return true;
-    if (strstr(title, "[готов]") != nullptr) return true;
-    if (strstr(title, "[ready]") != nullptr) return true;
-    if (strstr(title, "[остановлено]") != nullptr) return true;
-    if (strstr(title, "[stopped]") != nullptr) return true;
-    if (strstr(title, "timeout") != nullptr) return true;
-    return false;
+    return isTransientPlaybackTitle(title);
 }
 
 static void visual_style_metadata_label(lv_obj_t* lbl,

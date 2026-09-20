@@ -8,6 +8,7 @@
 #include "netserver.h"
 #include "../audioI2S/audio_text_url_utils.h"
 #include "../ai/ai_log.h"  // AI Layer logging macros
+#include "../i18n/i18n.h"
 #ifdef USE_SD
 #include "sdmanager.h"
 #endif
@@ -841,6 +842,26 @@ void Config::setTitle(const char* title) {
   // 8.1HX-B: drop re-entrant netserver.loop() drain — main loop() drains nsQueue.
   // 8.1HX-B: убран вложенный netserver.loop(); очередь дренирует основной loop().
   display.putRequest(NEWTITLE);
+}
+
+bool isTransientPlaybackTitle(const char* title) {
+  if (!title || title[0] == '\0') return false;
+  // Legacy EN/RU sentinels kept byte-identical to the former audiohandlers checks.
+  // Исторические EN/RU маркеры — байт-в-байт как прежние проверки в audiohandlers.
+  if (strstr(title, "timeout") != nullptr) return true;
+  if (strstr(title, "[соединение]") != nullptr) return true;
+  if (strstr(title, "[connecting]") != nullptr) return true;
+  if (strstr(title, "(connection)") != nullptr) return true;
+  if (strstr(title, "[ready]") != nullptr) return true;
+  if (strstr(title, "[готов]") != nullptr) return true;
+  if (strstr(title, "[stopped]") != nullptr) return true;
+  if (strstr(title, "[остановлено]") != nullptr) return true;
+  // Current compile-time locale pack (covers PL/SK placeholders absent from the legacy list).
+  // Текущий i18n-пакет (PL/SK плейсхолдеры, которых нет в legacy-списке).
+  if (strcmp(title, i18n::text(i18n::TextId::PlayerConnecting)) == 0) return true;
+  if (strcmp(title, i18n::text(i18n::TextId::PlayerReady)) == 0) return true;
+  if (strcmp(title, i18n::text(i18n::TextId::PlayerStopped)) == 0) return true;
+  return false;
 }
 
 void Config::setStation(const char* station) {
