@@ -81,8 +81,8 @@
 /* ===============================================
    AMPLIFIER MUTE / ENABLE LINE (optional) - OUTPUT
    3.3 V GPIO output, driven by Player::setOutputPins() (see options.h for the polarity
-   contract - MUTE_VAL/MUTE_LOCK are unchanged by this task). MUTE_VAL is the level written
-   when the amplifier must be silent: stopped, connecting, or PLAYING + semantic MUTE.
+   contract - MUTE_VAL/MUTE_LOCK). MUTE_VAL is the level written when the amplifier must
+   be silent: stopped, connecting, or PLAYING + semantic MUTE.
    255 disables the feature cleanly - no GPIO is claimed, no digitalWrite() is issued.
    Not the same input as BTN_MUTE above - this is an OUTPUT to external amp hardware.
    3.3-В GPIO выход, управляется Player::setOutputPins(). MUTE_VAL - уровень, при котором
@@ -131,11 +131,7 @@
    GENERAL SETTINGS
    =============================================== */
 #define PLAYER_FORCE_MONO false           // Mono mode (disabled)
-
-// Compile-time interface language: RU, EN, PL or SK.
-// Язык интерфейса во время компиляции: RU, EN, PL или SK.
-#define L10N_LANGUAGE RU
-
+#define L10N_LANGUAGE RU                  // Interface language (Russian)
 // Block 8.1F-B: config.store.vumeter / usespectrum kept for future LVGL widgets (WebUI toggles).
 // Block 8.1F-B: config.store.vumeter / usespectrum — будущие LVGL-виджеты (переключатели WebUI).
 #define EXT_WEATHER       false           // Extended weather (network.cpp)
@@ -215,14 +211,15 @@
 // Block 8-E5C: slide-анимация карусели при свайпе. 0 = мгновенно (partial 4848); 1 = slide 300 ms.
 // Future Settings / ESP32-P4 may enable 1 at runtime; not stored in NVS yet.
 // Будущие Settings / быстрые платы — runtime; в NVS пока не сохраняется.
+// Не используется на 4848S040, но остаётся для совместимости.
 #define YORADIO_LVGL_PAGE_TRANSITION_ANIM_DEFAULT 0
 
-// 1: paged Station list (accepted production renderer); 0/undefined: legacy continuous scroll.
-// 1: постраничный список Station (принятый production renderer); 0/не задано: старый непрерывный скролл.
+// 1: lightweight paged Station list; 0/undefined: legacy continuous scroll
 #define STATION_LIST_SIMPLE_PAGED 1
 
 // Day of week uppercase (true = uppercase, false = lowercase)
 //#define DOW_UPPERCASE true                     // Uncomment and set to true/false if needed
+
 
 /* ===============================================
    DEBUG
@@ -233,5 +230,5 @@
 // 0 = release (only important logs), 1 = debug (all logs)
 // 0 = релиз (только важные логи), 1 = отладка (все логи)
 #define AI_LAYER_DEBUG 0
-
+#define YORADIO_PPM_PCM_TELEMETRY_DIAG 0
 #endif
