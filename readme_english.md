@@ -46,7 +46,7 @@ Different pages have different roles: Main is for listening, Visual for atmosphe
 
 ## Change history
 
-### 16.09.2026 — 0.9.434m-r2-lvgl-beta.3
+### 21.09.2026 — 0.9.434m-r2-lvgl-beta.3
 
 Major update to the interface, audio subsystem, power management, and user customization.
 
