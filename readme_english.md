@@ -2,359 +2,347 @@
 
 # YoRadio LVGL
 
-YoRadio LVGL is an ESP32-S3 Wi-Fi radio with a square touchscreen. Its interface is built on LVGL 9.5 and uses a six-page PageChain, with dedicated Wi-Fi Setup / Recovery, Preset Temporary, and Screensaver screens.
+YoRadio LVGL is a Wi-Fi internet radio for ESP32-S3 with a touchscreen display. The interface is built on LVGL 9.5 and includes six main screens that you switch between with a horizontal swipe, plus separate screens for Wi-Fi setup, quick access to favorite stations, and a screensaver.
 
-The device is accompanied by a Web UI for playback, stations, behavior settings, and Appearance controls for themes, Main screen backgrounds, station artwork, and an optional user text TTF. The default audio configuration uses an external I2S DAC or amplifier.
+Besides the on-device UI there is a Web UI for playback, stations, behavior settings, and Appearance — themes, Main screen backgrounds, station artwork, and an optional user text TTF. For audio the project is designed around an external I2S DAC or amplifier.
 
-The project is based on [e2002/yoradio](https://github.com/e2002/yoradio). The current repository is [Witaliy76/Yoradio_lvgl](https://github.com/Witaliy76/Yoradio_lvgl).
+The project is based on [e2002/yoradio](https://github.com/e2002/yoradio); the current repository is [Yoradio_lvgl](https://github.com/Witaliy76/Yoradio_lvgl).
 
 > **Public version:** `0.9.434m-r2-lvgl-beta.3`
 > **Current source:** `0.9.434m-r2-lvgl-beta.3`
 > **Validated board:** ESP32-4848S040
 
-<p align="center">
-  <img src="readme/english/device-front.jpg" alt="YoRadio LVGL device" width="450">
-</p>
+![YoRadio LVGL — musical internet radio](readme/english/device-front.jpg)
 
-## Design and character
+## Design and character. Philosophy.
 
-YoRadio is intended as a standalone musical instrument and an object of presence, not an application moved onto a small screen. Music remains the main content: the interface supports listening without demanding constant attention or competing with playback.
+YoRadio is intended as a standalone music device and a physical presence in the room, not as an app relocated onto a small screen. Music remains the main content: the interface helps you listen without demanding constant attention or competing with playback.
 
-The visual language follows a calm Scandinavian hi-fi approach and the character of analog audio equipment: clear typography, restrained composition, quiet accents, and references to classic instruments. This is visible in the Beocord-inspired Visual page and the Amber Hi-Fi fallback palette for the Custom theme. The device is designed to sit naturally in a room without resembling a phone or tablet.
+The visual language follows a calm Scandinavian hi-fi approach and the character of analog audio equipment: clear typography, quiet composition, restrained accents, and references to classic instruments. In the product this shows, for example, in Visual (Beocord-inspired metering) and in the Amber Hi-Fi palette for the Custom theme. The device should sit naturally in a room and not look like a phone or tablet.
 
-Its normal state is calm. The interface does not flash or ask for a response. Movement appears only where it carries meaning, such as signal activity or a scrolling long title. The screen uses a three-zone instrument composition: technical status at the top, the listening object in the center, and quiet technical details and signs of signal life below.
+From that follows a practical rule: the normal screen state is calm. The interface does not flash, does not show notifications, and does not ask for a reaction; motion appears only where it carries meaning — in signal metering or in a scrolling long title. The screen is built as an instrument composition: technical status at the top, the listening object in the center, and quiet technical cues and signs of signal life below.
 
-Each page has a distinct role: Main is for listening, Visual for atmosphere, Info for device state, Stations for selection, Weather for the surroundings, and Settings for functional control. No page tries to become a universal menu or duplicate the others.
+Different pages have different roles: Main is for listening, Visual for atmosphere, Info for device state, Station for selection, Weather for the surroundings, Settings for functional control. No page tries to become a universal menu or to duplicate the others.
 
 ## Main features
 
-- Internet radio playback: MP3, AAC, FLAC, OGG/Vorbis, and Opus.
-- Six-page LVGL 9.5 touchscreen interface: Info, Main, Visual, Stations, Weather, and Settings.
-- Paged station list with eight visible rows.
-- Weather with current conditions and a forecast from OpenWeatherMap; pressure is shown in mmHg.
-- Beocord-inspired Visual with two channels and eight signal segments per channel.
-- TIMERS — independent Radio Stop/Start and Deep Sleep presets with a relative RTC wake (WAKE AFTER SLEEP).
-- Configurable text scrolling (Settings → Display → Scrolling: speed, type, delay), shared by Main, Info, Weather, and Visual.
-- Performance monitor — an FPS/CPU overlay in Settings → Display, toggled without a reboot; off by default.
-- Preset Temporary for quick access to eight saved stations.
-- Analog Screensaver for idle operation.
-- Hardware amplifier MUTE: a central semantic MUTE drives a dedicated `MUTE_PIN` GPIO line; an independent, optional `BTN_MUTE` button uses GND with an internal pull-up. Neither is wired by default on ESP32-4848S040.
-- Configurable `WAKE_PIN` for Deep Sleep wake (BOOT / GPIO0 on ESP32-4848S040).
-- Web UI for playback, stations, settings, Appearance, and firmware updates.
-- Dark, Light, and Custom themes, station artwork, and separate Main backgrounds for each theme.
-- Compile-time RU / EN / PL / SK interface localization.
-- Scalable TTF fonts and Tabler icons with RU / EN / PL / SK support; optional user replacement of normal text via Appearance.
-- Optional AI Layer as a quiet information layer over music.
+- Internet radio playback: MP3, AAC, FLAC, OGG/Vorbis, Opus.
+- Six-page LVGL 9.5 touchscreen interface: Info, Main, Visual, Station, Weather, Settings.
+- Station list with paged navigation.
+- Weather — current conditions and forecast (OpenWeatherMap) with a DNS-resilient network path; pressure is shown in mmHg.
+- Visual — instrument-style level metering in the spirit of vintage Beocord.
+- TIMERS — Radio Stop/Start and Deep Sleep timers with relative RTC wake (`WAKE AFTER SLEEP`).
+- Configurable scrolling of long labels (Settings → Display → Scrolling: speed, type, delay) — shared by Main, Info, Weather, and Visual.
+- Performance monitor — FPS/CPU readout in Settings → Display, without a reboot; off by default.
+- Preset Temporary — quick access to 8 saved stations.
+- Analog Screensaver — analog clock while idle. Configured from the Web UI.
+- Hardware amplifier MUTE through a configurable `MUTE_PIN`; if needed you can wire a separate `BTN_MUTE` button (to GND with an internal pull-up). Both lines are unused by default on ESP32-4848S040. Configured in myoptions.
+- Configurable `WAKE_PIN` for waking from Deep Sleep (on ESP32-4848S040 — BOOT/GPIO0). Configured in myoptions.
+- Web UI — player, stations, settings, Appearance, firmware updates.
+- Dark / Light / Custom themes, station artwork, and separate Main backgrounds per theme. Theme switching from the Web UI or the Settings page.
+- Interface localization RU / EN / PL / SK (selected at build time).
+- Scalable TTF fonts and Tabler icons with RU / EN / PL / SK support; optional replacement of normal text with your own TTF via Web UI → Appearance.
+- AI Layer — optional quiet information layer over music. Requires an API key. Configured through the Web UI.
 
 ## Change history
 
-### 2026-09-16 — 0.9.434m-r2-lvgl-beta.3
+### 16.09.2026 — 0.9.434m-r2-lvgl-beta.3
 
-Major update to the user interface, audio subsystem, power management and customization features.
+Major update to the interface, audio subsystem, power management, and user customization.
 
-- **Display & UI:** migrated to LVGL 9.5 and a new display backend; improved UI stability and display recovery.
-- **Fonts & backgrounds:** new TTF font system with user `user.ttf` upload through WebUI (applied after reboot); Main backgrounds are now stored as JPEG, user backgrounds can be uploaded through WebUI and automatically fit the display while preserving aspect ratio.
-- **Audio & Network:** significantly improved stream stability, HTTPS/AAC/AACP handling, URL/metadata processing and recovery from temporary network/server disconnects.
-- **Hardware Mute:** full `MUTE_PIN` / `BTN_MUTE` support with unified device/UI mute state.
-- **Power & Timers:** Radio Stop/Start timers, Deep Sleep/Wake timer, playback resume after wake, configurable WAKE_PIN; on 4848S040 GPIO0/BOOT is the current default wake path.
-- **UI improvements:** configurable shared text scrolling, Performance Monitor runtime control, Visual/Weather/navigation improvements, Weather quick access and mmHg pressure.
-- **Reliability:** persistence, display recovery, metadata and general runtime stability fixes.
+- **Display & UI:** move to LVGL 9.5 and a new display backend; improved interface stability and display recovery.
+- **Fonts & backgrounds:** new TTF font system with user TTF upload through the Web UI (applied after reboot); Main backgrounds are now stored as JPEG, user backgrounds upload through the Web UI and are fitted to the screen while preserving aspect ratio.
+- **Audio & Network:** significantly improved stream stability, HTTPS/AAC/AACP handling, URL and metadata processing, and recovery after temporary network or server failures.
+- **Hardware Mute:** full `MUTE_PIN` / `BTN_MUTE` support with unified mute behavior on the device and in the UI.
+- **Power & Timers:** Radio Stop/Start and Deep Sleep/Wake timer family, playback resume after wake, configurable WAKE_PIN; on ESP32-4848S040 the current default wake path is GPIO0/BOOT.
+- **UI improvements:** configurable shared text scrolling, runtime Performance Monitor control, Visual/Weather/navigation improvements, quick access to Weather, and pressure in mmHg.
+- **Reliability:** fixes for settings persistence, display recovery, metadata, and overall firmware stability.
 
-### 28 July 2026 — 0.9.434m-r2-lvgl-beta.2
+### 28.07.2026 — 0.9.434m-r2-lvgl-beta.2
 
 First public beta of YoRadio LVGL for ESP32-4848S040.
 
-Earlier alpha builds were internal only and were not released separately.
+Earlier alpha builds were used for internal development and were not published separately.
 
 ## Supported hardware
 
-ESP32-4848S040 is currently the only fully supported and verified board. Other hardware profiles are in development. Each supported board uses a dedicated guide for wiring, ready-to-flash packages, and hardware-specific details.
+ESP32-4848S040 is currently the only fully supported and verified board. Support for other modules and hardware profiles is in development. Each supported board has a dedicated guide with wiring, binaries, and hardware specifics.
+
 
 | Item | Value |
-|---|---|
+| -------- | ---------------------- |
 | Board | ESP32-4848S040 |
 | Module | ESP32-S3-WROOM-1-N16R8 |
 | Flash | 16 MB |
 | PSRAM | 8 MB |
 | Display | ST7701S, 480×480 |
-| Touch | GT911 over I2C |
+| Touch | GT911 (I2C) |
 
-→ **[ESP32-4848S040 board guide](README_4848S040_english.md)** — specifications, audio wiring, configuration, ready-to-flash packages, and board details.
+
+→ **[README_4848S040_english.md](README_4848S040_english.md)** — specifications, audio wiring, configuration, ready-to-flash packages, and board-specific details.
 
 ## Interface
 
-The six pages form a ring and are changed with a horizontal swipe:
+You can move between the main pages with a horizontal swipe:
 
 ```text
-Info ↔ Main ↔ Visual ↔ Stations ↔ Weather ↔ Settings
+Info ↔ Main ↔ Visual ↔ Station ↔ Weather ↔ Settings
 ```
+
+Tapping the weather icon in the top status line opens Weather.
+On screens that have a return footer pill, tapping it opens Main.
 
 ### Main
 
-Main is the playback screen: station artwork, station and track metadata, playback controls, volume level, stream information, and the lower information area. The optional AI line uses the lower area without covering metadata or controls. Presence Rail provides restrained signal activity, and each color theme may have its own optional background.
+Main playback screen: station artwork, station and track titles, control bar, volume slider, and information line.
 
-<p align="center">
-  <img src="readme/english/main-screen-guide.png" alt="Main playback screen" width="450">
-</p>
+![Main screen](readme/english/main-screen-guide.png)
 
 ### Info
 
-Info presents technical and playback information: network and Wi-Fi state, firmware and chip details, uptime, display and LVGL versions, heap, and PSRAM use.
+Technical device information: network and Wi-Fi, firmware version, chip and uptime, display and LVGL, memory and PSRAM.
 
-<p align="center">
-  <img src="readme/english/info-screen-guide.png" alt="System information screen" width="450">
-</p>
+![Info screen](readme/english/info-screen-guide.png)
 
 ### Visual
 
-Visual is a digital reconstruction of a classic indicator mechanism inspired by vintage Beocord instruments. It is not affiliated with or endorsed by Bang & Olufsen.
+Visual is not an arbitrary decorative animation; it is a digital reconstruction of classic meter behavior in the spirit of vintage Beocord instruments. The meter follows the actual decoded audio level: two independent channels with eight segments each from −20 dB to +5 dB, where the last three segments are the red overload zone.
 
-The display follows the decoded audio signal through two independent channels. Each channel has eight segments spanning −20 dB to +5 dB; the final three segments form the red overload zone. The ballistics use a fast rise, approximately 0.12 seconds of peak hold, and a controlled release. The level combines the signal body with limited activity correction and transient emphasis, so the display responds to musical energy rather than isolated spikes alone.
+Motion follows instrument ballistics: a fast rise with the signal, about 0.12 s of peak hold, then a smooth fall at a fixed rate. Level is computed from the signal average with limited activity correction and an emphasis on sharp transients — so the scale shows the “body” of the music, not only isolated spikes.
 
-Strongly compressed radio streams may keep the segments within a narrow range. That is a normal reflection of the stream dynamics, not a Visual fault. The indicators operate only while a stream is playing.
+> Response depends on the dynamics of the audio stream itself. If a station sends heavily compressed audio with a nearly constant level, the meter will move in a narrow range. That is a normal reflection of the actual signal, not a Visual fault.
 
-The song title below the indicator scrolls using the shared Scrolling settings (Settings → Display → Scrolling) when it does not fit the available width.
+Metering works only while a stream is playing.
 
-<p align="center">
-  <img src="readme/english/visual-screen-guide.png" alt="Dual-channel Visual meter" width="450">
-</p>
+The track title under the meter scrolls according to the shared Scrolling settings (Settings → Display → Scrolling) when it does not fit the width.
 
-### Stations
+![Visual screen](readme/english/visual-screen-guide.png)
 
-Stations shows the station list, the current position and total count, the active row, and the station currently playing. Its paged renderer displays eight rows at a time. Swipe vertically to browse, tap to return to Main, or swipe horizontally to move through the page carousel.
+### Station
 
-<p align="center">
-  <img src="readme/english/station-screen-guide.png" alt="Station browser" width="450">
-</p>
+Radio station list with vertical paging, current position, and an active-station indicator.
+
+![Station screen](readme/english/station-screen-guide.png)
 
 ### Weather
 
-Weather shows current conditions, feels-like temperature, wind, humidity, atmospheric pressure (in mmHg), precipitation, hourly points, and a three-day forecast from OpenWeatherMap.
+Current weather, feels-like temperature, wind, humidity, atmospheric pressure (in mmHg), hourly forecast, and a short multi-day forecast. Data comes from OpenWeatherMap.
 
-Open Weather with a swipe, or by tapping the weather icon in the status line from any other page (Info, Main, Visual, Stations, Settings). Refresh is automatic only, on a timer; there is no separate manual Refresh action on the screen. The bottom pill is not a refresh indicator — it is a Return-to-Main button, and tapping it switches to Main immediately.
+Open Weather with a swipe or by tapping the weather icon in the status line from any other page (Info, Main, Visual, Station, Settings).
+Weather updates automatically; there is no separate refresh button on the screen.
+The bottom footer pill returns to Main.
 
-The weather network path retries failed name resolution or connections up to three times in one update cycle. It tries the system DNS first, then Cloudflare at `1.1.1.1`, and Quad9 at `9.9.9.9`. Addresses already attempted in the same cycle are deduplicated, and a working IP from current conditions is preferred for the forecast request. This reduces failures caused by temporary router or provider DNS problems, but it does not guarantee uninterrupted service.
+Weather requests are retried automatically after temporary network or DNS failures and may use fallback DNS servers. This improves Weather resilience when the router or ISP has DNS problems.
 
-<p align="center">
-  <img src="readme/english/weather-screen-guide.png" alt="Weather forecast screen" width="450">
-</p>
+![Weather screen](readme/english/weather-screen-guide.png)
 
 ### Settings
 
-Settings provides direct access to Display brightness and theme, Presence Rail, Resume on Startup, the **TIMERS** page, and Wi-Fi setup. Tap a row with an arrow to open its settings.
+Quick access to brightness and display theme, the music meter, auto-resume, the **TIMERS** page, and Wi-Fi setup.
 
-<p align="center">
-  <img src="readme/english/settings-screen-guide.png" alt="Settings screen" width="450">
-</p>
+![Settings screen](readme/english/settings-screen-guide.png)
 
-## Additional screens and modes
+## Additional modes
 
 ### Preset Temporary
 
-Preset Temporary provides quick access to favorite stations. A downward swipe from the top edge opens it from exactly four pages:
+Quick access to favorite stations. Opened with a downward swipe from the top edge of the screen and available from exactly four pages:
 
 - Info;
 - Main;
 - Visual;
 - Weather.
 
-The gesture does not open Preset Temporary from Stations or Settings because their vertical and service gestures belong to those pages.
+On Station and Settings this gesture does not open Preset: vertical and service gestures belong to those pages themselves.
 
-There are eight slots. Tap a filled slot to play it; long press to save the current station. After about 15 seconds without activity, Preset Temporary closes and returns to the page from which it was opened.
+8 slots: a short press plays a station, a long press saves the current station to the slot. The screen closes after about 15 seconds of inactivity and returns to the page from which it was opened.
 
-<p align="center">
-  <img src="readme/english/preset-screen-guide.png" alt="Preset Temporary screen" width="450">
-</p>
+![Preset Temporary screen](readme/english/preset-screen-guide.png)
 
 ### Display settings
 
-Settings → Display contains brightness, Auto Dim, Performance monitor, the theme selector, and Scrolling.
+Settings → Display: brightness, Auto Dim, Performance monitor, theme selection, and Scrolling.
 
-**Scrolling** configures how long text moves: **Speed** (px/s), **Type** (Off / Circular / Back and forth), and **Delay** (pause before the next pass). The settings are shared and apply on Main (station name, track, artist, AI line), Info (long values), Weather (current condition and the footer), and Visual (track title).
+**Scrolling** controls long lines: **Speed** — speed, **Type** — scroll mode (Off / Circular / Back and forth), **Delay** — pause before the next pass. The settings are shared by Main, Info, Weather, and Visual.
 
-<p align="center">
-  <img src="readme/english/display-settings-guide.png" alt="Display settings" width="450">
-</p>
+![Display settings](readme/english/display-settings-guide.png)
 
 ### Screensaver
 
-Screensaver is a full-screen analog clock for idle operation. Its behavior is configured in the Web UI, and a screen tap exits it.
+Full-screen analog clock screensaver. Configured through the Web UI; exit with a screen tap.
 
-<p align="center">
-  <img src="readme/english/screensaver-guide.png" alt="Analog clock screensaver" width="450">
-</p>
+![Screensaver](readme/english/screensaver-guide.png)
 
-### TIMERS and Deep Sleep
+### Timers
 
-The **TIMERS** row opens **RADIO** and **DEEP SLEEP** tabs with four independent persisted presets. Every event has its own ON/OFF switch and `−/+` controls for hours (0–24) and minutes (0–59). A short press changes only that field by one without wrapping or carrying; holding repeats and accelerates. OFF preserves the displayed value while disabling its controls. ON with `00:00` shows `SET INTERVAL` and cannot start that event. Active countdowns are runtime-only and do not survive a normal reboot. Only one plan can run at a time—Radio or Deep Sleep—and the active plan must be cancelled before starting the other one.
+Timers run only until the next device reboot and are not restored after a normal reboot. Only one timer mode can run at a time — Radio or Deep Sleep. To switch modes, cancel the active timer first.
 
-On **RADIO**, `STOP RADIO AFTER` and `START RADIO AFTER` are independent intervals measured from one press of `START TIMER`; Stop-only, Start-only, and two-event plans are supported. Stop uses the normal player stop command; Start plays the currently saved station. An event is a safe no-op when the player is already in the requested state. When both switches are ON, Start must be strictly later than Stop: a conflict shows a warning and disables the start button without changing either value automatically. The status line shows Radio Stop as `SLEEP 10m` and delayed Deep Sleep as `DEEP SLEEP 10m`; Radio Start remains hidden there.
+On the `RADIO` tab you can configure two independent events: `STOP RADIO AFTER` — how soon to stop the radio, and `START RADIO AFTER` — how soon to start it again. You can use only Stop, only Start, or both. The countdown starts after you press `START TIMER`. If both events are enabled, radio start must be scheduled later than stop; otherwise the UI shows `START MUST BE LATER THAN STOP` and the timer will not start. The status line shows only time until stop, for example `SLEEP 10m`.
 
-On **DEEP SLEEP**, `DEEP SLEEP AFTER` delays the managed shutdown, while `WAKE AFTER SLEEP` is a separate RTC interval that begins only when Deep Sleep is actually entered. Therefore Sleep `5 MIN` plus Wake `3 MIN` is valid: the device sleeps after five minutes and wakes about three minutes after entry. With Sleep OFF and Wake ON, `WAKE AFTER NEXT SLEEP` is a persisted preset rather than an active countdown; it is applied by the next `SLEEP NOW` or `deepsleep`. Wake OFF skips RTC timer registration while configured GPIO wake remains available. Wake ON with `00:00` blocks sleep until an interval is set. Player stop, state flush, display-off, settle, and sleep entry remain one managed pipeline.
+On the `DEEP SLEEP` tab, `DEEP SLEEP AFTER` sets how soon the device enters deep sleep. `WAKE AFTER SLEEP` sets how soon it wakes after it has actually gone to sleep. For example, Sleep 5 MIN and Wake 3 MIN means: after 5 minutes the device sleeps, then wakes roughly 3 minutes later.
 
-`STOPS/STARTS/SLEEP/WAKE AT ...` is only a local-clock hint. Without clock sync the UI shows `--:--` and `CLOCK NOT SYNCED`, while monotonic relative timers continue normally. Absolute `HH:MM` scheduling is not implemented.
+You can prepare wake alone: if `DEEP SLEEP AFTER` is off and `WAKE AFTER SLEEP` is on, the UI shows `WAKE AFTER NEXT SLEEP`. No countdown is running yet — the wake interval will be used on the next `SLEEP NOW` or `deepsleep` command. If Wake is off, RTC timer wake is disabled, but wake via the hardware button/GPIO still works.
+
+Lines such as `STOPS AT`, `STARTS AT`, `SLEEP AT`, and `WAKE AT` show only an approximate local-clock time for the event. If the clock is not synchronized yet, the UI shows `--:--` / `CLOCK NOT SYNCED`, but the timers themselves keep running. Scheduling for a wall-clock time of day, for example “start the radio at 07:30”, is not implemented.
+
+For normal use the commands below are not required — they are optional Telnet/Serial control.
+
 
 | Telnet / Serial | Action |
-|---|---|
-| `sleeptimer N` / `sleeptimer 0` | Set / cancel only runtime Radio Stop; do not change the preset |
-| `playtimer N` / `playtimer 0` | Set / cancel only runtime Radio Start; do not change the preset |
-| `deepsleep` | Immediate managed Deep Sleep using persisted `WAKE AFTER SLEEP`; may cancel a Radio plan |
-| `deepsleep N` / `deepsleep 0` | Set / cancel delayed Deep Sleep entry; do not change the persisted wake preset |
-| `sleep N` | Backward compatibility with the old CLI: immediate managed Deep Sleep with a one-shot `N`-minute wake |
-| `sleep N M` | Backward compatibility with the old CLI: managed Deep Sleep after `M` minutes, then a one-shot `N`-minute wake |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `sleeptimer N` / `sleeptimer 0` | Set / cancel only the Radio Stop timer; the preset is unchanged |
+| `playtimer N` / `playtimer 0` | Set / cancel only the Radio Start timer; the preset is unchanged |
+| `deepsleep` | Immediate managed Deep Sleep with the saved `WAKE AFTER SLEEP`; may cancel active Radio timers |
+| `deepsleep N` / `deepsleep 0` | Set / cancel delayed Deep Sleep entry; the saved wake preset is unchanged |
+| `sleep N` | Compatibility with the old CLI: immediate managed Deep Sleep with a one-shot wake after `N` minutes |
+| `sleep N M` | Compatibility with the old CLI: managed Deep Sleep after `M` minutes with a one-shot wake after `N` minutes from entry |
 
-The new commands use the same parser over telnet and Serial even without Wi-Fi; the valid range is 0…1499 minutes. A one-shot wake supplied through the backward-compatible old `sleep` command does not overwrite the saved preset. A Deep Sleep countdown appears as `DEEP SLEEP Nm`; immediately before sleep, the Serial monitor logs the RTC interval and calculated local wake time.
 
-The GT911 touchscreen cannot wake the device from Deep Sleep. Wake through the configured `WAKE_PIN` is supported; on ESP32-4848S040, EXT0 uses the stock **BOOT** button (GPIO0, active LOW). BOOT and the RTC timer can be armed together and whichever fires first wins. After any Deep-Sleep wake, GPIO0 is returned from RTC IO to digital GPIO before RGB-panel initialization. Reset and power reconnection remain fallback startup methods. See the [ESP32-4848S040 guide](README_4848S040_english.md#deep-sleep-wakeup).
+The commands use the same syntax over Telnet and Serial; Serial remains available without Wi-Fi. The valid range is 0…1499 minutes. A one-shot wake interval from the legacy `sleep` command does not overwrite the saved preset. The Deep Sleep countdown is shown as `DEEP SLEEP Nm`; before actual entry the Serial monitor reports the RTC interval and the calculated local wake time.
+
+Wake from the GT911 touchscreen in Deep Sleep is not supported. Wake through the configured `WAKE_PIN` is supported; on ESP32-4848S040 the EXT0 source is the stock **BOOT** button (GPIO0, active LOW). The RTC timer and BOOT may be enabled together; the first source wins. After any Deep Sleep wake, GPIO0 is returned early from RTC IO to ordinary digital GPIO before RGB panel initialization. Reset and power reconnect remain fallback startup methods. Details — in the [ESP32-4848S040 guide](README_4848S040_english.md#waking-from-deep-sleep).
 
 ## Web UI and Appearance
 
-Open `http://<device-IP>/` on the local network. The IP address is shown on Info. The Web UI provides playback controls, the station list, behavior settings, Appearance, and firmware/filesystem updates.
+The Web UI is available at `http://<device-IP>/` (the IP is shown on Info): playback control, station list, behavior settings, Appearance, and firmware/filesystem updates.
 
-<p align="center">
-  <img src="readme/english/webui-appearance-entry.png" alt="Web UI Appearance entry" width="700">
-</p>
+![Web UI: Appearance icon](readme/english/webui-appearance-entry.png)
 
 ### Station Artwork
 
-Automatic artwork retrieval from a radio stream is not currently supported. Artwork is assigned manually to the station that is playing, so a library can be built one station at a time.
+Automatic artwork from the radio stream is not supported yet: images are assigned to stations manually. Artwork is tied to the station currently playing, so you can build the library gradually — play a station, upload an image for it, move to the next.
 
-The browser accepts common image formats it can decode, then centers and cover-crops the image, resizes it to 120×120, and converts it to the device format. **Choose image** selects a file and shows a preview, **Upload to device** stores the processed image, and **Remove artwork** deletes it.
+You do not need to prepare the file in advance. The Web UI accepts most common image formats the browser can decode; the image is then centered, cover-cropped, reduced to 120×120, and converted to the device’s internal format. A good source is usually the station’s official site or page.
 
-<p align="center">
-  <img src="readme/english/webui-station-artwork-guide.png" alt="Station Artwork setup" width="700">
-</p>
+**Choose image** selects a file and shows a preview; **Upload to device** writes the finished image to the device; **Remove artwork** deletes it.
+
+![Web UI: Station Artwork](readme/english/webui-station-artwork-guide.png)
 
 ### Color Theme and Custom Palette
 
-Dark, Light, and Custom apply immediately and are saved. Dark and Light are built-in palettes. Custom accepts a `theme_custom.txt` file with one `key=#RRGGBB` entry per line, up to 4096 bytes. Lines beginning with `#` are comments. Numeric and Boolean settings such as `theme_dark=true` are also supported.
+**Dark**, **Light**, and **Custom** themes switch immediately and are saved. Dark and Light are built-in factory palettes.
 
-The complete example is [`src/src/lvgl_ui/theme/theme_custom.example.txt`](src/src/lvgl_ui/theme/theme_custom.example.txt), and the key reference is [`src/src/lvgl_ui/theme/THEME.md`](src/src/lvgl_ui/theme/THEME.md).
+Custom is not just a third preset — it is a fully editable theme. Its palette is described by a plain-text `theme_custom.txt` file: one `key=#RRGGBB` entry per line, up to 4096 bytes; lines starting with `#` are comments. You can open the file in any text editor, change colors, and upload it to the device. Besides colors there are numeric parameters — for example `theme_dark` (`true` / `false`) for a light or dark Custom variant. A complete example with all keys is in the repository: [theme_custom.example.txt](src/src/lvgl_ui/theme/theme_custom.example.txt); key descriptions are in [THEME.md](src/src/lvgl_ui/theme/THEME.md).
 
-**Upload & Apply** stores and immediately activates the palette. **Remove custom palette** deletes the uploaded file and restores the built-in **Amber Hi-Fi** fallback. These operations affect Custom only; Dark and Light remain unchanged.
+**Upload & Apply** uploads the file and applies the palette immediately; **Remove custom palette** deletes the user file and restores the built-in **Amber Hi-Fi** palette. Changes affect Custom only — Dark and Light stay factory.
 
-<p align="center">
-  <img src="readme/english/webui-color-theme-guide.png" alt="Custom color theme setup" width="700">
-</p>
+![Web UI: Color Theme and Custom Palette](readme/english/webui-color-theme-guide.png)
 
 ### Main Screen Backgrounds
 
-Background images are used only on Main. Dark, Light, and Custom have independent slots, so each theme can keep a different image.
+The background changes only on Main — other pages do not use it. Dark, Light, and Custom have three independent slots, so each theme’s background is configured separately and does not affect the others.
 
-The browser accepts common image formats and keeps the original aspect ratio. The longest side is limited to 1280 px with no crop, stretch, or upscale. The file is saved as JPEG (quality 0.90) into that theme's user slot. Uploading a background does not change the active theme. **Choose image** prepares a preview, **Upload to device** stores the user JPEG, and **Remove image** clears only that user file. If no user image is present, Main uses the factory JPEG for the theme; if that is also absent, it uses the theme color.
+Common formats the browser can decode are accepted. The image keeps its aspect ratio: the long side is limited to 1280 px without cropping, stretching, or upscaling. The browser saves JPEG (quality 0.90) into the selected theme’s user slot. Uploading a background does not switch the active theme.
 
-<p align="center">
-  <img src="readme/english/webui-main-backgrounds-guide.png" alt="Main Screen Backgrounds setup" width="700">
-</p>
+**Choose image** only prepares a preview; **Upload to device** writes the user JPEG; **Remove image** deletes only that user file. If there is no user file, the theme’s factory JPEG is used; if that is also missing — the theme color.
 
-<p align="center">
-  <img src="readme/english/webui-custom-background-guide.png" alt="Custom theme background setup" width="700">
-</p>
+![Web UI: Main backgrounds for Dark and Light](readme/english/webui-main-backgrounds-guide.png)
+
+![Web UI: Main background for Custom](readme/english/webui-custom-background-guide.png)
 
 ### User text font
 
-Normal interface text can be replaced with a **TTF** file (not OTF, and not icons). Upload and remove it in Web UI → Appearance. Maximum size is **512 KiB**. A **reboot** is required after a successful upload; the live font does not change immediately, and there is no automatic reboot. Appearance also offers an optional **Reboot now** button.
+Normal interface text can be replaced with your own **TTF** file (not OTF and not icons). Upload and remove it in Web UI → Appearance. Maximum **512 KB**. After a successful upload a **reboot** is required; the live font does not change by itself and there is no automatic reboot. Appearance has an optional **Reboot now** button.
 
-If no user file is present or the file is rejected, factory Montserrat remains. Tabler icons are unchanged. Optional Play and PT Sans samples live in [`fonts/samples/`](fonts/samples/); they are not firmware assets and are not copied into LittleFS at build time.
+If there is no user file or it is rejected, factory Montserrat remains. Tabler icons are not affected. Optional Play and PT Sans samples are in the repository (`fonts/samples/`) — they are not part of the firmware and are not copied into LittleFS at build time.
 
-<p align="center">
-  <img src="readme/english/webui-user-font-guide.png" alt="Web UI user text font setup" width="700">
-</p>
+![Web UI: user text font](readme/english/webui-user-font-guide.png)
 
-## Differences from upstream
+## Differences from the original project
 
-This fork develops YoRadio as a touchscreen device with an LVGL interface and board-specific hardware profiles. Compared with [e2002/yoradio](https://github.com/e2002/yoradio), it adds:
+This fork develops YoRadio as a project with a full LVGL touchscreen interface and separate hardware profiles for supported boards. Compared with upstream [e2002/yoradio](https://github.com/e2002/yoradio):
 
-- an LVGL 9.5 interface instead of legacy Canvas screens on the supported board;
-- scalable embedded TTF fonts (TinyTTF) instead of a per-size compiled font ladder;
-- a six-page navigation ring plus dedicated Boot, Wi-Fi, Preset Temporary, and Screensaver modes;
-- a Beocord-inspired Visual with defined signal ballistics;
-- Web UI Appearance controls for themes, an editable Custom palette, independent Main backgrounds, station artwork, and an optional user text TTF;
-- a weather request path with retries and resolver fallback;
-- matched network and TLS library profiles for demanding streams and HTTPS requests during playback;
-- LittleFS;
-- compile-time RU / EN / PL / SK localization;
-- the optional AI Layer in the lower Main information line;
-- an external I2S DAC as the primary everyday audio path.
+- new LVGL 9.5 UI instead of legacy Canvas screens on the supported board;
+- scalable embedded TTF (TinyTTF) instead of compiled per-size fonts;
+- six-page navigation ring and separate Boot / Wi-Fi / Preset / Screensaver modes;
+- Visual as instrument-style level metering with its own ballistics, not a decorative scale;
+- Web UI Appearance: themes, editable Custom palette, independent Main backgrounds, station artwork, and optional user text TTF;
+- resilient weather network path with retries and resolver fallback;
+- matched network and TLS library profile for stable heavy-stream playback and HTTPS requests during playback;
+- LittleFS filesystem;
+- compile-time localization RU / EN / PL / SK;
+- optional AI Layer as a quiet information layer in the lower Main line;
+- emphasis on an external I2S DAC as the primary everyday audio option.
 
-Other board profiles may remain in the source tree, but this public beta covers only verified ESP32-4848S040 scenarios.
+Other board profiles may remain in the sources, but the public beta covers only verified ESP32-4848S040 scenarios.
 
 ## AI Layer
 
-AI Layer is an optional quiet layer over music. It is not an assistant or chat interface and does not try to keep the screen filled with text. Silence is a normal state. It requires an OpenAI-compatible API, key, model, and prompt; without them, YoRadio remains a conventional internet radio.
+AI Layer is an optional quiet layer over music. It is not an assistant, does not hold a dialog, and does not try to fill the screen with text: silence is a normal state for it. It needs an OpenAI-compatible API, key, model, and prompt; without them YoRadio remains a normal internet radio.
 
-When the layer has something useful to add, it uses a short line in the lower Main information area beneath the stream details. It does not cover playback controls, volume, or station metadata, and it does not open dialogs. The line stays empty when there is nothing appropriate to show, and AI content is not shown on other pages.
+The result appears discreetly: a short line in the lower information area of Main, under the stream technical line. The layer does not cover the control bar, volume, or playback metadata, does not open windows, and does not turn the screen into a chat. If there is nothing to say, the line stays empty — AI is not shown on other pages at all.
 
-More information:
+More detail:
 
-- [AI Layer in YoRadio](readme_ai_layer_eng.md);
-- [how the prompt works](readme_ai_prompt_explained_eng.md).
+- [AI Layer in YoRadio](readme_ai_layer_eng.md) — purpose and philosophy of the layer;
+- [how the prompt works](readme_ai_prompt_explained_eng.md) — language, tone, and output format rules.
 
 ## Beta limitations
 
-- ESP32-4848S040 is the only publicly supported board.
-- Interface language is selected at compile time; there is no runtime language switch.
-- Deep Sleep exits through the configured `WAKE_PIN` (BOOT / GPIO0 on ESP32-4848S040), the `WAKE AFTER SLEEP` RTC timer, or Reset/power. The touchscreen is not a wake source.
-- The Web UI is local-network HTTP without HTTPS.
-- An external I2S DAC is recommended for full audio output.
+- Only ESP32-4848S040 is publicly supported.
+- Interface language (RU / EN / PL / SK) is chosen at compile time; there is no runtime switch.
+- Exit from Deep Sleep is via the configured `WAKE_PIN` (on ESP32-4848S040 — BOOT / GPIO0), the `WAKE AFTER SLEEP` RTC timer, or Reset/power. The touchscreen is not a wake source.
+- The Web UI works on the local network, without HTTPS.
+- For full audio an external I2S DAC is recommended.
 
 ## Getting started
 
-1. Prepare an ESP32-4848S040 and a suitable power supply.
-2. Ready-to-flash packages are in [`build_bin/4848S040/`](build_bin/4848S040/) for **RU / EN / PL / SK**. Use `firmware.bin` and `littlefs.bin` from the same language folder. The complete address map and Espressif Flash Download Tool guide are in [`build_bin/4848S040/README.md`](build_bin/4848S040/README.md). You may also build from source.
+1. Take an ESP32-4848S040 board and prepare power.
+2. Ready-to-flash packages for ESP32-4848S040 are in [build_bin/4848S040/](build_bin/4848S040/) for **RU**, **EN**, **PL**, and **SK**. Use `firmware.bin` and `littlefs.bin` from the same language folder. The full address map and Espressif Flash Download Tool guide are in [build_bin/4848S040/README.md](build_bin/4848S040/README.md). Or build the firmware from source.
 3. Complete Wi-Fi Setup on first start.
 4. Open the Web UI at the device IP address.
 
-For DAC wiring, configuration, first start, and touch controls, see the **[ESP32-4848S040 board guide](README_4848S040_english.md)**.
+Hardware guide for ESP32-4848S040 — DAC wiring, configuration, first start, and control notes:
 
-### Source build note
+→ **[README_4848S040_english.md](README_4848S040_english.md)**
 
-To build:
+### Note on building from source
 
-1. Clone or update YoRadio.
+Build steps:
+
+1. Download or update YoRadio.
 2. Open the project in PlatformIO.
 3. Press **Build**.
 
-Nothing else is needed. You no longer have to replace ESP-IDF archives inside `.platformio` by hand — the former instructions for copying `.a` files into `framework-arduinoespressif32-libs` are obsolete and unsupported.
+Nothing else is required. Manually replacing ESP-IDF archives inside `.platformio` is **not needed** — the old instructions for copying `.a` files into `framework-arduinoespressif32-libs` are obsolete and unsupported.
 
-PlatformIO resolves the package pinned in [`platformio.ini`](platformio.ini) on its own: PIOArduino `55.03.311` (Arduino-ESP32 `3.3.11`, ESP-IDF `5.5.5`). The shared PlatformIO framework package stays stock — YoRadio never modifies or overwrites anything inside it.
+PlatformIO downloads the package pinned in [platformio.ini](platformio.ini) itself — PIOArduino `55.03.311` (Arduino-ESP32 `3.3.11`, ESP-IDF `5.5.5`). The shared PlatformIO package stays untouched: YoRadio does not modify or overwrite it.
 
-Instead, YoRadio keeps its own overrides in the repository, under `library!/esp-idf-5.5.5/s3/`. That directory holds seven ESP-IDF archives rebuilt from stock Espressif sources with a YoRadio configuration, plus a `manifest.txt` recording full provenance (versions, commits, SHA256 sums, and the exact configuration delta). It is **not** an ordinary Arduino library: nothing there should be copied, installed, or picked out file by file.
+YoRadio keeps its own overrides in the repository under `library!/esp-idf-5.5.5/s3/`. For S3 that directory holds a matched set of **seven** local ESP-IDF archives (LwIP, Wi-Fi, mbedTLS, and related network/TLS libraries), rebuilt from stock Espressif sources with YoRadio configuration, plus a `manifest.txt` with versions, commits, and SHA256. Graphics `libesp_lcd` is **not** part of that set — the stock ESP-IDF 5.5.5 library is used. This is **not** a normal Arduino library: the files do not need to be copied, installed, or linked individually.
 
-The rest is handled by the build helper `yoradio_build.py`. PlatformIO runs it automatically on every build (via `extra_scripts` in `platformio.ini`) — **never run it by hand**. It detects the target chip, checks the platform, core, and ESP-IDF versions, verifies the SHA256 of all seven archives, and only then puts them on the linker search path together with the link options that set requires.
+Everything else is done by the build helper `yoradio_build.py`. PlatformIO runs it automatically on every build (`extra_scripts` in `platformio.ini`) — **you do not run it by hand**. The helper checks platform, core, and ESP-IDF versions, verifies the local set’s SHA256, and only then puts it on the linker search path together with the required mbedTLS options.
 
-Validation is all-or-nothing: if all seven archives match, the full optimized YoRadio profile is used; if anything at all fails to match, none of it is used. In that case the build does not stop — the helper prints a warning and builds against the complete stock ESP-IDF library set. This fallback is intended behaviour rather than an error, but it is not equivalent to the optimized profile: the resulting firmware has stock ESP-IDF networking and TLS characteristics.
+Validation is all-or-nothing: if the whole set matches, the optimized YoRadio profile is used; if anything fails, the build does not stop — the helper prints a warning and builds against fully stock ESP-IDF libraries. That is a fallback mode, not an error, but it does not give the optimized profile characteristics.
 
-The set matters for three practical device characteristics.
+Why the set exists:
 
-The custom **LwIP** profile supports long playback of demanding network streams, including FLAC and high-bitrate stations, by reducing the likelihood of network stalls and buffering failures. It cannot guarantee uninterrupted playback because station and network quality still matter.
+- **LwIP** profile — for more resilient long playback of heavy network streams (including FLAC and high bitrate); unbroken playback is not guaranteed — much depends on the station and the link;
+- **mbedTLS** profile — so AI Layer HTTPS requests can run during playback while LVGL and the audio decoder are active; the archives are matched as a whole and must not be replaced individually;
+- **Wi-Fi** and **LwIP** builds prefer PSRAM for their buffers to keep internal memory for audio and TLS.
 
-The custom **mbedTLS** profile is not merely an HTTPS switch. AI Layer can make a TLS request while LVGL and the audio decoder are active. With the stock profile, the TLS handshake could fail when a sufficiently large contiguous internal-memory block was unavailable. The dynamic-buffer mode lowers those requirements, while a guard skips a request if the available block is still too small. The archives form one matched profile, together with their link options, and must not be replaced individually with arbitrary versions.
+Additional notes:
 
-The **Wi-Fi** and **LwIP** builds place their buffers in PSRAM first. This keeps large contiguous internal-memory blocks available for audio and TLS during demanding streams.
-
-**esp_lcd** is not part of the set: the RGB display uses the stock ESP-IDF 5.5.5 library with the automatic per-VSYNC RGB panel restart enabled (`RESTART_IN_VSYNC=ON`). The earlier rebuild with that restart disabled has been retired, and the build helper rejects an overlay directory that contains it again.
-
-- ESP32-S3 and ESP32-P4 are separate profiles. A custom archive set is currently adopted for S3 only; a P4 build uses stock ESP-IDF libraries throughout and never inherits the S3 archives.
-- The Windows build is device-verified. Building with the local overlay on Linux/macOS has not been exercised yet — that is an open portability item, not a known firmware problem.
-- All of the above applies to source builds only. Ready-to-flash packages in `build_bin/` are already built with the required library set.
-- Select the interface language in `src/myoptions.h` with `L10N_LANGUAGE`: `RU`, `EN`, `PL`, or `SK`. There is no runtime language switch.
-- A normal build embeds two ready TTF files from [`src/src/lvgl_ui/fonts/`](src/src/lvgl_ui/fonts/) (`readme_fonts.md`) in application Flash. You do not generate fonts by hand, install fontTools, or upload a factory TTF through LittleFS. Optional user text is uploaded separately through the Web UI (`/fonts/user.ttf`). Samples in [`fonts/samples/`](fonts/samples/) are not part of the firmware.
+- ESP32-S3 and ESP32-P4 are independent profiles. A custom archive set is currently adopted only for S3; a P4 build uses stock ESP-IDF libraries entirely and does not inherit the S3 archives.
+- The Windows build is device-verified. Building with the local set on Linux/macOS has not been verified yet — that is a deferred portability task, not a known firmware bug.
+- Everything above applies only to building from source. Ready-to-flash files in `build_bin/` are already built with the intended library set.
+- Interface language is set in `src/myoptions.h` via `L10N_LANGUAGE`: `RU`, `EN`, `PL`, or `SK`. There is no runtime language switch.
+- A normal build embeds two ready TTF files from [src/src/lvgl_ui/fonts/](src/src/lvgl_ui/fonts/) (`readme_fonts.md`) into application Flash. You do not need to generate fonts by hand, install fontTools, or upload a factory TTF through LittleFS. Optional user text is uploaded separately through the Web UI to the device (`/fonts/user.ttf`); samples in [fonts/samples/](fonts/samples/) are not part of the firmware.
+- The sources support RU, EN, PL, and SK. Ready language packages and flashing instructions are in [build_bin/4848S040/](build_bin/4848S040/) and [build_bin/4848S040/README.md](build_bin/4848S040/README.md).
 
 ## Credits
 
-- **e2002** — original YoRadio project;
-- **Wolle (schreibfaul1)** — AudioI2S;
+- **e2002** — author of the original YoRadio project;
+- **Wolle (schreibfaul1)** — AudioI2S library;
 - **Maleksm** (4pda.to) — AudioI2S improvements;
 - **moononournation** — Arduino_GFX, historical Type9/parity provenance;
-- **LVGL** — interface graphics engine.
+- the **LVGL** project — interface graphics engine.
 
 ## License and authors
 
-This project is based on [YoRadio](https://github.com/e2002/yoradio) and is distributed under the **GNU General Public License v3 or later**. See [`LICENSE`](LICENSE).
+The project is based on [YoRadio](https://github.com/e2002/yoradio) (e2002) and is distributed under the **GNU General Public License v3 or later** — full text in [LICENSE](LICENSE).
 
-Third-party components are listed in [`NOTICE`](NOTICE). GPL v3 requires distributors of compiled firmware to provide access to the corresponding source; this repository and its `platformio.ini` instructions provide that source context.
+Third-party components are listed in [NOTICE](NOTICE). When distributing compiled firmware (`.bin`), GPL v3 requires access to the corresponding sources — this repository and the instructions in `platformio.ini`.
 
 ## Feedback
 
-Questions, bug reports, and proposals are welcome through [Issues](https://github.com/Witaliy76/Yoradio_lvgl/issues) and [Pull Requests](https://github.com/Witaliy76/Yoradio_lvgl/pulls) in [Witaliy76/Yoradio_lvgl](https://github.com/Witaliy76/Yoradio_lvgl).
+Questions, bugs, and proposals — through [Issues](https://github.com/Witaliy76/Yoradio_lvgl/issues) and [Pull Requests](https://github.com/Witaliy76/Yoradio_lvgl/pulls) of the [Witaliy76/Yoradio_lvgl](https://github.com/Witaliy76/Yoradio_lvgl) repository.
