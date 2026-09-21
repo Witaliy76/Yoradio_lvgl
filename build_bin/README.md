@@ -4,12 +4,12 @@
 
 - **Проект:** [YoRadio LVGL](https://github.com/Witaliy76/Yoradio_lvgl)
 - **Версия:** `0.9.434m-r2-lvgl-beta.3`
-- **Дата:** 17 сентября 2026
-- **Source commit:** `eaeef984666499f47d006538841b355259b3352c`
+- **Дата:** 21 сентября 2026
+- **Source commit:** `7fe86c4fe9e37ff74fd9c048f78be4e8e0917441`
 - **Поддерживаемая плата:** ESP32-4848S040
 - **Языки:** [`RU`](4848S040/RU/) / [`EN`](4848S040/EN/) / [`PL`](4848S040/PL/) / [`SK`](4848S040/SK/)
 - **Файловая система:** LittleFS
-- **Статус:** пакет-кандидат beta.3; проверка на устройстве (B3-P7) ещё впереди
+- **Статус:** финальный пакет beta.3; физическая проверка на устройстве после последних RC-изменений не выполнялась
 
 Каждая языковая папка содержит согласованный комплект из пяти файлов
 (`bootloader.bin`, `partitions.bin`, `boot_app0.bin`, `firmware.bin`, `littlefs.bin`).
@@ -27,12 +27,12 @@
 
 - **Project:** [YoRadio LVGL](https://github.com/Witaliy76/Yoradio_lvgl)
 - **Version:** `0.9.434m-r2-lvgl-beta.3`
-- **Date:** 2026-09-17
-- **Source commit:** `eaeef984666499f47d006538841b355259b3352c`
+- **Date:** 2026-09-21
+- **Source commit:** `7fe86c4fe9e37ff74fd9c048f78be4e8e0917441`
 - **Supported board:** ESP32-4848S040
 - **Languages:** [`RU`](4848S040/RU/) / [`EN`](4848S040/EN/) / [`PL`](4848S040/PL/) / [`SK`](4848S040/SK/)
 - **Filesystem:** LittleFS
-- **Status:** beta.3 release candidate package; device RC smoke (B3-P7) pending
+- **Status:** final beta.3 package; physical device smoke after latest RC changes not performed (device unavailable)
 
 Do not mix `firmware.bin` and `littlefs.bin` across language packages.
 
