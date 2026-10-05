@@ -334,3 +334,4 @@ Behavior and on-screen output remain unchanged; this document tracks the pipelin
 - Widget `wgt_status_line` is defined in `[../widgets/wgt_status_line.cpp](../widgets/wgt_status_line.cpp)`; only its `root` container is relevant to the Weather layout contract.
 - All `lv_*` calls run on `DspTask` only, via `Display::loop()` → `lvgl_ui::taskHandler` / `refreshWeatherScreen()`.
 - **Pressure unit:** `WeatherState.current.pressure_hpa` stays in hPa end to end; `_val_pressure` is the only place it is converted, via `weatherHpaToMmHg()` (`kHpaToMmHg`, `weather_state.h`), and rendered as `"%d mmHg"`.
+- **Pressure value width:** `_val_pressure` uses fixed `k_metric_pressure_value_w` (96) with `OVERFLOW_VISIBLE` parents; the pressure cell uses `flex_grow=5` vs sibling `4` so factory `NNN mmHg` keeps the trailing `g` and the rain column sits slightly farther right.

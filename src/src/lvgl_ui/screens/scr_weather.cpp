@@ -114,13 +114,15 @@ static constexpr lv_coord_t k_metric_icon_slot_h  = 26;
 // 18→20: TinyTTF text(14) line_height=17 + 'g' AA descender needs a 1–2 px safety margin.
 // 18→20: TinyTTF text(14) line_height=17 + AA-вынос 'g' требует запас 1–2 px.
 static constexpr lv_coord_t k_metric_value_slot_h = 20;
-// Bounded pressure value width: covers factory "799 mmHg" (~81 px) with a small user.ttf margin.
-// Slot/cell stay OVERFLOW_VISIBLE so the centered 84 px label may use the inter-cell gutter;
+// Bounded pressure value width: factory "799 mmHg" needs ~90 px at TinyTTF 14
+// (84 still clipped the trailing 'g' of "731 mmHg"); keep a small user.ttf margin.
+// Slot/cell stay OVERFLOW_VISIBLE so the centered label may use the inter-cell gutter
+// toward rain — precipitation shifts right in the shared metrics row.
 // text_scroll clips/scrolls inside this bound — never paints past it into neighbors.
-// Фикс. ширина давления: factory «799 mmHg» (~81 px) + запас под user.ttf.
-// OVERFLOW_VISIBLE на slot/cell — центрированные 84 px используют gutter; скролл/clip
-// только внутри этой ширины, без бесконтрольной отрисовки на соседние метрики.
-static constexpr lv_coord_t k_metric_pressure_value_w = 84;
+// Фикс. ширина давления: factory «799 mmHg» ≈ 90 px при TinyTTF 14
+// (84 всё ещё обрезало «g» у «731 mmHg»); запас под user.ttf.
+// OVERFLOW_VISIBLE на slot/cell — центрированная метка использует gutter к осадкам.
+static constexpr lv_coord_t k_metric_pressure_value_w = 96;
 static constexpr lv_coord_t k_metric_label_slot_h = 17;
 // A3.1j: synced top row + small bump over pre-A3.1i baseline (hero/hourly readable).
 // A3.1j: выравнивание top row + небольшой прирост над baseline до A3.1i.
@@ -559,8 +561,10 @@ static lv_obj_t* add_metric_slot(lv_obj_t* cell, lv_coord_t slot_h, const void* 
     return slot;
 }
 
-// A3: equal-width column (flex_grow 1) — four cells span full hero metrics row.
-// A3: колонка равной ширины (flex_grow 1) — 4 ячейки на всю ширину hero.
+// A3: equal-width column (flex_grow 4) — four cells span full hero metrics row.
+// Pressure later bumps to 5 so "mmHg" keeps the trailing glyph and rain sits farther right.
+// A3: колонка равной ширины (flex_grow 4) — 4 ячейки на всю ширину hero.
+// Давление потом получает 5 — «mmHg» целиком, осадки чуть правее.
 static void add_metric_cell(lv_obj_t* row, const char* icon_glyph, const char* label_text,
                             lv_obj_t** out_val, lv_obj_t** out_lbl, const YoRadioPalette& pal) {
     if (!row) return;
@@ -568,7 +572,7 @@ static void add_metric_cell(lv_obj_t* row, const char* icon_glyph, const char* l
     if (!cell) return;
     wx_flat_base(cell);
     lv_obj_set_height(cell, LV_SIZE_CONTENT);
-    lv_obj_set_flex_grow(cell, 1);
+    lv_obj_set_flex_grow(cell, 4);
     lv_obj_set_style_min_width(cell, 0, LV_PART_MAIN);
     lv_obj_set_flex_flow(cell, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(cell, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -599,17 +603,22 @@ static void add_metric_cell(lv_obj_t* row, const char* icon_glyph, const char* l
 
 // Pressure value: bounded width + overflow-visible parents + shared text_scroll fallback.
 // Factory NNN mmHg fits statically inside k_metric_pressure_value_w; wider user.ttf scrolls
-// only when global Scrolling is On and text exceeds the bound (Off → CLIP inside 84 px).
+// only when global Scrolling is On and text exceeds the bound (Off → CLIP inside the bound).
 // Давление: фикс. ширина + OVERFLOW_VISIBLE у родителей + общий text_scroll.
 // Factory NNN mmHg статичен; более широкий user.ttf скроллится только при включённом
-// глобальном Scrolling и переполнении (Off → CLIP внутри 84 px).
+// глобальном Scrolling и переполнении (Off → CLIP внутри границы).
 static void wx_metric_pressure_value_setup(lv_obj_t* val) {
     if (!val) return;
     lv_obj_set_width(val, k_metric_pressure_value_w);
     lv_obj_t* slot = lv_obj_get_parent(val);
     if (slot) lv_obj_add_flag(slot, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
     lv_obj_t* cell = slot ? lv_obj_get_parent(slot) : nullptr;
-    if (cell) lv_obj_add_flag(cell, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    if (cell) {
+        lv_obj_add_flag(cell, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+        // 5 vs sibling 4 — modest extra share so rain moves right without squeezing wind/humidity.
+        // 5 против соседних 4 — чуть больше доля давления, осадки правее без сжатия ветра/влажности.
+        lv_obj_set_flex_grow(cell, 5);
+    }
     // Register last — width/font/align already final (FU6-A contract).
     // Регистрация последней — ширина/шрифт/выравнивание уже финальны.
     text_scroll::registerLabel(val);
