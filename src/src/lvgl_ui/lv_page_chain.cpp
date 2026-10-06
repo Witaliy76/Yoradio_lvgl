@@ -195,38 +195,89 @@ void PageChain::goTo(int index) {
         ? LV_SCR_LOAD_ANIM_MOVE_LEFT
         : LV_SCR_LOAD_ANIM_MOVE_RIGHT;
 
-
-    // Create the next screen while prev is still the active LVGL screen (peak = old + new trees).
-    // Создаём следующий экран, пока prev ещё активен (пик памяти = старое + новое дерево).
+    const int prevIndex = _currentIndex;
     if (prev) prev->exit();
+
+    // Phase 1 — free prev's tree BEFORE building next. Previously next was created while prev
+    // was still resident (peak = both trees), which (a) left only the pool remainder for next
+    // and (b) interleaved next's objects with prev's, so freeing prev produced a fragmented pool
+    // (observed: Weather->Main peak ~97% of pool, biggest free chunk falling under the ~18 KB
+    // render layer → lv_refr busy-loop → WDT). LVGL needs a valid active screen while the old
+    // tree is deleted, so a minimal blank screen stands in; it is never rendered because no
+    // lv_timer_handler() runs between the two synchronous loads below.
+    // Фаза 1 — освобождаем дерево prev ДО сборки next. Раньше next строился при живом prev
+    // (пик = оба дерева): next получал только остаток пула, а его объекты перемешивались с
+    // объектами prev — после удаления prev пул оставался нарезанным (на устройстве: пик
+    // Weather->Main ~97% пула, самый большой кусок меньше ~18 KB слоя → зацикливание lv_refr →
+    // WDT). LVGL требует действующий active screen на время удаления — ставим пустую заглушку;
+    // она не рендерится, т.к. между двумя синхронными загрузками нет lv_timer_handler().
+    lv_obj_t* blank = nullptr;
+    if (!g_carousel_transition_anim_enabled && prev && prev->screen()) {
+        blank = lv_obj_create(nullptr);
+        if (blank) {
+            lv_obj_set_style_bg_color(blank, lv_color_black(), LV_PART_MAIN);
+            lv_obj_set_style_bg_opa(blank, LV_OPA_COVER, LV_PART_MAIN);
+            // Same hook pair as the former auto_del path: stop prev's non-tree resources (e.g. Main
+            // PresenceRail lv_timer) while prev is still active, then ANIM_NONE/0/0 + auto_del=true
+            // loads blank and deletes prev SYNCHRONOUSLY, then release prev's C++ handles.
+            // Та же пара хуков, что и раньше: гасим ресурсы prev вне дерева, пока prev активен;
+            // ANIM_NONE/0/0 + auto_del=true синхронно грузит blank и удаляет prev; обнуляем указатели.
+            prev->prepareForAutoDelete();
+            loadScreenAnimAutoDel(blank, LV_SCR_LOAD_ANIM_NONE, 0);
+            prev->releaseAfterAutoDelete();
+        }
+        // blank == nullptr: pool cannot even hold an empty screen — fall through to the legacy
+        // peak order below (prev stays resident until next is loaded) rather than failing here.
+        // blank == nullptr: пул не вмещает даже пустой экран — идём по прежнему порядку (prev
+        // живёт до загрузки next), а не отказываем сразу.
+    }
+
+    // Phase 2 — build next on the freed pool.
+    // Фаза 2 — строим next на освобождённом пуле.
     next->create();
     next->enter();
     _currentIndex = index;
     afterPageAssetWork();
 
-
     lv_obj_t* next_scr = next->screen();
-    if (!next_scr) return; // create() failed (e.g. LVGL pool exhausted) — guard clears the flag.
+    if (!next_scr) {
+        // create() failed (pool exhausted). If prev is already gone, blank is the active screen and
+        // has no gestures — try to bring prev back on the pool next just released; if even that
+        // fails, mirror showWifiServiceOneWay(): controlled reboot instead of a dead black screen.
+        // Without blank (legacy order) prev is still resident and active — just return as before.
+        // create() провалился (пул исчерпан). Если prev уже удалён, активен blank без жестов —
+        // пробуем вернуть prev на только что освобождённом пуле; если и это не удалось — как в
+        // showWifiServiceOneWay(): контролируемый reboot вместо мёртвого чёрного экрана.
+        // Без blank (прежний порядок) prev жив и активен — просто выходим, как раньше.
+        if (blank && prev) {
+            prev->create();
+            lv_obj_t* prev_scr = prev->screen();
+            if (prev_scr) {
+                prev->enter();
+                _currentIndex = prevIndex;
+                loadScreenAnimAutoDel(prev_scr, LV_SCR_LOAD_ANIM_NONE, 0); // deletes blank / удаляет blank
+                return;
+            }
+            Serial.println("[PageChain] goTo: next and prev create() failed on freed pool — restart");
+            ESP.restart();
+        }
+        return; // guard clears _transitionActive / страж сбросит _transitionActive
+    }
 
     armRgbResyncOnTransitionComplete(next_scr);
-
-    // W2F unified auto-delete: prev is deleted by LVGL on load, so its object tree returns to the
-    // 48 KB pool before the next page redraws (e.g. Main gradients). No per-page non-resident flag.
-    // W2F: prev удаляется LVGL при загрузке — дерево возвращается в пул до отрисовки следующей страницы.
-    const bool autoDeletePrev = (prev && prev->screen() && prev->screen() != next_scr);
 
     if (g_carousel_transition_anim_enabled) {
         // Animation path is disabled by policy (slow on partial buffer) and is NOT wired to auto_del
         // here — keeping it would leave prev resident. Default build never takes this branch.
         // Анимация выключена политикой и не связана с auto_del — дефолтная сборка сюда не заходит.
         loadScreenAnim(next_scr, anim, kPageAnimMs);
-    } else if (autoDeletePrev) {
-        // 1) stop prev's non-tree resources (e.g. Main PresenceRail lv_timer) BEFORE deletion;
-        // 2) lv_scr_load_anim(ANIM_NONE, time=0, delay=0, auto_del=true) loads next and deletes the
-        //    old active screen SYNCHRONOUSLY (LVGL shortcut path), so it is safe to release prev's
-        //    C++ pointers immediately after the call returns.
-        // 1) гасим ресурсы prev вне дерева (таймер rail) ДО удаления;
-        // 2) auto_del=true с ANIM_NONE/0/0 — синхронная загрузка+удаление старого экрана.
+    } else if (blank) {
+        // Phase 3 — load next and synchronously delete the blank stand-in (prev is already gone).
+        // Фаза 3 — грузим next и синхронно удаляем заглушку (prev уже удалён).
+        loadScreenAnimAutoDel(next_scr, LV_SCR_LOAD_ANIM_NONE, 0);
+    } else if (prev && prev->screen() && prev->screen() != next_scr) {
+        // Legacy order (blank allocation failed): auto-delete prev while loading next.
+        // Прежний порядок (не удалось создать blank): auto-delete prev при загрузке next.
         prev->prepareForAutoDelete();
         loadScreenAnimAutoDel(next_scr, LV_SCR_LOAD_ANIM_NONE, 0);
         prev->releaseAfterAutoDelete();
