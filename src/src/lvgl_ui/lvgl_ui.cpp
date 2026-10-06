@@ -1,5 +1,6 @@
 // Author: Witaliy76 - https://github.com/Witaliy76
 #include "lvgl_ui.h"
+#include "lv_draw_buf_heap.h"
 #include "lv_overlay.h"
 #include "lv_screensaver.h"
 #include "lv_text_scroll.h"
@@ -643,6 +644,13 @@ void lvgl_ui::initRuntime() {
     static bool s_inited = false;
     if (s_inited) return;
     lv_init();
+    // Render-layer buffers → PSRAM heap, not the TLSF widget pool (must precede any lv_draw_buf).
+    // A pool-side layer allocation failure is fatal under LV_OS_NONE (lv_refr busy-loops → WDT).
+    // Буферы слоёв рендера → куча PSRAM, а не TLSF-пул виджетов (до первого lv_draw_buf).
+    // Отказ выделения слоя из пула при LV_OS_NONE фатален (lv_refr зацикливается → WDT).
+    if (!installPsramDrawBufHandlers()) {
+        Serial.println("[LVGL] draw-buf PSRAM handlers NOT installed; layers stay on pool");
+    }
     // Stage 6.1F-b: LVGL file API → same LittleFS mount as legacy (drive L:).
     // Этап 6.1F-b: файловый API LVGL → тот же LittleFS (диск L:).
     lv_fs_littlefs_register();
