@@ -85,7 +85,9 @@ class AsyncJsonResponse: public AsyncAbstractResponse {
 #ifdef ARDUINOJSON_5_COMPATIBILITY
     DynamicJsonBuffer _jsonBuffer;
 #else
-    DynamicJsonDocument _jsonBuffer;
+    // ArduinoJson 7. DynamicJsonDocument only stored an ignored capacity.
+    // ArduinoJson 7. DynamicJsonDocument лишь хранил ёмкость, которую v7 игнорирует.
+    JsonDocument _jsonBuffer;
 #endif
 
     JsonVariant _root;
@@ -103,13 +105,14 @@ class AsyncJsonResponse: public AsyncAbstractResponse {
         _root = _jsonBuffer.createObject();
     }
 #else
-    AsyncJsonResponse(bool isArray=false, size_t maxJsonBufferSize = DYNAMIC_JSON_DOCUMENT_SIZE) : _jsonBuffer(maxJsonBufferSize), _isValid{false} {
+    AsyncJsonResponse(bool isArray=false, size_t maxJsonBufferSize = DYNAMIC_JSON_DOCUMENT_SIZE) : _isValid{false} {
+      (void)maxJsonBufferSize;
       _code = 200;
       _contentType = JSON_MIMETYPE;
       if(isArray)
-        _root = _jsonBuffer.createNestedArray();
+        _root = _jsonBuffer.to<JsonArray>();
       else
-        _root = _jsonBuffer.createNestedObject();
+        _root = _jsonBuffer.to<JsonObject>();
     }
 #endif
 
@@ -221,7 +224,8 @@ public:
         JsonVariant json = jsonBuffer.parse((uint8_t*)(request->_tempObject));
         if (json.success()) {
 #else
-        DynamicJsonDocument jsonBuffer(this->maxJsonBufferSize);
+        (void)this->maxJsonBufferSize;
+        JsonDocument jsonBuffer;
         DeserializationError error = deserializeJson(jsonBuffer, (uint8_t*)(request->_tempObject));
         if(!error) {
           JsonVariant json = jsonBuffer.as<JsonVariant>();

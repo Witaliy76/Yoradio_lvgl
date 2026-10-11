@@ -344,7 +344,23 @@ def render(decision):
     target = label or decision["mcu"] or "unknown"
 
     lines = [BANNER]
-    if decision["profile"] == "OPTIMIZED":
+    if decision.get("mixed"):
+        lines += [
+            "[YoRadio Build Profile]",
+            "",
+            "Target:  %s" % target,
+            "ESP-IDF: %s   Arduino core: %s" % (det["idf"], det["arduino"]),
+            "",
+            "Framework:               arduino + espidf",
+            "Native sdkconfig owns LwIP, mbedTLS, Wi-Fi, and esp_lcd.",
+            "Legacy overlay LIBPATH:  bypassed",
+            "TLS Dynamic Buffer wraps: ENABLED (%d/%d)"
+            % (len(decision["wraps"]), len(decision["wraps"])),
+            "YORADIO_IDF_C1_CONFIG:   enabled",
+            "",
+            "Profile: MIXED NATIVE",
+        ]
+    elif decision["profile"] == "OPTIMIZED":
         lines += [
             "[YoRadio Build Profile]",
             "",
@@ -419,6 +435,29 @@ def render(decision):
 # PlatformIO / SCons integration
 # ---------------------------------------------------------------------------
 
+def _framework_names(env):
+    """Return the PlatformIO framework list as a lowercase set."""
+    raw = env.get("PIOFRAMEWORK", [])
+    if isinstance(raw, (list, tuple)):
+        parts = raw
+    else:
+        parts = str(raw).replace(",", " ").split()
+    return {str(part).strip().lower() for part in parts if str(part).strip()}
+
+
+def _is_mixed_arduino_idf(env):
+    """True when this env is the mixed Arduino + ESP-IDF build.
+
+    Mixed mode compiles LwIP, mbedTLS, Wi-Fi and esp_lcd from the native
+    sdkconfig. The legacy overlay must not stay ahead of those archives on
+    LIBPATH. Arduino-only builds keep the previous overlay path.
+    Mixed-сборка берёт LwIP/mbedTLS/Wi-Fi/esp_lcd из native sdkconfig.
+    Overlay не должен перехватывать эти архивы. Arduino-only путь прежний.
+    """
+    names = _framework_names(env)
+    return "arduino" in names and "espidf" in names
+
+
 def apply(env):
     platform = env.PioPlatform()
     board = env.BoardConfig()
@@ -437,6 +476,15 @@ def apply(env):
         platform_version=getattr(platform, "version", None),
     )
 
+    # Mixed Arduino+ESP-IDF compiles those components from sdkconfig. The
+    # overlay directory must not precede the native archives on LIBPATH.
+    # Arduino-only builds keep the hard overlay checks below.
+    # Mixed собирает эти компоненты из sdkconfig. Каталог overlay не должен
+    # стоять впереди native-архивов. Для Arduino-only проверки ниже прежние.
+    mixed = _is_mixed_arduino_idf(env)
+    decision["mixed"] = mixed
+    decision["link_overlay"] = False
+
     # Once a production overlay is expected for this target, its archive set is
     # a build invariant, not a preference.  The balanced LwIP profile lives in
     # these archives (FU3: TCP_RECVMBOX_SIZE=32, TCP_SND_BUF_DEFAULT=8192), so a
@@ -445,54 +493,67 @@ def apply(env):
     # They are reachable only after decide() found the profile and the overlay
     # directory; an unknown MCU or a target with no archives (P4) still returns
     # a plain STOCK decision and builds normally.
+    # Mixed mode does not link these archives, so an overlay problem must not
+    # block the native build. The archives themselves stay on disk.
 
-    # Refuse an overlay carrying a withdrawn archive: it would shadow stock
-    # ESP-IDF silently, and no SHA256 row would notice.  Checked before the
-    # validity test so a withdrawn archive is reported even when the set is
-    # already invalid for another reason.
-    if decision["forbidden"]:
-        raise RuntimeError(
-            "YoRadio: obsolete overlay archive(s) %s in %s; the production "
-            "RGB policy is stock ESP-IDF RESTART_IN_VSYNC=ON - delete the "
-            "file, do not re-pin it"
-            % (", ".join(decision["forbidden"]), decision["overlay_dir"]))
+    if not mixed:
+        # Refuse an overlay carrying a withdrawn archive: it would shadow stock
+        # ESP-IDF silently, and no SHA256 row would notice.  Checked before the
+        # validity test so a withdrawn archive is reported even when the set is
+        # already invalid for another reason.
+        if decision["forbidden"]:
+            raise RuntimeError(
+                "YoRadio: obsolete overlay archive(s) %s in %s; the production "
+                "RGB policy is stock ESP-IDF RESTART_IN_VSYNC=ON - delete the "
+                "file, do not re-pin it"
+                % (", ".join(decision["forbidden"]), decision["overlay_dir"]))
 
-    # Exact-set contract: the overlay directory precedes stock ESP-IDF on
-    # LIBPATH, so an unlisted .a resolves silently and no SHA256 row would
-    # ever notice it shadowing a framework archive.
-    if decision["unexpected"]:
-        raise RuntimeError(
-            "YoRadio: unexpected archive(s) %s in %s; the production overlay "
-            "must contain exactly the known-good set and nothing else - "
-            "remove the file, or add it to S3_KNOWN_GOOD if it is now a "
-            "deliberate part of the overlay"
-            % (", ".join(decision["unexpected"]), decision["overlay_dir"]))
+        # Exact-set contract: the overlay directory precedes stock ESP-IDF on
+        # LIBPATH, so an unlisted .a resolves silently and no SHA256 row would
+        # ever notice it shadowing a framework archive.
+        if decision["unexpected"]:
+            raise RuntimeError(
+                "YoRadio: unexpected archive(s) %s in %s; the production overlay "
+                "must contain exactly the known-good set and nothing else - "
+                "remove the file, or add it to S3_KNOWN_GOOD if it is now a "
+                "deliberate part of the overlay"
+                % (", ".join(decision["unexpected"]), decision["overlay_dir"]))
 
-    if str(decision.get("reason") or "").startswith("overlay-invalid"):
-        detail = "; ".join(
-            "%s %s (expected %s, got %s)"
-            % (row["archive"], row["state"], row["expected"][:16] + "...",
-               (row["actual"][:16] + "...") if row["actual"] else "no file")
-            for row in decision["rows"] if not row["ok"])
-        raise RuntimeError(
-            "YoRadio: production overlay in %s is invalid (%d/%d archives "
-            "valid) - %s. The balanced LwIP profile is a production invariant; "
-            "refusing to fall back to stock ESP-IDF libraries, which would "
-            "silently restore TCP_RECVMBOX_SIZE=6 / TCP_SND_BUF_DEFAULT=5744. "
-            "Restore the archives from the accepted overlay, or update the "
-            "SHA256 table in this file if the change is intentional."
-            % (decision["overlay_dir"], decision["valid"], decision["total"],
-               detail))
+        if str(decision.get("reason") or "").startswith("overlay-invalid"):
+            detail = "; ".join(
+                "%s %s (expected %s, got %s)"
+                % (row["archive"], row["state"], row["expected"][:16] + "...",
+                   (row["actual"][:16] + "...") if row["actual"] else "no file")
+                for row in decision["rows"] if not row["ok"])
+            raise RuntimeError(
+                "YoRadio: production overlay in %s is invalid (%d/%d archives "
+                "valid) - %s. The balanced LwIP profile is a production invariant; "
+                "refusing to fall back to stock ESP-IDF libraries, which would "
+                "silently restore TCP_RECVMBOX_SIZE=6 / TCP_SND_BUF_DEFAULT=5744. "
+                "Restore the archives from the accepted overlay, or update the "
+                "SHA256 table in this file if the change is intentional."
+                % (decision["overlay_dir"], decision["valid"], decision["total"],
+                   detail))
 
-    if decision["profile"] == "OPTIMIZED":
+    # Arduino-only optimized builds still prepend the overlay. Mixed builds
+    # keep the TLS wraps and the Audio.cpp config gate, without that prepend.
+    # Arduino-only по-прежнему ставит overlay в LIBPATH. Mixed оставляет wraps
+    # и шлюз Audio.cpp, но архивы overlay не подменяет.
+    use_legacy_link = (not mixed) and decision["profile"] == "OPTIMIZED"
+    use_tls_bridge = use_legacy_link or mixed
+    if use_legacy_link:
         # Prepend, never replace: the stock -L entries stay exactly where
-        # pioarduino-build.py puts them, they just lose the six names.
+        # pioarduino-build.py puts them, they just lose the seven names.
         env.Prepend(LIBPATH=[decision["overlay_dir"]])
+        decision["link_overlay"] = True
+    if use_tls_bridge:
+        if not decision["wraps"]:
+            decision["wraps"] = list(S3_MBEDTLS_WRAPS)
         env.Append(LINKFLAGS=["-Wl,--wrap=%s" % sym
                               for sym in decision["wraps"]])
-        # Keep project/framework compile-time lwIP headers coherent with the
-        # accepted C1 liblwip archive.  Force-include only after the atomic
-        # 6/6 decision; stock fallback therefore retains stock sdkconfig.
+        # Force-include only for the optimized Arduino path and for mixed mode.
+        # Stock Arduino fallback therefore retains stock sdkconfig.
+        # Force-include только для optimized Arduino и для mixed.
         config_header = os.path.join(
             project_dir, "src", "src", "core", "yoradio_idf_c1_config.h")
         env.Append(CPPDEFINES=[("YORADIO_IDF_C1_CONFIG", 1)])

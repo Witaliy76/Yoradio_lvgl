@@ -175,7 +175,9 @@ bool aiLoadFromFS(AIConfig& out) {
     return false;  // File too large
   }
   
-  DynamicJsonDocument doc(1024);
+  // ArduinoJson 7 grows the document. The 1024-byte file guard above is the cap.
+  // ArduinoJson 7 растит документ сам. Потолок — проверка размера файла выше.
+  JsonDocument doc;
   DeserializationError error = deserializeJson(doc, file);
   file.close();
   
@@ -210,7 +212,7 @@ bool aiSaveToFS(const AIConfig& cfg) {
     return false;
   }
   
-  DynamicJsonDocument doc(1024);
+  JsonDocument doc;
   doc["enabled"] = cfg.enabled;
   doc["host"] = cfg.host;
   doc["port"] = cfg.port;

@@ -1,0 +1,121 @@
+# S01-1 native defaults for env:4848S040.
+# Values reproduce the current qio_opi / overlay effective behavior.
+# They are not a copy of an ESP-IDF example.
+# Значения повторяют текущее поведение qio_opi и overlay, не пример ESP-IDF.
+
+# Arduino core starts setup()/loop(). The Kconfig default is off.
+# Ядро Arduino запускает setup()/loop(). В Kconfig по умолчанию это выключено.
+CONFIG_AUTOSTART_ARDUINO=y
+CONFIG_ARDUINO_RUN_CORE1=y
+CONFIG_ARDUINO_EVENT_RUN_CORE1=y
+
+# Arduino-ESP32 refuses to build unless the tick is 1000 Hz.
+# Arduino-ESP32 не собирается, если тик не 1000 Гц.
+CONFIG_FREERTOS_HZ=1000
+# Current qio_opi sdkconfig keeps FreeRTOS typedef aliases such as xQueueHandle.
+# AsyncTCP still uses those names. This is the current header, not an API edit.
+# Текущий qio_opi sdkconfig сохраняет алиасы FreeRTOS вроде xQueueHandle.
+# AsyncTCP по-прежнему использует эти имена. Это текущий заголовок, не правка API.
+CONFIG_FREERTOS_ENABLE_BACKWARD_COMPATIBILITY=y
+
+# Current N16R8 qio_opi image: 16 MB QIO flash, 80 MHz, 240 MHz CPU, size opt.
+# Текущий образ N16R8 qio_opi: 16 МБ QIO, 80 МГц, CPU 240 МГц, оптимизация по размеру.
+CONFIG_IDF_TARGET="esp32s3"
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+CONFIG_BOOTLOADER_COMPILER_OPTIMIZATION_SIZE=y
+
+# Octal PSRAM is the current qio_opi header (SPIRAM_MODE_OCT), not the quad template.
+# Octal PSRAM — это текущий заголовок qio_opi, не quad-шаблон.
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_TYPE_AUTO=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_BOOT_INIT=y
+CONFIG_SPIRAM_BOOT_HW_INIT=y
+CONFIG_SPIRAM_IGNORE_NOTFOUND=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
+CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=0
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+
+# Current AAC static-RX walker uses the light-poisoning block header.
+# Текущий обход кучи AAC static-RX рассчитан на light poisoning.
+CONFIG_HEAP_POISONING_LIGHT=y
+
+# Production partition table. The data partition stays the LittleFS image
+# with subtype spiffs. PlatformIO still selects this same CSV.
+# Боевая таблица разделов. Раздел данных — образ LittleFS с subtype spiffs.
+# CONFIG_PARTITION_TABLE_SINGLE_APP is not set
+# CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE is not set
+# CONFIG_PARTITION_TABLE_TWO_OTA is not set
+# CONFIG_PARTITION_TABLE_TWO_OTA_LARGE is not set
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partition_16MB_ota_largefs.csv"
+CONFIG_PARTITION_TABLE_OFFSET=0x8000
+
+# S01-0 effective LwIP. Send-queue length is derived from send buffer and MSS.
+# Эффективный LwIP из S01-0. Длина очереди посылки выводится из буфера и MSS.
+CONFIG_LWIP_TCPIP_CORE_LOCKING=y
+CONFIG_LWIP_TCPIP_CORE_LOCKING_INPUT=y
+CONFIG_LWIP_MAX_SOCKETS=16
+CONFIG_LWIP_MAX_ACTIVE_TCP=64
+CONFIG_LWIP_MAX_LISTENING_TCP=16
+CONFIG_LWIP_TCPIP_RECVMBOX_SIZE=32
+CONFIG_LWIP_TCP_MSS=1436
+CONFIG_LWIP_TCP_SND_BUF_DEFAULT=8192
+CONFIG_LWIP_TCP_WND_DEFAULT=32768
+CONFIG_LWIP_TCP_RECVMBOX_SIZE=32
+CONFIG_LWIP_TCP_OVERSIZE_MSS=y
+CONFIG_LWIP_TCP_RTO_TIME=3000
+CONFIG_LWIP_TCP_OOSEQ_MAX_PBUFS=4
+# CONFIG_LWIP_WND_SCALE is not set
+
+# Current Wi-Fi buffer counts from the qio_opi header. Not a retune.
+# Текущие счётчики буферов Wi-Fi из заголовка qio_opi. Это не перенастройка.
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=8
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=32
+CONFIG_ESP_WIFI_RX_BA_WIN=8
+CONFIG_ESP_WIFI_STATIC_TX_BUFFER=y
+CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM=8
+
+# Overlay mbedTLS profile. DTLS off is the prerequisite of the dynamic buffer.
+# Профиль mbedTLS из overlay. DTLS выключен — это условие dynamic buffer.
+# CONFIG_MBEDTLS_SSL_PROTO_DTLS is not set
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_CA_CERT=y
+# CONFIG_MBEDTLS_SSL_VARIABLE_BUFFER_LENGTH is not set
+CONFIG_MBEDTLS_ASYMMETRIC_CONTENT_LEN=y
+CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=16384
+CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=4096
+# Current qio_opi header enables these PSK modes. Arduino NetworkClientSecure
+# compiles ssl_client.cpp only when MBEDTLS_KEY_EXCHANGE_SOME_PSK_ENABLED is set.
+# Текущий заголовок qio_opi включает эти PSK-режимы. Arduino NetworkClientSecure
+# собирает ssl_client.cpp только при MBEDTLS_KEY_EXCHANGE_SOME_PSK_ENABLED.
+CONFIG_MBEDTLS_PSK_MODES=y
+CONFIG_MBEDTLS_KEY_EXCHANGE_PSK=y
+CONFIG_MBEDTLS_KEY_EXCHANGE_ECDHE_PSK=y
+CONFIG_MBEDTLS_KEY_EXCHANGE_RSA_PSK=y
+
+# Stock esp_lcd policy. Do not substitute a project libesp_lcd.
+# Политика stock esp_lcd. Проектный libesp_lcd не подменяется.
+CONFIG_LCD_RGB_RESTART_IN_VSYNC=y
+
+# LittleFS numbers from the current qio_opi sdkconfig.h.
+# Числа LittleFS из текущего qio_opi sdkconfig.h.
+CONFIG_LITTLEFS_MAX_PARTITIONS=3
+CONFIG_LITTLEFS_PAGE_SIZE=256
+CONFIG_LITTLEFS_OBJ_NAME_LEN=64
+CONFIG_LITTLEFS_READ_SIZE=128
+CONFIG_LITTLEFS_WRITE_SIZE=128
+CONFIG_LITTLEFS_LOOKAHEAD_SIZE=128
+CONFIG_LITTLEFS_CACHE_SIZE=512
+CONFIG_LITTLEFS_BLOCK_CYCLES=512
+CONFIG_LITTLEFS_USE_MTIME=y
+CONFIG_LITTLEFS_MTIME_USE_SECONDS=y
+CONFIG_LITTLEFS_MALLOC_STRATEGY_DEFAULT=y
+CONFIG_LITTLEFS_ASSERTS=y
