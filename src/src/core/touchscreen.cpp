@@ -10,8 +10,6 @@
  * Поддерживаемые модели тачскринов:
  * - GT911 - емкостный тачскрин (I2C); geometry from kYoradioTouchGeometryCurrent
  *   / геометрия из kYoradioTouchGeometryCurrent
- * - AXS15231B - емкостный тачскрин (I2C) — deferred UEDX/AXS stage
- * - CST826 - емкостный тачскрин (I2C) - высокое разрешение 4095 — deferred UEDX stage
  * 
  * Функциональность:
  * - Одиночные касания (короткое/долгое)
@@ -21,9 +19,7 @@
  * - Защиту от случайных касаний
  * - Улучшенную обработку последовательных свайпов
  * - Адаптивные пороги для разных типов тачскринов
- * - Условную компиляцию для каждой модели
- * 
- * Обновлено: октябрь 2025 - добавлена поддержка CST826
+ * - Условную компиляцию для GT911
  */
 
 #include "options.h"
@@ -58,14 +54,6 @@
                              kYoradioTouchGeometryCurrent.panel_width,
                              kYoradioTouchGeometryCurrent.panel_height);
   typedef TP_Point TSPoint;
-#elif TS_MODEL==TS_MODEL_AXS15231B
-  #include "../AXS15231B_touch/AXS15231B_Touch.h"
-  AXS15231B_Touch ts = AXS15231B_Touch(TS_SDA, TS_SCL, TS_INT, TS_RST, 0, 0);
-  typedef TP_Point TSPoint;
-#elif TS_MODEL==TS_MODEL_CST826
-  #include "../Adafruit_CST8XX_Library/Adafruit_CST8XX.h"
-  Adafruit_CST8XX ts;
-  typedef CST_TS_Point TSPoint;
 #endif
 
 /*
@@ -136,13 +124,6 @@
   #define GT911_MOVEMENT_THRESHOLD   6     // was 8 / было 8
   #define GT911_SWIPE_DEADZONE       2     // Было 3, уменьшаем для точности
   #define GT911_SWIPE_ANGLE_THRESHOLD 25.0 // Было 22.5, увеличиваем для стабильности
-#elif TS_MODEL==TS_MODEL_CST826
-  // Специальные настройки для CST826 (высокое разрешение 4095)
-  #define GT911_SWIPE_THRESHOLD      15    // Еще меньше для высокого разрешения CST826
-  #define GT911_SWIPE_MIN_DISTANCE   20    // Уменьшаем минимальное расстояние
-  #define GT911_MOVEMENT_THRESHOLD   5     // Более чувствительный порог
-  #define GT911_SWIPE_DEADZONE       2     // Маленькая мертвая зона
-  #define GT911_SWIPE_ANGLE_THRESHOLD 25.0 // Увеличенный угол для стабильности
 #else
   // Стандартные настройки для других тачскринов
   #define GT911_SWIPE_THRESHOLD      SWIPE_THRESHOLD
@@ -177,7 +158,7 @@ struct TouchPoint {
     int16_t movement[2];  // [dx, dy]
 };
 
-// Функция фильтрации координат GT911 (как в AXS15231B)
+// Функция фильтрации координат GT911 / GT911 coordinate filter
 #if TS_MODEL==TS_MODEL_GT911
 bool TouchScreen::_filterGT911Coordinates(uint16_t rawX, uint16_t rawY) {
     // Generic filter: bounds come from the current-board contract, not a 480 literal.
@@ -211,12 +192,6 @@ void TouchScreen::loop(){
 #if TS_MODEL==TS_MODEL_GT911
   ts.read();
 #endif
-#if TS_MODEL==TS_MODEL_AXS15231B
-  ts.read();
-#endif
-#if TS_MODEL==TS_MODEL_CST826
-  // CST826 не требует явного вызова read(), данные читаются автоматически
-#endif
     
   bool istouched = _istouched();
   if(istouched){
@@ -232,125 +207,6 @@ void TouchScreen::loop(){
       // Swap + clip from the current-board contract (legacy loop has no invert).
       // Swap + clip из контракта текущей платы (legacy loop без invert).
       yoradio_touch_swap_and_clip(kYoradioTouchGeometryCurrent, p.x, p.y, &touchX, &touchY);
-    #elif TS_MODEL==TS_MODEL_CST826
-      TSPoint p = ts.getPoint(0);
-      
-      if (config.store.dbgtouch) {
-        Serial.printf("[CST826] Raw touch: x=%d, y=%d, event=%d\n", p.x, p.y, p.event);
-      }
-      
-      // Проверяем событие касания (PRESS или TOUCHING)
-      if (p.event != PRESS && p.event != TOUCHING) {
-          return;
-      }
-      
-      // Маппирование координат CST826 (координаты в диапазоне 0-4095)
-      // Прямое маппирование осей для правильного управления
-      touchX = map(p.x, 0, 4095, 0, _width);    // X сенсора -> X экрана (громкость, слева-направо)
-      touchY = map(p.y, 0, 4095, 0, _height);   // Y сенсора -> Y экрана (станции, сверху-вниз)
-      
-      // Дополнительная проверка границ экрана
-      if (touchX >= _width) touchX = _width - 1;
-      if (touchY >= _height) touchY = _height - 1;
-      if (touchX < 0) touchX = 0;
-      if (touchY < 0) touchY = 0;
-      
-      if (config.store.dbgtouch) {
-        Serial.printf("[CST826] Mapped touch: x=%d, y=%d\n", touchX, touchY);
-      }
-      
-      // Обработка мультитача для CST826 (поддержка до 5 касаний)
-      // Мультитач используется для переключения между WEB и SD режимами
-      // Multitouch is used to switch between WEB and SD modes
-      #if SDC_CS != 255
-      uint8_t touches = ts.touched();
-      if (touches > 1) {
-                uint32_t currentTime = millis();
-                if (currentTime - lastMultiTouchTime > TOUCH_MULTI_DELAY) {
-                    multiTouchCount++;
-                    
-                    if (multiTouchCount >= 2) {
-        wasTwoFingerTouch = true;
-                        lastMultiTouchTime = currentTime;
-                        multiTouchCount = 0;
-                        
-                        bool pir = player.isRunning();
-                        
-                        if(config.getMode()==PM_SDCARD) {
-                            config.sdResumePos = player.getFilePos();
-                        }
-                        
-                        if (display.mode() == PLAYER && !modeChangeInProgress) {
-                            modeChangeInProgress = true;
-                            // Block 8-E8: WEB/SD mode switch without SDCHANGE legacy UI.
-                            config.changeMode();
-                            delay(TOUCH_MODE_DELAY);
-                            if (pir) {
-                                player.sendCommand({PR_PLAY, config.getMode()==PM_WEB?config.store.lastStation:config.store.lastSdStation});
-                            }
-                            modeChangeInProgress = false;
-                        }
-                        
-        return;
-                    }
-                } else {
-                    if (millis() - lastMultiTouchTime > TOUCH_MULTI_DELAY) {
-                        wasTwoFingerTouch = false;
-                        multiTouchCount = 0;
-                    }
-                }
-      }
-      #endif
-    #elif TS_MODEL==TS_MODEL_AXS15231B
-      TSPoint p = ts.points[0];
-      touchX = p.x;
-      touchY = p.y;
-      
-      if (config.store.dbgtouch) {
-        Serial.printf("[AXS15231B] Raw: x=%d y=%d touches=%d\n", touchX, touchY, ts.touches);
-      }
-      
-            // Обработка мультитача для AXS15231B (поддержка до 2 касаний)
-            // Мультитач используется для переключения между WEB и SD режимами
-            // Multitouch is used to switch between WEB and SD modes
-      #if SDC_CS != 255
-      if (ts.touches > 1) {
-                uint32_t currentTime = millis();
-                if (currentTime - lastMultiTouchTime > TOUCH_MULTI_DELAY) {
-                    multiTouchCount++;
-                    
-                    if (multiTouchCount >= 2) {
-        wasTwoFingerTouch = true;
-                        lastMultiTouchTime = currentTime;
-                        multiTouchCount = 0;
-                        
-                        bool pir = player.isRunning();
-                        
-                        if(config.getMode()==PM_SDCARD) {
-                            config.sdResumePos = player.getFilePos();
-                        }
-                        
-                        if (display.mode() == PLAYER && !modeChangeInProgress) {
-                            modeChangeInProgress = true;
-                            // Block 8-E8: WEB/SD mode switch without SDCHANGE legacy UI.
-                            config.changeMode();
-                            delay(TOUCH_MODE_DELAY);
-                            if (pir) {
-                                player.sendCommand({PR_PLAY, config.getMode()==PM_WEB?config.store.lastStation:config.store.lastSdStation});
-                            }
-                            modeChangeInProgress = false;
-                        }
-                        
-        return;
-                    }
-                } else {
-                    if (millis() - lastMultiTouchTime > TOUCH_MULTI_DELAY) {
-                        wasTwoFingerTouch = false;
-                        multiTouchCount = 0;
-                    }
-                }
-      }
-      #endif
     #endif
         
         // Буферизация касаний
@@ -482,13 +338,7 @@ void TouchScreen::loop(){
             if(display.mode()==PLAYER || display.mode()==VOL){
               display.putRequest(NEWMODE, VOL);
               // Влево-вправо для изменения громкости / Left-right for volume control
-              #if TS_MODEL==TS_MODEL_CST826
-              bool volumeUp = totalX > 0;  // CST826: totalX > 0 = вправо (громкость ВВЕРХ), totalX < 0 = влево (громкость ВНИЗ)
-              #elif TS_MODEL==TS_MODEL_AXS15231B
-              bool volumeUp = totalY > 0;  // AXS15231B: используем totalY (горизонталь после swap) для громкости
-              #else
-              bool volumeUp = totalX < 0;  // Другие модели: totalX < 0 = влево (громкость ВВЕРХ), totalX > 0 = вправо (громкость ВНИЗ)
-              #endif
+              bool volumeUp = totalX < 0;  // totalX < 0 = влево (громкость ВВЕРХ), totalX > 0 = вправо (громкость ВНИЗ)
               
               if (config.store.dbgtouch) {
                 Serial.printf("[TS] Volume: %s (totalY=%d)\n", volumeUp ? "UP" : "DOWN", totalY);
@@ -506,11 +356,7 @@ void TouchScreen::loop(){
             touchLongPress = millis();
             if(display.mode()==PLAYER || display.mode()==STATIONS){
                   // Вверх-вниз для выбора станций / Up-down for station selection
-                  #if TS_MODEL==TS_MODEL_AXS15231B
-                  bool nextStation = totalX < 0;  // AXS15231B: после swap используем totalX (вертикаль)
-                  #else
                   bool nextStation = totalY < 0;  // totalY < 0 = вверх (следующая станция), totalY > 0 = вниз (предыдущая станция)
-                  #endif
                   
                   if (config.store.dbgtouch) {
                     Serial.printf("[TS] Station: %s (totalX=%d totalY=%d)\n", nextStation ? "NEXT" : "PREV", totalX, totalY);
@@ -591,10 +437,8 @@ bool TouchScreen::_checklpdelay(int m, uint32_t &tstamp) {
 bool TouchScreen::_istouched(){
   #if TS_MODEL==TS_MODEL_GT911
     return ts.isTouched;
-  #elif TS_MODEL==TS_MODEL_AXS15231B
-    return ts.isTouched;
-  #elif TS_MODEL==TS_MODEL_CST826
-    return ts.touched() > 0;
+  #else
+    return false;
   #endif
 }
 
@@ -604,36 +448,6 @@ tsDirection_e TouchScreen::_tsDirection(uint16_t x, uint16_t y) {
     
     #if TS_MODEL==TS_MODEL_GT911
     // Специальная логика для GT911 на квадратном экране
-    if (abs(dX) < GT911_SWIPE_DEADZONE && abs(dY) < GT911_SWIPE_DEADZONE) {
-        return TDS_REQUEST;
-    }
-    
-    // Для квадратного экрана используем более точную логику
-    float angle = atan2(dY, dX) * 180.0 / PI;
-    if (angle < 0) angle += 360.0;
-    
-    // Улучшенное определение направления для квадратного экрана
-    if (abs(dX) > GT911_SWIPE_THRESHOLD || abs(dY) > GT911_SWIPE_THRESHOLD) {
-        if (angle >= (360 - GT911_SWIPE_ANGLE_THRESHOLD) || angle < GT911_SWIPE_ANGLE_THRESHOLD) {
-            _oldTouchX = x;
-            _oldTouchY = y;
-            return TSD_RIGHT;  // Вправо (0° ± 25°)
-        } else if (angle >= (90 - GT911_SWIPE_ANGLE_THRESHOLD) && angle < (90 + GT911_SWIPE_ANGLE_THRESHOLD)) {
-            _oldTouchX = x;
-            _oldTouchY = y;
-            return TSD_DOWN;   // Вниз (90° ± 25°)
-        } else if (angle >= (180 - GT911_SWIPE_ANGLE_THRESHOLD) && angle < (180 + GT911_SWIPE_ANGLE_THRESHOLD)) {
-            _oldTouchX = x;
-            _oldTouchY = y;
-            return TSD_LEFT;   // Влево (180° ± 25°)
-        } else if (angle >= (270 - GT911_SWIPE_ANGLE_THRESHOLD) && angle < (270 + GT911_SWIPE_ANGLE_THRESHOLD)) {
-            _oldTouchX = x;
-            _oldTouchY = y;
-            return TSD_UP;     // Вверх (270° ± 25°)
-        }
-    }
-    #elif TS_MODEL==TS_MODEL_CST826
-    // Специальная логика для CST826 на квадратном экране (использует ту же логику что и GT911)
     if (abs(dX) < GT911_SWIPE_DEADZONE && abs(dY) < GT911_SWIPE_DEADZONE) {
         return TDS_REQUEST;
     }
@@ -707,27 +521,6 @@ void TouchScreen::init() {
         ts.setRotation(yoradio_touch_rotation(geom, config.store.fliptouch));
         ts.setResolution(geom.panel_width, geom.panel_height);
     #endif
-    #if TS_MODEL==TS_MODEL_AXS15231B
-        ts.begin();
-        ts.setRotation(config.store.fliptouch?0:2);
-    #endif
-    #if TS_MODEL==TS_MODEL_CST826
-        Wire.begin(TS_SDA, TS_SCL);
-        if (!ts.begin(&Wire, 0x15)) {
-            if (config.store.dbgtouch) {
-              Serial.println("[CST826] Touchscreen not found!");
-            } else {
-              Serial.println("Touchscreen not found!");
-            }
-        } else {
-            if (config.store.dbgtouch) {
-              Serial.println("[CST826] Touchscreen initialized successfully");
-            }
-        }
-    #endif
-    #if TS_MODEL==TS_MODEL_AXS15231B
-        ts.setResolution(_width, _height);
-    #endif
     _hwReady = true;
 }
 
@@ -737,8 +530,6 @@ bool TouchScreen::readPointerForLvgl(uint16_t* outX, uint16_t* outY) {
     }
 
 #if TS_MODEL==TS_MODEL_GT911
-    ts.read();
-#elif TS_MODEL==TS_MODEL_AXS15231B
     ts.read();
 #endif
 
@@ -759,27 +550,6 @@ bool TouchScreen::readPointerForLvgl(uint16_t* outX, uint16_t* outY) {
         // Путь LVGL: swap → clip → invert из контракта текущей платы.
         yoradio_touch_map_for_lvgl(kYoradioTouchGeometryCurrent, p.x, p.y, &touchX, &touchY);
     }
-#elif TS_MODEL==TS_MODEL_CST826
-    {
-        TSPoint p = ts.getPoint(0);
-        if (p.event != PRESS && p.event != TOUCHING) {
-            return false;
-        }
-        touchX = static_cast<uint16_t>(map(p.x, 0, 4095, 0, _width));
-        touchY = static_cast<uint16_t>(map(p.y, 0, 4095, 0, _height));
-        if (touchX >= _width) {
-            touchX = _width - 1;
-        }
-        if (touchY >= _height) {
-            touchY = _height - 1;
-        }
-    }
-#elif TS_MODEL==TS_MODEL_AXS15231B
-    {
-        TSPoint p = ts.points[0];
-        touchX = p.x;
-        touchY = p.y;
-    }
 #endif
 
     *outX = touchX;
@@ -790,16 +560,6 @@ bool TouchScreen::readPointerForLvgl(uint16_t* outX, uint16_t* outY) {
 void TouchScreen::flip() {
     #if TS_MODEL==TS_MODEL_GT911
         ts.setRotation(yoradio_touch_rotation(kYoradioTouchGeometryCurrent, config.store.fliptouch));
-    #endif
-    #if TS_MODEL==TS_MODEL_AXS15231B
-        ts.setRotation(config.store.fliptouch?0:2);
-    #endif
-    #if TS_MODEL==TS_MODEL_CST826
-        // CST826 не поддерживает программный поворот через API
-        // Поворот обрабатывается на уровне координат в loop()
-        if (config.store.dbgtouch) {
-          Serial.println("[CST826] Flip requested - handled in coordinate processing");
-        }
     #endif
 }
 

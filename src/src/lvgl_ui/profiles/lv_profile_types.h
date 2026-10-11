@@ -31,7 +31,7 @@ struct LvglDisplayProfile {
     bool touch_invert_x;
     bool touch_invert_y;
     // a) Swap horizontal carousel: LV_DIR_LEFT ↔ PageChain swipe direction vs default. b) Board/driver specific
-    //    (e.g. GT911 vs CST826 vs AXS) may invert gesture dir vs UX. c) Stage 5.3 carousel. d) Used in lvgl_ui gesture map.
+    //    may invert gesture direction versus the default UX. c) Stage 5.3 carousel. d) Used in lvgl_ui gesture map.
     // a) Поменять местами горизонталь карусели: LV_DIR_LEFT ↔ направление swipe. b) Зависит от платы/драйвера.
     bool touch_swap_horizontal_carousel;
 

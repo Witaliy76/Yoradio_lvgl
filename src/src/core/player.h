@@ -5,7 +5,8 @@
 #if I2S_DOUT!=255 || I2S_INTERNAL
   #include "../audioI2S/AudioEx.h"
 #else
-  #include "../audioVS1053/audioVS1053Ex.h"
+  /* S00-2: бэкенд VS1053 снят. Нужен I2S. / S00-2: VS1053 backend removed. I2S is required. */
+  #error "VS1053 backend was removed. Set I2S_DOUT or I2S_INTERNAL."
 #endif
 
 #ifndef MQTT_BURL_SIZE

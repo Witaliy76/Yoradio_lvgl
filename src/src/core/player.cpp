@@ -20,38 +20,11 @@ static portMUX_TYPE s_vol_merge_mux = portMUX_INITIALIZER_UNLOCKED;
 static volatile bool s_vol_merge_pending = false;
 static volatile int s_vol_merge_payload = 0;
 
-#if VS1053_CS!=255 && !I2S_INTERNAL
-
-#ifdef ARDUINO_ESP32S3_DEV
-  #if VS_SSPI
-//    Player::Player(): Audio(VS1053_CS, VS1053_DCS, VS1053_DREQ, &SPI2, VS1053_MOSI, VS1053_MISO, VS1053_SCK) {}
-    Player::Player(): Audio(VS1053_CS, VS1053_DCS, VS1053_DREQ, &SPI3_HOST, 35, 37, 36) {}	// SubSPI- SPI3, MOSI-35, MISO-37, SCK-36
-  #else
-//    Player::Player(): Audio(VS1053_CS, VS1053_DCS, VS1053_DREQ, FSPI, 11, 13, 12) {}	// FSPI - SPI2, MOSI-11, MISO-12, SCK-12
-    Player::Player(): Audio(VS1053_CS, VS1053_DCS, VS1053_DREQ, &SPI) {}	// FSPI - SPI2, MOSI-11, MISO-12, SCK-12
-  #endif
-
-#else
-  #if VS_HSPI
-    Player::Player(): Audio(VS1053_CS, VS1053_DCS, VS1053_DREQ, &SPI2) {}			// HSPI, MOSI-13, MISO-12, SCK-14
-  #else
-    Player::Player(): Audio(VS1053_CS, VS1053_DCS, VS1053_DREQ, &SPI) {}			// VSPI, MOSI-23, MISO-19, SCK-18
-  #endif
-#endif
-  void ResetChip(){
-    pinMode(VS1053_RST, OUTPUT);
-    digitalWrite(VS1053_RST, LOW);
-    delay(30);
-    digitalWrite(VS1053_RST, HIGH);
-    delay(100);
-  }
-#else
-  #if !I2S_INTERNAL
+#if !I2S_INTERNAL
     Player::Player() {}
   #else
     Player::Player(): Audio(true, I2S_DAC_CHANNEL_BOTH_EN)  {}
   #endif
-#endif
 
 
 void Player::init() {
@@ -74,10 +47,6 @@ void Player::init() {
     #if !I2S_INTERNAL
       setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
     #endif
-  #else
-    SPI.begin();
-    if(VS1053_RST>0) ResetChip();
-    begin();
   #endif
   setBalance(config.store.balance);
   setTone(config.store.bass, config.store.middle, config.store.trebble);

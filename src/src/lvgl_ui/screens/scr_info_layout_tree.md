@@ -230,7 +230,7 @@ After `create()` completes successfully:
 | PSRAM | `ESP.getFreePsram()` / `ESP.getPsramSize()` |
 | SD | compile-time `SDC_CS` + `config.getMode()` |
 
-Hardware identifiers in the Display row (`ST7701`, `AXS15231B`, etc.) are compile-time product strings, not l10n user text.
+Hardware identifiers in the Display row (`ST7701`, `GT911`, etc.) are compile-time product strings, not l10n user text.
 
 ---
 
