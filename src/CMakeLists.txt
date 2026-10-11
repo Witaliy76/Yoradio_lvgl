@@ -36,6 +36,12 @@ idf_component_register(
         log
 )
 
+# Mixed CMake builds the app component; PlatformIO -D flags do not reach these TUs.
+# Audio.cpp AAC / static-RX still requires this compile gate.
+# Mixed CMake собирает app-компонент; флаги -D из PlatformIO сюда не доходят.
+# AAC / static-RX в Audio.cpp по-прежнему требует этот compile-gate.
+target_compile_definitions(${COMPONENT_LIB} PRIVATE YORADIO_IDF_C1_CONFIG=1)
+
 # Mixed pioarduino generates embed assembly but does not link it, and the
 # basename symbols do not match the objcopy names font_provider.cpp already uses.
 # RENAME_TO keeps those names so the TTF assets stay the current production files.
