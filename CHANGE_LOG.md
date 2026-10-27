@@ -16,3 +16,7 @@ Intermediate releases inside a major Beta. Major milestones stay in `README.md`.
 - Grew the S3 LVGL memory pool to 384 KiB for Weather to Main headroom.
 - Allocated render-layer draw buffers from the PSRAM heap.
 - Freed the previous carousel page before building the next one.
+
+## 0.9.434m-r2-lvgl-beta.3.01 — 2026-10-05
+
+- Stopped the Weather pressure reading from clipping the trailing g in mmHg.
