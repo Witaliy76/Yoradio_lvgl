@@ -327,15 +327,11 @@ void LvglPresetScreen::enter() {
     _feedbackActive      = false;
     _lastCountdownSecond = -1;
     _cancelFeedbackTimer();
+    // First entry may commit or discard an orphan temp file left by an interrupted save. That
+    // repair runs under the RGB flash guard inside preset_store (S01-5C-1); no post-write recovery.
+    // Первый вход может закоммитить или удалить осиротевший tmp прошлого сохранения. Ремонт идёт
+    // под RGB flash guard внутри preset_store (S01-5C-1); recovery после записи не нужен.
     (void)preset_store::begin();
-    // First entry may commit or discard an orphan temp file left by an interrupted save.
-    // RGB recovery is owed only when LittleFS was actually mutated; Repair E consumes it after
-    // dispatch (enter() can run from poll_top_edge_swipe after lv_timer_handler — still DspTask).
-    // Первый вход может закоммитить или удалить осиротевший временный файл прошлого сохранения.
-    // Recovery только при реальной мутации LittleFS; Repair E снимает долг после dispatch.
-    if (preset_store::consumeStorageMutation()) {
-        requestRuntimeRgbRecovery();
-    }
     _setHelperDefault();
     _startCountdownTimer();
     for (uint8_t s = 0; s < kSlotCount; ++s) _updateRowContent(s);
@@ -579,15 +575,13 @@ void LvglPresetScreen::_onRowLongPressed(uint8_t slot) {
     _long_press_handled = true;
     refreshActiveTemporaryTimeout();
 
-    const bool saved = preset_store::saveCurrentStation(slot);
     // DEVICE-PROVEN hazard: the temp/verify/rename save transaction desyncs RGB scanout on this
-    // panel despite writing only 26 bytes. Repair E: mark recovery here, do not restart inside
-    // this LVGL callback — taskHandler redraws then requestRgbResync after dispatch.
+    // panel despite writing only 26 bytes. S01-5C-1: preset_store runs it under the RGB flash
+    // guard (owner path from this LVGL callback on DspTask), so no recovery is requested here.
     // DEVICE-PROVEN: транзакция tmp/verify/rename рассинхронизирует RGB scanout на этой панели
-    // несмотря на 26 байт. Recovery помечается здесь, restart не из callback — после dispatch.
-    if (preset_store::consumeStorageMutation()) {
-        requestRuntimeRgbRecovery();
-    }
+    // несмотря на 26 байт. S01-5C-1: preset_store выполняет её под RGB flash guard (owner-путь из
+    // этого callback LVGL на DspTask), поэтому recovery здесь не запрашивается.
+    const bool saved = preset_store::saveCurrentStation(slot);
 
     if (saved) {
         _updateRowContent(slot);

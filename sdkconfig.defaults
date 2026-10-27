@@ -101,9 +101,13 @@ CONFIG_MBEDTLS_KEY_EXCHANGE_PSK=y
 CONFIG_MBEDTLS_KEY_EXCHANGE_ECDHE_PSK=y
 CONFIG_MBEDTLS_KEY_EXCHANGE_RSA_PSK=y
 
-# Stock esp_lcd policy. Do not substitute a project libesp_lcd.
-# Политика stock esp_lcd. Проектный libesp_lcd не подменяется.
-CONFIG_LCD_RGB_RESTART_IN_VSYNC=y
+# Stock esp_lcd, no project libesp_lcd. Restart-in-VSYNC is OFF: with direct RGB
+# (bounce 0) the per-VSYNC restart caused the continuous mixed-build glitch (S01-4W).
+# Flash writes are protected by the RGB flash guard instead (S01-5B), not by restart.
+# Stock esp_lcd без проектного libesp_lcd. Restart-in-VSYNC выключен: при direct RGB
+# restart на каждом VSYNC давал постоянный glitch mixed-сборки (S01-4W). Запись во flash
+# защищает RGB flash guard (S01-5B), а не restart.
+# CONFIG_LCD_RGB_RESTART_IN_VSYNC is not set
 
 # LittleFS numbers from the current qio_opi sdkconfig.h.
 # Числа LittleFS из текущего qio_opi sdkconfig.h.
@@ -119,3 +123,16 @@ CONFIG_LITTLEFS_USE_MTIME=y
 CONFIG_LITTLEFS_MTIME_USE_SECONDS=y
 CONFIG_LITTLEFS_MALLOC_STRATEGY_DEFAULT=y
 CONFIG_LITTLEFS_ASSERTS=y
+
+# S01-WDT: restore the Arduino-only CPU1 idle-task watchdog policy.
+# A (lib-builder defconfig chain) never subscribed IDLE1 to the Task WDT; the
+# mixed build inherits the IDF default y and so reports ordinary CPU1 saturation
+# (AAC/FLAC decode, lwIP, Player::loop) as repeated "task_wdt: IDLE1 (CPU 1)".
+# TWDT itself stays enabled and IDLE0 stays watched, so a real hang in an
+# explicitly subscribed task is still detected. idle_core_mask is built from
+# this symbol alone in freertos/app_startup.c, so nothing re-subscribes IDLE1.
+# A (цепочка defconfig lib-builder) не подписывала IDLE1 на Task WDT; mixed
+# наследует IDF-default y и печатает обычную загрузку CPU1 как повторяющийся
+# "task_wdt: IDLE1 (CPU 1)". Сам TWDT остаётся включён, IDLE0 под наблюдением,
+# поэтому реальное зависание подписанной задачи по-прежнему детектируется.
+# CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1 is not set

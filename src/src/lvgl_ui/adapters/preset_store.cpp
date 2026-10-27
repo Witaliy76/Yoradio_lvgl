@@ -7,6 +7,7 @@
 #include <LittleFS.h>
 
 #include "../../core/config.h"
+#include "../../core/rgb_flash_guard.h"
 #include "station_list_adapter.h"
 
 namespace lvgl_ui {
@@ -25,12 +26,17 @@ static const char kTmpPath[] = "/data/.preset_slots.tmp";
 
 static uint16_t s_slots[kSlotCount] = {};
 static bool s_loaded = false;
-// Set by every helper that actually mutates LittleFS; consumed by the caller after the whole
-// save/recovery finishes. Tracked here rather than inferred from return values because a failed
-// transaction can still have written the temp file.
-// Ставится каждым помощником, который реально меняет LittleFS; снимается вызывающим после
-// завершения всей операции. Неуспешная транзакция тоже могла записать временный файл.
-static bool s_storage_mutated = false;
+
+// S01-5C-1: every LittleFS mutation in this file (tmp remove/write/close, final remove, rename,
+// copy fallback) runs inside ONE rgb_flash_guard::Scope per logical transaction: the whole save
+// in saveCurrentStation(), or the whole leftover-tmp repair in recover_and_load(). The helpers
+// below assume their caller already holds that scope. All callers run on DspTask (owner path).
+// The former "mutated" flag existed only to request a post-write RGB recovery; prevention
+// replaces it.
+// S01-5C-1: каждая мутация LittleFS в этом файле идёт внутри ОДНОГО rgb_flash_guard::Scope на
+// логическую транзакцию: всё сохранение в saveCurrentStation() или весь ремонт tmp в
+// recover_and_load(). Помощники ниже рассчитывают, что вызывающий уже держит scope. Все вызовы —
+// на DspTask (owner-путь). Прежний флаг «mutated» нужен был только для RGB recovery после записи.
 
 // CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF) over arbitrary bytes.
 // CRC-16/CCITT-FALSE для проверки целостности файла.
@@ -126,7 +132,6 @@ static void serialize_to_buffer(uint8_t* buf) {
 static bool copy_file_fallback(const char* src_path, const char* dst_path) {
     File src = LittleFS.open(src_path, "r");
     if (!src) return false;
-    s_storage_mutated = true;
     File dst = LittleFS.open(dst_path, "w");
     if (!dst) {
         src.close();
@@ -147,7 +152,6 @@ static bool copy_file_fallback(const char* src_path, const char* dst_path) {
 static bool commit_tmp_to_final() {
     if (!validate_file_path(kTmpPath)) return false;
 
-    s_storage_mutated = true;
     if (LittleFS.exists(kFinalPath)) {
         LittleFS.remove(kFinalPath);
     }
@@ -165,11 +169,10 @@ static bool write_slots_file() {
     uint8_t buf[kFileSize];
     serialize_to_buffer(buf);
 
-    // From here the whole temp/verify/rename sequence is a single logical transaction: mark once,
-    // never per primitive, so the caller issues exactly one resync however this ends.
-    // Дальше вся последовательность tmp/verify/rename — одна логическая транзакция: отмечаем один
-    // раз, не по примитивам, чтобы вызывающий сделал ровно один ресинхрон при любом исходе.
-    s_storage_mutated = true;
+    // From here the whole temp/verify/rename sequence is a single logical transaction under the
+    // caller's flash-guard scope (saveCurrentStation), never one episode per primitive.
+    // Дальше вся последовательность tmp/verify/rename — одна логическая транзакция под scope
+    // вызывающего (saveCurrentStation), а не эпизод на каждый примитив.
     if (LittleFS.exists(kTmpPath)) {
         LittleFS.remove(kTmpPath);
     }
@@ -199,16 +202,43 @@ static bool write_slots_file() {
 static void recover_and_load() {
     clear_slots_ram();
 
+    // Reads only (exists/validate open "r"): no flash mutation yet.
+    // Только чтения (exists/validate открывают "r"): мутаций flash ещё нет.
     const bool final_exists = LittleFS.exists(kFinalPath);
     const bool tmp_exists = LittleFS.exists(kTmpPath);
     const bool final_ok = final_exists && validate_file_path(kFinalPath);
     const bool tmp_ok = tmp_exists && validate_file_path(kTmpPath);
 
-    if (final_ok) {
-        if (tmp_exists) {
-            LittleFS.remove(kTmpPath);
-            s_storage_mutated = true;
+    // Without a leftover tmp nothing below mutates LittleFS: load and leave, no guard episode.
+    // Без оставшегося tmp ниже ничего не меняет LittleFS: загрузка без эпизода guard.
+    if (!tmp_exists) {
+        if (final_ok) {
+            (void)load_from_path(kFinalPath);
+        } else if (final_exists) {
+            Serial.println("[preset_store] invalid final file, trying recovery");
         }
+        return;
+    }
+
+    // A leftover tmp: every branch below removes or commits it. One guard episode covers the
+    // whole repair, from the first remove/rename to the last one.
+    // Остался tmp: каждая ветка ниже удаляет или коммитит его. Один эпизод guard на весь ремонт.
+    rgb_flash_guard::Scope flash_guard("LFS_PRESET");
+    if (!flash_guard.ok()) {
+        // Fail closed: repair nothing, keep files as they are, still load what is valid.
+        // The leftover tmp is removed by the next save (write_slots_file) or the next boot.
+        // Fail closed: ничего не чиним, файлы не трогаем, загружаем то, что валидно.
+        Serial.println("[preset_store] tmp repair skipped: RGB flash guard not confirmed");
+        if (final_ok) {
+            (void)load_from_path(kFinalPath);
+        } else if (tmp_ok) {
+            (void)load_from_path(kTmpPath);
+        }
+        return;
+    }
+
+    if (final_ok) {
+        LittleFS.remove(kTmpPath);
         (void)load_from_path(kFinalPath);
         return;
     }
@@ -228,10 +258,7 @@ static void recover_and_load() {
         }
     }
 
-    if (tmp_exists) {
-        LittleFS.remove(kTmpPath);
-        s_storage_mutated = true;
-    }
+    LittleFS.remove(kTmpPath);
 }
 
 } // namespace
@@ -266,6 +293,19 @@ bool saveCurrentStation(uint8_t slot) {
         return false;
     }
 
+    // S01-5C-1: one RGB flash guard episode for the whole tmp/verify/rename transaction, taken
+    // before its first remove/open and released after commit_tmp_to_final() (or any failure
+    // cleanup) returned. Caller: LVGL long-press on DspTask (owner path). Denied: RAM slots and
+    // files stay unchanged and the existing "not saved" result is returned.
+    // S01-5C-1: один эпизод guard на всю транзакцию tmp/verify/rename: до первого remove/open и
+    // до возврата commit_tmp_to_final() или очистки при ошибке. Вызов — long-press LVGL на
+    // DspTask (owner-путь). Denied: слоты в RAM и файлы не меняются, возвращается «не сохранено».
+    rgb_flash_guard::Scope flash_guard("LFS_PRESET");
+    if (!flash_guard.ok()) {
+        Serial.println("[preset_store] slot not saved: RGB flash guard not confirmed");
+        return false;
+    }
+
     const uint16_t prev = s_slots[slot];
     s_slots[slot] = station;
     if (!write_slots_file()) {
@@ -273,12 +313,6 @@ bool saveCurrentStation(uint8_t slot) {
         return false;
     }
     return true;
-}
-
-bool consumeStorageMutation() {
-    const bool mutated = s_storage_mutated;
-    s_storage_mutated = false;
-    return mutated;
 }
 
 } // namespace preset_store

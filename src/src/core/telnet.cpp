@@ -8,6 +8,8 @@
 #include "player.h"
 #include "network.h"
 #include "display.h"
+#include "rgb_flash_guard.h"
+#include "../displays/display_port.h"
 #include "telnet.h"
 #include "sleep_timer.h"
 #include "../ai/ai_log.h"  // Для aiLogSetBootDone / For aiLogSetBootDone
@@ -733,6 +735,50 @@ void Telnet::on_input(const char* str, uint8_t clientId) {
     return;
   }
 #endif
+  // S01-5B temporary read-only diagnostic: one RGB flash guard status line. No on/off command.
+  // S01-5B временная диагностика только для чтения: одна строка статуса RGB flash guard.
+  if (strcmp(str, "s01guard status") == 0 || strcmp(str, "s01guard") == 0) {
+    static char s_guard_status_buf[1024];
+    const size_t n = rgb_flash_guard::formatStatus(s_guard_status_buf, sizeof(s_guard_status_buf) - 1);
+    s_guard_status_buf[n] = '\n';
+    s_guard_status_buf[n + 1] = '\0';
+    printDiagBody(clientId, s_guard_status_buf);
+    printf(clientId, "> ");
+    return;
+  }
+  // MANUAL DIAGNOSTIC ONLY. The ONLY caller of DisplayPort::restartRgbScanout() in the tree, and
+  // deliberately a human-operated tool: no product code requests a scanout restart any more.
+  // It is NOT a recovery mechanism. A one-shot restart during PLAY is nondeterministic and may
+  // leave the panel NORMAL, BLACK or SHIFT; BLACK was actually observed on this build (S01-5D
+  // device evidence) and a reboot restores it. Every invocation shows up in restartExec, which
+  // must therefore read 0 in a normal acceptance session — do not run this during acceptance.
+  // S01-5D ручной/сервисный restart RGB. ЕДИНСТВЕННЫЙ вызывающий DisplayPort::restartRgbScanout()
+  // в дереве и намеренно ручной инструмент: продуктовый код больше не запрашивает restart scanout.
+  // Это не механизм восстановления — одиночный restart во время PLAY недетерминирован, поэтому
+  // команда существует лишь чтобы оператор мог форсировать его при разборе. Каждый вызов виден в
+  // restartExec, который в приёмочной сессии обязан быть 0.
+  if (strcmp(str, "s01rgb restart") == 0 || strcmp(str, "s01rgb") == 0) {
+    const DisplayPort::RgbScanoutStatus before = DisplayPort::rgbScanoutStatus();
+    if (!before.panelReady) {
+      printf(clientId, "#S01RGB#\tpanel not ready; nothing done\n> ");
+      return;
+    }
+    if (before.bounceBufferPx > 0) {
+      printf(clientId, "#S01RGB#\tbounce=%u: manual restart is rejected by the backend\n> ",
+             (unsigned)before.bounceBufferPx);
+      return;
+    }
+    DisplayPort::restartRgbScanout();
+    const DisplayPort::RgbScanoutStatus after = DisplayPort::rgbScanoutStatus();
+    printf(clientId,
+           "#S01RGB#\tMANUAL DIAGNOSTIC ONLY - not a recovery mechanism\n"
+           "#S01RGB#\tmanual restart requested at vsyncSeq=%lu restartExec %lu -> %lu\n"
+           "#S01RGB#\tresult may be NORMAL / BLACK / SHIFT - it is nondeterministic during PLAY\n"
+           "#S01RGB#\tBLACK was observed on this build; a reboot restores the panel\n> ",
+           (unsigned long)after.vsyncSeq, (unsigned long)before.restartExec,
+           (unsigned long)after.restartExec);
+    return;
+  }
   if (strcmp(str, "wifi.discon") == 0 || strcmp(str, "discon") == 0 || strcmp(str, "disconnect") == 0) {
     printf(clientId, "#WIFI.DISCON#\tdisconnected...\n> ");
     WiFi.disconnect();

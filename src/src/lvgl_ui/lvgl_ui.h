@@ -95,14 +95,24 @@ void refreshMainScreenFromSettings(bool force_full_redraw = false);
 // Repair A2: инвалидация + немедленный flush текущего экрана. Без смены страницы.
 bool tryRedrawActiveScreenNow();
 
-// Repair E / Slice 6C: coalesced post-dispatch RGB recovery (DspTask only).
-// Marks that DspTask owes redraw + RGB resync after queued display/LVGL/asset work is quiescent.
-// Multiple marks collapse to one final recovery. Do not call requestRgbResync/lv_refr_now
-// from LVGL event callbacks for these episodes.
-// Repair E / слайс 6C: схлопнутый RGB recovery после dispatch (только DspTask).
-// Долг: стабильный кадр + resync, когда текущая пачка display/LVGL/asset-работы успокоилась.
-// Несколько меток → одно финальное восстановление. Не звать restart/lv_refr_now из LVGL callback.
-void requestRuntimeRgbRecovery();
+// Request one deferred repaint of the active screen (DspTask only). The repaint is not performed
+// at call time: it is owed until the queued display/LVGL/asset work for this iteration is
+// quiescent, and several requests collapse into a single repaint. Callers use it after a change
+// whose visible result needs a frame — theme preset, background slot, station art, page asset
+// work. Do not call lv_refr_now from LVGL event callbacks for these episodes.
+//
+// Named for what it does since S01-FINAL-PREP. It performs no RGB scanout recovery of any kind;
+// that half went with the automatic resync layer in S01-5D, because the writes behind these
+// events run under the PCLK flash guard and leave nothing to repair.
+// Запрос одной отложенной перерисовки активного экрана (только DspTask). Перерисовка не
+// выполняется в момент вызова: она остаётся долгом, пока пачка display/LVGL/asset-работы этой
+// итерации не успокоится; несколько запросов схлопываются в одну перерисовку. Вызывается после
+// изменения, видимый результат которого требует кадра: пресет темы, слот фона, арт станции,
+// работа с ассетами страницы. Не звать lv_refr_now из LVGL callback для этих эпизодов.
+//
+// Имя соответствует поведению с S01-FINAL-PREP. Никакого восстановления RGB scanout функция не
+// делает: эта половина ушла вместе с автоматическим слоем resync в S01-5D.
+void requestDeferredRedraw();
 
 // Slice 6C: this DspTask iteration still has relevant display/asset work (queue / page create /
 // JPEG apply). If runtime recovery is pending, keep it armed and do not consume until idle.

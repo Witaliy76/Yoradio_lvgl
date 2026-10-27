@@ -212,14 +212,56 @@ void DisplayPort::wake() {
 }
 
 void DisplayPort::restartRgbScanout() {
-    // Backend owns the panel handle; upper layers only request a scanout resync.
-    // Backend владеет panel handle; верхние слои только запрашивают ресинхрон.
+    // MANUAL / SERVICE ONLY (S01-5D): reached only from the diagnostic CLI. Backend owns the
+    // panel handle; this layer only forwards the request.
+    // ТОЛЬКО РУЧНОЙ / СЕРВИСНЫЙ ВЫЗОВ (S01-5D): доступен только из диагностического CLI.
     if (!yoradio_esp_lcd_st7701::isReady()) {
         return;  // panel not up yet / панель ещё не поднята
     }
     TAKE_MUTEX();
     (void)yoradio_esp_lcd_st7701::restartRgbScanout();
     GIVE_MUTEX();
+}
+
+DisplayPort::RgbScanoutStatus DisplayPort::rgbScanoutStatus() {
+    RgbScanoutStatus st{};
+    st.panelReady = yoradio_esp_lcd_st7701::isReady();
+    st.vsyncCounterReady = yoradio_esp_lcd_st7701::vsyncCounterReady();
+    st.bounceBufferPx = yoradio_esp_lcd_st7701::bounceBufferPx();
+    st.vsyncSeq = yoradio_esp_lcd_st7701::vsyncSeq();
+    st.nominalPclkHz = yoradio_esp_lcd_st7701::nominalPclkHz();  // startup value until promoted
+    st.flashGuardPclkHz = yoradio_esp_lcd_st7701::kPclkFlashGuardHz;
+    st.restartExec = yoradio_esp_lcd_st7701::restartExecCount();
+    st.restartRejectedBounce = yoradio_esp_lcd_st7701::restartRejectedBounceCount();
+    return st;
+}
+
+uint32_t DisplayPort::rgbVsyncSeq() {
+    return yoradio_esp_lcd_st7701::vsyncSeq();
+}
+
+bool DisplayPort::promoteRgbPclkToRuntimeNominal() {
+    // Same ownership as requestRgbPclkHz(): the panel handle stays in the backend.
+    // То же владение, что и у requestRgbPclkHz(): panel handle остаётся в backend.
+    if (!yoradio_esp_lcd_st7701::isReady()) {
+        return false;
+    }
+    TAKE_MUTEX();
+    const bool ok = yoradio_esp_lcd_st7701::promotePclkToRuntimeNominal();
+    GIVE_MUTEX();
+    return ok;
+}
+
+bool DisplayPort::requestRgbPclkHz(uint32_t hz) {
+    // Same owner as the scanout restart: the panel handle stays in the backend.
+    // Тот же владелец, что и у restart scanout: panel handle остаётся в backend.
+    if (!yoradio_esp_lcd_st7701::isReady()) {
+        return false;
+    }
+    TAKE_MUTEX();
+    const bool ok = yoradio_esp_lcd_st7701::requestRgbPclkHz(hz);
+    GIVE_MUTEX();
+    return ok;
 }
 
 bool DspCore::initDisplay() {

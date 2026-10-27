@@ -35,14 +35,6 @@ class Display {
     bool ready() { return _bootStep==2; }
     void resetQueue();
     void putRequest(displayRequestType_e type, int payload=0);
-    // Request one RGB scanout resynchronization after a completed runtime LittleFS mutation
-    // transaction (or the startup hazard window). Safe from ANY task: on DspTask it executes
-    // immediately, elsewhere it is serialized through the display queue. The only resync entry
-    // point that non-display subsystems may call.
-    // Запрос одного ресинхрона RGB scanout после завершённой runtime-транзакции записи в
-    // LittleFS (или стартового окна). Безопасен из ЛЮБОЙ задачи: на DspTask выполняется сразу,
-    // иначе сериализуется через очередь дисплея. Единственная точка входа для не-display кода.
-    void requestRgbResync();
     void flip();
     void invert();
     bool deepsleep();
@@ -79,9 +71,6 @@ class Display {
     uint32_t _lost_started_ms            = 0;
     uint8_t  _lost_escalation_milestone  = 0; // 0=initial text pending; 1=set; 2=30s; 3=50s
     void _tryCompleteLostEscalation();
-    // Sole policy-layer execution point for an RGB scanout resync. DspTask context only.
-    // Единственная точка выполнения ресинхрона на уровне политики. Только контекст DspTask.
-    void _performRgbResync();
     void _title();
     void _switchMode(displayMode_e newmode);
     void _createDspTask();
@@ -102,7 +91,6 @@ class Display {
     void init();
     void _start();
     void putRequest(displayRequestType_e type, int payload=0);
-    void requestRgbResync(){}
     void loop(){}
     bool ready() { return true; }
     void resetQueue(){}
@@ -123,41 +111,15 @@ class Display {
 
 extern Display display;
 
-// One-shot RGB resync for a completed runtime LittleFS mutation transaction.
+// S01-5D: RgbResyncTransaction is gone. It existed to issue one post-write RGB restart per
+// completed runtime LittleFS transaction — a repair-after-the-fact design that the PCLK flash
+// guard replaced with prevention (S01-5B/5C1/5C2/5C3: the mutation itself runs at 6 MHz, so
+// there is nothing to repair). Its last users were removed in S01-5C-3, leaving the class with
+// zero callers, and keeping it would invite new post-write repair code.
 //
-// Scope this to a LOGICAL transaction (one user/application filesystem operation), never to a
-// filesystem primitive — a per-chunk or per-remove guard would fire many times inside a single
-// operation, which is exactly what the policy forbids. Declare it where the transaction ends,
-// call markFsMutated() once LittleFS has actually been touched, and the resync is issued on
-// every exit path — success or failure — because a mutation that failed can still have
-// disturbed the RGB scanout.
-//
-// Call deferToDisplayEvent() when the operation queues a Display completion event
-// (MAIN_BG_FS_UPDATED / ART_FS_UPDATED / CUSTOM_THEME_FILE_UPDATED): that handler reloads the
-// committed file and performs the resync at the end of its own work, so issuing one here too
-// would give the operation two.
-//
-// Одноразовый ресинхрон RGB после завершённой runtime-транзакции записи в LittleFS.
-// Привязывать к ЛОГИЧЕСКОЙ транзакции, а не к примитиву ФС. markFsMutated() — когда LittleFS
-// действительно изменён; ресинхрон сработает на любом выходе, включая ошибочный.
-// deferToDisplayEvent() — если операция поставила событие Display, которое сделает ресинхрон
-// после перезагрузки файла.
-class RgbResyncTransaction {
-  public:
-    RgbResyncTransaction() = default;
-    RgbResyncTransaction(const RgbResyncTransaction&) = delete;
-    RgbResyncTransaction& operator=(const RgbResyncTransaction&) = delete;
-
-    void markFsMutated() { _mutated = true; }
-    void deferToDisplayEvent() { _deferred = true; }
-
-    ~RgbResyncTransaction() {
-      if (_mutated && !_deferred) display.requestRgbResync();
-    }
-
-  private:
-    bool _mutated = false;
-    bool _deferred = false;
-};
+// S01-5D: RgbResyncTransaction удалён. Он выдавал один RGB-restart после каждой завершённой
+// runtime-транзакции LittleFS — ремонт по факту, который PCLK flash guard заменил профилактикой
+// (сама мутация идёт на 6 МГц, ремонтировать нечего). Последние пользователи убраны в S01-5C-3,
+// класс остался без вызывающих; сохранять его — приглашать новый код «ремонта после записи».
 
 #endif

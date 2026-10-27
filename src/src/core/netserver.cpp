@@ -9,6 +9,8 @@
 #include "player.h"
 #include "telnet.h"
 #include "display.h"
+#include "rgb_flash_guard.h"
+#include "lfs_upload_txn.h"
 #include "options.h"
 #include "network.h"
 #include "mqtt.h"
@@ -58,6 +60,10 @@ static uint32_t s_ws_boot_guard_started_ms = 0;
 constexpr uint32_t kWsHeavyClientBootGuardMs = 12000;
 
 String processor(const String& var);
+// S01-5C-2: playlist upload request whose RGB flash guard was Denied (set in handleUpload, read in
+// beginUpload, cleared on its disconnect). Defined here because beginUpload comes first.
+// S01-5C-2: запрос загрузки плейлиста с Denied guard (handleUpload ставит, beginUpload читает).
+static AsyncWebServerRequest* s_playlistUploadDeniedReq = nullptr;
 void handleUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
 void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
 void handleWebUploadComplete(AsyncWebServerRequest *request);
@@ -277,6 +283,13 @@ void handleUpdate(AsyncWebServerRequest *request, String filename, size_t index,
 }
 
 void NetServer::beginUpload(AsyncWebServerRequest *request) {
+  // S01-5C-2: the upload stage was Denied before touching flash and already answered 503.
+  // No import must run on whatever tmp file may exist from an older request.
+  // S01-5C-2: этап загрузки получил Denied до касания flash и уже ответил 503 — импорт не запускаем.
+  if (s_playlistUploadDeniedReq == request) {
+    s_playlistUploadDeniedReq = nullptr;
+    return;
+  }
   if (request->hasParam("plfile", true, true)) {
     netserver.importRequest = IMPL;
     request->send(200);
@@ -284,11 +297,9 @@ void NetServer::beginUpload(AsyncWebServerRequest *request) {
     netserver.importRequest = IMWIFI;
     request->send(200);
   } else {
-    // Neither import will run, so nothing downstream will close the window that handleUpload()
-    // opened when it purged the playlist pair and wrote /data/tmp. Close it here.
-    // Ни один импорт не запустится, и закрыть окно, открытое handleUpload() при удалении пары
-    // playlist/index и записи /data/tmp, больше некому. Закрываем здесь.
-    display.requestRgbResync();
+    // Neither import will run. The upload stage (if any) already ran and released under its own
+    // guard; no post-write repair is owed (S01-5C-2).
+    // Ни один импорт не запустится. Этап загрузки (если был) уже прошёл под своим guard (S01-5C-2).
     request->send(404);
   }
 }
@@ -478,13 +489,9 @@ void NetServer::processQueue(){
           config.initPlaylist();
         }
         getPlaylist(clientId);
-        // Latest boundary of the playlist import window: the playlist file was written by
-        // importPlaylist(), and index.dat has now been rebuilt and re-read. One resync for the
-        // whole import, not per station and not between the playlist and index files.
-        // Крайняя граница окна импорта плейлиста: файл плейлиста записан в importPlaylist(),
-        // index.dat перестроен и перечитан. Один ресинхрон на весь импорт, не по станциям и не
-        // между файлами плейлиста и индекса.
-        display.requestRgbResync();
+        // S01-5C-2: the index rebuild (stage P3) runs under its own RGB flash guard inside
+        // Config::indexPlaylist(); no post-write repair is requested here any more.
+        // S01-5C-2: перестроение индекса (этап P3) идёт под своим guard в Config::indexPlaylist().
         break;
       }
       case GETACTIVE: {
@@ -1236,28 +1243,33 @@ uint8_t NetServer::_readPlaylistLine(File &file, char * line, size_t size){
 }
 
 bool NetServer::importPlaylist() {
-  // handleUpload() already deleted the old playlist/index pair and wrote /data/tmp before this
-  // runs, so the hazard exists on entry — including the paths that abandon the import. When the
-  // import succeeds, PLAYLISTSAVED closes the window after the index rebuild instead.
-  // handleUpload() до этого уже удалил старую пару playlist/index и записал /data/tmp, поэтому
-  // окно существует уже на входе — включая пути отказа. При успехе окно закрывает PLAYLISTSAVED
-  // после перестроения индекса.
-  RgbResyncTransaction resync;
-  resync.markFsMutated();
-
+  // S01-5C-2 stage P2 (commit, loopTask): handleUpload() (P1) already finished /data/tmp under its
+  // own guard. This stage is one synchronous transaction under a fresh guard: rename tmp ->
+  // playlist (CSV), or rewrite playlist + remove tmp (JSON), or remove tmp (rejected). Denied:
+  // nothing is touched and the import is skipped (tmp kept). P3 index rebuild follows via
+  // PLAYLISTSAVED with its own guard; the shared linger usually keeps P1..P3 in one 6 MHz window.
+  // S01-5C-2 этап P2 (коммит, loopTask): P1 уже завершил /data/tmp под своим guard. Этот этап —
+  // одна синхронная транзакция под новым guard. Denied: ничего не трогаем, импорт пропускается.
   if(config.getMode()==PM_SDCARD) return false;
+  rgb_flash_guard::Scope flash_guard("LFS_PL_COMMIT");
+  if (!flash_guard.ok()) {
+    Serial.println("[LFS-UPLOAD] abort source=LFS_PL_COMMIT reason=flash_busy (tmp kept, import skipped)");
+    return false;
+  }
+  lfs_upload::StageTimer stage("LFS_PL_COMMIT", "no_tmp");
   File tempfile = LittleFS.open(TMP_PATH, "r");
   if (!tempfile) {
     return false;
   }
+  stage.addBytes(tempfile.size());
   char sName[BUFLEN], sUrl[BUFLEN], linePl[BUFLEN*3];;
   int sOvol;
   _readPlaylistLine(tempfile, linePl, sizeof(linePl)-1);
   if (config.parseCSV(linePl, sName, sUrl, sOvol)) {
     tempfile.close();
     LittleFS.rename(TMP_PATH, PLAYLIST_PATH);
+    stage.outcome("csv_rename");
     requestOnChange(PLAYLISTSAVED, 0);
-    resync.deferToDisplayEvent();
     return true;
   }
   if (config.parseJSON(linePl, sName, sUrl, sOvol)) {
@@ -1275,12 +1287,13 @@ bool NetServer::importPlaylist() {
     playlistfile.close();
     tempfile.close();
     LittleFS.remove(TMP_PATH);
+    stage.outcome("json_rewrite");
     requestOnChange(PLAYLISTSAVED, 0);
-    resync.deferToDisplayEvent();
     return true;
   }
   tempfile.close();
   LittleFS.remove(TMP_PATH);
+  stage.outcome("rejected");
   return false;
 }
 
@@ -1394,6 +1407,13 @@ struct BgFsPending {
 
 static BgFsPending s_bgPend;
 
+// S01-5C-3 BG-COMMIT retry accounting. Polls that mutated nothing are counted, not logged, so a
+// busy source FD cannot spam the console; both numbers are reported on the commit line.
+// Учёт повторов BG-COMMIT. Пустые poll считаются, но не логируются; оба числа печатаются в строке
+// завершения коммита.
+static uint32_t s_bgCommitFdBusy = 0;
+static uint32_t s_bgCommitGuardDenied = 0;
+
 struct BgSourceFdTryLock {
   bool owned = false;
   BgSourceFdTryLock() { owned = lvgl_ui::mainBgTryLockSourceFd(); }
@@ -1453,13 +1473,58 @@ static bool bgInstallTmpToDest(const char* tmp, const char* dest) {
 }
 
 void bgTryFinalizePending() {
+  // S01-5C-3 Class C, stage BG-COMMIT (loopTask). This is a SEPARATE physical mutation stage from
+  // BG-UP: the HTTP request has already ended, its guard was released, and the dest commit waited
+  // for the JPEG consumer to drop the source FD. Stack RAII ownership is never passed between
+  // tasks, so this stage takes its own acquisition.
+  //
+  // S01-5C-3 класс C, этап BG-COMMIT (loopTask). Это ОТДЕЛЬНЫЙ этап физических мутаций: запрос
+  // HTTP уже завершён, его guard отпущен, а коммит dest ждал, пока потребитель JPEG отпустит
+  // source FD. Владение стековым RAII между задачами не передаётся — этап берёт свой acquire.
   if (!s_bgPend.valid) return;
+
+  // Lock order is fixed by section 6: RGB flash guard -> source-FD lock -> mutation. The guard is
+  // therefore taken first, unconditionally, even though the FD trylock below may still fail. The
+  // inverse order would let an FD-lock holder wait on the guard. Correctness is chosen over
+  // avoiding PCLK churn: with frequent polling the 1500 ms release linger is normally cancelled
+  // by the next acquire (lingerCancel), so PCLK tends to stay at 6 MHz rather than oscillate
+  // 10 -> 6 -> 10. That is a measured question, not an assumed one; no throttle is added here.
+  // Порядок блокировок задан п.6: RGB flash guard -> source-FD lock -> мутация. Поэтому guard
+  // берётся первым и безусловно, хотя try-lock ниже ещё может не получиться. Обратный порядок
+  // позволил бы владельцу FD-блокировки ждать guard. Корректность выбрана вместо экономии на
+  // churn PCLK: при частых poll linger 1500 мс обычно отменяется следующим acquire, т.е. PCLK
+  // скорее остаётся на 6 МГц, а не колеблется. Это измеряемый вопрос; throttle здесь не вводим.
+  rgb_flash_guard::Scope guard("LFS_BG_COMMIT");
+  if (!guard.ok()) {
+    // Retryable deferred state, not a filesystem failure: nothing was touched, the FD lock was
+    // not taken, and s_bgPend stays valid so the next poll tries again.
+    // Отложенное состояние с повтором, не отказ ФС: ничего не тронуто, FD-блокировка не взята,
+    // s_bgPend остаётся valid — следующий poll повторит.
+    ++s_bgCommitGuardDenied;
+    Serial.printf("[MAIN_BG] deferred FS commit deferred/guard_denied slot=%u\n",
+                  (unsigned)s_bgPend.slot);
+    return;
+  }
+
   BgSourceFdTryLock fd;
-  if (!fd) return;
-  // Destination commit is its own persistence episode (RGB-RESYNC-ALL-RUNTIME-PERSISTENCE).
-  // An earlier HTTP tmp-write resync does not cover this remove/rename/copy.
-  // Коммит dest — отдельный эпизод персистентности; resync за tmp HTTP его не закрывает.
-  RgbResyncTransaction resync;
+  if (!fd) {
+    // The JPEG/resource consumer still holds the source FD. Not an error: mutate nothing and keep
+    // the pending commit for a later poll. Counted, not logged, so a busy FD cannot spam.
+    // Потребитель JPEG/ресурса всё ещё держит source FD. Не ошибка: ничего не меняем и оставляем
+    // отложенный коммит на следующий poll. Считается, но не логируется — без спама.
+    ++s_bgCommitFdBusy;
+    return;
+  }
+
+  // Declared after the FD lock on purpose: hold_ms then measures the real commit, not the wait
+  // for a busy JPEG FD, and no line is logged on a poll that did nothing. Declared before the
+  // first mutation and before any File, so on exit it logs after the files closed and before the
+  // Scope releases (reverse declaration order: stage, fd, guard).
+  // Объявлен после FD-блокировки специально: hold_ms измеряет реальный коммит, а не ожидание
+  // занятого FD, и на пустом poll ничего не логируется. Объявлен до первой мутации и до любого
+  // File, поэтому на выходе лог идёт после закрытия файлов и до release Scope.
+  lfs_upload::StageTimer stage("LFS_BG_COMMIT", "ok");
+  stage.addBytes(s_bgPend.size);
   bool ok = true;
   if (s_bgPend.is_remove) {
     if (LittleFS.exists(s_bgPend.dest) && !LittleFS.remove(s_bgPend.dest)) {
@@ -1473,19 +1538,47 @@ void bgTryFinalizePending() {
   s_bgPend.tmp[0] = '\0';
   s_bgPend.dest[0] = '\0';
   if (ok) {
-    resync.markFsMutated();
     const uint8_t active = static_cast<uint8_t>(lvgl_ui::yoradio_theme_active_preset());
     if (slot <= 2u && slot == active) {
+      // Functional reload of the active background, not scanout recovery — it stays.
+      // Функциональная перезагрузка активного фона, не восстановление scanout — остаётся.
       display.putRequest(MAIN_BG_FS_UPDATED, static_cast<int>(slot));
-      resync.deferToDisplayEvent();
     }
-    Serial.printf("[MAIN_BG] deferred FS commit ok slot=%u\n", (unsigned)slot);
+    Serial.printf("[MAIN_BG] deferred FS commit ok slot=%u fd_busy_polls=%lu guard_denied=%lu\n",
+                  (unsigned)slot, (unsigned long)s_bgCommitFdBusy,
+                  (unsigned long)s_bgCommitGuardDenied);
   } else {
-    Serial.printf("[MAIN_BG] deferred FS commit failed slot=%u\n", (unsigned)slot);
+    stage.outcome("error");
+    Serial.printf("[MAIN_BG] deferred FS commit failed slot=%u fd_busy_polls=%lu guard_denied=%lu\n",
+                  (unsigned)slot, (unsigned long)s_bgCommitFdBusy,
+                  (unsigned long)s_bgCommitGuardDenied);
   }
 }
 
 }  // namespace
+
+// S01-5C-3 Class C, stage BG-UP: one RGB-flash-guarded transaction per background upload request,
+// from chunk 0 (before the leftover tmp remove) to the end of the final chunk, which may also
+// install tmp -> dest when the source FD is free. Up to ~1 MiB streams straight into LittleFS, so
+// the guard is held for the whole mutating upload; an aborted request can only leave the tmp file,
+// removed under the guard from the onDisconnect hook. The deferred commit is a separate stage with
+// its own acquisition (see bgTryFinalizePending) because it runs on loopTask, not async_tcp.
+// S01-5C-3 класс C, этап BG-UP: одна транзакция под RGB flash guard на запрос загрузки фона — от
+// chunk 0 (до удаления старого tmp) до конца финального chunk, который может также установить
+// tmp -> dest, если source FD свободен. До ~1 МиБ пишется прямо в LittleFS, поэтому guard держится
+// всю мутирующую загрузку; при обрыве остаётся лишь tmp — его убирает onDisconnect под guard.
+// Отложенный коммит — отдельный этап со своим acquire (bgTryFinalizePending), он на loopTask.
+static lfs_upload::Txn s_bgUploadTxn;
+static void bgUploadAbortCleanup(void* owner) {
+  (void)owner;
+  if (gBgUploadFile) {
+    gBgUploadFile.close();
+  }
+  gBgUploadArmed = false;
+  if (LittleFS.exists(kBgTmpPath)) {
+    LittleFS.remove(kBgTmpPath);
+  }
+}
 
 void beginUploadBg(AsyncWebServerRequest* request) {
   (void)request;
@@ -1497,12 +1590,12 @@ void beginUploadBg(AsyncWebServerRequest* request) {
 void handleUploadBg(AsyncWebServerRequest* request, String filename, size_t index, uint8_t* data, size_t len, bool final) {
   (void)filename;
 
-  // Chunk invocations are NOT the transaction — the guard is only armed on the paths that end the
-  // upload (final chunk, or the fatal-IO exit), so a multi-chunk upload still yields one resync.
-  // Вызовы по чанкам — не транзакция: guard взводится только на завершающих путях, поэтому
-  // многочанковая загрузка даёт один ресинхрон.
-  RgbResyncTransaction resync;
-
+  // S01-5C-3: the legacy RgbResyncTransaction is gone — it existed only to repair scanout after
+  // the writes. Prevention now covers the whole upload: s_bgUploadTxn holds the RGB flash guard
+  // from before the first mutation until the last FS call of this request returned.
+  // S01-5C-3: legacy RgbResyncTransaction удалён — он лишь ремонтировал scanout после записи.
+  // Профилактика покрывает всю загрузку: s_bgUploadTxn держит guard от первой мутации до
+  // возврата последнего вызова ФС этого запроса.
   if (index == 0) {
     gBgUploadArmed = false;
     gBgIoFatal = false;
@@ -1517,6 +1610,14 @@ void handleUploadBg(AsyncWebServerRequest* request, String filename, size_t inde
     if (!bgPrepareSlotForUpload(request)) {
       return;
     }
+    // Everything above only read (params, free space) or answered HTTP. Guard before the first
+    // mutation of this request. Denied: touch nothing, answer 503.
+    // Всё выше только читало или отвечало HTTP. Guard до первой мутации запроса.
+    if (!s_bgUploadTxn.begin(request, "LFS_BG_UP", bgUploadAbortCleanup)) {
+      request->send(503, "application/json", "{\"ok\":false,\"error\":\"flash_busy\"}");
+      return;
+    }
+    request->onDisconnect([request]() { s_bgUploadTxn.ownerGone(request); });
     gBgUploadArmed = true;
     if (LittleFS.exists(kBgTmpPath)) {
       LittleFS.remove(kBgTmpPath);
@@ -1526,7 +1627,10 @@ void handleUploadBg(AsyncWebServerRequest* request, String filename, size_t inde
       gBgIoFatal = true;
     }
   } else {
-    if (!gBgUploadArmed) {
+    // Later chunks run only inside this request's guarded transaction; a Denied request already
+    // got 503 and must not touch the tmp file.
+    // Следующие chunk'и — только внутри транзакции запроса; Denied уже получил 503.
+    if (!gBgUploadArmed || !s_bgUploadTxn.activeFor(request)) {
       return;
     }
   }
@@ -1538,7 +1642,7 @@ void handleUploadBg(AsyncWebServerRequest* request, String filename, size_t inde
         gBgUploadFile.close();
       }
       LittleFS.remove(kBgTmpPath);
-      resync.markFsMutated();
+      s_bgUploadTxn.finish("open_failed");
       request->send(500, "application/json", "{\"ok\":false,\"error\":\"open_failed\"}");
     }
     return;
@@ -1550,6 +1654,7 @@ void handleUploadBg(AsyncWebServerRequest* request, String filename, size_t inde
     } else {
       size_t n = gBgUploadFile.write(data, len);
       gBgWrittenTotal += n;
+      s_bgUploadTxn.addBytes(n);
       if (n != len) {
         gBgIoFatal = true;
       }
@@ -1560,9 +1665,10 @@ void handleUploadBg(AsyncWebServerRequest* request, String filename, size_t inde
     return;
   }
 
-  // Final chunk: the temp file exists, so every exit from here owes one resync.
-  // Финальный чанк: временный файл создан, поэтому любой выход отсюда должен дать ресинхрон.
-  resync.markFsMutated();
+  // Final chunk: every exit from here ends the guarded transaction, after that branch's own FS
+  // work returned (tmp remove, or the tmp -> dest install inside the source-FD block).
+  // Финальный чанк: любой выход завершает транзакцию под guard — после работы с ФС этой ветки.
+  lfs_upload::FinishOnExit txn_end(s_bgUploadTxn, "error");
 
   gBgUploadArmed = false;
   if (gBgUploadFile) {
@@ -1619,6 +1725,11 @@ void handleUploadBg(AsyncWebServerRequest* request, String filename, size_t inde
       strlcpy(s_bgPend.slotName, gBgSlotName, sizeof(s_bgPend.slotName));
       s_bgPend.slot = uploaded;
       s_bgPend.size = sz;
+      // tmp is written and validated; the dest commit becomes stage BG-COMMIT on loopTask
+      // with its own guard acquisition. This stage ends here, successfully.
+      // tmp записан и проверен; коммит dest становится этапом BG-COMMIT на loopTask со
+      // своим acquire. Этот этап здесь успешно завершается.
+      txn_end.outcome("queued");
       Serial.printf("[MAIN_BG] upload queued until source FD released (%s)\n", gBgDestPath);
       char qjson[300];
       snprintf(qjson, sizeof(qjson),
@@ -1646,10 +1757,12 @@ void handleUploadBg(AsyncWebServerRequest* request, String filename, size_t inde
   if (uploaded <= 2u) {
     const uint8_t active = static_cast<uint8_t>(lvgl_ui::yoradio_theme_active_preset());
     if (uploaded == active) {
+      // Functional reload of the active background, not scanout recovery — it stays.
+      // Функциональная перезагрузка активного фона, не восстановление scanout — остаётся.
       display.putRequest(MAIN_BG_FS_UPDATED, static_cast<int>(uploaded));
-      resync.deferToDisplayEvent();
     }
   }
+  txn_end.outcome("ok");
   char okjson[280];
   snprintf(okjson, sizeof(okjson),
            "{\"ok\":true,\"slot\":\"%s\",\"path\":\"%s\",\"written_bytes\":%lu,\"final_size\":%lu,\"target_exists\":%s}",
@@ -1683,17 +1796,23 @@ void handleRemoveBgHttp(AsyncWebServerRequest* request) {
     request->send(400, "application/json", "{\"ok\":false,\"error\":\"bad_slot\"}");
     return;
   }
-  // Delete now follows the same completion contract as upload: mutate, hand the slot to DspTask
-  // so the cached background is dropped and the default reapplied, and let that handler close the
-  // hazard window. A failed remove mutated nothing, so it owes no resync.
-  // Удаление следует тому же контракту завершения, что и загрузка: изменить ФС, передать слот в
-  // DspTask для сброса кэша и возврата к дефолту, и там закрыть окно. Неудавшийся remove ничего
-  // не изменил — ресинхрон не нужен.
-  RgbResyncTransaction resync;
+  // Delete hands the slot to DspTask afterwards so the cached background is dropped and the
+  // default reapplied. S01-5C-1: the remove itself runs under the RGB flash guard. Order:
+  // guard (may wait for DspTask) -> source-FD try-lock -> remove; the FD lock is released first,
+  // then the guard. The display event is sent after the guard scope ended.
+  // Удаление затем передаёт слот в DspTask для сброса кэша и возврата к дефолту. S01-5C-1: сам
+  // remove идёт под RGB flash guard. Порядок: guard (может ждать DspTask) -> try-lock FD ->
+  // remove; сначала отпускается FD, потом guard. Событие дисплея — после выхода из scope guard.
   bool deleted = false;
   if (LittleFS.exists(path)) {
     if (s_bgPend.valid) {
       request->send(409, "application/json", "{\"ok\":false,\"error\":\"busy\"}");
+      return;
+    }
+    rgb_flash_guard::Scope flash_guard("LFS_DELETE");
+    if (!flash_guard.ok()) {
+      Serial.printf("[MAIN_BG] remove not done: RGB flash guard not confirmed (%s)\n", path);
+      request->send(503, "application/json", "{\"ok\":false,\"error\":\"flash_busy\"}");
       return;
     }
     BgSourceFdTryLock fd;
@@ -1713,17 +1832,15 @@ void handleRemoveBgHttp(AsyncWebServerRequest* request) {
       request->send(500, "application/json", "{\"ok\":false,\"error\":\"remove_failed\"}");
       return;
     }
-    resync.markFsMutated();
     deleted = true;
   }
-  // Deleting an already-absent slot changes nothing, so it neither needs the reload nor owes a
-  // resync — only a real removal does.
-  // Удаление отсутствующего слота ничего не меняет: ни reload, ни ресинхрон не нужны.
+  // Deleting an already-absent slot changes nothing, so it needs no reload — only a real
+  // removal does.
+  // Удаление отсутствующего слота ничего не меняет: reload нужен только при реальном удалении.
   if (deleted) {
     const uint8_t active = static_cast<uint8_t>(lvgl_ui::yoradio_theme_active_preset());
     if (removed == active) {
       display.putRequest(MAIN_BG_FS_UPDATED, static_cast<int>(removed));
-      resync.deferToDisplayEvent();
     }
   }
   request->send(200, "application/json", "{\"ok\":true}");
@@ -1742,25 +1859,45 @@ static bool gThemeIoFatal = false;
 static size_t gThemeWrittenTotal = 0;
 static File gThemeUploadFile;
 
+// S01-5C-2: one RGB-flash-guarded transaction per custom-theme upload request, from chunk 0
+// (before the tmp remove/open) to the final rename/copy/remove; an aborted request is cleaned up
+// under the guard from its onDisconnect hook.
+// S01-5C-2: одна транзакция под RGB flash guard на запрос загрузки темы — от chunk 0 до финальных
+// rename/copy/remove; оборванный запрос чистится под guard из onDisconnect.
+static lfs_upload::Txn s_themeUploadTxn;
+static void themeUploadAbortCleanup(void*) {
+  gThemeUploadArmed = false;
+  gThemeIoFatal = false;
+  if (gThemeUploadFile) {
+    gThemeUploadFile.close();
+  }
+  if (LittleFS.exists(kThemeCustomTmpPath)) {
+    LittleFS.remove(kThemeCustomTmpPath);
+  }
+}
+
 void beginUploadTheme(AsyncWebServerRequest* request) {
   (void)request;
 }
 
 void handleUploadTheme(AsyncWebServerRequest* request, String filename, size_t index, uint8_t* data, size_t len, bool final) {
-  // Armed only on the transaction-ending paths — see handleUploadBg.
-  // Взводится только на завершающих путях — см. handleUploadBg.
-  RgbResyncTransaction resync;
-
   if (index == 0) {
     gThemeUploadArmed = false;
     gThemeIoFatal = false;
     gThemeWrittenTotal = 0;
-    if (gThemeUploadFile) {
-      gThemeUploadFile.close();
-    }
     if (filename.length() > 0 && !filename.endsWith(".txt")) {
       request->send(400, "application/json", "{\"ok\":false,\"error\":\"bad_extension\"}");
       return;
+    }
+    // S01-5C-2: guard before the first mutation of this request (stale close, tmp remove/open).
+    // S01-5C-2: guard до первой мутации запроса (закрытие старого файла, remove/open tmp).
+    if (!s_themeUploadTxn.begin(request, "LFS_THEME_UP", themeUploadAbortCleanup)) {
+      request->send(503, "application/json", "{\"ok\":false,\"error\":\"flash_busy\"}");
+      return;
+    }
+    request->onDisconnect([request]() { s_themeUploadTxn.ownerGone(request); });
+    if (gThemeUploadFile) {
+      gThemeUploadFile.close();
     }
     if (LittleFS.exists(kThemeCustomTmpPath)) {
       LittleFS.remove(kThemeCustomTmpPath);
@@ -1771,7 +1908,7 @@ void handleUploadTheme(AsyncWebServerRequest* request, String filename, size_t i
     } else {
       gThemeUploadArmed = true;
     }
-  } else if (!gThemeUploadArmed) {
+  } else if (!gThemeUploadArmed || !s_themeUploadTxn.activeFor(request)) {
     return;
   }
 
@@ -1782,7 +1919,7 @@ void handleUploadTheme(AsyncWebServerRequest* request, String filename, size_t i
         gThemeUploadFile.close();
       }
       LittleFS.remove(kThemeCustomTmpPath);
-      resync.markFsMutated();
+      s_themeUploadTxn.finish("open_failed");
       request->send(500, "application/json", "{\"ok\":false,\"error\":\"open_failed\"}");
     }
     return;
@@ -1794,6 +1931,7 @@ void handleUploadTheme(AsyncWebServerRequest* request, String filename, size_t i
     } else {
       const size_t n = gThemeUploadFile.write(data, len);
       gThemeWrittenTotal += n;
+      s_themeUploadTxn.addBytes(n);
       if (n != len) {
         gThemeIoFatal = true;
       }
@@ -1804,9 +1942,9 @@ void handleUploadTheme(AsyncWebServerRequest* request, String filename, size_t i
     return;
   }
 
-  // Final chunk: temp file exists, every exit from here owes one resync.
-  // Финальный чанк: временный файл создан, любой выход отсюда должен дать ресинхрон.
-  resync.markFsMutated();
+  // Final chunk: every exit below ends the guarded transaction after its own FS cleanup.
+  // Финальный чанк: любой выход ниже завершает транзакцию после своей очистки ФС.
+  lfs_upload::FinishOnExit txn_end(s_themeUploadTxn, "error");
 
   gThemeUploadArmed = false;
   if (gThemeUploadFile) {
@@ -1868,10 +2006,13 @@ void handleUploadTheme(AsyncWebServerRequest* request, String filename, size_t i
     LittleFS.remove(kThemeCustomTmpPath);
   }
 
+  // FS commit done: end the guarded transaction before queuing the DspTask reload.
+  // Коммит ФС завершён: транзакция закрывается до постановки reload в DspTask.
+  s_themeUploadTxn.finish("ok");
+
   // Stage 6.6R-F2: DspTask-only reload — NetServer does FS commit + queue (no palette parse here).
   // Этап 6.6R-F2: парсинг/палитра только в DspTask; stats — через GET /bg_status после reload.
   display.putRequest(CUSTOM_THEME_FILE_UPDATED, 0);
-  resync.deferToDisplayEvent();
 
   char okjson[256];
   snprintf(okjson, sizeof(okjson),
@@ -1884,6 +2025,14 @@ void handleUploadTheme(AsyncWebServerRequest* request, String filename, size_t i
 
 void handleRemoveThemeHttp(AsyncWebServerRequest* request) {
   if (LittleFS.exists(kThemeCustomFinalPath)) {
+    // S01-5C-1: the remove runs under the RGB flash guard (async_tcp, normal wait).
+    // S01-5C-1: remove идёт под RGB flash guard (async_tcp, обычное ожидание).
+    rgb_flash_guard::Scope flash_guard("LFS_DELETE");
+    if (!flash_guard.ok()) {
+      Serial.println("[THEME] custom theme remove not done: RGB flash guard not confirmed");
+      request->send(503, "application/json", "{\"ok\":false,\"error\":\"flash_busy\"}");
+      return;
+    }
     if (!LittleFS.remove(kThemeCustomFinalPath)) {
       request->send(500, "application/json", "{\"ok\":false,\"error\":\"remove_failed\"}");
       return;
@@ -1951,13 +2100,35 @@ static bool fontLooksOtfName(const String& filename) {
 
 }  // namespace
 
+// S01-5C-3 Class C, stage TTF-UP: one RGB-flash-guarded transaction per user-font upload request,
+// from chunk 0 (before the leftover tmp remove) to the close of the streamed tmp file. It ends
+// THERE on purpose: the validation that follows is strictly read-only (open "r" / read / close /
+// parse in PSRAM), and with esp_littlefs a read-only open programs no flash — vfs_littlefs_open
+// skips both the mtime attr and the sync-after-opening for LFS_O_RDONLY, and lfs_file_sync_ only
+// commits under LFS_F_DIRTY, which no read path sets. So 6 MHz is not held through font parsing.
+// The replacement that follows is stage TTF-COMMIT with its own acquisition.
+// S01-5C-3 класс C, этап TTF-UP: одна транзакция под RGB flash guard на запрос загрузки шрифта —
+// от chunk 0 (до удаления старого tmp) до закрытия tmp. Заканчивается ИМЕННО там: дальнейшая
+// валидация только читает (open "r" / read / close / разбор в PSRAM), а read-only open в
+// esp_littlefs не пишет во flash. Поэтому 6 МГц не держатся на разборе шрифта. Замена ниже —
+// этап TTF-COMMIT со своим acquire.
+static lfs_upload::Txn s_fontUploadTxn;
+static void fontUploadAbortCleanup(void* owner) {
+  (void)owner;
+  if (gFontUploadFile) {
+    gFontUploadFile.close();
+  }
+  gFontUploadArmed = false;
+  if (LittleFS.exists(yoradio::kUserTtfTmpPath)) {
+    LittleFS.remove(yoradio::kUserTtfTmpPath);
+  }
+}
+
 void beginUploadUserFont(AsyncWebServerRequest* request) {
   (void)request;
 }
 
 void handleUploadUserFont(AsyncWebServerRequest* request, String filename, size_t index, uint8_t* data, size_t len, bool final) {
-  RgbResyncTransaction resync;
-
   if (index == 0) {
     gFontUploadArmed = false;
     gFontIoFatal = false;
@@ -1975,6 +2146,14 @@ void handleUploadUserFont(AsyncWebServerRequest* request, String filename, size_
       request->send(507, "application/json", "{\"ok\":false,\"error\":\"insufficient_space\"}");
       return;
     }
+    // Everything above only read (extension, free space) or answered HTTP. Guard before the
+    // first mutation of this request. Denied: touch nothing, answer 503.
+    // Всё выше только читало или отвечало HTTP. Guard до первой мутации запроса.
+    if (!s_fontUploadTxn.begin(request, "LFS_TTF_UP", fontUploadAbortCleanup)) {
+      request->send(503, "application/json", "{\"ok\":false,\"error\":\"flash_busy\"}");
+      return;
+    }
+    request->onDisconnect([request]() { s_fontUploadTxn.ownerGone(request); });
     if (LittleFS.exists(yoradio::kUserTtfTmpPath)) {
       LittleFS.remove(yoradio::kUserTtfTmpPath);
     }
@@ -1984,7 +2163,7 @@ void handleUploadUserFont(AsyncWebServerRequest* request, String filename, size_
     } else {
       gFontUploadArmed = true;
     }
-  } else if (!gFontUploadArmed) {
+  } else if (!gFontUploadArmed || !s_fontUploadTxn.activeFor(request)) {
     return;
   }
 
@@ -1995,7 +2174,7 @@ void handleUploadUserFont(AsyncWebServerRequest* request, String filename, size_
         gFontUploadFile.close();
       }
       LittleFS.remove(yoradio::kUserTtfTmpPath);
-      resync.markFsMutated();
+      s_fontUploadTxn.finish("too_large");
       request->send(400, "application/json", "{\"ok\":false,\"error\":\"too_large\"}");
     }
     return;
@@ -2008,7 +2187,7 @@ void handleUploadUserFont(AsyncWebServerRequest* request, String filename, size_
         gFontUploadFile.close();
       }
       LittleFS.remove(yoradio::kUserTtfTmpPath);
-      resync.markFsMutated();
+      s_fontUploadTxn.finish("open_failed");
       request->send(500, "application/json", "{\"ok\":false,\"error\":\"open_failed\"}");
     }
     return;
@@ -2020,6 +2199,7 @@ void handleUploadUserFont(AsyncWebServerRequest* request, String filename, size_
     } else {
       const size_t n = gFontUploadFile.write(data, len);
       gFontWrittenTotal += n;
+      s_fontUploadTxn.addBytes(n);
       if (n != len) {
         gFontIoFatal = true;
       }
@@ -2030,50 +2210,69 @@ void handleUploadUserFont(AsyncWebServerRequest* request, String filename, size_
     return;
   }
 
-  resync.markFsMutated();
   gFontUploadArmed = false;
   if (gFontUploadFile) {
     gFontUploadFile.close();
   }
 
+  // Still inside stage TTF-UP: these tmp removes are mutations and run under its guard.
+  // Ещё внутри этапа TTF-UP: эти удаления tmp — мутации и идут под его guard.
   if (gFontTooLarge) {
     LittleFS.remove(yoradio::kUserTtfTmpPath);
+    s_fontUploadTxn.finish("too_large");
     request->send(400, "application/json", "{\"ok\":false,\"error\":\"too_large\"}");
     return;
   }
   if (gFontIoFatal) {
     LittleFS.remove(yoradio::kUserTtfTmpPath);
+    s_fontUploadTxn.finish("write_failed");
     request->send(500, "application/json", "{\"ok\":false,\"error\":\"write_failed\"}");
     gFontIoFatal = false;
     return;
   }
 
-  File vf = LittleFS.open(yoradio::kUserTtfTmpPath, "r");
-  if (!vf) {
-    LittleFS.remove(yoradio::kUserTtfTmpPath);
-    request->send(500, "application/json", "{\"ok\":false,\"error\":\"read_failed\"}");
-    return;
-  }
-  const size_t sz = static_cast<size_t>(vf.size());
-  if (sz == 0 || sz > yoradio::kUserTtfMaxBytes) {
-    vf.close();
-    LittleFS.remove(yoradio::kUserTtfTmpPath);
-    request->send(400, "application/json", "{\"ok\":false,\"error\":\"size_invalid\"}");
-    return;
-  }
+  // Stage TTF-UP ends here: tmp is complete and closed, and the validation below is strictly
+  // read-only, so holding 6 MHz through it would be waste. Every mutation that the validation
+  // outcome implies is deferred to stage TTF-COMMIT, so nothing between the two stages writes.
+  // Этап TTF-UP завершается здесь: tmp готов и закрыт, а валидация ниже только читает, поэтому
+  // держать 6 МГц сквозь неё — расход впустую. Все мутации, вытекающие из результата валидации,
+  // отложены в этап TTF-COMMIT, так что между этапами запись не происходит.
+  s_fontUploadTxn.finish("uploaded");
 
-  uint8_t* buf = static_cast<uint8_t*>(ps_malloc(sz));
-  if (!buf) {
-    vf.close();
-    LittleFS.remove(yoradio::kUserTtfTmpPath);
-    request->send(500, "application/json", "{\"ok\":false,\"error\":\"psram_failed\"}");
-    return;
+  // ---- read-only validation, deliberately unguarded ----
+  // ---- валидация только для чтения, намеренно без guard ----
+  const char* read_err = nullptr;
+  int read_http = 500;
+  size_t sz = 0;
+  int nread = -1;
+  uint8_t* buf = nullptr;
+  {
+    File vf = LittleFS.open(yoradio::kUserTtfTmpPath, "r");
+    if (!vf) {
+      read_err = "read_failed";
+      read_http = 500;
+    } else {
+      sz = static_cast<size_t>(vf.size());
+      if (sz == 0 || sz > yoradio::kUserTtfMaxBytes) {
+        read_err = "size_invalid";
+        read_http = 400;
+        vf.close();
+      } else {
+        buf = static_cast<uint8_t*>(ps_malloc(sz));
+        if (!buf) {
+          read_err = "psram_failed";
+          read_http = 500;
+          vf.close();
+        } else {
+          nread = vf.read(buf, sz);
+          vf.close();
+        }
+      }
+    }
   }
-  const int nread = vf.read(buf, sz);
-  vf.close();
   yoradio::UserTtfReject why = yoradio::UserTtfReject::Io;
   uint8_t hdr[12] = {};
-  if (nread >= 0 && static_cast<size_t>(nread) == sz) {
+  if (!read_err && nread >= 0 && static_cast<size_t>(nread) == sz) {
     if (sz >= sizeof(hdr)) {
       memcpy(hdr, buf, sizeof(hdr));
     } else {
@@ -2081,29 +2280,54 @@ void handleUploadUserFont(AsyncWebServerRequest* request, String filename, size_
     }
     why = yoradio::user_ttf_validate(buf, sz);
   }
-  free(buf);
-  if (why != yoradio::UserTtfReject::Ok) {
-    LittleFS.remove(yoradio::kUserTtfTmpPath);
-    char errjson[160];
-    snprintf(errjson, sizeof(errjson),
-             "{\"ok\":false,\"error\":\"invalid_ttf\",\"reason\":\"%s\"}",
-             yoradio::user_ttf_reject_cstr(why));
-    request->send(400, "application/json", errjson);
-    return;
+  if (buf) {
+    free(buf);
   }
 
-  if (!fontInstallTmpToDest(yoradio::kUserTtfTmpPath, yoradio::kUserTtfPath)) {
-    LittleFS.remove(yoradio::kUserTtfTmpPath);
-    request->send(500, "application/json", "{\"ok\":false,\"error\":\"commit_failed\"}");
-    return;
+  // ---- stage TTF-COMMIT: every remaining mutation of this upload, under one acquisition ----
+  // ---- этап TTF-COMMIT: все оставшиеся мутации этой загрузки под одним acquire ----
+  {
+    rgb_flash_guard::Scope flash_guard("LFS_TTF_COMMIT");
+    if (!flash_guard.ok()) {
+      Serial.println("[LFS-UPLOAD] abort source=LFS_TTF_COMMIT reason=flash_busy (tmp kept)");
+      request->send(503, "application/json", "{\"ok\":false,\"error\":\"flash_busy\"}");
+      return;
+    }
+    lfs_upload::StageTimer stage("LFS_TTF_COMMIT", "ok");
+    if (read_err) {
+      stage.outcome(read_err);
+      LittleFS.remove(yoradio::kUserTtfTmpPath);
+      char rdjson[160];
+      snprintf(rdjson, sizeof(rdjson), "{\"ok\":false,\"error\":\"%s\"}", read_err);
+      request->send(read_http, "application/json", rdjson);
+      return;
+    }
+    if (why != yoradio::UserTtfReject::Ok) {
+      stage.outcome("invalid_ttf");
+      LittleFS.remove(yoradio::kUserTtfTmpPath);
+      char errjson[160];
+      snprintf(errjson, sizeof(errjson),
+               "{\"ok\":false,\"error\":\"invalid_ttf\",\"reason\":\"%s\"}",
+               yoradio::user_ttf_reject_cstr(why));
+      request->send(400, "application/json", errjson);
+      return;
+    }
+    stage.addBytes(sz);
+    if (!fontInstallTmpToDest(yoradio::kUserTtfTmpPath, yoradio::kUserTtfPath)) {
+      stage.outcome("commit_failed");
+      LittleFS.remove(yoradio::kUserTtfTmpPath);
+      request->send(500, "application/json", "{\"ok\":false,\"error\":\"commit_failed\"}");
+      return;
+    }
   }
 
-  // Same Stage-5 coalesced path as MAIN_BG / theme: Display RGB_RESYNC → requestRuntimeRgbRecovery
-  // after lv_timer_handler (redraw then resync). Do not _performRgbResync here.
-  // Тот же Stage-5 путь, что MAIN_BG/theme: RGB_RESYNC → recovery после taskHandler. Не resync здесь.
+  // S01-5C-3: the legacy RGB_RESYNC request existed only to repair scanout after the commit and
+  // is removed; prevention covers both stages above. notePersistedUserFile stays — it is the
+  // functional record of the new file, not recovery.
+  // S01-5C-3: legacy-запрос RGB_RESYNC лишь ремонтировал scanout после коммита и удалён;
+  // профилактику дают оба этапа выше. notePersistedUserFile остаётся — это функциональная
+  // запись о новом файле, а не восстановление.
   lvgl_ui::FontProvider::notePersistedUserFile(true, static_cast<uint32_t>(sz), hdr);
-  display.putRequest(RGB_RESYNC);
-  resync.deferToDisplayEvent();
 
   Serial.printf("[UserFont] uploaded bytes=%u; reboot required to apply\n",
                 static_cast<unsigned>(sz));
@@ -2115,17 +2339,25 @@ void handleUploadUserFont(AsyncWebServerRequest* request, String filename, size_
 }
 
 void handleRemoveUserFontHttp(AsyncWebServerRequest* request) {
-  RgbResyncTransaction resync;
   if (LittleFS.exists(yoradio::kUserTtfPath)) {
-    if (!LittleFS.remove(yoradio::kUserTtfPath)) {
-      request->send(500, "application/json", "{\"ok\":false,\"error\":\"remove_failed\"}");
-      return;
+    // S01-5C-1: the remove runs under the RGB flash guard (async_tcp, normal wait). The former
+    // RgbResyncTransaction / RGB_RESYNC request only asked for a post-write repair; removed.
+    // S01-5C-1: remove идёт под RGB flash guard. Прежние RgbResyncTransaction / RGB_RESYNC
+    // запрашивали только ремонт после записи; удалены.
+    {
+      rgb_flash_guard::Scope flash_guard("LFS_DELETE");
+      if (!flash_guard.ok()) {
+        Serial.println("[UserFont] remove not done: RGB flash guard not confirmed");
+        request->send(503, "application/json", "{\"ok\":false,\"error\":\"flash_busy\"}");
+        return;
+      }
+      if (!LittleFS.remove(yoradio::kUserTtfPath)) {
+        request->send(500, "application/json", "{\"ok\":false,\"error\":\"remove_failed\"}");
+        return;
+      }
     }
-    resync.markFsMutated();
     static const uint8_t kZeroHdr[12] = {};
     lvgl_ui::FontProvider::notePersistedUserFile(false, 0, kZeroHdr);
-    display.putRequest(RGB_RESYNC);
-    resync.deferToDisplayEvent();
     Serial.println("[UserFont] removed; reboot required to apply factory text");
   }
   request->send(200, "application/json",
@@ -2270,6 +2502,19 @@ static size_t gArtWrittenTotal  = 0;
 static bool   gArtIoFatal       = false;
 static File   gArtUploadFile;
 
+// S01-5C-2: one RGB-flash-guarded transaction per station-art upload request, from chunk 0
+// (before the tmp remove/open) to the final rename/copy/remove; an aborted request is cleaned up
+// under the guard from its onDisconnect hook. Size is fixed (43,204 B), so the hold is bounded.
+// S01-5C-2: одна транзакция под RGB flash guard на запрос загрузки арта — от chunk 0 до финальных
+// rename/copy/remove; оборванный запрос чистится под guard из onDisconnect. Размер фиксирован.
+static lfs_upload::Txn s_artUploadTxn;
+static void artUploadAbortCleanup(void*) {
+    gArtUploadArmed = false;
+    gArtIoFatal = false;
+    if (gArtUploadFile) gArtUploadFile.close();
+    if (LittleFS.exists(kArtTmpPath)) LittleFS.remove(kArtTmpPath);
+}
+
 // Build current station's art path from stable playlist source.
 // Строим путь к арту из стабильного плейлистного имени (не runtime ICY name).
 static bool artBuildCurrentPath(char* dest_path, size_t dest_sz, char* key_out, size_t key_sz) {
@@ -2292,15 +2537,10 @@ void beginUploadArt(AsyncWebServerRequest* request) {
 void handleUploadArt(AsyncWebServerRequest* request, String filename, size_t index, uint8_t* data, size_t len, bool final) {
     (void)filename;
 
-    // Armed only on the transaction-ending paths — see handleUploadBg.
-    // Взводится только на завершающих путях — см. handleUploadBg.
-    RgbResyncTransaction resync;
-
     if (index == 0) {
         gArtUploadArmed = false;
         gArtIoFatal     = false;
         gArtWrittenTotal = 0;
-        if (gArtUploadFile) gArtUploadFile.close();
 
         // Determine dest from current station (server-side only — never from client param).
         // Путь определяется на сервере из stationByNum — клиент не может влиять на имя файла.
@@ -2315,12 +2555,21 @@ void handleUploadArt(AsyncWebServerRequest* request, String filename, size_t ind
             return;
         }
 
+        // S01-5C-2: guard before the first mutation of this request (stale close, tmp remove/open).
+        // S01-5C-2: guard до первой мутации запроса (закрытие старого файла, remove/open tmp).
+        if (!s_artUploadTxn.begin(request, "LFS_ART_UP", artUploadAbortCleanup)) {
+            request->send(503, "application/json", "{\"ok\":false,\"error\":\"flash_busy\"}");
+            return;
+        }
+        request->onDisconnect([request]() { s_artUploadTxn.ownerGone(request); });
+        if (gArtUploadFile) gArtUploadFile.close();
+
         gArtUploadArmed = true;
         if (LittleFS.exists(kArtTmpPath)) LittleFS.remove(kArtTmpPath);
         gArtUploadFile = LittleFS.open(kArtTmpPath, "w");
         if (!gArtUploadFile) gArtIoFatal = true;
     } else {
-        if (!gArtUploadArmed) return;
+        if (!gArtUploadArmed || !s_artUploadTxn.activeFor(request)) return;
     }
 
     if (gArtIoFatal) {
@@ -2328,7 +2577,7 @@ void handleUploadArt(AsyncWebServerRequest* request, String filename, size_t ind
             gArtUploadArmed = false;
             if (gArtUploadFile) gArtUploadFile.close();
             LittleFS.remove(kArtTmpPath);
-            resync.markFsMutated();
+            s_artUploadTxn.finish("open_or_write_failed");
             request->send(500, "application/json", "{\"ok\":false,\"error\":\"open_failed\"}");
         }
         return;
@@ -2337,14 +2586,15 @@ void handleUploadArt(AsyncWebServerRequest* request, String filename, size_t ind
     if (len && gArtUploadFile) {
         size_t n = gArtUploadFile.write(data, len);
         gArtWrittenTotal += n;
+        s_artUploadTxn.addBytes(n);
         if (n != len) gArtIoFatal = true;
     }
 
     if (!final) return;
 
-    // Final chunk: temp file exists, every exit from here owes one resync.
-    // Финальный чанк: временный файл создан, любой выход отсюда должен дать ресинхрон.
-    resync.markFsMutated();
+    // Final chunk: every exit below ends the guarded transaction after its own FS cleanup.
+    // Финальный чанк: любой выход ниже завершает транзакцию после своей очистки ФС.
+    lfs_upload::FinishOnExit txn_end(s_artUploadTxn, "error");
 
     gArtUploadArmed = false;
     if (gArtUploadFile) gArtUploadFile.close();
@@ -2426,9 +2676,12 @@ void handleUploadArt(AsyncWebServerRequest* request, String filename, size_t ind
         if (committed) { final_sz = committed.size(); committed.close(); }
     }
 
+    // FS commit done: end the guarded transaction before queuing the DspTask reload.
+    // Коммит ФС завершён: транзакция закрывается до постановки reload в DspTask.
+    s_artUploadTxn.finish("ok");
+
     // Signal DspTask to reload art on Main screen / Сигнал DspTask — перезагрузить арт на Main.
     display.putRequest(ART_FS_UPDATED, 0);
-    resync.deferToDisplayEvent();
 
     char okjson[320];
     snprintf(okjson, sizeof(okjson),
@@ -2448,6 +2701,14 @@ void handleRemoveArtHttp(AsyncWebServerRequest* request) {
         return;
     }
     if (LittleFS.exists(path)) {
+        // S01-5C-1: the remove runs under the RGB flash guard (async_tcp, normal wait).
+        // S01-5C-1: remove идёт под RGB flash guard (async_tcp, обычное ожидание).
+        rgb_flash_guard::Scope flash_guard("LFS_DELETE");
+        if (!flash_guard.ok()) {
+            Serial.printf("[ART] remove not done: RGB flash guard not confirmed (%s)\n", path);
+            request->send(503, "application/json", "{\"ok\":false,\"error\":\"flash_busy\"}");
+            return;
+        }
         if (!LittleFS.remove(path)) {
             request->send(500, "application/json", "{\"ok\":false,\"error\":\"remove_failed\"}");
             return;
@@ -2502,8 +2763,42 @@ String processor(const String& var) { // %Templates%
 }
 
 int freeSpace;
+
+// S01-5C-2 playlist/Wi-Fi CSV import, stage P1 (upload, async_tcp): one RGB-flash-guarded
+// transaction per request, from chunk 0 (before the playlist/index removes and the tmp open) to
+// the final close. An aborted request closes and removes the partial tmp under the guard. A
+// request whose guard was Denied gets 503 here and is skipped by beginUpload(), so no import runs.
+// Stages P2 (importPlaylist) and P3 (indexPlaylist) run later on loopTask with their own guard.
+// S01-5C-2 импорт плейлиста / Wi-Fi CSV, этап P1 (загрузка, async_tcp): одна транзакция под guard
+// на запрос — от chunk 0 (до удаления playlist/index и открытия tmp) до финального close. Обрыв
+// закрывает и удаляет частичный tmp под guard. Запрос с Denied получает 503 здесь, и beginUpload()
+// его пропускает. Этапы P2 и P3 позже идут на loopTask со своим guard.
+static lfs_upload::Txn s_playlistUploadTxn;
+static void playlistUploadAbortCleanup(void* owner) {
+  AsyncWebServerRequest* const request = static_cast<AsyncWebServerRequest*>(owner);
+  if (request && request->_tempFile) {
+    request->_tempFile.close();
+  }
+  if (LittleFS.exists(TMP_PATH)) {
+    LittleFS.remove(TMP_PATH);
+  }
+}
+
 void handleUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
   if (!index) {
+    s_playlistUploadDeniedReq = nullptr;
+    if (!s_playlistUploadTxn.begin(request, "LFS_PL_UPLOAD", playlistUploadAbortCleanup)) {
+      s_playlistUploadDeniedReq = request;
+      request->onDisconnect([request]() {
+        if (s_playlistUploadDeniedReq == request) s_playlistUploadDeniedReq = nullptr;
+      });
+      request->send(503, "application/json", "{\"ok\":false,\"error\":\"flash_busy\"}");
+      return;
+    }
+    request->onDisconnect([request]() {
+      s_playlistUploadTxn.ownerGone(request);
+      if (s_playlistUploadDeniedReq == request) s_playlistUploadDeniedReq = nullptr;
+    });
     if(filename!="tempwifi.csv"){
       if(LittleFS.exists(PLAYLIST_PATH)) LittleFS.remove(PLAYLIST_PATH);
       if(LittleFS.exists(INDEX_PATH)) LittleFS.remove(INDEX_PATH);
@@ -2512,14 +2807,17 @@ void handleUpload(AsyncWebServerRequest *request, String filename, size_t index,
     }
     freeSpace = (float)(LittleFS.totalBytes() - LittleFS.usedBytes()) - 4096;
     request->_tempFile = LittleFS.open(TMP_PATH , "w");
+  } else if (!s_playlistUploadTxn.activeFor(request)) {
+    return;
   }
   if (len) {
     if(freeSpace>index+len){
-      request->_tempFile.write(data, len);
+      s_playlistUploadTxn.addBytes(request->_tempFile.write(data, len));
     }
   }
   if (final) {
     request->_tempFile.close();
+    s_playlistUploadTxn.finish("ok");
   }
 }
 
@@ -2556,6 +2854,21 @@ static void webUploadDoReboot() {
 static void webUploadScheduleReboot() {
   if (s_webUploadRebootPending) return;
   s_webUploadRebootPending = true;
+  // S01-5C-3 section 8: the reboot must not be armed while a guard holder is still alive, and the
+  // Ticker callback runs in timer context where rgb_flash_guard::acquire() is forbidden, so the
+  // proof has to happen HERE. By this point AsyncWebServer has fully parsed the multipart body,
+  // so every per-file WEBUI-UP transaction has already ended; this line is the audit record of
+  // holders at the moment the reboot is scheduled.
+  // S01-5C-3 п.8: ребут нельзя взводить, пока жив holder guard'а, а callback Ticker'а работает в
+  // контексте таймера, где acquire() запрещён, поэтому доказательство печатается ЗДЕСЬ. К этому
+  // моменту AsyncWebServer полностью разобрал multipart-тело, т.е. все транзакции WEBUI-UP уже
+  // завершены; эта строка — аудиторская запись holders на момент планирования ребута.
+  {
+    char gst[1024];
+    if (rgb_flash_guard::formatStatus(gst, sizeof(gst)) > 0) {
+      Serial.printf("[WebUpload] pre-reboot guard: %s\n", gst);
+    }
+  }
   Serial.println("[WebUpload] Upload complete; reboot scheduled");
   s_webUploadRebootTicker.once(1.0f, webUploadDoReboot);  // response first, then ~1s / сначала ответ, затем ~1 с
 }
@@ -2706,6 +3019,47 @@ void handleWebUploadComplete(AsyncWebServerRequest* request) {
   webUploadScheduleReboot();
 }
 
+// S01-5C-2: one RGB-flash-guarded transaction per AI-prompt upload request, from chunk 0 (before
+// the leftover tmp remove) to the end of the final-chunk commit/rollback. The prompt file and its
+// backup are only touched inside the final-chunk call, so an abort can only leave the tmp file;
+// the onDisconnect cleanup closes and removes it under the guard.
+// S01-5C-2: одна транзакция под RGB flash guard на запрос загрузки AI-промпта — от chunk 0 (до
+// удаления старого tmp) до конца коммита/отката в финальном chunk. Сам промпт и backup меняются
+// только в финальном вызове, поэтому при обрыве остаётся лишь tmp — его чистит onDisconnect.
+static lfs_upload::Txn s_promptUploadTxn;
+
+// S01-5C-3 Class C, stage WEBUI-UP: one RGB-flash-guarded transaction per FILE of a WebUI asset
+// upload. A single POST / or /webboard request can carry several files; each one has its own
+// index==0 .. final cycle, so each is its own transaction and the slot is reused sequentially.
+// This path has no temp file — it opens the destination directly — so an aborted upload already
+// left a truncated live asset before this slice. That non-atomicity is PRE-EXISTING and is
+// deliberately preserved: cleanup closes the handle and does not remove the destination, because
+// deleting a half-written /www file would be a new, product-visible failure mode (a removed
+// index.html bricks the WebUI, whereas a truncated one can be re-uploaded).
+// S01-5C-3 класс C, этап WEBUI-UP: одна транзакция под RGB flash guard на КАЖДЫЙ файл загрузки
+// ассетов WebUI. Один POST может нести несколько файлов; у каждого свой цикл index==0 .. final,
+// поэтому каждый — своя транзакция, слот переиспользуется последовательно. Временного файла здесь
+// нет — destination открывается напрямую, поэтому обрыв и до этого слайса оставлял обрезанный
+// живой ассет. Эта неатомарность СУЩЕСТВОВАЛА РАНЬШЕ и сохранена намеренно: очистка закрывает
+// дескриптор и не удаляет destination, т.к. удаление недописанного /www-файла — новый, видимый
+// продукту отказ (удалённый index.html ломает WebUI, а обрезанный можно перезалить).
+static lfs_upload::Txn s_webAssetTxn;
+static void webAssetUploadAbortCleanup(void* owner) {
+  AsyncWebServerRequest* const request = static_cast<AsyncWebServerRequest*>(owner);
+  if (request && request->_tempFile) {
+    request->_tempFile.close();
+  }
+}
+static void promptUploadAbortCleanup(void* owner) {
+  AsyncWebServerRequest* const request = static_cast<AsyncWebServerRequest*>(owner);
+  if (request && request->_tempFile) {
+    request->_tempFile.close();
+  }
+  if (LittleFS.exists("/ai/ai_prompt.tmp")) {
+    LittleFS.remove("/ai/ai_prompt.tmp");
+  }
+}
+
 void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
   DBGVB("File: %s, size:%u bytes, index: %u, final: %s\n", filename.c_str(), len, index, final?"true":"false");
 
@@ -2719,13 +3073,6 @@ void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t ind
   const bool is_prompt_file = webUploadIsAiPromptBasename(base);
   
   if (is_prompt_file) {
-    // One resync per prompt upload attempt, armed on the paths that end it — success and every
-    // abort that already touched /ai/ai_prompt.{tmp,bak,txt}. A rolled-back prompt still moved
-    // flash blocks, so an HTTP 500 does not excuse the scanout.
-    // Один ресинхрон на попытку загрузки промпта, взводится на завершающих путях — и успех, и
-    // любой обрыв, уже тронувший /ai/ai_prompt.{tmp,bak,txt}. Откат тоже двигал блоки flash.
-    RgbResyncTransaction resync;
-
     // Get max prompt size from ai_prompt module / Получить максимальный размер промпта из модуля ai_prompt
     extern size_t aiPromptGetMaxLen();
     size_t max_prompt_size = aiPromptGetMaxLen();
@@ -2756,7 +3103,15 @@ void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t ind
       g_upload_old_size = old_size;
       
       AI_DLOG("[AI] Upload: old_size=%u", old_size);
-      
+
+      // S01-5C-2: everything above only read. Guard before the first mutation of this request.
+      // S01-5C-2: всё выше только читало. Guard до первой мутации этого запроса.
+      if (!s_promptUploadTxn.begin(request, "LFS_PROMPT_UP", promptUploadAbortCleanup)) {
+        request->send(503, "text/plain", "Flash busy");
+        return;
+      }
+      request->onDisconnect([request]() { s_promptUploadTxn.ownerGone(request); });
+
       // Remove any leftover temp file / Удалить любой оставшийся временный файл
       if (LittleFS.exists(tmp_path)) {
         LittleFS.remove(tmp_path);
@@ -2767,9 +3122,8 @@ void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t ind
       
       if (freeSpace < max_prompt_size) {
         AI_LOG("[AI] Upload rejected: insufficient FS space (free=%.0f, required=%u)", freeSpace, max_prompt_size);
-        resync.markFsMutated();  // stale tmp may already have been removed above
         request->send(413, "text/plain", "Insufficient filesystem space");
-        return;
+        return;  // transaction stays open until the final chunk or the disconnect
       }
       
       // Content-Length is the size of the full multipart body, not the file itself.
@@ -2784,12 +3138,18 @@ void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t ind
       if (!request->_tempFile) {
         AI_LOG("[AI] Upload failed: FS error (cannot open temp file)");
         AI_DLOG("[AI] Upload: open() failed for %s", tmp_path);
-        resync.markFsMutated();  // stale tmp may already have been removed above
         request->send(500, "text/plain", "Filesystem error");
-        return;
+        return;  // transaction stays open until the final chunk or the disconnect
       }
-      
+
       AI_DLOG("[AI] Upload: temp file opened successfully");
+    }
+
+    // S01-5C-2: later chunks of this request run only inside its guarded transaction (a Denied
+    // request already got 503 and must not touch the tmp file).
+    // S01-5C-2: следующие chunk'и работают только внутри транзакции (Denied уже получил 503).
+    if (!s_promptUploadTxn.activeFor(request)) {
+      return;
     }
     
     if (len) {
@@ -2805,7 +3165,6 @@ void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t ind
           AI_LOG("[AI] Upload rejected: prompt too large (estimated=%u + chunk=%u > max=%u)", estimated_size, len, max_prompt_size);
           request->_tempFile.close();
           LittleFS.remove(tmp_path);  // Remove temp file only / Удалить только временный файл
-          resync.markFsMutated();
           request->send(413, "text/plain", "File too large");
           return;
         }
@@ -2819,21 +3178,20 @@ void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t ind
           AI_LOG("[AI] Upload failed: write error (requested=%u written=%u)", len, bytes_written);
           request->_tempFile.close();
           LittleFS.remove(tmp_path);
-          resync.markFsMutated();
           request->send(500, "text/plain", "Filesystem write error");
           return;
         }
+        s_promptUploadTxn.addBytes(bytes_written);
       } else {
         AI_DLOG("[AI] Upload chunk: request->_tempFile is NULL (index=%u len=%u)", index, len);
       }
     }
     
     if (final) {
-      // Transaction ends here on every branch below — success, validation reject, commit failure
-      // and rollback all reach flash.
-      // Транзакция завершается здесь на любой ветке ниже — успех, отказ валидации, сбой коммита
-      // и откат одинаково доходят до flash.
-      resync.markFsMutated();
+      // The guarded transaction ends here on every branch below — success, validation reject,
+      // commit failure and rollback — after that branch's own FS work returned.
+      // Транзакция под guard завершается здесь на любой ветке ниже — после её работы с ФС.
+      lfs_upload::FinishOnExit txn_end(s_promptUploadTxn, "error");
       if (request->_tempFile) {
         request->_tempFile.flush();  // Final flush before checking size / Финальный flush перед проверкой размера
         size_t new_size = request->_tempFile.size();
@@ -3000,7 +3358,10 @@ void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t ind
         if (has_backup && LittleFS.exists(bak_path)) {
           LittleFS.remove(bak_path);  // Remove backup after successful replace / Удалить backup после успешной замены
         }
-        
+        // Last FS mutation of the transaction returned: release the guard now.
+        // Последняя мутация ФС транзакции вернулась: guard отпускается сейчас.
+        s_promptUploadTxn.finish("ok");
+
         // Log upload event FIRST (before cache reset) / Залогировать событие загрузки ПЕРВЫМ (до сброса кеша)
         static size_t g_upload_old_size = 0;
         if (g_upload_old_size > 0) {
@@ -3015,10 +3376,6 @@ void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t ind
         extern void aiPromptResetCache();
         aiPromptResetCache();
 
-        // Resync is owned by the transaction guard armed above, so success and failure share one
-        // mechanism and neither can emit two.
-        // Ресинхрон принадлежит guard-у, взведённому выше: успех и ошибка идут одним механизмом,
-        // и ни один не может выдать два.
         request->send(200, "text/plain", "OK");
       } else {
         AI_LOG("[AI] Upload failed: FS error (file not open)");
@@ -3042,20 +3399,36 @@ void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t ind
       return;
     }
     webUploadBeginFile(upSt, base, dest);
-    request->_tempFile = LittleFS.open(dest, "w");
-    if (!request->_tempFile) {
+    // Mapping and bookkeeping above only read. Guard before opening the destination for write,
+    // which already programs flash inside open(). Denied: mark the file failed and touch nothing,
+    // so handleWebUploadComplete reports the failure and cancels the reboot.
+    // Выше только чтение и учёт. Guard до открытия destination на запись, которое уже пишет во
+    // flash внутри open(). Denied: помечаем файл как failed и ничего не трогаем.
+    if (!s_webAssetTxn.begin(request, "LFS_WEBUI_UP", webAssetUploadAbortCleanup)) {
       webUploadMarkFileFailed(upSt);
       return;
     }
+    request->onDisconnect([request]() { s_webAssetTxn.ownerGone(request); });
+    request->_tempFile = LittleFS.open(dest, "w");
+    if (!request->_tempFile) {
+      s_webAssetTxn.finish("open_failed");
+      webUploadMarkFileFailed(upSt);
+      return;
+    }
+  } else if (!s_webAssetTxn.activeFor(request)) {
+    return;
   }
   if (len) {
     if (!request->_tempFile) {
+      s_webAssetTxn.finish("no_file");
       webUploadMarkFileFailed(upSt);
       return;
     }
     const size_t written = request->_tempFile.write(data, len);
+    s_webAssetTxn.addBytes(written);
     if (written != len) {
       request->_tempFile.close();
+      s_webAssetTxn.finish("write_failed");
       webUploadMarkFileFailed(upSt);
       return;
     }
@@ -3063,12 +3436,20 @@ void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t ind
   }
   if (final) {
     if (!request->_tempFile) {
+      s_webAssetTxn.finish("no_file");
       webUploadMarkFileFailed(upSt);
       return;
     }
     request->_tempFile.close();
     const bool isPlaylist = webUploadBasenameEquals(base, "playlist.csv");
+    // webUploadCompleteFile may rebuild index.dat via config.indexPlaylist(), which takes its own
+    // Scope("LFS_PL_INDEX"). That is a nested acquire on the same global guard: the holder count
+    // simply goes to 2 and back to 1, and this transaction still releases exactly once below.
+    // webUploadCompleteFile может перестроить index.dat через config.indexPlaylist() со своим
+    // Scope("LFS_PL_INDEX"). Это вложенный acquire того же глобального guard: счётчик holder'ов
+    // идёт в 2 и обратно в 1, а эта транзакция всё равно отпускает ровно один раз ниже.
     webUploadCompleteFile(upSt, isPlaylist);
+    s_webAssetTxn.finish("ok");
   }
 }
 

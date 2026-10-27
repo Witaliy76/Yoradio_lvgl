@@ -193,6 +193,17 @@
 #define YORADIO_RGB_BOUNCE10 0
 #endif
 
+// RGB flash guard (direct RGB without bounce buffers):
+//   1 = before SaveManager writes settings to NVS, lower the RGB pixel clock
+//       10 -> 6 MHz, write only after the change is confirmed, then return to
+//       10 MHz after a short pause. Prevents the horizontal picture shift that
+//       flash writes can cause. Prints [RGB-GUARD] / [SAVE] lines on Serial.
+//   0 = write NVS at 10 MHz (diagnostic comparison only).
+// Bounce buffers (YORADIO_RGB_BOUNCE10 1) bypass the guard.
+#ifndef YORADIO_RGB_FLASH_GUARD
+#define YORADIO_RGB_FLASH_GUARD 1
+#endif
+
 // DspTask stack size:
 //   1 = 12 KB stack for additional runtime headroom.
 //   0 = historical 10 KB stack.

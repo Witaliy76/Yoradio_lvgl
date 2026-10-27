@@ -32,6 +32,66 @@ bool s_ready = false;
 // чтобы изменение ML не затронуло BGR и прочие биты.
 uint8_t s_madctl = 0x00;
 
+// Effective bounce size passed to esp_lcd_new_rgb_panel(). 0 = direct T0.
+// Эффективный bounce, переданный в esp_lcd_new_rgb_panel(). 0 = direct T0.
+// Startup RGB PCLK. The scanout is brought up at the lower of the two product PCLK values and
+// stays there for the whole Boot phase; it is promoted once to the runtime nominal at the
+// Boot->Main handoff. Reason: the scanout begins inside esp_lcd_panel_init() (rgb_panel_init
+// programs the divider from panel_config.timings.pclk_hz and calls
+// lcd_rgb_panel_start_transmission), so the first frames of a cold power-on are clocked before
+// any task exists and the DspTask flash guard cannot give them timing margin afterwards.
+// Starting with that margin is what keeps a cold start aligned; no RGB peripheral restart is
+// used anywhere in startup, and a startup restart was measured to blank the panel at this PCLK.
+//
+// This variable is what rgbScanoutStatus().nominalPclkHz reports, which is deliberate: the
+// flash guard asks for "nominal" when it raises the clock, so while the startup phase is in
+// progress its UP target is the startup PCLK too and a guarded boot write cannot promote the
+// clock early. Two guarded episodes really do occur during boot on this product.
+// Both values are the existing product constants; there is no third frequency.
+//
+// Стартовый PCLK RGB. Scanout поднимается на меньшем из двух продуктовых значений PCLK и
+// остаётся на нём всю фазу Boot; один раз повышается до runtime-номинала на переходе Boot->Main.
+// Причина: scanout начинается внутри esp_lcd_panel_init(), т.е. первые кадры холодного старта
+// тактуются до появления задач, и guard на DspTask задним числом margin им не даёт. Именно
+// старт с этим запасом удерживает выравнивание; restart RGB-периферии в старте не используется
+// нигде, а стартовый restart измеренно гасил панель на этом PCLK.
+//
+// Эту переменную отдаёт rgbScanoutStatus().nominalPclkHz, и это намеренно: guard при повышении
+// просит «номинал», поэтому в фазе старта его цель UP — тоже стартовый PCLK, и защищённая
+// загрузочная запись не поднимет частоту раньше времени. Оба значения — существующие
+// продуктовые константы; третьей частоты нет.
+uint32_t s_pclk_nominal_hz = kPclkFlashGuardHz;
+bool s_pclk_promoted = false;
+
+uint16_t s_bounce_px = 0;
+uint32_t s_restart_exec = 0;
+uint32_t s_restart_rejected_bounce = 0;
+
+// VSYNC counter. Written only by s_on_vsync (RGB ISR), read by tasks with acquire ordering.
+// The RGB ISR is not IRAM-safe in this build (CONFIG_LCD_RGB_ISR_IRAM_SAFE unset), so the
+// counter stops while flash operations disable the cache. A PCLK barrier therefore must be
+// complete before a guarded flash write starts, and resumes counting after it returns.
+// Счётчик VSYNC. Пишет только s_on_vsync (RGB ISR), задачи читают с acquire-порядком.
+// RGB ISR здесь не IRAM-safe, поэтому во время flash-операций счётчик стоит. Барьер PCLK
+// должен завершиться до начала защищённой записи и продолжает счёт после её возврата.
+volatile uint32_t s_vsync_seq = 0;
+bool s_vsync_cb_ok = false;
+
+// Runs in the RGB VSYNC ISR before lcd_rgb_panel_try_update_pclk() and
+// lcd_rgb_panel_try_restart_transmission() (stock esp_lcd_panel_rgb.c, IDF 5.5.5).
+// One atomic increment only: no logging, no allocation, no task logic.
+// Выполняется в RGB VSYNC ISR до try_update_pclk() и try_restart_transmission().
+// Только один атомарный инкремент: без логов, аллокаций и логики задач.
+bool IRAM_ATTR s_on_vsync(esp_lcd_panel_handle_t panel,
+                          const esp_lcd_rgb_panel_event_data_t* edata,
+                          void* user_ctx) {
+    (void)panel;
+    (void)edata;
+    (void)user_ctx;
+    __atomic_fetch_add(&s_vsync_seq, 1u, __ATOMIC_RELEASE);
+    return false;
+}
+
 constexpr uint8_t kCmdCommand2BankSelect = 0xFF;
 constexpr uint8_t kCmdSourceDirection = 0xC7;
 constexpr uint8_t kCmdMadctl = 0x36;
@@ -189,7 +249,7 @@ bool createRgbPanel() {
 
     esp_lcd_rgb_panel_config_t panel_config = {};
     panel_config.clk_src = LCD_CLK_SRC_DEFAULT;
-    panel_config.timings.pclk_hz = 10000000UL;
+    panel_config.timings.pclk_hz = s_pclk_nominal_hz;  // startup PCLK for the first scanout
     panel_config.timings.h_res = kWidth;
     panel_config.timings.v_res = kHeight;
     panel_config.timings.hsync_pulse_width = 8;
@@ -212,6 +272,7 @@ bool createRgbPanel() {
 #else
     panel_config.bounce_buffer_size_px = 0;
 #endif
+    s_bounce_px = static_cast<uint16_t>(panel_config.bounce_buffer_size_px);
     // GFX sets deprecated sram_trans_align=8 / psram_trans_align=64 (union → dma_burst_size).
     panel_config.sram_trans_align = 8;
     panel_config.psram_trans_align = 64;
@@ -279,6 +340,21 @@ bool createRgbPanel() {
     }
     Serial.printf("[esp_lcd_st7701] FB ok addr=%p bytes=%u PSRAM=yes\n",
                   static_cast<void*>(s_fb), static_cast<unsigned>(kFramebufferBytes));
+
+    // VSYNC counter for the PCLK barrier (stock esp_lcd API, no IDF patch). A failed
+    // registration only disables the flash guard; the panel itself stays usable.
+    // Счётчик VSYNC для барьера PCLK (штатный API esp_lcd). Сбой регистрации лишь
+    // выключает flash guard; сама панель остаётся рабочей.
+    esp_lcd_rgb_panel_event_callbacks_t callbacks = {};
+    callbacks.on_vsync = s_on_vsync;
+    err = esp_lcd_rgb_panel_register_event_callbacks(s_panel, &callbacks, nullptr);
+    s_vsync_cb_ok = (err == ESP_OK);
+    if (!s_vsync_cb_ok) {
+        Serial.printf("[esp_lcd_st7701] vsync callback register FAIL: %s\n", esp_err_to_name(err));
+    }
+    Serial.printf("[esp_lcd_st7701] pclk=%lu bounce_px=%u vsync_cb=%s\n",
+                  static_cast<unsigned long>(panel_config.timings.pclk_hz),
+                  static_cast<unsigned>(s_bounce_px), s_vsync_cb_ok ? "ok" : "FAIL");
     return true;
 }
 
@@ -453,6 +529,7 @@ void end() {
     s_ready = false;
     s_fb = nullptr;
     s_madctl = 0x00;
+    s_vsync_cb_ok = false;
     if (s_panel) {
         esp_lcd_panel_del(s_panel);
         s_panel = nullptr;
@@ -460,7 +537,9 @@ void end() {
 }
 
 bool restartRgbScanout() {
-    // Official esp_lcd recovery for a DMA/LCD desync caused by insufficient bandwidth.
+    // MANUAL / SERVICE ONLY (S01-5D): the diagnostic CLI is the sole caller. Official esp_lcd
+    // recovery for a DMA/LCD desync caused by insufficient bandwidth, kept as a human tool only.
+    // ТОЛЬКО РУЧНОЙ / СЕРВИСНЫЙ ВЫЗОВ (S01-5D): единственный вызывающий — диагностический CLI.
     // esp_lcd_rgb_panel_restart() only raises an internal flag; the driver performs the
     // GDMA restart in its next VSYNC handler, so requests issued within the same frame
     // coalesce into a single restart.
@@ -471,9 +550,83 @@ bool restartRgbScanout() {
     if (!s_ready || !s_panel) {
         return false;
     }
+    // Accepted invariant: with bounce buffers the driver owns scanout recovery; a direct
+    // manual/event restart is rejected here, the single place that can call esp_lcd.
+    // Принятый инвариант: при bounce восстановлением владеет драйвер; прямой ручной или
+    // событийный restart отклоняется здесь — в единственном месте, где вызывается esp_lcd.
+    if (s_bounce_px > 0) {
+        ++s_restart_rejected_bounce;
+        return false;
+    }
+    ++s_restart_exec;
     const esp_err_t err = esp_lcd_rgb_panel_restart(s_panel);
     if (err != ESP_OK) {
         Serial.printf("[esp_lcd_st7701] rgb_panel_restart failed: %s\n", esp_err_to_name(err));
+        return false;
+    }
+    return true;
+}
+
+uint32_t restartExecCount() {
+    return s_restart_exec;
+}
+
+uint32_t restartRejectedBounceCount() {
+    return s_restart_rejected_bounce;
+}
+
+uint16_t bounceBufferPx() {
+    return s_bounce_px;
+}
+
+uint32_t nominalPclkHz() {
+    // Startup phase reports the flash-guard frequency; after the one-shot promotion it
+    // reports the runtime nominal. The flash guard reads this as its UP target.
+    // В фазе старта отдаёт частоту flash guard; после одноразового повышения — runtime.
+    return s_pclk_nominal_hz;
+}
+
+bool promotePclkToRuntimeNominal() {
+    // One-shot. Called from the Boot->Main handoff, i.e. the semantic point where the initial
+    // Boot presentation is complete and normal runtime has begun. An ordinary set-PCLK
+    // transition: no scanout restart, no panel reinit, no restart-in-VSYNC change.
+    // Одноразово. Вызывается на переходе Boot->Main — в семантической точке, где первичная
+    // презентация Boot завершена и начался обычный runtime. Обычный переход set-PCLK.
+    if (s_pclk_promoted) {
+        return false;
+    }
+    if (!s_ready || !s_panel) {
+        return false;  // not latched: retry on a later call / не защёлкиваем, можно повторить
+    }
+    s_pclk_promoted = true;
+    s_pclk_nominal_hz = kPclkNominalHz;
+    const bool ok = requestRgbPclkHz(kPclkNominalHz);
+    Serial.printf("[esp_lcd_st7701] pclk promote startup=%lu -> runtime=%lu requested=%d vsyncSeq=%lu\n",
+                  (unsigned long)kPclkFlashGuardHz, (unsigned long)kPclkNominalHz, ok ? 1 : 0,
+                  (unsigned long)vsyncSeq());
+    return ok;
+}
+
+uint32_t vsyncSeq() {
+    return __atomic_load_n(&s_vsync_seq, __ATOMIC_ACQUIRE);
+}
+
+bool vsyncCounterReady() {
+    return s_ready && s_vsync_cb_ok;
+}
+
+bool requestRgbPclkHz(uint32_t hz) {
+    // esp_lcd_rgb_panel_set_pclk() stores the frequency and raises need_update_pclk under the
+    // driver spinlock. The divider is programmed later in the VSYNC ISR, after s_on_vsync().
+    // It never sets need_restart.
+    // set_pclk() запоминает частоту и поднимает need_update_pclk под spinlock драйвера.
+    // Делитель программируется позже в VSYNC ISR, после s_on_vsync(). need_restart не ставится.
+    if (!s_ready || !s_panel) {
+        return false;
+    }
+    const esp_err_t err = esp_lcd_rgb_panel_set_pclk(s_panel, hz);
+    if (err != ESP_OK) {
+        Serial.printf("[esp_lcd_st7701] set_pclk failed: %s\n", esp_err_to_name(err));
         return false;
     }
     return true;

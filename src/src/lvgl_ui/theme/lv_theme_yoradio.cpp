@@ -19,6 +19,7 @@
 #include <freertos/portmacro.h>
 #include "lvgl.h"
 #include "../../core/config.h"
+#include "../../core/rgb_flash_guard.h"
 
 namespace lvgl_ui {
 
@@ -555,6 +556,15 @@ bool yoradio_theme_save_persisted_preset(ThemePreset preset) {
     }
     if (preset > ThemePreset::Custom) {
         preset = ThemePreset::Dark;
+    }
+    // S01-5C-1: open("w") already programs flash, so the RGB flash guard comes first and stays
+    // until close() returned. Called from applyThemePresetNow() on DspTask: owner path.
+    // S01-5C-1: open("w") уже пишет во flash, поэтому сначала RGB flash guard, и он держится до
+    // возврата close(). Вызов из applyThemePresetNow() на DspTask — owner-путь.
+    rgb_flash_guard::Scope flash_guard("LFS_THEME");
+    if (!flash_guard.ok()) {
+        Serial.println("[THEME] theme.dat not saved: RGB flash guard not confirmed");
+        return false;
     }
     File f = LittleFS.open(kThemePersistPath, "w");
     if (!f) {

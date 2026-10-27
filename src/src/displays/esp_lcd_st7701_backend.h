@@ -18,6 +18,13 @@ constexpr uint16_t kWidth = 480;
 constexpr uint16_t kHeight = 480;
 constexpr size_t kFramebufferBytes = static_cast<size_t>(kWidth) * kHeight * sizeof(uint16_t);  // 460800
 
+// RGB pixel clock. Nominal is the panel clock at creation. Flash-guard is the clock held
+// while flash is written (S01-4X-P, S01-5B). These are the only two PCLK values in the product.
+// Пиксельная частота RGB. Nominal — частота при создании панели. Flash-guard — частота,
+// которая держится во время записи во flash (S01-4X-P, S01-5B). Других значений PCLK нет.
+constexpr uint32_t kPclkNominalHz = 10000000u;
+constexpr uint32_t kPclkFlashGuardHz = 6000000u;
+
 // Direct panel bring-up: Type9 + esp_lcd RGB + single PSRAM FB.
 // Прямой bring-up: Type9 + esp_lcd RGB + один PSRAM FB.
 // Sole owner of the RGB peripheral + physical framebuffer once selected.
@@ -61,13 +68,57 @@ void setBrightnessPercent(uint8_t percent);
 // Снос panel handle при частичном сбое begin() или выходе harness.
 void end();
 
-// Ask esp_lcd to restart RGB DMA at the next VSYNC (recovers a permanent scanout shift).
-// Requests issued before that VSYNC coalesce into one restart.
-// No-op when panel is not ready. Does not expose the raw handle.
-// Просит esp_lcd перезапустить RGB DMA на следующем VSYNC (восстановление permanent shift).
-// Запросы, поданные до этого VSYNC, схлопываются в один restart.
-// No-op если panel не готов. Raw handle не раскрывает.
+// MANUAL / SERVICE ONLY (S01-5D). Asks esp_lcd to restart RGB DMA at the next VSYNC; requests
+// issued before that VSYNC coalesce into one restart. No-op when the panel is not ready, does
+// not expose the raw handle, and rejected (returns false, no esp_lcd call) under bounce buffers,
+// where the driver owns scanout handling.
+// Reachable only from the diagnostic CLI through DisplayPort::restartRgbScanout(). No automatic
+// product caller exists: the automatic resync layer was removed in S01-5D because a one-shot
+// restart during PLAY is nondeterministic. Each call increments restartExec.
+// ТОЛЬКО РУЧНОЙ / СЕРВИСНЫЙ ВЫЗОВ (S01-5D). Просит esp_lcd перезапустить RGB DMA на следующем
+// VSYNC; запросы до этого VSYNC схлопываются в один. No-op если панель не готова, raw handle не
+// раскрывает, при bounce-буферах отклоняется без вызова esp_lcd.
+// Доступен только из диагностического CLI через DisplayPort::restartRgbScanout(). Автоматических
+// продуктовых вызывающих нет: автоматический слой resync удалён в S01-5D, поскольку одиночный
+// restart во время PLAY недетерминирован. Каждый вызов инкрементирует restartExec.
 bool restartRgbScanout();
+
+// Number of esp_lcd_rgb_panel_restart() calls actually issued / rejected for bounce > 0.
+// Сколько раз esp_lcd_rgb_panel_restart() действительно вызван / отклонён из-за bounce > 0.
+uint32_t restartExecCount();
+uint32_t restartRejectedBounceCount();
+
+// Effective bounce size of the created panel, in pixels. 0 = direct T0 (GDMA reads the PSRAM FB).
+// Эффективный размер bounce созданной панели в пикселях. 0 = direct T0.
+uint16_t bounceBufferPx();
+
+// Monotonic VSYNC count from the panel's on_vsync callback (ISR, increment only).
+// The driver runs that callback BEFORE it applies a pending PCLK in the same VSYNC ISR.
+// Монотонный счётчик VSYNC из on_vsync (ISR, только инкремент). Драйвер вызывает
+// этот callback ДО применения отложенного PCLK в том же VSYNC ISR.
+uint32_t vsyncSeq();
+bool vsyncCounterReady();
+
+// Effective nominal PCLK: the startup value (kPclkFlashGuardHz) during the Boot phase, then
+// kPclkNominalHz after promotePclkToRuntimeNominal(). The flash guard reads this as its UP
+// target, so a guarded boot write cannot promote the clock before the startup phase ends.
+// Действующий номинальный PCLK: стартовое значение (kPclkFlashGuardHz) в фазе Boot, затем
+// kPclkNominalHz после promotePclkToRuntimeNominal(). Guard читает это как цель UP.
+uint32_t nominalPclkHz();
+
+// One-shot promotion of the startup PCLK to the runtime nominal at the Boot->Main handoff. An
+// ordinary set-PCLK transition: no scanout restart, no panel reinit, no restart-in-VSYNC change.
+// False when already promoted or the panel is not ready (the latter is not latched, so a later
+// call may still succeed).
+// Одноразовое повышение стартового PCLK до runtime-номинала на переходе Boot->Main. Обычный
+// переход set-PCLK.
+bool promotePclkToRuntimeNominal();
+
+// Record a new RGB PCLK. esp_lcd stores it and programs the divider in a later VSYNC ISR,
+// after on_vsync. True means "recorded", not "applied". Never restarts scanout.
+// Записать новый PCLK. esp_lcd запоминает его и программирует делитель в одном из
+// следующих VSYNC ISR, после on_vsync. True = «записано», а не «применено». Без restart.
+bool requestRgbPclkHz(uint32_t hz);
 
 }  // namespace yoradio_esp_lcd_st7701
 

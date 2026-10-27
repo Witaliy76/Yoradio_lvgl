@@ -30,19 +30,10 @@ bool isOccupied(uint8_t slot);
 uint16_t getStationNum(uint8_t slot);
 
 // Saves config.lastStation() when valid; atomic 26-byte file write on success.
+// The whole write runs under the RGB flash guard (S01-5C-1); false also when it was denied.
 // Сохраняет lastStation() при валидном номере; атомарная запись файла.
+// Вся запись идёт под RGB flash guard (S01-5C-1); false и при отказе guard.
 bool saveCurrentStation(uint8_t slot);
-
-// True (once) if the preceding begin()/saveCurrentStation() actually mutated LittleFS, clearing
-// the flag. Both calls can return without touching storage (cache already loaded, invalid slot,
-// nothing to recover) and both can mutate it even when they report failure, so the return value
-// alone cannot tell a caller whether an RGB resync is owed. Callers use this to issue exactly one
-// resync per logical operation without this module knowing anything about the display.
-// true (однократно), если предыдущий begin()/saveCurrentStation() реально изменил LittleFS.
-// Возвращаемое значение этих функций не отражает факт записи: обе могут не трогать хранилище и
-// обе могут изменить его даже при неуспехе. Нужно, чтобы вызывающий сделал ровно один ресинхрон
-// на логическую операцию, не связывая этот модуль с дисплеем.
-bool consumeStorageMutation();
 
 } // namespace preset_store
 } // namespace lvgl_ui

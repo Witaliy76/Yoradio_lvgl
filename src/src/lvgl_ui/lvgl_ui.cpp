@@ -116,7 +116,7 @@ static lv_dir_t s_deferred_carousel_dir = LV_DIR_NONE;
 // DspTask-only; no mutex. Multiple marks collapse to one recovery on the first quiescent iteration.
 // Repair E / слайс 6C: долг RGB recovery после обычной отрисовки. Только DspTask; без mutex.
 // Несколько меток схлопываются в одно восстановление на первой спокойной итерации.
-static bool s_runtime_rgb_recovery_pending = false;
+static bool s_deferred_redraw_pending = false;
 static bool s_runtime_recovery_batch_busy = false;
 
 // S6-THEME-01: latest-wins Theme coalescing. One tap used to run the whole heavy
@@ -629,7 +629,7 @@ static void applyThemePresetNow(ThemePreset next) {
 #endif
     // Repair E: theme.dat + reinit still owe recovery; run it after this iteration's LVGL paint.
     // Repair E: theme.dat + reinit должны восстановиться после paint.
-    requestRuntimeRgbRecovery();
+    requestDeferredRedraw();
     noteDisplayBatchBusy();
 }
 
@@ -763,7 +763,6 @@ void lvgl_ui::taskHandler() {
     // A completed screen load can be reported from inside LVGL event dispatch. Keep the event
     // callback side-effect free; request the Display-owned, next-VSYNC restart only after dispatch.
     // Завершение загрузки приходит из LVGL callback; сам запрос делаем только после dispatch.
-    const bool transition_resync = s_page_chain.takeCompletedTransitionRgbResyncRequest();
 #if LV_USE_PERF_MONITOR
     // L1-B: scan only while ON and presentation is still pending (armed by applyPerformanceMonitorState).
     // L1-B: скан только при ON, пока стиль не применён (взводит applyPerformanceMonitorState).
@@ -789,7 +788,7 @@ void lvgl_ui::taskHandler() {
     // у блока Repair-E ниже. applyThemePresetNow() затем ставит recovery + batch busy,
     // поэтому перерисовка уедет на следующую спокойную итерацию, как обычный долг Repair-E.
     if (s_theme_apply_pending && !s_theme_apply_in_progress &&
-        !s_runtime_rgb_recovery_pending && !s_runtime_recovery_batch_busy &&
+        !s_deferred_redraw_pending && !s_runtime_recovery_batch_busy &&
         (uint32_t)(millis() - s_theme_request_ms) >= kThemeApplyQuietMs) {
         const ThemePreset target = s_theme_requested;
         s_theme_apply_pending = false;
@@ -815,17 +814,24 @@ void lvgl_ui::taskHandler() {
 
     const bool batch_busy = s_runtime_recovery_batch_busy;
     s_runtime_recovery_batch_busy = false;
-    if (s_runtime_rgb_recovery_pending && batch_busy) {
-        (void)transition_resync; // folded into pending runtime recovery / схлопнуто в pending
+    if (s_deferred_redraw_pending && batch_busy) {
+        // The batch is still in flight: keep the request pending and repaint on a quieter
+        // iteration instead of painting into unfinished work.
+        // Пачка ещё в работе: оставляем запрос и перерисовываем на более спокойной итерации.
         return;
     }
-    const bool runtime_resync = s_runtime_rgb_recovery_pending;
-    s_runtime_rgb_recovery_pending = false;
+    const bool runtime_resync = s_deferred_redraw_pending;
+    s_deferred_redraw_pending = false;
     if (runtime_resync) {
+        // Product semantics, kept: repaint the active screen after a theme / background / art
+        // change so the new palette or asset is actually on screen. S01-5D removed only the
+        // display.requestRgbResync() that used to follow — the writes behind these events now
+        // run under the PCLK flash guard, so there is no scanout left to repair.
+        // Продуктовая семантика, остаётся: перерисовать активный экран после смены темы, фона или
+        // арта, чтобы новая палитра/ассет действительно попали на экран. S01-5D убрал лишь
+        // последующий display.requestRgbResync() — записи за этими событиями идут под PCLK flash
+        // guard, восстанавливать scanout больше нечего.
         (void)tryRedrawActiveScreenNow();
-    }
-    if (transition_resync || runtime_resync) {
-        display.requestRgbResync();
     }
 }
 
@@ -887,8 +893,8 @@ bool lvgl_ui::tryRedrawActiveScreenNow() {
     return true;
 }
 
-void lvgl_ui::requestRuntimeRgbRecovery() {
-    s_runtime_rgb_recovery_pending = true;
+void lvgl_ui::requestDeferredRedraw() {
+    s_deferred_redraw_pending = true;
 }
 
 void lvgl_ui::noteDisplayBatchBusy() {
@@ -1044,9 +1050,12 @@ void lvgl_ui::bootPrepareActiveMainBackgroundIfNeeded() {
     // Семантика прежняя: «попытка завершена», а не «фон есть».
     if (mainBgCacheRuntimeBusy()) return;
 
-    // Existing DisplayPort RGB resync (VSYNC-coalesced). Do not invent a panel reset.
-    // Существующий resync DisplayPort (схлопывается на VSYNC). Новый reset панели не делаем.
-    display.requestRgbResync();
+    // S01-5D: the resync request that used to sit here is removed. This point only records that
+    // the boot background attempt has settled; the EARLY boot-only restart already ran long
+    // before, and no flash mutation happens here.
+    // S01-5D: прежний запрос ресинхрона убран. Здесь лишь фиксируется, что попытка подготовки
+    // фона на загрузке завершена; РАННИЙ boot-only restart уже прошёл задолго до этого, и
+    // мутаций flash здесь нет.
     s_main_bg_boot_prepare_done = true;
 }
 
@@ -1058,7 +1067,7 @@ void lvgl_ui::mainBgPollRuntimeApply() {
         // after this DspTask iteration's lv_timer_handler (post-dispatch barrier).
         // Repair D + E: стабильный кадр оставляем; RGB restart — после lv_timer_handler итерации.
         (void)tryRedrawActiveScreenNow();
-        requestRuntimeRgbRecovery();
+        requestDeferredRedraw();
         noteDisplayBatchBusy();
     } else {
         Serial.println("[MAIN_BG] Background cache ready; Main not active");

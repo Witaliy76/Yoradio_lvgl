@@ -15,7 +15,7 @@
  * - RAM is source of truth between commits; no per-field EEPROM.put before flush.
  */
 #include "config.h"
-#include "display.h"
+#include "rgb_flash_guard.h"
 #include "save_manager_sections.h"
 #include <EEPROM.h>
 #include <Preferences.h>
@@ -88,50 +88,58 @@ static void workerTask(void* arg);
 static void runDebouncedCommitFromWorker();
 
 // ---------------------------------------------------------------------------
-// RGB scanout recovery (BASE-DISP-S3-HARDENING / RGB-RESYNC-ALL-RUNTIME-PERSISTENCE)
+// RGB flash guard episodes (S01-5B)
 //
-// DEVICE-PROVEN: runtime NVS/Preferences persistence desynchronizes the ST7701 RGB scanout
-// exactly like LittleFS does (reproducer: Settings → Weather visibility OFF). Recovery is
-// therefore owed by the whole flash-persistence class, not just LittleFS.
+// DEVICE-PROVEN: a physical NVS write can leave the direct-T0 ST7701 scanout permanently
+// shifted at RGB PCLK 10 MHz; the same writes at a confirmed 6 MHz stay clean (S01-4X-P).
+// A post-write RGB restart is not a reliable repair (S01-4X-ISO/Q/S/S2), so it is gone.
+// Every physical write in this TU now runs inside one guard episode, in this fixed order:
 //
-// Placement is at the *commit episode* boundary, never per key/field/section: the write
-// primitives only record that flash was actually touched, and the enclosing episode requests
-// one resync after its writes are done and the EEPROM mutex is released. A debounce timer that
-// fires on a clean lane writes nothing, sets nothing, and therefore resyncs nothing — so a
-// burst of saveValue() calls (slider drag, tone triple-write) still coalesces into exactly one
-// commit and exactly one resync. The 300 ms debounce cadence is deliberately unchanged.
+//   1. rgb_flash_guard::acquire()  - returns after 6 MHz is confirmed (+2 VSYNC), or Denied.
+//                                    s_eeprom_mutex is NOT held while waiting.
+//   2. s_eeprom_mutex taken
+//   3. Preferences / EEPROM writes - synchronous: when they return, flash work is finished
+//   4. s_eeprom_mutex given
+//   5. rgb_flash_guard::release()  - the guard returns to 10 MHz after its linger.
 //
-// Display::requestRgbResync() is context-aware and safe from the savemgr worker task (it
-// enqueues RGB_RESYNC) and pre-panel (displayQueue is NULL → no-op), so no ordering guard is
-// needed here and no persistence code ever touches DisplayPort directly.
+// The guard is acquired first everywhere, and no mutex holder ever waits for the guard, so
+// the two cannot deadlock. A synchronous flush on DspTask (sleep shutdown) is safe because
+// acquire() on DspTask drives the PCLK transition itself instead of waiting for Display::loop.
+// Denied: nothing is written, the dirty bits stay set and the 300 ms debounce timer is
+// re-armed, so the same RAM state is retried later. No write at 10 MHz, no restart fallback.
+// The episode boundary stays per commit, never per key/field/section; the debounce cadence
+// is unchanged.
 //
-// DEVICE-PROVEN: рантайм-персистентность NVS/Preferences рассинхронизирует RGB scanout ST7701
-// так же, как LittleFS (репродьюсер: Settings → погода OFF). Восстановление обязано покрывать
-// весь класс flash-персистентности, а не только LittleFS. Точка — граница *эпизода коммита*,
-// никогда не на ключ/поле/секцию: примитивы записи лишь отмечают факт реальной записи во flash,
-// а объемлющий эпизод запрашивает один ресинхрон после завершения записей и освобождения
-// мьютекса. Сработавший на чистой полосе debounce ничего не пишет и ничего не ресинхронит.
-// Каденция debounce 300 мс намеренно не изменена.
-static volatile bool s_flash_mutated;
+// DEVICE-PROVEN: физическая запись NVS при PCLK 10 МГц может навсегда сдвинуть direct-T0
+// scanout ST7701; те же записи при подтверждённых 6 МГц чисты (S01-4X-P). RGB restart после
+// записи ненадёжен и удалён. Каждая физическая запись здесь идёт внутри эпизода guard в
+// фиксированном порядке: acquire (без мьютекса) → мьютекс → синхронные записи → мьютекс
+// отпущен → release. Guard всегда берётся первым, держатель мьютекса никогда не ждёт guard,
+// поэтому deadlock невозможен. Синхронный flush на DspTask безопасен: acquire() на DspTask
+// сам ведёт смену PCLK. Denied: ничего не пишется, dirty-биты остаются, debounce 300 мс
+// перевзводится — повтор позже. Записи на 10 МГц и restart нет.
 
-// Called by the write primitives immediately after flash was actually touched. Deliberately
-// records mutation, not success: a commit that failed after mutating flash still desynchronized
-// the scanout and still owes recovery.
-// Вызывается примитивами записи сразу после реального обращения к flash. Фиксируется именно
-// мутация, а не успех: неуспешный коммит, уже изменивший flash, всё равно должен восстановиться.
-static inline void sm_noteFlashMutated() {
-  s_flash_mutated = true;
-}
+#if YORADIO_RGB_FLASH_GUARD
+#define SM_EPISODE_LOG(fmt, ...) Serial.printf("[SAVE] " fmt "\n", ##__VA_ARGS__)
+#else
+#define SM_EPISODE_LOG(...) ((void)0)
+#endif
 
-// Called at the end of a commit episode, after all writes and after the mutex is released.
-// One-shot read-and-clear → exactly one resync per episode that really wrote.
-// Вызывается в конце эпизода коммита, после всех записей и освобождения мьютекса.
-static inline void sm_finishPersistenceEpisode() {
-  if (!s_flash_mutated) {
-    return;
+// Consecutive Denied episodes; reset by the next granted episode. Log is rate-limited by it.
+// Подряд идущие Denied; сбрасывается следующим разрешённым эпизодом. Ограничивает лог.
+static uint32_t s_guard_denied_streak;
+
+// Nothing was written: re-arm the debounced writer with the same gates as endBatch().
+// Ничего не записано: перевзвести отложенную запись с теми же условиями, что у endBatch().
+static void sm_retryAfterGuardDenied(const char* source) {
+  ++s_guard_denied_streak;
+  if (s_guard_denied_streak == 1u || (s_guard_denied_streak % 10u) == 0u) {
+    Serial.printf("[SAVE] deferred source=%s reason=rgb_guard_not_confirmed streak=%lu retry_ms=%u\n",
+                  source, (unsigned long)s_guard_denied_streak, (unsigned)SM_DEBOUNCE_MS);
   }
-  s_flash_mutated = false;
-  display.requestRgbResync();
+  if (s_inited && s_debounce_timer && !s_ota_suspended && s_batch_depth == 0) {
+    (void)xTimerReset(s_debounce_timer, pdMS_TO_TICKS(25));
+  }
 }
 
 static inline bool sm_anyDirty() {
@@ -168,7 +176,6 @@ static void commitV1FullStoreUnderMutex() {
   if (!EEPROM.commit()) {
     SM_LOG("EEPROM.commit FAILED");
   }
-  sm_noteFlashMutated();
   s_dirty = false;
   SM_LOG("EEPROM.put+commit end");
   smLogReadback("commit");
@@ -196,9 +203,6 @@ static void commitV2DirtySectionsUnderMutex() {
   // fails we re-set the bit so the next flush retries it.
   const uint32_t mask = s_dirty_v2_mask;
   s_dirty_v2_mask = 0u;
-  // mask != 0 here, so at least one section blob write is about to hit NVS.
-  // mask != 0, значит хотя бы одна секция сейчас будет записана в NVS.
-  sm_noteFlashMutated();
 #if SM_DIAG_PERSIST
   SM_LOG("v2 commit: mask=0x%x", (unsigned)mask);
 #endif
@@ -222,52 +226,105 @@ static void commitV2DirtySectionsUnderMutex() {
 }
 #endif  // SM_V2_ENABLED
 
-static void runDebouncedCommitFromWorker() {
-  if (!s_eeprom_mutex) {
-    if (!s_ota_suspended) {
-#if SM_V2_ENABLED && SM_DIAG_PERSIST
-      SM_LOG("worker commit class=%s mask=0x%x v1=%d",
-             sm_commitClass(s_dirty_v2_mask, s_dirty),
-             (unsigned)s_dirty_v2_mask, (int)s_dirty);
-#endif
+static inline uint32_t sm_dirtyV2Mask() {
 #if SM_V2_ENABLED
-      commitV2DirtySectionsUnderMutex();
-      if (s_dirty) {
-        SM_LOG("worker(M5): s_dirty — OOB hatch EEPROM.put+commit");
-        commitV1FullStoreUnderMutex();
-      }
+  return s_dirty_v2_mask;
 #else
-      commitV1FullStoreUnderMutex();
+  return 0u;
 #endif
+}
+
+#if SM_V2_ENABLED
+// Every runtime-managed v2 section. Used to keep the whole store dirty after a denied full sync.
+// Все v2-секции, управляемые в runtime. Нужно, чтобы после отказа full sync весь store остался dirty.
+static uint32_t sm_allManagedSectionsMask() {
+  uint32_t m = 0u;
+  for (size_t i = 0; i < sm::kConfigSectionSpanCount; ++i) {
+    const sm::SectionId id = sm::kConfigSectionSpans[i].id;
+    if (sm::isV2ManagedSection(id)) {
+      m |= 1u << static_cast<uint8_t>(id);
     }
-    sm_finishPersistenceEpisode();
-    return;
   }
-  if (xSemaphoreTake(s_eeprom_mutex, portMAX_DELAY) != pdTRUE) {
-    return;
+  return m;
+}
+#endif
+
+// Writes everything that is dirty now. Caller holds s_eeprom_mutex (when it exists) and a
+// non-Denied guard grant.
+// Пишет всё, что сейчас dirty. Вызывающий держит s_eeprom_mutex (если он есть) и grant guard.
+static void sm_commitDirtyLocked() {
+#if SM_V2_ENABLED
+  commitV2DirtySectionsUnderMutex();
+  if (s_dirty) {
+    SM_LOG("M5: s_dirty — OOB hatch EEPROM.put+commit");
+    commitV1FullStoreUnderMutex();
   }
-  if (!s_ota_suspended) {
+#else
+  commitV1FullStoreUnderMutex();
+#endif
+}
+
+// One physical persistence episode in the fixed guard order (see the block comment above).
+// Returns false only when the guard denied it: then nothing was written and the dirty state
+// was kept and re-armed. respectOtaSuspend: the worker skips writes during OTA, explicit
+// synchronous flushes keep their historical "always flush" contract.
+// Один эпизод физической записи в фиксированном порядке guard (см. блок выше). false — только
+// при отказе guard: ничего не записано, dirty сохранён и перевзведён.
+static bool sm_runGuardedCommitEpisode(const char* source, bool respectOtaSuspend) {
+  const rgb_flash_guard::Grant grant = rgb_flash_guard::acquire(source);
+  if (grant == rgb_flash_guard::Grant::Denied) {
+    sm_retryAfterGuardDenied(source);
+    return false;
+  }
+  s_guard_denied_streak = 0;
+
+  const uint32_t t0 = millis();
+  bool wrote = false;
+  uint32_t mask = 0u;
+  bool v1 = false;
+  // Mutex only after the guard: never hold it while waiting for the PCLK transition.
+  // Мьютекс только после guard: не держать его, пока ждём смену PCLK.
+  if (s_eeprom_mutex && xSemaphoreTake(s_eeprom_mutex, portMAX_DELAY) != pdTRUE) {
+    rgb_flash_guard::release(grant, source);
+    return true;
+  }
+  if (!(respectOtaSuspend && s_ota_suspended)) {
 #if SM_V2_ENABLED && SM_DIAG_PERSIST
-    SM_LOG("worker commit class=%s mask=0x%x v1=%d",
+    SM_LOG("episode %s class=%s mask=0x%x v1=%d", source,
            sm_commitClass(s_dirty_v2_mask, s_dirty),
            (unsigned)s_dirty_v2_mask, (int)s_dirty);
 #endif
-#if SM_V2_ENABLED
-    commitV2DirtySectionsUnderMutex();
-    if (s_dirty) {
-      SM_LOG("worker(M5): s_dirty — OOB hatch EEPROM.put+commit");
-      commitV1FullStoreUnderMutex();
+    mask = sm_dirtyV2Mask();
+    v1 = s_dirty;
+    if (mask != 0u || v1) {
+      SM_EPISODE_LOG("persistence begin source=%s mask=0x%lx v1=%d guard=%s", source,
+                     (unsigned long)mask, v1 ? 1 : 0, rgb_flash_guard::grantName(grant));
+      sm_commitDirtyLocked();
+      wrote = true;
     }
-#else
-    commitV1FullStoreUnderMutex();
-#endif
   }
-  xSemaphoreGive(s_eeprom_mutex);
-  // After the mutex is released: one resync for this whole debounced commit batch, however
-  // many sections it wrote. A clean wakeup wrote nothing and requests nothing.
-  // После освобождения мьютекса: один ресинхрон на всю debounce-пачку, сколько бы секций она
-  // ни записала. «Чистое» пробуждение ничего не пишет и ничего не запрашивает.
-  sm_finishPersistenceEpisode();
+  if (s_eeprom_mutex) {
+    xSemaphoreGive(s_eeprom_mutex);
+  }
+  // All Preferences/EEPROM calls of this episode have returned: flash work is finished.
+  // Все вызовы Preferences/EEPROM эпизода вернулись: работа с flash завершена.
+  if (wrote) {
+    SM_EPISODE_LOG("persistence complete source=%s ms=%lu redirty_mask=0x%lx stack_free=%u", source,
+                   (unsigned long)(millis() - t0), (unsigned long)sm_dirtyV2Mask(),
+                   (unsigned)uxTaskGetStackHighWaterMark(nullptr));
+  }
+  rgb_flash_guard::release(grant, source);
+  return true;
+}
+
+static void runDebouncedCommitFromWorker() {
+  // Clean wakeup or OTA window: nothing will be written, so no guard episode either.
+  // Pending bits survive an OTA window and are written by resumeAfterOta() -> flushSync().
+  // «Чистое» пробуждение или окно OTA: записи не будет, эпизода guard тоже.
+  if (s_ota_suspended || !sm_anyDirty()) {
+    return;
+  }
+  (void)sm_runGuardedCommitEpisode("NVS", /*respectOtaSuspend=*/true);
 }
 
 static void debounceTimerCallback(TimerHandle_t t) {
@@ -433,27 +490,11 @@ void onStoreWriteCompleted(bool commitRequested) {
   }
   if (!s_inited || !s_debounce_timer) {
     SM_LOG("owe: immediate put (no timer or not inited)");
-    if (s_eeprom_mutex) {
-      if (xSemaphoreTake(s_eeprom_mutex, portMAX_DELAY) == pdTRUE) {
-        EEPROM.put(EEPROM_START, config.store);
-        EEPROM.commit();
-        sm_noteFlashMutated();
-        s_dirty = false;
-        smLogReadback("immediate");
-        xSemaphoreGive(s_eeprom_mutex);
-      }
-    } else {
-      EEPROM.put(EEPROM_START, config.store);
-      EEPROM.commit();
-      sm_noteFlashMutated();
-      s_dirty = false;
-      smLogReadback("immediate");
-    }
-    // Pre-init (SM_V2_ENABLED=0 builds only): panel is not up, so this resolves to a no-op.
-    // Kept for uniformity — every write primitive is followed by an episode boundary.
-    // Pre-init (только сборки SM_V2_ENABLED=0): панель ещё не поднята, вызов вырождается в
-    // no-op. Оставлено для единообразия — за каждым примитивом записи следует граница эпизода.
-    sm_finishPersistenceEpisode();
+    // Pre-init (SM_V2_ENABLED=0 builds only): same guard episode as every other write.
+    // The panel is normally not up yet, so the guard reports NOT_APPLICABLE.
+    // Pre-init (только SM_V2_ENABLED=0): тот же эпизод guard; панель обычно ещё не поднята.
+    (void)sm_runGuardedCommitEpisode("NVS-preinit", /*respectOtaSuspend=*/false);
+    smLogReadback("immediate");
     return;
   }
   if (s_ota_suspended) {
@@ -476,24 +517,30 @@ void syncFullStoreNow() {
   if (s_debounce_timer && s_inited) {
     (void)xTimerStop(s_debounce_timer, portMAX_DELAY);
   }
-  if (!s_eeprom_mutex) {
-    EEPROM.put(EEPROM_START, config.store);
-    EEPROM.commit();
-    sm_noteFlashMutated();
-    s_dirty = false;
+  // Callers: factory reset (reboot follows, async_tcp / loopTask) and boot defaults/migration
+  // (pre-panel -> guard NOT_APPLICABLE). Same guard order as every other write.
+  // Вызовы: сброс к заводским (далее reboot) и дефолты/миграция на старте (до панели).
+  const rgb_flash_guard::Grant grant = rgb_flash_guard::acquire("syncFullStore");
+  if (grant == rgb_flash_guard::Grant::Denied) {
+    // Nothing written. Keep the whole store dirty so the next flush writes all of it:
+    // the v2 sections plus the legacy mirror through the OOB hatch.
+    // Ничего не записано. Весь store остаётся dirty: следующий flush запишет v2-секции и
+    // legacy-зеркало через OOB-ветку.
+    s_dirty = true;
 #if SM_V2_ENABLED
-    sm::v2::refreshManagedSectionsFromStore();
-    s_dirty_v2_mask = 0u;
+    s_dirty_v2_mask = sm_allManagedSectionsMask();
 #endif
-    sm_finishPersistenceEpisode();
+    sm_retryAfterGuardDenied("syncFullStore");
     return;
   }
-  if (xSemaphoreTake(s_eeprom_mutex, portMAX_DELAY) != pdTRUE) {
+  s_guard_denied_streak = 0;
+  if (s_eeprom_mutex && xSemaphoreTake(s_eeprom_mutex, portMAX_DELAY) != pdTRUE) {
+    rgb_flash_guard::release(grant, "syncFullStore");
     return;
   }
+  SM_EPISODE_LOG("persistence begin source=syncFullStore guard=%s", rgb_flash_guard::grantName(grant));
   EEPROM.put(EEPROM_START, config.store);
   EEPROM.commit();
-  sm_noteFlashMutated();
   s_dirty = false;
 #if SM_V2_ENABLED
   // Keep v2 section blobs consistent with the freshly-written legacy snapshot,
@@ -502,41 +549,46 @@ void syncFullStoreNow() {
   sm::v2::refreshManagedSectionsFromStore();
   s_dirty_v2_mask = 0u;
 #endif
-  xSemaphoreGive(s_eeprom_mutex);
-  // Unconditional full mirror + blob refresh: this path always writes. Callers are factory
-  // reset (reboot follows) and boot-time defaults/migration (pre-panel, no-op) — the resync is
-  // requested for consistency and is harmless in both.
-  // Этот путь пишет всегда. Вызовы — сброс к заводским (далее reboot) и дефолты/миграция на
-  // старте (до панели, no-op); ресинхрон запрашивается для единообразия и безвреден в обоих.
-  sm_finishPersistenceEpisode();
+  if (s_eeprom_mutex) {
+    xSemaphoreGive(s_eeprom_mutex);
+  }
+  SM_EPISODE_LOG("persistence complete source=syncFullStore");
+  rgb_flash_guard::release(grant, "syncFullStore");
 }
 
 void syncIrBlobNow(const void* data, size_t len, int eepromOffset) {
-  if (!s_eeprom_mutex) {
-    const uint8_t* p = static_cast<const uint8_t*>(data);
-    for (size_t i = 0; i < len; i++) {
-      EEPROM.write(eepromOffset + static_cast<int>(i), p[i]);
-    }
-    EEPROM.commit();
-    sm_noteFlashMutated();
-    sm_finishPersistenceEpisode();
+  // IR blob lives outside config_t and outside the v2 section table, so it has no debounced
+  // lane — the whole learn/save gesture is this one call. Same guard order as other writes.
+  // IR-блоб вне config_t и вне таблицы секций v2, debounce-полосы у него нет. Порядок guard тот же.
+  const rgb_flash_guard::Grant grant = rgb_flash_guard::acquire("IR");
+  if (s_eeprom_mutex && xSemaphoreTake(s_eeprom_mutex, portMAX_DELAY) != pdTRUE) {
+    rgb_flash_guard::release(grant, "IR");
     return;
   }
-  if (xSemaphoreTake(s_eeprom_mutex, portMAX_DELAY) != pdTRUE) {
-    return;
-  }
+  // EEPROM.write() only updates the RAM image of the "eeprom" blob; commit() writes flash.
+  // EEPROM.write() меняет только RAM-образ blob "eeprom"; во flash пишет commit().
   const uint8_t* p = static_cast<const uint8_t*>(data);
   for (size_t i = 0; i < len; i++) {
     EEPROM.write(eepromOffset + static_cast<int>(i), p[i]);
   }
-  EEPROM.commit();
-  sm_noteFlashMutated();
-  xSemaphoreGive(s_eeprom_mutex);
-  // IR blob lives outside config_t and outside the v2 section table, so it has no debounced
-  // lane — the whole learn/save gesture is this one call. One resync closes it.
-  // IR-блоб вне config_t и вне таблицы секций v2, debounce-полосы у него нет — весь жест
-  // обучения/сохранения это один вызов. Один ресинхрон его закрывает.
-  sm_finishPersistenceEpisode();
+  if (grant != rgb_flash_guard::Grant::Denied) {
+    EEPROM.commit();
+  } else {
+    // Not written to flash. The IR bytes stay in the EEPROM RAM image; s_dirty makes the
+    // next flush commit that whole image through the OOB hatch.
+    // Во flash не записано. Байты IR остаются в RAM-образе EEPROM; s_dirty заставит следующий
+    // flush закоммитить весь образ через OOB-ветку.
+    s_dirty = true;
+  }
+  if (s_eeprom_mutex) {
+    xSemaphoreGive(s_eeprom_mutex);
+  }
+  if (grant == rgb_flash_guard::Grant::Denied) {
+    sm_retryAfterGuardDenied("IR");
+    return;
+  }
+  s_guard_denied_streak = 0;
+  rgb_flash_guard::release(grant, "IR");
 }
 
 void flushSync() {
@@ -548,37 +600,22 @@ void flushSync() {
          sm_commitClass(s_dirty_v2_mask, s_dirty),
          (unsigned)s_dirty_v2_mask, (int)s_dirty);
 #endif
-  if (!s_eeprom_mutex) {
-#if SM_V2_ENABLED
-    commitV2DirtySectionsUnderMutex();
-    if (s_dirty) {
-      SM_LOG("flushSync(M5): s_dirty — OOB hatch EEPROM.put+commit");
-      commitV1FullStoreUnderMutex();
+  // Callers (S01-5B audit): sleep-timer shutdown on DspTask; resumeAfterOta() on async_tcp;
+  // systemRestart() on loopTask / async_tcp. On DspTask the guard drives the PCLK transition
+  // itself (owner path), so this cannot wait for a Display::loop() that is blocked here.
+  // Вызовы: засыпание по таймеру на DspTask; resumeAfterOta() на async_tcp; systemRestart()
+  // на loopTask / async_tcp. На DspTask guard сам ведёт смену PCLK (owner-путь), поэтому
+  // ожидания заблокированного здесь Display::loop() нет.
+  if (!sm_anyDirty()) {
+    // Nothing to write. Keep the historical barrier: wait for an episode the worker is already
+    // writing (it cleared the dirty bits when it started). No guard: no write happens here.
+    // Писать нечего. Сохраняем прежний барьер: дождаться эпизода, который уже пишет worker.
+    if (s_eeprom_mutex && xSemaphoreTake(s_eeprom_mutex, portMAX_DELAY) == pdTRUE) {
+      xSemaphoreGive(s_eeprom_mutex);
     }
-#else
-    commitV1FullStoreUnderMutex();
-#endif
-    sm_finishPersistenceEpisode();
     return;
   }
-  if (xSemaphoreTake(s_eeprom_mutex, portMAX_DELAY) != pdTRUE) {
-    return;
-  }
-#if SM_V2_ENABLED
-  commitV2DirtySectionsUnderMutex();
-  if (s_dirty) {
-    SM_LOG("flushSync(M5): s_dirty — OOB hatch EEPROM.put+commit");
-    commitV1FullStoreUnderMutex();
-  }
-#else
-  commitV1FullStoreUnderMutex();
-#endif
-  xSemaphoreGive(s_eeprom_mutex);
-  // Callers that continue running (resumeAfterOta, sleep-timer shutdown flush) get their
-  // recovery here; systemRestart() reboots immediately after, where it is moot.
-  // Вызовы, после которых runtime продолжается (resumeAfterOta, flush при засыпании), получают
-  // восстановление здесь; systemRestart() сразу перезагружается — там оно не имеет значения.
-  sm_finishPersistenceEpisode();
+  (void)sm_runGuardedCommitEpisode("flushSync", /*respectOtaSuspend=*/false);
 }
 
 void flushAsync() {
@@ -691,29 +728,11 @@ void onFieldWrittenV2(const void* field_ptr, size_t field_size, bool commit_requ
     // Pre-init window (M5): flush dirty v2 blobs synchronously; legacy EEPROM only
     // if `s_dirty` (OOB / non-store path) — same hatch policy as flushSync().
     SM_LOG("ofv2: immediate flush (no timer or not inited) — M5 v2 + optional legacy hatch");
-    if (s_eeprom_mutex) {
-      if (xSemaphoreTake(s_eeprom_mutex, portMAX_DELAY) == pdTRUE) {
-        commitV2DirtySectionsUnderMutex();
-        if (s_dirty) {
-          SM_LOG("ofv2 immediate(M5): s_dirty — OOB hatch EEPROM.put+commit");
-          commitV1FullStoreUnderMutex();
-        } else {
-          SM_LOG("ofv2 immediate(M5): v2-only, no legacy mirror");
-        }
-        xSemaphoreGive(s_eeprom_mutex);
-      }
-    } else {
-      commitV2DirtySectionsUnderMutex();
-      if (s_dirty) {
-        SM_LOG("ofv2 immediate(M5): s_dirty — OOB hatch (no mutex)");
-        commitV1FullStoreUnderMutex();
-      }
-    }
-    // Pre-init window: this runs before the panel exists, so the request degrades to a no-op
-    // (displayQueue is still NULL). Startup geometry stays owned by the EARLY/LATE resyncs.
-    // Окно pre-init: выполняется до появления панели, запрос вырождается в no-op (displayQueue
-    // ещё NULL). За геометрию старта по-прежнему отвечают EARLY/LATE ресинхроны.
-    sm_finishPersistenceEpisode();
+    // Same guard episode as every other write. Pre-init normally runs before the panel exists,
+    // so the guard reports NOT_APPLICABLE. A Denied episode keeps the bits dirty for a later flush.
+    // Тот же эпизод guard, что и для других записей. До init панели обычно нет — NOT_APPLICABLE.
+    // При Denied биты остаются dirty до следующего flush.
+    (void)sm_runGuardedCommitEpisode("NVS-preinit", /*respectOtaSuspend=*/false);
     return;
   }
   if (s_ota_suspended) {

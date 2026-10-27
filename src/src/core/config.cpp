@@ -3,6 +3,8 @@
 
 //#include <LittleFS.h>  // Migrated to LittleFS (Stage 1)
 #include "display.h"
+#include "rgb_flash_guard.h"
+#include "lfs_upload_txn.h"
 #include "player.h"
 #include "network.h"
 #include "netserver.h"
@@ -207,6 +209,18 @@ bool aiLoadFromFS(AIConfig& out) {
 // Save AI configuration to filesystem / Сохранить конфигурацию AI в FS
 // Also updates runtime cache (g_ai_cfg) / Также обновляет runtime кеш (g_ai_cfg)
 bool aiSaveToFS(const AIConfig& cfg) {
+  // S01-5C-1: open("w") already programs flash, so the RGB flash guard comes first and is held
+  // until close() returned. Runtime caller: WebUI AI commands on async_tcp. The NVS tail from
+  // aiApplyToStore() ~300 ms later shares the same guard and linger. The boot-time correction in
+  // Config::init() runs before the panel exists (guard NOT_APPLICABLE).
+  // S01-5C-1: open("w") уже пишет во flash, поэтому сначала RGB flash guard до возврата close().
+  // Runtime-вызов — команды AI из WebUI на async_tcp. NVS-хвост aiApplyToStore() делит тот же
+  // guard и linger. Коррекция при загрузке в Config::init() идёт до появления панели.
+  rgb_flash_guard::Scope flash_guard("LFS_AI");
+  if (!flash_guard.ok()) {
+    AI_LOG("[AI] /ai.json not saved: RGB flash guard not confirmed");
+    return false;
+  }
   File file = LittleFS.open(AI_CONFIG_PATH, "w");
   if (!file) {
     return false;
@@ -227,13 +241,6 @@ bool aiSaveToFS(const AIConfig& cfg) {
   // Update runtime cache after successful save / Обновляем runtime кеш после успешного сохранения
   g_ai_cfg = cfg;
   g_ai_cfg_loaded = true;
-
-  // AI Layer Apply persistence is complete. One resync for the whole transaction; the later
-  // debounced NVS tail is ordinary small persistence and is deliberately not covered here.
-  // Persistence AI Layer Apply завершена. Один ресинхрон на всю транзакцию; последующий
-  // отложенный NVS-хвост — обычная мелкая запись, здесь намеренно не покрывается.
-  display.requestRgbResync();
-
   return true;
 }
 
@@ -602,7 +609,25 @@ void Config::initSDPlaylist() {
 #endif //#ifdef USE_SD
 
 bool Config::fsCleanup(){
-  bool ret = (LittleFS.exists(PLAYLIST_SD_PATH)) || (LittleFS.exists(INDEX_SD_PATH)) || (LittleFS.exists(INDEX_PATH));
+  // S01-5D E3: up to three physical removes, reachable at runtime from the WebUI ?clearspiffs /
+  // ?clearfs argument (async_tcp) and previously unguarded. The exists() probes are read-only, so
+  // nothing is touched when there is nothing to clean and no guard episode is opened in that case.
+  // Denied returns false, which makes the caller answer 200 without rebooting and leaves the files
+  // in place for a later attempt — the caller only reboots on true.
+  // S01-5D E3: до трёх физических удалений, доступных в runtime из аргумента ?clearspiffs /
+  // ?clearfs в WebUI (async_tcp), ранее без guard. Проверки exists() только читают, поэтому при
+  // отсутствии файлов ничего не трогается и эпизод guard не открывается. Denied возвращает false:
+  // вызывающий отвечает 200 без ребута, файлы остаются до следующей попытки.
+  const bool ret = (LittleFS.exists(PLAYLIST_SD_PATH)) || (LittleFS.exists(INDEX_SD_PATH)) || (LittleFS.exists(INDEX_PATH));
+  if (!ret) {
+    return false;
+  }
+  rgb_flash_guard::Scope flash_guard("LFS_FS_CLEANUP");
+  if (!flash_guard.ok()) {
+    Serial.println("[LFS-UPLOAD] abort source=LFS_FS_CLEANUP reason=flash_busy (nothing removed)");
+    return false;
+  }
+  lfs_upload::StageTimer stage("LFS_FS_CLEANUP", "ok");
   if(LittleFS.exists(PLAYLIST_SD_PATH)) LittleFS.remove(PLAYLIST_SD_PATH);
   if(LittleFS.exists(INDEX_SD_PATH)) LittleFS.remove(INDEX_SD_PATH);
   if(LittleFS.exists(INDEX_PATH)) LittleFS.remove(INDEX_PATH);
@@ -882,13 +907,25 @@ void Config::indexPlaylist() {
   if (!playlist) {
     return;
   }
+  // S01-5C-2 stage P3: index.dat rebuild (playlist import PLAYLISTSAVED on loopTask, and the rare
+  // boot rebuild when index.dat is missing). open("w") already programs flash, so the RGB flash
+  // guard comes first and is held until index.close() returned. Denied: index.dat is not touched.
+  // S01-5C-2 этап P3: перестроение index.dat. open("w") уже пишет во flash, поэтому сначала guard
+  // до возврата index.close(). Denied: index.dat не трогаем.
+  rgb_flash_guard::Scope flash_guard("LFS_PL_INDEX");
+  if (!flash_guard.ok()) {
+    Serial.println("[LFS-UPLOAD] abort source=LFS_PL_INDEX reason=flash_busy (index not rebuilt)");
+    playlist.close();
+    return;
+  }
+  lfs_upload::StageTimer stage("LFS_PL_INDEX", "ok");
   char sName[BUFLEN], sUrl[BUFLEN];
   int sOvol;
   File index = LittleFS.open(INDEX_PATH, "w");
   while (playlist.available()) {
     uint32_t pos = playlist.position();
     if (parseCSV(playlist.readStringUntil('\n').c_str(), sName, sUrl, sOvol)) {
-      index.write((uint8_t *) &pos, 4);
+      stage.addBytes(index.write((uint8_t *) &pos, 4));
     }
   }
   index.close();
@@ -1088,15 +1125,42 @@ bool Config::parseSsid(const char* line, char* ssid, char* pass) {
 }
 
 bool Config::saveWifiFromPost(const char* post){
-  File file = LittleFS.open(SSIDS_PATH, "w");
-  if (!file) {
-    return false;
-  } else {
-    file.print(post);
+  // S01-5D E1: this was an unprotected product mutation at the nominal 10 MHz. Reachable at
+  // runtime from the WebUI Wi-Fi form (async_tcp) and from the Telnet/Serial `wifi.con` verb, so
+  // it is a normal guarded transaction now. open("w") already programs flash inside open(), so
+  // the guard comes first and is held until close() returned.
+  //
+  // The guard scope closes BEFORE ESP.restart(): rebooting with a live holder would abandon the
+  // PCLK state machine mid-transaction (the S01-5C-3 section 8 invariant).
+  //
+  // S01-5D E1: раньше это была незащищённая продуктовая мутация на номинальных 10 МГц. Доступна
+  // в runtime из формы Wi-Fi в WebUI (async_tcp) и из команды `wifi.con` Telnet/Serial, поэтому
+  // теперь это обычная защищённая транзакция. open("w") уже пишет во flash внутри open(),
+  // поэтому guard берётся первым и держится до возврата close().
+  //
+  // Scope закрывается ДО ESP.restart(): ребут с живым holder'ом бросил бы автомат PCLK
+  // посередине транзакции (инвариант п.8 из S01-5C-3).
+  bool written = false;
+  {
+    rgb_flash_guard::Scope flash_guard("LFS_WIFI_POST");
+    if (!flash_guard.ok()) {
+      Serial.println("[LFS-UPLOAD] abort source=LFS_WIFI_POST reason=flash_busy (ssid not saved)");
+      return false;
+    }
+    lfs_upload::StageTimer stage("LFS_WIFI_POST", "ok");
+    File file = LittleFS.open(SSIDS_PATH, "w");
+    if (!file) {
+      stage.outcome("open_failed");
+      return false;
+    }
+    stage.addBytes(file.print(post));
     file.close();
-    ESP.restart();
-    return true;
+    written = true;
   }
+  if (written) {
+    ESP.restart();
+  }
+  return written;
 }
 
 // Check if filesystem is ready (mounted successfully)
@@ -1105,9 +1169,25 @@ bool fsIsReady() {
 }
 
 bool Config::saveWifi() {
+  // S01-5D E2: same class as saveWifiFromPost. Runs on loopTask from NetServer::loop()
+  // (importRequest == IMWIFI) after a wifi.csv import, and both the remove and the rename are
+  // physical mutations that used to run at 10 MHz. The exists() probe above is read-only, so the
+  // guard is taken after it and released before the reboot.
+  // S01-5D E2: тот же класс, что и saveWifiFromPost. Выполняется на loopTask из
+  // NetServer::loop() после импорта wifi.csv; и remove, и rename — физические мутации, которые
+  // раньше шли на 10 МГц. Проверка exists() выше только читает, поэтому guard берётся после неё
+  // и отпускается до ребута.
   if (!LittleFS.exists(TMP_PATH)) return false;
-  LittleFS.remove(SSIDS_PATH);
-  LittleFS.rename(TMP_PATH, SSIDS_PATH);
+  {
+    rgb_flash_guard::Scope flash_guard("LFS_WIFI_IMPORT");
+    if (!flash_guard.ok()) {
+      Serial.println("[LFS-UPLOAD] abort source=LFS_WIFI_IMPORT reason=flash_busy (kept tmp)");
+      return false;
+    }
+    lfs_upload::StageTimer stage("LFS_WIFI_IMPORT", "ok");
+    LittleFS.remove(SSIDS_PATH);
+    LittleFS.rename(TMP_PATH, SSIDS_PATH);
+  }
   ESP.restart();
   return true;
 }

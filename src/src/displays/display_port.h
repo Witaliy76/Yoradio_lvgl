@@ -45,19 +45,61 @@ void setBrightness(uint8_t percent);
 void sleep();
 void wake();
 
-// Request one RGB scanout resynchronization (no raw panel handle exposed).
-// The underlying restart is performed by the driver at the next VSYNC, not at call time;
-// multiple requests issued before that VSYNC coalesce into a single restart.
-// Safe no-op if the active backend/panel is not ready.
+// MANUAL / SERVICE ONLY (S01-5D). One RGB scanout restart, no raw panel handle exposed. The
+// driver performs it at the next VSYNC, not at call time, and requests issued before that VSYNC
+// coalesce. Safe no-op when the panel is not ready; rejected when bounce buffers are active
+// (bounce > 0).
 //
-// Display policy owns when this is called — see Display::_performRgbResync().
-// Other subsystems must use Display::requestRgbResync() instead of calling this directly.
+// This is NOT a recovery mechanism and no product code may call it automatically. A one-shot
+// restart during PLAY is nondeterministic (NORMAL / BLACK / SHIFT, S01-4X-ISO-D), which is why
+// the whole automatic resync layer was removed in S01-5D. Its only permitted caller is the
+// diagnostic CLI, so that a human can force a restart deliberately while investigating; every
+// such call is counted in restartExec, which must therefore read 0 in an acceptance session.
+// Runtime scanout integrity is maintained by prevention (the PCLK flash guard), and cold-start
+// alignment by the separate boot-only path.
 //
-// Запрос одного ресинхрона RGB scanout (raw panel handle не раскрывается).
-// Реальный restart выполняет драйвер на следующем VSYNC, а не в момент вызова;
-// несколько запросов до этого VSYNC схлопываются в один restart.
-// Безопасный no-op, если активный backend/panel ещё не готов.
+// ТОЛЬКО РУЧНОЙ / СЕРВИСНЫЙ ВЫЗОВ (S01-5D). Один restart RGB scanout; raw panel handle не
+// раскрывается. Драйвер выполняет его на следующем VSYNC; запросы до этого VSYNC схлопываются.
+// Безопасный no-op, если панель не готова; отклоняется при bounce > 0.
+//
+// Это НЕ механизм восстановления, и продуктовый код не вправе вызывать его автоматически.
+// Одиночный restart во время PLAY недетерминирован (NORMAL / BLACK / SHIFT), поэтому весь
+// автоматический слой resync удалён в S01-5D. Единственный допустимый вызывающий —
+// диагностический CLI, чтобы человек мог форсировать restart осознанно при разборе; каждый такой
+// вызов учитывается в restartExec, который в приёмочной сессии обязан быть 0. Целостность
+// scanout в runtime обеспечивает профилактика (PCLK flash guard), а выравнивание холодного
+// старта — отдельный boot-only путь.
 void restartRgbScanout();
+
+// RGB scanout facts for the flash guard and diagnostics. No backend types.
+// Факты RGB scanout для flash guard и диагностики. Без типов backend.
+struct RgbScanoutStatus {
+    bool panelReady;
+    bool vsyncCounterReady;
+    uint16_t bounceBufferPx;      // 0 = direct T0 / 0 = direct T0
+    uint32_t vsyncSeq;
+    uint32_t nominalPclkHz;
+    uint32_t flashGuardPclkHz;
+    uint32_t restartExec;          // esp_lcd_rgb_panel_restart() calls issued
+    uint32_t restartRejectedBounce;
+};
+RgbScanoutStatus rgbScanoutStatus();
+
+// Monotonic VSYNC count; the driver applies a pending PCLK after this count advances.
+// Монотонный счётчик VSYNC; драйвер применяет отложенный PCLK после его инкремента.
+uint32_t rgbVsyncSeq();
+
+// Record a new RGB PCLK. Applied by the driver in a later VSYNC ISR; true = recorded only.
+// Caller: the RGB flash guard on DspTask. Never a scanout restart.
+// Записать новый PCLK. Драйвер применит его в одном из следующих VSYNC ISR; true = только
+// записано. Вызывающий — RGB flash guard на DspTask. Это не restart scanout.
+bool requestRgbPclkHz(uint32_t hz);
+
+// One-shot promotion of the RGB PCLK from the startup frequency to the runtime nominal, issued at
+// the Boot->Main handoff. Ordinary set-PCLK transition; never a scanout restart.
+// Одноразовое повышение PCLK от стартовой частоты к runtime-номиналу на переходе Boot->Main.
+// Обычный переход set-PCLK; не restart scanout.
+bool promoteRgbPclkToRuntimeNominal();
 
 }  // namespace DisplayPort
 

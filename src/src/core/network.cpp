@@ -645,15 +645,17 @@ void MyNetwork::begin() {
   }
   if(config.getMode()!=PM_SDCARD){
     const bool wifi_ok = wifiBegin();
-    // Wi-Fi/NVS activity inside the boot bootstrap window can desynchronize the ST7701 RGB
-    // scanout, and with the accepted RESTART_IN_VSYNC=OFF configuration nothing restores it on
-    // its own. Recover once the episode has finished, whatever its outcome: the hazard belongs
-    // to the window, not to the "connected" result. Without this the display stays shifted until
-    // some later persistence episode happens to request a resync.
-    // Активность Wi-Fi/NVS внутри загрузочного bootstrap может рассинхронизировать RGB scanout
-    // ST7701; при принятой конфигурации RESTART_IN_VSYNC=OFF автоматического восстановления нет.
-    // Ресинхрон по завершении эпизода, независимо от результата подключения.
-    display.requestRgbResync();
+    // S01-5D: the post-bootstrap RGB resync request that used to sit here is removed. It was
+    // added in 26d7a66 as repair-after-the-fact for the boot Wi-Fi window, and it has been a
+    // no-op since S01-5B suppressed the runtime resync policy. Product NVS writes in this window
+    // now run under the PCLK flash guard instead. The framework's own Wi-Fi NVS writes (PHY
+    // calibration and ESP-IDF internal persistence) remain outside product control — that is the
+    // acknowledged boundary recorded in the S01-5D audit, not something a restart would fix.
+    // S01-5D: прежний запрос RGB-ресинхрона после bootstrap удалён. Он появился в 26d7a66 как
+    // ремонт по факту для загрузочного окна Wi-Fi и был no-op с момента подавления runtime-политики
+    // в S01-5B. Продуктовые записи NVS в этом окне теперь идут под PCLK flash guard. Собственные
+    // записи NVS фреймворка (калибровка PHY и внутренняя персистентность ESP-IDF) остаются вне
+    // контроля продукта — это зафиксированная граница аудита S01-5D, а не то, что лечится restart.
     if(!wifi_ok){
       // S6V9C / 8-E19C-1: Wi-Fi Recovery — no automatic AP on failed STA; AP only on Hotspot page.
       // S6V9C / 8-E19C-1: Recovery — AP при неудаче STA не поднимаем; AP только со Hotspot page.

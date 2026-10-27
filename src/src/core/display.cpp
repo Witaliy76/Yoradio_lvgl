@@ -11,6 +11,7 @@
 #include "network.h"
 #include "../core/spidog.h"
 #include "../displays/display_port.h"
+#include "rgb_flash_guard.h"
 #include "../lvgl_ui/lvgl_ui.h"
 #include "../lvgl_ui/lv_screensaver.h"
 #include "../lvgl_ui/lv_ui_events.h"
@@ -283,6 +284,20 @@ void Display::_tryCompleteLvglPlayerHandoff() {
   lvgl_ui::onModeChanged(PLAYER, PLAYER);
   _bootStep = 2;
   _suspendFlush = false;
+  // Promote the startup RGB PCLK to the runtime nominal, exactly once. This is the semantic
+  // boundary the promotion belongs to: one-shot (guarded by _lvgl_player_handoff_pending above
+  // and latched in the backend), reached when the Boot screen has been dismissed, PLAYER is the
+  // mode and _bootStep == 2 — the initial Boot presentation is complete and normal runtime has
+  // begun. An ordinary set-PCLK transition: no scanout restart, no panel reinit, no change to
+  // the restart-in-VSYNC policy. Startup runs at the lower PCLK so the scanout comes up with
+  // more timing margin; after this point the flash guard works at its normal 10 / 6 MHz pair.
+  // Повысить стартовый PCLK RGB до runtime-номинала, ровно один раз. Это та семантическая
+  // граница, которой принадлежит повышение: одноразовая (выше _lvgl_player_handoff_pending,
+  // плюс защёлка в backend), достигается когда экран Boot снят, режим PLAYER и _bootStep == 2 —
+  // первичная презентация завершена и начался обычный runtime. Это обычный переход set-PCLK:
+  // без restart scanout, без reinit панели. Старт идёт на пониженном PCLK, чтобы scanout
+  // поднимался с большим запасом по таймингам; дальше guard работает штатно на паре 10 / 6 МГц.
+  (void)DisplayPort::promoteRgbPclkToRuntimeNominal();
   // PageChain requests the late resync only after Main reports LV_EVENT_SCREEN_LOADED.
   // Do not request here: dismissBoot() may still be inside its fade and onModeChanged()
   // can immediately route through goTo(Main); the completion seam deduplicates that pair.
@@ -370,29 +385,27 @@ void Display::copyAIInterpretationForLvgl(char* buf, size_t cap) const {
     strlcpy(buf, _aiPendingText, cap);
 }
 
-void Display::_performRgbResync() {
-  // Sole policy-layer caller of the DisplayPort resync request. The backend forwards it to
-  // esp_lcd, which consumes one pending flag at the next VSYNC; repeat requests coalesce.
-  // Safe no-op while the panel is not ready.
-  // Единственный вызов запроса ресинхрона на уровне политики. Backend передаёт его в esp_lcd,
-  // который снимает один флаг на следующем VSYNC; повторные запросы схлопываются.
-  DisplayPort::restartRgbScanout();
-}
-
-void Display::requestRgbResync() {
-  // Context-aware so every caller can use one API. DspTask-owned callers (LVGL screens, storage
-  // adapters running under LVGL) execute the policy directly: enqueuing from DspTask would add a
-  // pointless round-trip and, with a full queue, would block DspTask on a queue only DspTask
-  // drains. Every other task serializes through the display queue as before.
-  // Контекстно-зависимо, чтобы у всех вызывающих был один API. Вызовы из DspTask выполняются
-  // сразу: постановка в очередь из DspTask — лишний круг, а на полной очереди это заблокировало
-  // бы DspTask на очереди, которую разбирает только он сам. Прочие задачи — через очередь.
-  if (xTaskGetCurrentTaskHandle() == DspTask) {
-    _performRgbResync();
-    return;
-  }
-  putRequest(RGB_RESYNC);
-}
+// S01-5D: the automatic runtime RGB resync layer is gone. Display::requestRgbResync(),
+// Display::_performRgbResync(), the RGB_RESYNC request type and its queue case, and
+// rgb_flash_guard::noteLegacyResyncSuppressed() all existed to repair scanout after a write.
+// The PCLK flash guard replaced that with prevention: the mutation itself runs at 6 MHz, so
+// there is nothing left to repair, and no product code requests a scanout restart any more.
+//
+// What remains, deliberately, is the EARLY boot-only restart (one call site, in loop() below)
+// and a MANUAL service restart reachable only from the diagnostic CLI. Neither is a recovery
+// mechanism for runtime writes: a one-shot restart during PLAY is nondeterministic
+// (NORMAL / BLACK / SHIFT, S01-4X-ISO-D), which is precisely why no automatic caller exists.
+//
+// S01-5D: автоматический слой runtime RGB resync удалён. requestRgbResync(),
+// _performRgbResync(), тип запроса RGB_RESYNC с его case в очереди и
+// noteLegacyResyncSuppressed() существовали, чтобы ремонтировать scanout после записи. PCLK
+// flash guard заменил это профилактикой: сама мутация идёт на 6 МГц, ремонтировать нечего, и
+// продуктовый код больше не запрашивает restart scanout.
+//
+// Намеренно остаются: РАННИЙ boot-only restart (один call site, в loop() ниже) и РУЧНОЙ
+// сервисный restart, доступный только из диагностического CLI. Ни то, ни другое не является
+// механизмом восстановления после runtime-записей: одиночный restart во время PLAY
+// недетерминирован (NORMAL / BLACK / SHIFT), поэтому автоматических вызывающих и нет.
 
 void Display::putRequest(displayRequestType_e type, int payload){
   if(displayQueue==NULL) return;
@@ -421,24 +434,25 @@ void Display::putRequest(displayRequestType_e type, int payload){
 #endif
 void Display::loop() {
   static bool s_lvgl_boot_connected_latched = false;
+  // RGB flash guard pump: DspTask is the sole owner of RGB PCLK changes. Non-blocking.
+  // Called here and again after taskHandler(), whose LVGL work can take a while.
+  // Насос RGB flash guard: DspTask — единственный владелец смены RGB PCLK. Не блокирует.
+  // Вызывается здесь и ещё раз после taskHandler(), чья работа LVGL может быть долгой.
+  rgb_flash_guard::poll();
   if(_bootStep==0) {
     if (lvgl_ui::tryPresentLvglBootOnFirstDspLoop()) {
       _bootStep = 1;
       _suspendFlush = false;
-      // EARLY startup resync: the RGB panel finished init (and has been streaming) since
-      // DisplayPort::begin() succeeded, well before DspTask was even created — this is the
-      // first DspTask loop iteration, so it is the latest point still strictly before the
-      // Boot screen's first lv_timer_handler() flush later in this same loop() call. Closes
-      // the true-cold-boot window where scanout phase can start desynchronized. The LATE
-      // resync at completed Boot->Main is owned by PageChain and still covers the
-      // config/playlist/NVS tail that runs after this point; the two remain distinct.
-      // РАННИЙ стартовый ресинхрон: RGB-панель завершила init (и уже стримит) с момента
-      // успешного DisplayPort::begin(), задолго до создания DspTask — это первая итерация
-      // цикла DspTask, т.е. последняя точка, ещё строго до первого lv_timer_handler()-flush
-      // экрана Boot дальше в этом же вызове loop(). Закрывает окно истинного холодного
-      // старта, где scanout может начаться рассинхронизированным. ПОЗДНИЙ ресинхрон после
-      // завершённого Boot->Main теперь принадлежит PageChain и покрывает последующий хвост.
-      _performRgbResync();
+      // No RGB scanout restart happens here, or anywhere else in startup. Cold-start alignment
+      // is achieved by prevention instead: the scanout is started at the startup PCLK (see
+      // createRgbPanel) and promoted once to the runtime nominal at the Boot->Main handoff.
+      // A startup restart of the RGB peripheral was measured to blank the panel at the startup
+      // PCLK, so no automatic caller of the restart primitive exists in the product.
+      // Здесь, как и во всём старте, restart RGB scanout не выполняется. Выравнивание холодного
+      // старта достигается профилактикой: scanout запускается на стартовом PCLK (см.
+      // createRgbPanel) и один раз повышается до runtime-номинала на переходе Boot->Main.
+      // Стартовый restart RGB-периферии измеренно гасил панель на стартовом PCLK, поэтому
+      // автоматических вызывающих примитива restart в продукте нет.
     } else {
       static bool s_lvgl_boot_present_fail_logged = false;
       if (!s_lvgl_boot_present_fail_logged) {
@@ -512,13 +526,16 @@ void Display::loop() {
           lvgl_ui::onMainBackgroundSlotCommitted(static_cast<uint8_t>(request.payload));
           // Repair E2: dest commit still owes recovery; consume after this loop's taskHandler.
           // Repair E2: dest-commit по-прежнему должен восстановиться — после taskHandler.
-          lvgl_ui::requestRuntimeRgbRecovery();
+          lvgl_ui::requestDeferredRedraw();
           lvgl_ui::noteDisplayBatchBusy();
           break;
         }
         case ART_FS_UPDATED: {
+          // S01-5D: the art commit already ran under the flash guard; the post-commit resync
+          // request is removed. onStationArtCommitted() is product semantics (reload the art).
+          // S01-5D: коммит арта уже прошёл под flash guard; запрос ресинхрона после него убран.
+          // onStationArtCommitted() — продуктовая семантика (перезагрузка арта).
           lvgl_ui::onStationArtCommitted();
-          _performRgbResync();
           break;
         }
         case SET_THEME_PRESET: {
@@ -530,19 +547,11 @@ void Display::loop() {
           break;
         }
         case CUSTOM_THEME_FILE_UPDATED: {
+          // S01-5D: same as ART_FS_UPDATED — the theme file write was guarded, so only the
+          // product-semantic reload remains.
+          // S01-5D: как и ART_FS_UPDATED — запись файла темы была под guard, остаётся только
+          // продуктовая перезагрузка.
           lvgl_ui::onCustomThemeFileUpdated();
-          _performRgbResync();
-          break;
-        }
-        // Queued resync from a non-display task (AI config/prompt persistence, playlist import).
-        // Repair A2+E: same redraw-then-resync contract, consumed after this loop's taskHandler
-        // so ordinary lv_timer_handler cannot paint after the restart. EARLY boot still calls
-        // _performRgbResync() directly (this case is not used there).
-        // Ресинхрон из не-display задачи. A2+E: тот же контракт, но после taskHandler.
-        // Ранний boot по-прежнему зовёт _performRgbResync() напрямую.
-        case RGB_RESYNC: {
-          lvgl_ui::requestRuntimeRgbRecovery();
-          lvgl_ui::noteDisplayBatchBusy();
           break;
         }
         default: break;
@@ -630,6 +639,7 @@ void Display::loop() {
   autodim_loop();
   sleep_timer_loop();
   lvgl_ui::taskHandler();
+  rgb_flash_guard::poll();
 #if YORADIO_PPM_PCM_TELEMETRY_DIAG
   ppmPcmTelemetryConsumerService();
 #endif

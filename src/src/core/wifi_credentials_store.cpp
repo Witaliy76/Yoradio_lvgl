@@ -6,6 +6,7 @@
 
 #include "config.h"
 #include "display.h"
+#include "rgb_flash_guard.h"
 #include "../lvgl_ui/lvgl_ui.h"
 
 #include <Arduino.h>
@@ -135,10 +136,17 @@ bool wifiCredStorePersistToFs() {
     return false;
   }
   // This whole-file rewrite is one logical transaction. Open-for-write already mutates
-  // LittleFS (including a mid-loop abort that leaves a truncated file). Repair E: mark runtime
-  // recovery here; do not requestRgbResync on DspTask inside the LVGL click/timer path.
+  // LittleFS (including a mid-loop abort that leaves a truncated file), so the RGB flash guard
+  // (S01-5C-1) is taken before open() and held until close() returned. Callers are the LVGL
+  // Wi-Fi flow on DspTask: owner path. Prevention replaces the former post-write recovery.
   // Полная перезапись файла — одна логическая транзакция. open("w") уже мутирует LittleFS,
-  // включая обрыв цикла с усечённым файлом. Repair E: помечаем recovery, без immediate restart.
+  // поэтому RGB flash guard (S01-5C-1) берётся до open() и держится до возврата close().
+  // Вызовы — LVGL Wi-Fi flow на DspTask, owner-путь. Предотвращение заменяет прежний recovery.
+  rgb_flash_guard::Scope flash_guard("LFS_WIFI");
+  if (!flash_guard.ok()) {
+    Serial.println("[WiFiCred] wifi.csv not saved: RGB flash guard not confirmed");
+    return false;
+  }
   File f = LittleFS.open(SSIDS_PATH, "w");
   if (!f) {
     return false;
@@ -160,7 +168,6 @@ bool wifiCredStorePersistToFs() {
   if (ok) {
     f.close();
   }
-  lvgl_ui::requestRuntimeRgbRecovery();
   return ok;
 }
 
