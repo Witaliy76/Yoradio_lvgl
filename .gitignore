@@ -31,6 +31,9 @@ SPECTRUM*.md
 !/partition_16MB_ota_spiffs.csv
 !/partition_16MB_ota_largefs.csv
 !/README.md
+# Intermediate releases inside a major Beta. README keeps only Beta 3, 4, 5...
+# Промежуточные релизы внутри крупной Beta. В README остаются только Beta 3, 4, 5...
+!/CHANGE_LOG.md
 !/readme_english.md
 !/README_4848S040.md
 !/README_4848S040_english.md
