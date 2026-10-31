@@ -11,6 +11,16 @@
 #ifndef myoptions_h
 #define myoptions_h
 
+/* ===============================================
+   BOARD SELECTION / ВЫБОР ПЛАТЫ
+   Concrete board identity. The PlatformIO environment selects the build family
+   (SoC, flash/PSRAM class, toolchain, partitions); this line selects the board.
+   Known ids: src/src/platform/board/board_id.h
+   Идентичность конкретной платы. Окружение PlatformIO задаёт build family
+   (SoC, класс flash/PSRAM, тулчейн, разделы); эта строка задаёт плату.
+   =============================================== */
+#define YORADIO_BOARD YORADIO_BOARD_4848S040
+
 /* Audio library debug level / Уровень отладки аудиобиблиотеки */
 /* 0=no debug, 1=error, 2=warn, 3=info, 4=debug, 5=verbose */
 #define CORE_DEBUG_LEVEL 0
@@ -20,41 +30,74 @@
    =============================================== */
 #define DSP_MODEL DSP_ST7701              // Display model ST7701
 
-// Display pins ESP32-4848S040
-// ST7701S command bus (SWSPI)
-#define ST7701_CS   39       // Chip Select
-#define ST7701_SCK  48       // Serial Clock
-#define ST7701_SDA  47       // Serial Data
+// Display / touch GPIO of the selected board come from its BoardProfile.
+// To re-pin any of the 28 lines, use the CUSTOM WIRING section below.
+// GPIO дисплея/тача выбранной платы задаёт BoardProfile.
+// Переназначение любого из 28 линий — в разделе CUSTOM WIRING ниже.
+
 // Fixed panel orientation applied during ST7701 init, before the RGB stream starts.
 // Runtime WebUI flip is not reliable on this panel; touch remains configured separately.
+// This is display POLICY, not one of the 24 physical GPIO, so it stays a user option.
 #define ST7701_BOOT_ORIENTATION_180 false
-// RGB sync signals
-#define ST7701_DE     18     // Data Enable
-#define ST7701_VSYNC  17     // Vertical Sync
-#define ST7701_HSYNC  16     // Horizontal Sync
-#define ST7701_PCLK   21     // Pixel Clock
-// RGB Data Pins (16-bit interface)
-// Red data pins R0..R4 (LSB→MSB)
-#define ST7701_R0   11       // R0 (DATA0)
-#define ST7701_R1   12       // R1 (DATA1)
-#define ST7701_R2   13       // R2 (DATA2)
-#define ST7701_R3   14       // R3 (DATA3)
-#define ST7701_R4   0        // R4 (DATA4)
-// Green data pins G0..G5
-#define ST7701_G0   8        // G0 (DATA5)
-#define ST7701_G1   20       // G1 (DATA6)
-#define ST7701_G2   3        // G2 (DATA7)
-#define ST7701_G3   46       // G3 (DATA8)
-#define ST7701_G4   9        // G4 (DATA9)
-#define ST7701_G5   10       // G5 (DATA10)
-// Blue data pins B0..B4 (LSB→MSB)
-#define ST7701_B0   4        // B0 (DATA11)
-#define ST7701_B1   5        // B1 (DATA12)
-#define ST7701_B2   6        // B2 (DATA13)
-#define ST7701_B3   7        // B3 (DATA14)
-#define ST7701_B4   15       // B4 (DATA15)
-// Backlight (standard)
-#define ST7701_BL   38       // Backlight pin
+
+// ============================================================
+// CUSTOM WIRING — GPIO overrides
+// ============================================================
+// 0 = заводская разводка выбранной платы
+// 1 = разрешить индивидуальные переопределения GPIO
+//
+// Для изменения пина:
+// 1. Установите YORADIO_CUSTOM_WIRING = 1
+// 2. Раскомментируйте нужную строку
+// 3. Укажите свой GPIO
+//
+// Значения ниже — штатные GPIO платы ESP32-S3 4848S040.
+// Для других плат заводские значения определяются их профилем.
+// I2S_DOUT/BCLK/LRC, WAKE_PIN, MUTE_PIN, IR и SD здесь не дублируются —
+// они остаются в своих разделах myoptions.h.
+// ============================================================
+
+#define YORADIO_CUSTOM_WIRING 0
+
+// RGB DISPLAY — BLUE
+// #define DISP_B0      4
+// #define DISP_B1      5
+// #define DISP_B2      6
+// #define DISP_B3      7
+// #define DISP_B4     15
+
+// RGB DISPLAY — GREEN
+// #define DISP_G0      8
+// #define DISP_G1     20
+// #define DISP_G2      3
+// #define DISP_G3     46
+// #define DISP_G4      9
+// #define DISP_G5     10
+
+// RGB DISPLAY — RED
+// #define DISP_R0     11
+// #define DISP_R1     12
+// #define DISP_R2     13
+// #define DISP_R3     14
+// #define DISP_R4      0
+
+// RGB DISPLAY — SYNCHRONIZATION
+// #define DISP_HSYNC  16
+// #define DISP_VSYNC  17
+// #define DISP_DE     18
+// #define DISP_PCLK   21
+
+// DISPLAY — COMMAND BUS / BACKLIGHT
+// #define DISP_CS     39
+// #define DISP_SCK    48
+// #define DISP_SDA    47
+// #define DISP_BL     38
+
+// GT911 TOUCH
+// #define TOUCH_SDA   19
+// #define TOUCH_SCL   45
+// #define TOUCH_INT  255  // Not connected
+// #define TOUCH_RST  255  // Not connected
 
 /* ===============================================
    I2S DAC (Audio output)
@@ -169,10 +212,12 @@
    =============================================== */
 // ESP32-4848S040 uses GT911 Capacitive I2C
 #define TS_MODEL              TS_MODEL_GT911   // GT911 Capacitive I2C
-#define TS_SDA                19               // GPIO19
-#define TS_SCL                45               // GPIO45
-#define TS_INT                255              // Not used
-#define TS_RST                255              // Not used
+
+// GT911 pins are owned by the BoardProfile. Re-pin them in CUSTOM WIRING below
+// with TOUCH_SDA / TOUCH_SCL / TOUCH_INT / TOUCH_RST. Do not redefine TS_* here.
+// TS_MODEL stays the touch-driver selector (not wiring).
+// Пины GT911 принадлежат BoardProfile. Переназначение — в CUSTOM WIRING ниже
+// именами TOUCH_*. Не определяйте TS_* здесь. TS_MODEL — селектор драйвера.
 
 // Touchscreen calibration (coordinates):
 #define TS_X_MIN              0                  // X minimum
