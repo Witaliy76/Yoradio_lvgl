@@ -15,6 +15,8 @@
 #include "sdmanager.h"
 #endif
 #include <cstddef>
+#include <cstdarg>
+#include <cstdio>
 // Runtime AI config cache removed - using filesystem /ai.json as single source of truth
 // Runtime AI config кеш удалён - используем FS /ai.json как единственный источник истины
 #include <ArduinoJson.h>
@@ -312,6 +314,8 @@ bool aiGetRuntimeConfig(AIConfig& out) {
   }
 }
 
+static void bootLogRestoredSettings(const config_t& restored);
+
 void Config::init() {
   EEPROM.begin(EEPROM_SIZE);
   sm::init();
@@ -391,6 +395,10 @@ void Config::init() {
 //  if(store.play_mode==80) store.play_mode=0b100;			//**********************************
   store.play_mode = store.play_mode & 0b11;
   if(store.play_mode>1) store.play_mode=PM_WEB;
+  // S03-2: these seven flags are final here. v2 overlay, _setupVersion and the
+  // repairs above do not write them. One print, no extra EEPROM/NVS read.
+  // S03-2: эти семь флагов здесь уже окончательны. Повторного чтения EEPROM/NVS нет.
+  bootLogRestoredSettings(store);
   _initHW();
   // E36FS2: controlled LittleFS mount; no implicit format-on-fail / явный mount без begin(true).
   if (!fsInitLittleFS()) {
@@ -1255,41 +1263,142 @@ void Config::setDspOn(bool dspon, bool saveval){
   }
 }
 
+// S03-2 boot lines. vsnprintf keeps every line inside 119 characters.
+// BOOTLOG stays for the other startup prints; this does not replace it.
+// Строки boot S03-2. vsnprintf держит каждую строку в 119 символах.
+// BOOTLOG остаётся для остальных стартовых сообщений.
+static void bootDiagf(const char* fmt, ...) {
+  char buf[120];
+  va_list args;
+  va_start(args, fmt);
+  if (vsnprintf(buf, sizeof(buf), fmt, args) < 0) {
+    buf[0] = '\0';
+  }
+  va_end(args);
+  Serial.print("##[BOOT]#\t");
+  Serial.println(buf);
+}
+
+static void bootLogPin(const char* key, uint8_t gpio) {
+  if (gpio == yoradio::kPinNotConnected) {
+    bootDiagf("  %s: NONE", key);
+  } else {
+    bootDiagf("  %s: %u", key, static_cast<unsigned>(gpio));
+  }
+}
+
+static void bootLogDisplay(const yoradio::DisplayWiring& disp) {
+  const char* panel = nullptr;
+  switch (disp.controller) {
+    case yoradio::PanelController::St7701:  panel = "ST7701"; break;
+    case yoradio::PanelController::Unknown: panel = "unknown"; break;
+    default: break;
+  }
+  const char* bus = nullptr;
+  switch (disp.transport) {
+    case yoradio::DisplayTransport::Rgb565Parallel16: bus = "RGB565-16"; break;
+    case yoradio::DisplayTransport::Unknown:          bus = "unknown"; break;
+    default: break;
+  }
+  if (panel && bus) {
+    bootDiagf("  display: %s %ux%u %s",
+              panel,
+              static_cast<unsigned>(disp.native_width),
+              static_cast<unsigned>(disp.native_height),
+              bus);
+    return;
+  }
+  bootDiagf("  display: controller=%u transport=%u %ux%u",
+            static_cast<unsigned>(disp.controller),
+            static_cast<unsigned>(disp.transport),
+            static_cast<unsigned>(disp.native_width),
+            static_cast<unsigned>(disp.native_height));
+}
+
+// Called once from Config::init after restore/migration. Reads RAM only.
+// Один вызов из Config::init после восстановления. Только RAM.
+static void bootLogRestoredSettings(const config_t& restored) {
+  bootDiagf("[SETTINGS RESTORED]");
+  bootDiagf("  audioinfo: %s", restored.audioinfo ? "true" : "false");
+  bootDiagf("  smartstart: %d", restored.smartstart);
+  bootDiagf("  vumeter: %s", restored.vumeter ? "true" : "false");
+  bootDiagf("  softapdelay: %d", restored.softapdelay);
+  bootDiagf("  flipscreen: %s", restored.flipscreen ? "true" : "false");
+  bootDiagf("  invertdisplay: %s", restored.invertdisplay ? "true" : "false");
+  bootDiagf("  showweather: %s", restored.showweather ? "true" : "false");
+}
+
 void Config::bootInfo() {
-  BOOTLOG("************************************************");
-  BOOTLOG("*               ёRadio v%s             *", YOVERSION);
-  BOOTLOG("************************************************");
-  BOOTLOG("------------------------------------------------");
-  BOOTLOG("arduino:\t%d", ARDUINO);
-  BOOTLOG("compiler:\t%s", __VERSION__);
-  BOOTLOG("esp32core:\t%d.%d.%d", ESP_ARDUINO_VERSION_MAJOR, ESP_ARDUINO_VERSION_MINOR, ESP_ARDUINO_VERSION_PATCH);
-  uint32_t chipId = 0;
-  for(int i=0; i<17; i=i+8) {
-    chipId |= ((ESP.getEfuseMac() >> (40 - i)) & 0xff) << i;
+  const yoradio::DisplayWiring& panel = yoradio::kWiring.display;
+  const char* chipModel = ESP.getChipModel();
+  if (!chipModel) {
+    chipModel = "";
   }
-  BOOTLOG("chip:\t\tmodel: %s | rev: %d | id: %d | cores: %d | psram: %d", ESP.getChipModel(), ESP.getChipRevision(), chipId, ESP.getChipCores(), ESP.getPsramSize());
-  BOOTLOG("display:\tmodel: %d (CS-%d, DC-%d, RST-%d, SPI-%s)", DSP_MODEL, TFT_CS, TFT_DC, TFT_RST, DSP_HSPI?"HSPI":"VSPI");
-  BOOTLOG("RGB bounce:\t%s", YORADIO_RGB_BOUNCE10 ? "B10" : "OFF");
-  BOOTLOG("DspTask stack:\t%d", YORADIO_DSPTASK_12K ? 12288 : 10240);
-//  BOOTLOG("display:\tmodel: %d, (CS-%d, DC-%d, RST-%d, SPI-%s, MOSI-%d, SCLK-%d)", DSP_MODEL, TFT_CS, TFT_DC, TFT_RST, DSP_HSPI?"HSPI":"VSPI", mosi_pin, sck_pin);
-  if(VS1053_CS==255) {
-    BOOTLOG("audio:\t\t%s (DOUT-%d, BCLK-%d, LRC-%d)", "I2S", I2S_DOUT, I2S_BCLK, I2S_LRC);
+
+  bootDiagf("************************************************");
+  bootDiagf("* YoRadio");
+  bootDiagf("************************************************");
+  bootDiagf("[SYSTEM]");
+  bootDiagf("  version: %.96s", YOVERSION);
+  bootDiagf("  arduino: %d", ARDUINO);
+  bootDiagf("  compiler: %.90s", __VERSION__);
+  bootDiagf("  esp32core: %d.%d.%d",
+            ESP_ARDUINO_VERSION_MAJOR,
+            ESP_ARDUINO_VERSION_MINOR,
+            ESP_ARDUINO_VERSION_PATCH);
+  bootDiagf("  chip: %.24s", chipModel);
+  bootDiagf("  chip-rev: %d", ESP.getChipRevision());
+  bootDiagf("  chip-id: %u", static_cast<unsigned>(getChipId()));
+  bootDiagf("  cores: %d", ESP.getChipCores());
+  bootDiagf("  psram: %u", static_cast<unsigned>(ESP.getPsramSize()));
+
+  bootDiagf("[HARDWARE CONFIG]");
+  bootDiagf("  board: %.72s", yoradio::kActiveBoard.identity.name);
+  bootDiagf("  board-id: %u",
+            static_cast<unsigned>(yoradio::kActiveBoard.identity.id));
+  bootDiagf("  board-variant: %.96s",
+            yoradio::kActiveBoard.identity.revision
+                ? yoradio::kActiveBoard.identity.revision
+                : "");
+#if YORADIO_CUSTOM_WIRING
+  bootDiagf("  wiring: custom");
+#else
+  bootDiagf("  wiring: factory");
+#endif
+  bootLogDisplay(panel);
+  bootLogPin("backlight-gpio", panel.backlight_gpio);
+  if (yoradio::kActiveBoard.display.backlight_gpio != panel.backlight_gpio) {
+    bootLogPin("backlight-factory", yoradio::kActiveBoard.display.backlight_gpio);
   }
-  BOOTLOG("audioinfo:\t%s", store.audioinfo?"true":"false");
-  BOOTLOG("smartstart:\t%d", store.smartstart);
-  BOOTLOG("vumeter:\t%s", store.vumeter?"true":"false");
-  BOOTLOG("softapdelay:\t%d", store.softapdelay);
-  BOOTLOG("flipscreen:\t%s", store.flipscreen?"true":"false");
-  BOOTLOG("invertdisplay:\t%s", store.invertdisplay?"true":"false");
-  BOOTLOG("showweather:\t%s", store.showweather?"true":"false");
-  BOOTLOG("buttons:\tleft=%d, center=%d, right=%d, up=%d, down=%d, mode=%d, pullup=%s", BTN_LEFT, BTN_CENTER, BTN_RIGHT, BTN_UP, BTN_DOWN, BTN_MODE, BTN_INTERNALPULLUP?"ON":"OFF");
-  BOOTLOG("encoders:\tl1=%d, b1=%d, r1=%d, pullup=%s, l2=%d, b2=%d, r2=%d, pullup=%s", ENC_BTNL, ENC_BTNB, ENC_BTNR, ENC_INTERNALPULLUP?"ON":"OFF", ENC2_BTNL, ENC2_BTNB, ENC2_BTNR, ENC2_INTERNALPULLUP?"ON":"OFF");
-  if(IR_PIN!=255) {BOOTLOG("ir:\t\t%d", IR_PIN);}else{BOOTLOG("ir:\t\tNONE");}
-  if(SDC_CS!=255) {BOOTLOG("SD:\t\tCS-%d", SDC_CS);}else{BOOTLOG("SD:\t\tNONE");}
-    #ifdef BATTERY_OFF
-  BOOTLOG("battery:\t%s", "battery OFF");
-    #else
-  BOOTLOG("battery:\t%s", "battery ON");
-    #endif
-  BOOTLOG("------------------------------------------------");
+  bootLogPin("panel-reset", panel.panel_reset_gpio);
+  bootDiagf("  rgb-bounce: %s", YORADIO_RGB_BOUNCE10 ? "B10" : "OFF");
+  bootDiagf("  dsptask-stack: %d", YORADIO_DSPTASK_12K ? 12288 : 10240);
+  if (VS1053_CS == 255) {
+    bootDiagf("  audio: I2S");
+    bootDiagf("  i2s-dout: %d", I2S_DOUT);
+    bootDiagf("  i2s-bclk: %d", I2S_BCLK);
+    bootDiagf("  i2s-lrc: %d", I2S_LRC);
+  }
+  bootDiagf("  buttons: L=%d C=%d R=%d U=%d D=%d mode=%d",
+            BTN_LEFT, BTN_CENTER, BTN_RIGHT, BTN_UP, BTN_DOWN, BTN_MODE);
+  bootDiagf("  btn-pullup: %s", BTN_INTERNALPULLUP ? "ON" : "OFF");
+  bootDiagf("  encoder1: L=%d B=%d R=%d pullup=%s",
+            ENC_BTNL, ENC_BTNB, ENC_BTNR, ENC_INTERNALPULLUP ? "ON" : "OFF");
+  bootDiagf("  encoder2: L=%d B=%d R=%d pullup=%s",
+            ENC2_BTNL, ENC2_BTNB, ENC2_BTNR, ENC2_INTERNALPULLUP ? "ON" : "OFF");
+  if (IR_PIN != 255) {
+    bootDiagf("  ir: %d", IR_PIN);
+  } else {
+    bootDiagf("  ir: NONE");
+  }
+  if (SDC_CS != 255) {
+    bootDiagf("  sd-cs: %d", SDC_CS);
+  } else {
+    bootDiagf("  sd-cs: NONE");
+  }
+#ifdef BATTERY_OFF
+  bootDiagf("  battery: OFF");
+#else
+  bootDiagf("  battery: ON");
+#endif
 }

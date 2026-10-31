@@ -4,15 +4,11 @@ Intermediate releases inside a major Beta. Major milestones stay in `README.md`.
 
 ## 0.9.434m-r2-lvgl-beta.3.04 — 2026-10-31
 
-- Added a compile-time Board Contract and board selection through `YORADIO_BOARD`.
-- Recorded the ESP32-S3 4848S040 factory wiring in one BoardProfile.
-- Made `kWiring` the single effective pin configuration.
-- Added Custom Wiring: 28 optional GPIO overrides, with compile-time GPIO and conflict checks.
-- Left the external I2S DAC user-configurable.
-- Kept the current display and touch drivers working through a temporary compatibility bridge.
-- Documented the contract in the platform, board, profile, 4848S040 and compatibility READMEs.
-- Confirmed display, touch and radio on the factory 4848S040 wiring.
-- SD is not restored. SharedResources is not implemented. No additional board is supported yet.
+- Added compile-time Board Contract and board selection for ESP32-S3 4848S040.
+- Centralized factory and effective hardware wiring.
+- Added optional Custom Wiring with compile-time GPIO validation.
+- Preserved existing display, touch and user-configurable I2S audio.
+- Verified display, touch and radio operation on the 4848S040.
 
 ## 0.9.434m-r2-lvgl-beta.3.03 — 2026-10-27
 
