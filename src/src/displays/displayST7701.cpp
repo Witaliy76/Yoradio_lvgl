@@ -10,6 +10,7 @@
 #include "displayST7701.h"
 #include "display_port.h"
 #include "esp_lcd_st7701_backend.h"
+#include "../platform/display/resolved_display_config.h"
 #include <cstring>
 #include "../core/spidog.h"
 #include "../core/config.h"
@@ -123,9 +124,12 @@ bool DisplayPort::begin() {
         return false;
     }
 
-    pinMode(ST7701_BL, OUTPUT);
+    // Effective backlight wiring comes from BoardProfile plus any supported
+    // DISP_BL Custom Wiring override in src/myoptions.h.
+    // Итоговый GPIO подсветки учитывает BoardProfile и DISP_BL Custom Wiring.
+    pinMode(yoradio::kResolvedDisplayConfig.wiring.backlight_gpio, OUTPUT);
     delay(50);
-    analogWrite(ST7701_BL, 255);
+    analogWrite(yoradio::kResolvedDisplayConfig.wiring.backlight_gpio, 255);
     delay(100);
     Serial.println("[ST7701] Backlight enabled");
 
@@ -141,9 +145,15 @@ bool DisplayPort::begin() {
 }
 
 DisplayGeometry DisplayPort::geometry() {
-    // Proven physical facts only; no new geometry architecture.
-    // Только доказанные физические факты; без новой geometry-архитектуры.
-    return DisplayGeometry{480u, 480u, PixelFormat::Rgb565};
+    // PanelMode owns physical geometry and format. Map the distinct enum by
+    // meaning; never rely on matching numeric enum values.
+    // Физическая геометрия/формат принадлежат PanelMode; enum сопоставляется по смыслу.
+    static_assert(yoradio::kResolvedDisplayConfig.panel.pixel_format ==
+                      yoradio::panel::PixelFormat::Rgb565,
+                  "DisplayPort supports the resolved RGB565 PanelMode");
+    return DisplayGeometry{yoradio::kResolvedDisplayConfig.panel.native_width,
+                           yoradio::kResolvedDisplayConfig.panel.native_height,
+                           PixelFormat::Rgb565};
 }
 
 void DisplayPort::flush(const DisplayArea& area, const uint16_t* pixels,
@@ -179,7 +189,8 @@ void DisplayPort::flush(const DisplayArea& area, const uint16_t* pixels,
 
 void DisplayPort::setBrightness(uint8_t percent) {
     TAKE_MUTEX();
-    analogWrite(ST7701_BL, map(percent, 0, 100, 0, 255));
+    analogWrite(yoradio::kResolvedDisplayConfig.wiring.backlight_gpio,
+                map(percent, 0, 100, 0, 255));
     GIVE_MUTEX();
 }
 
@@ -191,7 +202,7 @@ void DisplayPort::sleep() {
     if (physicalBackendReady()) {
         Serial.println("[ST7701] Display OFF");
     }
-    analogWrite(ST7701_BL, 0);
+    analogWrite(yoradio::kResolvedDisplayConfig.wiring.backlight_gpio, 0);
     GIVE_MUTEX();
 }
 
@@ -204,9 +215,10 @@ void DisplayPort::wake() {
         Serial.println("[ST7701] Display ON");
     }
 #if defined(ENABLE_BRIGHTNESS_CONTROL)
-    analogWrite(ST7701_BL, map(config.store.brightness, 0, 100, 0, 255));
+    analogWrite(yoradio::kResolvedDisplayConfig.wiring.backlight_gpio,
+                map(config.store.brightness, 0, 100, 0, 255));
 #else
-    analogWrite(ST7701_BL, 255);
+    analogWrite(yoradio::kResolvedDisplayConfig.wiring.backlight_gpio, 255);
 #endif
     GIVE_MUTEX();
 }
@@ -230,7 +242,7 @@ DisplayPort::RgbScanoutStatus DisplayPort::rgbScanoutStatus() {
     st.bounceBufferPx = yoradio_esp_lcd_st7701::bounceBufferPx();
     st.vsyncSeq = yoradio_esp_lcd_st7701::vsyncSeq();
     st.nominalPclkHz = yoradio_esp_lcd_st7701::nominalPclkHz();  // startup value until promoted
-    st.flashGuardPclkHz = yoradio_esp_lcd_st7701::kPclkFlashGuardHz;
+    st.flashGuardPclkHz = yoradio::kResolvedDisplayConfig.recommended.flash_guard_pclk_hz;
     st.restartExec = yoradio_esp_lcd_st7701::restartExecCount();
     st.restartRejectedBounce = yoradio_esp_lcd_st7701::restartRejectedBounceCount();
     return st;

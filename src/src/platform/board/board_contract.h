@@ -192,15 +192,30 @@ struct BoardProfile {
 
 // ---------------------------------------------------------------------------
 // BoardDefaults — tested YoRadio recommendations for one board.
-// NOT physical truth and NOT a restriction: every value here is overridable by
-// the user in myoptions.h. Nothing in this struct may be treated as a hardware
-// constraint. Display/touch/UI servicing policy has no safe owner yet and is
-// deliberately absent (deferred to S04/S05/S06); the S01 PCLK constants stay in
-// the display backend and are not duplicated here.
+// NOT physical truth and NOT a restriction: a value here does not ban a
+// different user setting in myoptions.h. Touch and UI policy are still absent
+// (S05/S06). Display host policy is DisplayDefaults below.
+//
+// Three different layers, not one switch:
+//   BoardDefaults.display — the tested recommendation.
+//   User overrides — myoptions.h (YORADIO_RGB_BOUNCE10, YORADIO_RGB_FLASH_GUARD,
+//     ST7701_BOOT_ORIENTATION_180). This struct does not read them.
+//   Backend constraints — what the current driver can actually do. Not stored here.
+//
+// S04-2 records the display recommendation. Firmware still does not read
+// kActiveBoardDefaults, so the live PCLK pair remains in the display backend
+// until a later slice connects one effective policy.
+// CONFIG_LCD_RGB_RESTART_IN_VSYNC stays a build-family sdkconfig switch.
+// It is not a second knob in this struct.
 // BoardDefaults — проверенные рекомендации YoRadio для одной платы.
-// Это НЕ физическая правда и НЕ запрет: любое значение переопределяемо в
-// myoptions.h. Политика обслуживания дисплея/тача/UI пока без владельца и
-// намеренно отсутствует (S04/S05/S06); константы PCLK S01 здесь не дублируются.
+// Это НЕ физическая правда и НЕ запрет на другую настройку в myoptions.h.
+// Политика тача и UI всё ещё отсутствует (S05/S06). Политика хоста дисплея —
+// DisplayDefaults ниже.
+//
+// Три разных слоя: рекомендация, пользовательский override, ограничение backend.
+// S04-2 только записывает рекомендацию дисплея. Прошивка kActiveBoardDefaults
+// по-прежнему не читает, живая пара PCLK остаётся в backend.
+// CONFIG_LCD_RGB_RESTART_IN_VSYNC остаётся настройкой build-family, не полем здесь.
 // ---------------------------------------------------------------------------
 
 // Recommended external I2S DAC pin assignment. Recommendation only.
@@ -223,9 +238,45 @@ struct PowerDefaults {
     bool    wake_active_low;
 };
 
+// Host servicing recommendation. Panel geometry stays in PanelMode / BoardProfile.
+// Рекомендация обслуживания хоста. Геометрия панели остаётся в PanelMode / BoardProfile.
+enum class DisplayRenderMode : uint8_t { Partial = 0, Direct = 1, Full = 2 };
+
+enum class DisplayBufferMemory : uint8_t { Internal = 0, Psram = 1 };
+
+// Who allocates the RGB scanout buffer. PanelDriver is the panel driver;
+// on the proven path that driver is esp_lcd. No esp_lcd header is included here.
+// Кто выделяет буфер RGB scanout. PanelDriver — драйвер панели; на проверенном
+// пути это esp_lcd. Заголовок esp_lcd сюда не включается.
+enum class RgbFramebufferOwner : uint8_t { PanelDriver = 0 };
+
+// Partial CPU blit of the damaged rectangle, then a full-framebuffer C2M writeback.
+// Частичный CPU-блит испорченного прямоугольника, затем полный C2M всего кадра.
+enum class DisplayFlush : uint8_t { PartialBlitThenFullWriteback = 0 };
+
+struct DisplayDefaults {
+    DisplayRenderMode    render_mode;
+    uint8_t              draw_buffer_count;
+    uint16_t             partial_draw_lines;
+    DisplayBufferMemory  draw_buffer_memory;
+    uint8_t              rgb_framebuffer_count;
+    DisplayBufferMemory  rgb_framebuffer_memory;
+    RgbFramebufferOwner  rgb_framebuffer_owner;
+    bool                 double_framebuffer;
+    // Tested bounce default in pixels. Not a ban on YORADIO_RGB_BOUNCE10=1.
+    // Проверенный bounce по умолчанию, в пикселях. Это не запрет YORADIO_RGB_BOUNCE10=1.
+    uint16_t             bounce_buffer_px;
+    DisplayFlush         flush;
+    uint32_t             startup_pclk_hz;
+    uint32_t             runtime_pclk_hz;
+    uint32_t             flash_guard_pclk_hz;
+    bool                 promote_pclk_once_on_boot_to_main;
+};
+
 struct BoardDefaults {
-    AudioDefaults audio;
-    PowerDefaults power;
+    AudioDefaults  audio;
+    PowerDefaults  power;
+    DisplayDefaults display;
 };
 
 }  // namespace yoradio

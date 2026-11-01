@@ -9,6 +9,7 @@
 
 #include "esp_lcd_st7701_backend.h"
 #include "st7701_type9_ops.h"
+#include "../platform/display/resolved_display_config.h"
 
 #include <Arduino.h>
 #include <string.h>
@@ -23,6 +24,39 @@
 namespace yoradio_esp_lcd_st7701 {
 namespace {
 
+// The backend adapts one accepted contract to esp_lcd. PanelMode owns physical
+// 480x480 RGB565 timing; BoardProfile/Custom Wiring owns real GPIO; DisplayDefaults
+// is the tested host recommendation, not a universal ban on other supported choices.
+// Backend адаптирует один принятый контракт к esp_lcd. PanelMode владеет физическими
+// timing 480x480 RGB565; BoardProfile/Custom Wiring — реальными GPIO; DisplayDefaults
+// хранит проверенную рекомендацию хоста, а не универсальный запрет иных настроек.
+constexpr const auto& kDisplayConfig = yoradio::kResolvedDisplayConfig;
+constexpr size_t kResolvedFramebufferBytes =
+    static_cast<size_t>(kDisplayConfig.panel.native_width) *
+    kDisplayConfig.panel.native_height * sizeof(uint16_t);
+
+// Keep the public header constants until S04-3B2 checks its remaining consumers.
+// They are compatibility names, not a second backend source.
+// Публичные константы сохраняются до S04-3B2 как compatibility-имена, а не
+// как второй источник параметров backend.
+static_assert(kWidth == kDisplayConfig.panel.native_width,
+              "ST7701 compatibility kWidth must match ResolvedDisplayConfig.panel");
+static_assert(kHeight == kDisplayConfig.panel.native_height,
+              "ST7701 compatibility kHeight must match ResolvedDisplayConfig.panel");
+static_assert(kFramebufferBytes == kResolvedFramebufferBytes,
+              "ST7701 compatibility framebuffer size must match resolved geometry");
+static_assert(kPclkNominalHz == kDisplayConfig.recommended.runtime_pclk_hz,
+              "ST7701 compatibility nominal PCLK must match resolved runtime PCLK");
+static_assert(kPclkFlashGuardHz == kDisplayConfig.recommended.flash_guard_pclk_hz,
+              "ST7701 compatibility guard PCLK must match resolved flash-guard PCLK");
+static_assert(kDisplayConfig.recommended.startup_pclk_hz ==
+                  kDisplayConfig.recommended.flash_guard_pclk_hz,
+              "ST7701 accepted startup and flash-guard PCLK must remain equal");
+static_assert(kDisplayConfig.effective_bounce_buffer_px <= UINT16_MAX,
+              "ST7701 effective bounce must fit the public uint16_t status field");
+static_assert(kDisplayConfig.wiring.panel_reset_gpio == yoradio::kPinNotConnected,
+              "ST7701 backend expects the 4848S040 panel RESX line to be not connected");
+
 esp_lcd_panel_handle_t s_panel = nullptr;
 uint16_t* s_fb = nullptr;
 bool s_ready = false;
@@ -35,8 +69,8 @@ uint8_t s_madctl = 0x00;
 // Effective bounce size passed to esp_lcd_new_rgb_panel(). 0 = direct T0.
 // Эффективный bounce, переданный в esp_lcd_new_rgb_panel(). 0 = direct T0.
 // Startup RGB PCLK. The scanout is brought up at the lower of the two product PCLK values and
-// stays there for the whole Boot phase; it is promoted once to the runtime nominal at the
-// Boot->Main handoff. Reason: the scanout begins inside esp_lcd_panel_init() (rgb_panel_init
+// stays there until the flash guard accepts a Boot->Main promotion. The UI handoff does not
+// call set_pclk itself. Reason: the scanout begins inside esp_lcd_panel_init() (rgb_panel_init
 // programs the divider from panel_config.timings.pclk_hz and calls
 // lcd_rgb_panel_start_transmission), so the first frames of a cold power-on are clocked before
 // any task exists and the DspTask flash guard cannot give them timing margin afterwards.
@@ -47,10 +81,10 @@ uint8_t s_madctl = 0x00;
 // flash guard asks for "nominal" when it raises the clock, so while the startup phase is in
 // progress its UP target is the startup PCLK too and a guarded boot write cannot promote the
 // clock early. Two guarded episodes really do occur during boot on this product.
-// Both values are the existing product constants; there is no third frequency.
+// Both values come from the resolved tested host policy; there is no third frequency.
 //
 // Стартовый PCLK RGB. Scanout поднимается на меньшем из двух продуктовых значений PCLK и
-// остаётся на нём всю фазу Boot; один раз повышается до runtime-номинала на переходе Boot->Main.
+// остаётся на нём, пока flash guard не примет повышение Boot->Main. UI handoff сам set_pclk не вызывает.
 // Причина: scanout начинается внутри esp_lcd_panel_init(), т.е. первые кадры холодного старта
 // тактуются до появления задач, и guard на DspTask задним числом margin им не даёт. Именно
 // старт с этим запасом удерживает выравнивание; restart RGB-периферии в старте не используется
@@ -59,8 +93,8 @@ uint8_t s_madctl = 0x00;
 // Эту переменную отдаёт rgbScanoutStatus().nominalPclkHz, и это намеренно: guard при повышении
 // просит «номинал», поэтому в фазе старта его цель UP — тоже стартовый PCLK, и защищённая
 // загрузочная запись не поднимет частоту раньше времени. Оба значения — существующие
-// продуктовые константы; третьей частоты нет.
-uint32_t s_pclk_nominal_hz = kPclkFlashGuardHz;
+// значения из resolved-политики хоста; третьей частоты нет.
+uint32_t s_pclk_nominal_hz = kDisplayConfig.recommended.startup_pclk_hz;
 bool s_pclk_promoted = false;
 
 uint16_t s_bounce_px = 0;
@@ -103,12 +137,12 @@ constexpr uint8_t kCommand2Disable[] = {0x77, 0x01, 0x00, 0x00, 0x00};
 // --- 9-bit software SPI (Arduino_SWSPI semantics, DC undefined) ---
 // --- Программный 9-bit SPI (семантика Arduino_SWSPI, DC нет) ---
 
-inline void spiMosiHigh() { digitalWrite(ST7701_SDA, HIGH); }
-inline void spiMosiLow() { digitalWrite(ST7701_SDA, LOW); }
-inline void spiSckHigh() { digitalWrite(ST7701_SCK, HIGH); }
-inline void spiSckLow() { digitalWrite(ST7701_SCK, LOW); }
-inline void csLow() { digitalWrite(ST7701_CS, LOW); }
-inline void csHigh() { digitalWrite(ST7701_CS, HIGH); }
+inline void spiMosiHigh() { digitalWrite(kDisplayConfig.wiring.cmd_sda_gpio, HIGH); }
+inline void spiMosiLow() { digitalWrite(kDisplayConfig.wiring.cmd_sda_gpio, LOW); }
+inline void spiSckHigh() { digitalWrite(kDisplayConfig.wiring.cmd_sck_gpio, HIGH); }
+inline void spiSckLow() { digitalWrite(kDisplayConfig.wiring.cmd_sck_gpio, LOW); }
+inline void csLow() { digitalWrite(kDisplayConfig.wiring.cmd_cs_gpio, LOW); }
+inline void csHigh() { digitalWrite(kDisplayConfig.wiring.cmd_cs_gpio, HIGH); }
 
 void write9BitCommand(uint8_t c) {
     // D/C bit = 0 (command) / бит D/C = 0 (команда)
@@ -147,9 +181,13 @@ void write9BitData(uint8_t d) {
 }
 
 bool initControlBusPins() {
-    pinMode(ST7701_CS, OUTPUT);
-    pinMode(ST7701_SCK, OUTPUT);
-    pinMode(ST7701_SDA, OUTPUT);
+    // GPIO live in BoardProfile because they describe board routing, not ST7701
+    // physics. Change supported pin overrides under Custom Wiring in src/myoptions.h.
+    // GPIO находятся в BoardProfile как разводка платы, а не физика ST7701.
+    // Поддерживаемые overrides меняются в Custom Wiring файла src/myoptions.h.
+    pinMode(kDisplayConfig.wiring.cmd_cs_gpio, OUTPUT);
+    pinMode(kDisplayConfig.wiring.cmd_sck_gpio, OUTPUT);
+    pinMode(kDisplayConfig.wiring.cmd_sda_gpio, OUTPUT);
     csHigh();
     spiSckLow();
     spiMosiLow();
@@ -187,8 +225,16 @@ bool applyPanelOrientation180(bool flipped) {
 // Mirror Arduino_DataBus::batchOperation for the Type9 opcode subset used here.
 // Зеркало Arduino_DataBus::batchOperation для подмножества опкодов Type9.
 bool replayType9Ops() {
-    static_assert(kType9GfxEncodedBytes == 271u, "Type9 encoded size must stay 271");
-    static_assert(kType9GfxHighLevelOps == 55u, "Type9 high-level op count must stay 55");
+    // The backend reads resolved metadata, while the accepted Type9 byte stream and
+    // its interpreter remain local here. These checks bind identity, not ownership.
+    // Backend читает resolved metadata, а Type9-байты и интерпретатор
+    // остаются локальными; проверки связывают идентичность, а не владение.
+    static_assert(yoradio::kResolvedDisplayConfig.panel.init.encoded_bytes ==
+                      kType9GfxEncodedBytes,
+                  "ResolvedDisplayConfig: PanelMode Type9 byte count does not match st7701_type9_ops.h; check both metadata owners.");
+    static_assert(yoradio::kResolvedDisplayConfig.panel.init.high_level_ops ==
+                      kType9GfxHighLevelOps,
+                  "ResolvedDisplayConfig: PanelMode Type9 operation count does not match st7701_type9_ops.h; check both metadata owners.");
 
     const uint8_t* operations = kType9GfxEncoded;
     const size_t len = kType9GfxEncodedBytes;
@@ -232,80 +278,103 @@ bool softResetPanel() {
     // Arduino_RGB_Display::begin: no RST GPIO → sendCommand(0x01) + delay(120).
     // Нет GPIO RST → команда 0x01 + delay(120). Separate from in-table 120 ms after 0x11.
     csLow();
-    write9BitCommand(0x01);
+    write9BitCommand(kDisplayConfig.panel.init.soft_reset_command);
     csHigh();
-    delay(120);
+    delay(kDisplayConfig.panel.init.soft_reset_delay_ms);
     return true;
 }
 
 bool createRgbPanel() {
-    // Copied/mapped from Arduino_ESP32RGBPanel::getFrameBuffer @ 00dcd684.
-    // Скопировано/смаплено из Arduino_ESP32RGBPanel::getFrameBuffer @ 00dcd684.
-    // Product ctor (displayST7701.cpp): prefer_speed=10e6, useBigEndian=false, bounce=0,
-    // H pol=1 FP=10 PW=8 BP=50; V pol=1 FP=10 PW=8 BP=20; pclk_active_neg=0;
-    // de_idle_high=0; pclk_idle_high=0.
-    constexpr uint16_t kHsyncPolarity = 1;
-    constexpr uint16_t kVsyncPolarity = 1;
+    // Panel geometry/timing belong to PanelMode: the same ST7701 glass may be routed
+    // by another board without changing its 480x480 recipe. esp_lcd-only flags remain
+    // adapter details here. Геометрия/timing принадлежат PanelMode; разводка — плате.
+    const auto& panel = kDisplayConfig.panel;
+    const auto& wiring = kDisplayConfig.wiring;
+    const auto& policy = kDisplayConfig.recommended;
 
     esp_lcd_rgb_panel_config_t panel_config = {};
     panel_config.clk_src = LCD_CLK_SRC_DEFAULT;
     panel_config.timings.pclk_hz = s_pclk_nominal_hz;  // startup PCLK for the first scanout
-    panel_config.timings.h_res = kWidth;
-    panel_config.timings.v_res = kHeight;
-    panel_config.timings.hsync_pulse_width = 8;
-    panel_config.timings.hsync_back_porch = 50;
-    panel_config.timings.hsync_front_porch = 10;
-    panel_config.timings.vsync_pulse_width = 8;
-    panel_config.timings.vsync_back_porch = 20;
-    panel_config.timings.vsync_front_porch = 10;
-    panel_config.timings.flags.hsync_idle_low = (kHsyncPolarity == 0) ? 1 : 0;
-    panel_config.timings.flags.vsync_idle_low = (kVsyncPolarity == 0) ? 1 : 0;
-    panel_config.timings.flags.de_idle_high = 0;
-    panel_config.timings.flags.pclk_active_neg = 0;
-    panel_config.timings.flags.pclk_idle_high = 0;
+    panel_config.timings.h_res = panel.native_width;
+    panel_config.timings.v_res = panel.native_height;
+    panel_config.timings.hsync_pulse_width = panel.timing.hsync_pulse_width;
+    panel_config.timings.hsync_back_porch = panel.timing.hsync_back_porch;
+    panel_config.timings.hsync_front_porch = panel.timing.hsync_front_porch;
+    panel_config.timings.vsync_pulse_width = panel.timing.vsync_pulse_width;
+    panel_config.timings.vsync_back_porch = panel.timing.vsync_back_porch;
+    panel_config.timings.vsync_front_porch = panel.timing.vsync_front_porch;
+    panel_config.timings.flags.hsync_idle_low =
+        yoradio::panel::espLcdIdleLowFromSourcePolarity(panel.timing.hsync.source_polarity);
+    panel_config.timings.flags.vsync_idle_low =
+        yoradio::panel::espLcdIdleLowFromSourcePolarity(panel.timing.vsync.source_polarity);
+    panel_config.timings.flags.de_idle_high = panel.timing.de_idle_high;
+    panel_config.timings.flags.pclk_active_neg = panel.timing.pclk_active_neg;
+    panel_config.timings.flags.pclk_idle_high = panel.timing.pclk_idle_high;
 
-    panel_config.data_width = 16;
-    panel_config.bits_per_pixel = 16;
-    panel_config.num_fbs = 1;
-#if YORADIO_RGB_BOUNCE10
-    panel_config.bounce_buffer_size_px = kWidth * 10;
-#else
-    panel_config.bounce_buffer_size_px = 0;
-#endif
+    panel_config.data_width = panel.rgb_bus_width_bits;
+    panel_config.bits_per_pixel = panel.rgb_bus_width_bits;
+    panel_config.num_fbs = policy.rgb_framebuffer_count;
+    // Default is the TEST1-proven direct path (0). B10 remains a supported user
+    // choice and resolves to native_width * 10 = 4800 px; TEST1 did not validate B10.
+    // Default — проверенный TEST1 direct path (0). B10 разрешён и даёт 4800 px,
+    // но аппаратная проверка TEST1 не является проверкой B10.
+    panel_config.bounce_buffer_size_px = kDisplayConfig.effective_bounce_buffer_px;
     s_bounce_px = static_cast<uint16_t>(panel_config.bounce_buffer_size_px);
     // GFX sets deprecated sram_trans_align=8 / psram_trans_align=64 (union → dma_burst_size).
     panel_config.sram_trans_align = 8;
     panel_config.psram_trans_align = 64;
 
-    panel_config.hsync_gpio_num = ST7701_HSYNC;
-    panel_config.vsync_gpio_num = ST7701_VSYNC;
-    panel_config.de_gpio_num = ST7701_DE;
-    panel_config.pclk_gpio_num = ST7701_PCLK;
+    panel_config.hsync_gpio_num = wiring.hsync_gpio;
+    panel_config.vsync_gpio_num = wiring.vsync_gpio;
+    panel_config.de_gpio_num = wiring.de_gpio;
+    panel_config.pclk_gpio_num = wiring.pclk_gpio;
+    // This board has no software-controlled display-enable/RESX line. Its physical
+    // panel_reset_gpio is kPinNotConnected; inventing a GPIO or restarting RGB DMA
+    // would not create a missing wire. У платы нет управляемой линии RESX/enable.
     panel_config.disp_gpio_num = GPIO_NUM_NC;
 
-    // Little-endian / useBigEndian=false pin map (B0..B4, G0..G5, R0..R4).
-    panel_config.data_gpio_nums[0] = ST7701_B0;
-    panel_config.data_gpio_nums[1] = ST7701_B1;
-    panel_config.data_gpio_nums[2] = ST7701_B2;
-    panel_config.data_gpio_nums[3] = ST7701_B3;
-    panel_config.data_gpio_nums[4] = ST7701_B4;
-    panel_config.data_gpio_nums[5] = ST7701_G0;
-    panel_config.data_gpio_nums[6] = ST7701_G1;
-    panel_config.data_gpio_nums[7] = ST7701_G2;
-    panel_config.data_gpio_nums[8] = ST7701_G3;
-    panel_config.data_gpio_nums[9] = ST7701_G4;
-    panel_config.data_gpio_nums[10] = ST7701_G5;
-    panel_config.data_gpio_nums[11] = ST7701_R0;
-    panel_config.data_gpio_nums[12] = ST7701_R1;
-    panel_config.data_gpio_nums[13] = ST7701_R2;
-    panel_config.data_gpio_nums[14] = ST7701_R3;
-    panel_config.data_gpio_nums[15] = ST7701_R4;
+    // Copy effective Custom Wiring directly, preserving the accepted esp_lcd slot
+    // order. No second GPIO array. Копируем effective-разводку без второй таблицы.
+    panel_config.data_gpio_nums[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::B0)] =
+        wiring.data_gpio[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::B0)];
+    panel_config.data_gpio_nums[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::B1)] =
+        wiring.data_gpio[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::B1)];
+    panel_config.data_gpio_nums[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::B2)] =
+        wiring.data_gpio[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::B2)];
+    panel_config.data_gpio_nums[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::B3)] =
+        wiring.data_gpio[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::B3)];
+    panel_config.data_gpio_nums[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::B4)] =
+        wiring.data_gpio[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::B4)];
+    panel_config.data_gpio_nums[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::G0)] =
+        wiring.data_gpio[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::G0)];
+    panel_config.data_gpio_nums[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::G1)] =
+        wiring.data_gpio[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::G1)];
+    panel_config.data_gpio_nums[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::G2)] =
+        wiring.data_gpio[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::G2)];
+    panel_config.data_gpio_nums[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::G3)] =
+        wiring.data_gpio[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::G3)];
+    panel_config.data_gpio_nums[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::G4)] =
+        wiring.data_gpio[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::G4)];
+    panel_config.data_gpio_nums[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::G5)] =
+        wiring.data_gpio[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::G5)];
+    panel_config.data_gpio_nums[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::R0)] =
+        wiring.data_gpio[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::R0)];
+    panel_config.data_gpio_nums[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::R1)] =
+        wiring.data_gpio[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::R1)];
+    panel_config.data_gpio_nums[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::R2)] =
+        wiring.data_gpio[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::R2)];
+    panel_config.data_gpio_nums[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::R3)] =
+        wiring.data_gpio[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::R3)];
+    panel_config.data_gpio_nums[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::R4)] =
+        wiring.data_gpio[yoradio::rgb565DataSlotIndex(yoradio::Rgb565DataSlot::R4)];
 
     panel_config.flags.disp_active_low = true;
     panel_config.flags.refresh_on_demand = false;
-    panel_config.flags.fb_in_psram = true;
-    panel_config.flags.double_fb = false;
-    panel_config.flags.no_fb = false;
+    panel_config.flags.fb_in_psram =
+        policy.rgb_framebuffer_memory == yoradio::DisplayBufferMemory::Psram;
+    panel_config.flags.double_fb = policy.double_framebuffer;
+    panel_config.flags.no_fb =
+        policy.rgb_framebuffer_owner != yoradio::RgbFramebufferOwner::PanelDriver;
     panel_config.flags.bb_invalidate_cache = false;
 
     esp_err_t err = esp_lcd_new_rgb_panel(&panel_config, &s_panel);
@@ -327,7 +396,8 @@ bool createRgbPanel() {
     }
 
     void* frame_buffer = nullptr;
-    err = esp_lcd_rgb_panel_get_frame_buffer(s_panel, 1, &frame_buffer);
+    err = esp_lcd_rgb_panel_get_frame_buffer(s_panel, policy.rgb_framebuffer_count,
+                                             &frame_buffer);
     if (err != ESP_OK || frame_buffer == nullptr) {
         Serial.printf("[esp_lcd_st7701] get_frame_buffer failed: %s\n", esp_err_to_name(err));
         return false;
@@ -339,12 +409,14 @@ bool createRgbPanel() {
         return false;
     }
     Serial.printf("[esp_lcd_st7701] FB ok addr=%p bytes=%u PSRAM=yes\n",
-                  static_cast<void*>(s_fb), static_cast<unsigned>(kFramebufferBytes));
+                  static_cast<void*>(s_fb),
+                  static_cast<unsigned>(kResolvedFramebufferBytes));
 
-    // VSYNC counter for the PCLK barrier (stock esp_lcd API, no IDF patch). A failed
-    // registration only disables the flash guard; the panel itself stays usable.
-    // Счётчик VSYNC для барьера PCLK (штатный API esp_lcd). Сбой регистрации лишь
-    // выключает flash guard; сама панель остаётся рабочей.
+    // VSYNC counter for the PCLK barrier (stock esp_lcd API, no IDF patch). On a ready
+    // direct-RGB panel, a failed registration makes guarded writes Denied; it no longer
+    // fails open. The panel can scan, but persistence waits for safe protection.
+    // Счётчик VSYNC для барьера PCLK. На готовой direct-RGB панели сбой регистрации
+    // даёт Denied для защищённых записей: scanout возможен, persistence ждёт защиты.
     esp_lcd_rgb_panel_event_callbacks_t callbacks = {};
     callbacks.on_vsync = s_on_vsync;
     err = esp_lcd_rgb_panel_register_event_callbacks(s_panel, &callbacks, nullptr);
@@ -384,9 +456,11 @@ bool begin() {
     }
     Serial.println("[esp_lcd_st7701] Type9 replay PASS");
 
-    // Some 4848S040 panels accept orientation commands only before the RGB
-    // pixel stream starts. Keep this a fixed board option; touch is separate.
-    if (ST7701_BOOT_ORIENTATION_180) {
+    // Some 4848S040 panels accept orientation commands only before the RGB pixel
+    // stream starts. The resolver carries the existing user choice; touch is separate.
+    // Некоторые панели принимают orientation только до RGB stream. Resolver передаёт
+    // существующий выбор пользователя; настройка тача остаётся отдельной.
+    if (kDisplayConfig.boot_orientation_180) {
         Serial.println("[esp_lcd_st7701] applying fixed boot orientation 180");
         if (!applyPanelOrientation180(true)) {
             Serial.println("[esp_lcd_st7701] fixed boot orientation FAIL");
@@ -442,7 +516,7 @@ uint16_t* framebuffer() {
 }
 
 size_t framebufferBytes() {
-    return kFramebufferBytes;
+    return kResolvedFramebufferBytes;
 }
 
 bool cacheWritebackFull() {
@@ -452,7 +526,8 @@ bool cacheWritebackFull() {
     // Conservative full-FB C2M — parity with Arduino_RGB_Display::flush(auto_flush=false).
     // Консервативный полный C2M FB — паритет с Arduino_RGB_Display::flush(auto_flush=false).
     const esp_err_t err = esp_cache_msync(
-        s_fb, kFramebufferBytes, ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
+        s_fb, kResolvedFramebufferBytes,
+        ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
     if (err != ESP_OK) {
         Serial.printf("[esp_lcd_st7701] esp_cache_msync FAIL: %s\n", esp_err_to_name(err));
         return false;
@@ -464,7 +539,8 @@ bool fillRgb565(uint16_t color) {
     if (!s_fb) {
         return false;
     }
-    const size_t pixels = static_cast<size_t>(kWidth) * kHeight;
+    const size_t pixels = static_cast<size_t>(kDisplayConfig.panel.native_width) *
+                          kDisplayConfig.panel.native_height;
     for (size_t i = 0; i < pixels; ++i) {
         s_fb[i] = color;
     }
@@ -480,8 +556,8 @@ bool blitRgb565(int16_t x, int16_t y, const uint16_t* src, int16_t w, int16_t h)
     // same reject test, same source-pointer rewind, same x_skip source stride.
     // Отсечение точно как в gfx_draw_bitmap_to_framebuffer: тот же reject,
     // та же перемотка указателя источника, тот же x_skip (stride источника).
-    constexpr int16_t kMaxX = static_cast<int16_t>(kWidth) - 1;
-    constexpr int16_t kMaxY = static_cast<int16_t>(kHeight) - 1;
+    constexpr int16_t kMaxX = static_cast<int16_t>(kDisplayConfig.panel.native_width) - 1;
+    constexpr int16_t kMaxY = static_cast<int16_t>(kDisplayConfig.panel.native_height) - 1;
     if (((x + w - 1) < 0) || ((y + h - 1) < 0) || (x > kMaxX) || (y > kMaxY)) {
         return false;
     }
@@ -509,20 +585,21 @@ bool blitRgb565(int16_t x, int16_t y, const uint16_t* src, int16_t w, int16_t h)
     // Destination stride is the physical framebuffer width; RGB565 copied verbatim
     // (no byte swap, no RGB/BGR conversion) — parity with the GFX row loop.
     // Stride приёмника = физическая ширина FB; RGB565 копируется как есть.
-    uint16_t* row = s_fb + (static_cast<size_t>(y) * kWidth) + x;
+    uint16_t* row = s_fb +
+                    (static_cast<size_t>(y) * kDisplayConfig.panel.native_width) + x;
     const size_t row_bytes = static_cast<size_t>(w) * sizeof(uint16_t);
     const int16_t src_stride = static_cast<int16_t>(w + x_skip);
     for (int16_t j = 0; j < h; ++j) {
         memcpy(row, src, row_bytes);
         src += src_stride;
-        row += kWidth;
+        row += kDisplayConfig.panel.native_width;
     }
     return true;
 }
 
 void setBrightnessPercent(uint8_t percent) {
-    pinMode(ST7701_BL, OUTPUT);
-    analogWrite(ST7701_BL, map(percent, 0, 100, 0, 255));
+    pinMode(kDisplayConfig.wiring.backlight_gpio, OUTPUT);
+    analogWrite(kDisplayConfig.wiring.backlight_gpio, map(percent, 0, 100, 0, 255));
 }
 
 void end() {
@@ -587,24 +664,37 @@ uint32_t nominalPclkHz() {
 }
 
 bool promotePclkToRuntimeNominal() {
-    // One-shot. Called from the Boot->Main handoff, i.e. the semantic point where the initial
-    // Boot presentation is complete and normal runtime has begun. An ordinary set-PCLK
-    // transition: no scanout restart, no panel reinit, no restart-in-VSYNC change.
-    // Одноразово. Вызывается на переходе Boot->Main — в семантической точке, где первичная
-    // презентация Boot завершена и начался обычный runtime. Обычный переход set-PCLK.
+    // Driver acceptance only. The divider is programmed later in the VSYNC ISR.
+    // A rejected set_pclk does not latch the one-shot. No scanout restart.
+    // Только принятие драйвером. Делитель программируется позже в VSYNC ISR.
+    // Отклонённый set_pclk не защёлкивает one-shot. Без restart scanout.
     if (s_pclk_promoted) {
-        return false;
+        return true;
     }
     if (!s_ready || !s_panel) {
-        return false;  // not latched: retry on a later call / не защёлкиваем, можно повторить
+        return false;
     }
+    const esp_err_t err = esp_lcd_rgb_panel_set_pclk(
+        s_panel, kDisplayConfig.recommended.runtime_pclk_hz);
+    if (err != ESP_OK) {
+        // Backoff lives in the guard. This log is the 1st rejection and every 10th.
+        // Пауза между попытками — в guard. Этот лог — первый отказ и каждый десятый.
+        static uint32_t s_promote_reject = 0;
+        ++s_promote_reject;
+        if (s_promote_reject == 1u || (s_promote_reject % 10u) == 0u) {
+            Serial.printf("[esp_lcd_st7701] pclk promote not_accepted err=%s count=%lu\n",
+                          esp_err_to_name(err), (unsigned long)s_promote_reject);
+        }
+        return false;
+    }
+    s_pclk_nominal_hz = kDisplayConfig.recommended.runtime_pclk_hz;
     s_pclk_promoted = true;
-    s_pclk_nominal_hz = kPclkNominalHz;
-    const bool ok = requestRgbPclkHz(kPclkNominalHz);
-    Serial.printf("[esp_lcd_st7701] pclk promote startup=%lu -> runtime=%lu requested=%d vsyncSeq=%lu\n",
-                  (unsigned long)kPclkFlashGuardHz, (unsigned long)kPclkNominalHz, ok ? 1 : 0,
+    Serial.printf("[esp_lcd_st7701] pclk promote driver_accepted startup=%lu runtime=%lu "
+                  "divider=vsync_later hardware_hz=not_confirmed vsyncSeq=%lu\n",
+                  (unsigned long)kDisplayConfig.recommended.startup_pclk_hz,
+                  (unsigned long)kDisplayConfig.recommended.runtime_pclk_hz,
                   (unsigned long)vsyncSeq());
-    return ok;
+    return true;
 }
 
 uint32_t vsyncSeq() {

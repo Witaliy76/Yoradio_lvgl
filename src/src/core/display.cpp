@@ -284,20 +284,13 @@ void Display::_tryCompleteLvglPlayerHandoff() {
   lvgl_ui::onModeChanged(PLAYER, PLAYER);
   _bootStep = 2;
   _suspendFlush = false;
-  // Promote the startup RGB PCLK to the runtime nominal, exactly once. This is the semantic
-  // boundary the promotion belongs to: one-shot (guarded by _lvgl_player_handoff_pending above
-  // and latched in the backend), reached when the Boot screen has been dismissed, PLAYER is the
-  // mode and _bootStep == 2 — the initial Boot presentation is complete and normal runtime has
-  // begun. An ordinary set-PCLK transition: no scanout restart, no panel reinit, no change to
-  // the restart-in-VSYNC policy. Startup runs at the lower PCLK so the scanout comes up with
-  // more timing margin; after this point the flash guard works at its normal 10 / 6 MHz pair.
-  // Повысить стартовый PCLK RGB до runtime-номинала, ровно один раз. Это та семантическая
-  // граница, которой принадлежит повышение: одноразовая (выше _lvgl_player_handoff_pending,
-  // плюс защёлка в backend), достигается когда экран Boot снят, режим PLAYER и _bootStep == 2 —
-  // первичная презентация завершена и начался обычный runtime. Это обычный переход set-PCLK:
-  // без restart scanout, без reinit панели. Старт идёт на пониженном PCLK, чтобы scanout
-  // поднимался с большим запасом по таймингам; дальше guard работает штатно на паре 10 / 6 МГц.
-  (void)DisplayPort::promoteRgbPclkToRuntimeNominal();
+  // The screen transition is finished here. The 6 -> 10 MHz request stays pending until
+  // the flash guard on DspTask can issue it. Do not call set_pclk from this function, and
+  // do not dismiss Boot again to retry: poll() keeps the request until the driver accepts it.
+  // Переход экрана завершён здесь. Запрос 6 -> 10 МГц остаётся pending, пока flash guard
+  // на DspTask не сможет его выдать. set_pclk из этой функции не вызывается, и Boot заново
+  // не снимается: poll() хранит запрос, пока драйвер его не примет.
+  rgb_flash_guard::requestRuntimePclkPromotion();
   // PageChain requests the late resync only after Main reports LV_EVENT_SCREEN_LOADED.
   // Do not request here: dismissBoot() may still be inside its fade and onModeChanged()
   // can immediately route through goTo(Main); the completion seam deduplicates that pair.
@@ -391,10 +384,9 @@ void Display::copyAIInterpretationForLvgl(char* buf, size_t cap) const {
 // The PCLK flash guard replaced that with prevention: the mutation itself runs at 6 MHz, so
 // there is nothing left to repair, and no product code requests a scanout restart any more.
 //
-// What remains, deliberately, is the EARLY boot-only restart (one call site, in loop() below)
-// and a MANUAL service restart reachable only from the diagnostic CLI. Neither is a recovery
-// mechanism for runtime writes: a one-shot restart during PLAY is nondeterministic
-// (NORMAL / BLACK / SHIFT, S01-4X-ISO-D), which is precisely why no automatic caller exists.
+// The only restart remains a manual service command from the diagnostic CLI.
+// Boot presentation below uses a redraw, without restarting RGB scanout. A one-shot
+// restart during PLAY was nondeterministic (NORMAL / BLACK / SHIFT, S01-4X-ISO-D).
 //
 // S01-5D: автоматический слой runtime RGB resync удалён. requestRgbResync(),
 // _performRgbResync(), тип запроса RGB_RESYNC с его case в очереди и
@@ -402,10 +394,9 @@ void Display::copyAIInterpretationForLvgl(char* buf, size_t cap) const {
 // flash guard заменил это профилактикой: сама мутация идёт на 6 МГц, ремонтировать нечего, и
 // продуктовый код больше не запрашивает restart scanout.
 //
-// Намеренно остаются: РАННИЙ boot-only restart (один call site, в loop() ниже) и РУЧНОЙ
-// сервисный restart, доступный только из диагностического CLI. Ни то, ни другое не является
-// механизмом восстановления после runtime-записей: одиночный restart во время PLAY
-// недетерминирован (NORMAL / BLACK / SHIFT), поэтому автоматических вызывающих и нет.
+// Остался только ручной сервисный restart из диагностического CLI. Показ Boot ниже
+// выполняет перерисовку без restart RGB scanout. Одиночный restart во время PLAY
+// был недетерминирован (NORMAL / BLACK / SHIFT, S01-4X-ISO-D).
 
 void Display::putRequest(displayRequestType_e type, int payload){
   if(displayQueue==NULL) return;
@@ -524,8 +515,8 @@ void Display::loop() {
         // запрос покрывает write + commit + read + apply.
         case MAIN_BG_FS_UPDATED: {
           lvgl_ui::onMainBackgroundSlotCommitted(static_cast<uint8_t>(request.payload));
-          // Repair E2: dest commit still owes recovery; consume after this loop's taskHandler.
-          // Repair E2: dest-commit по-прежнему должен восстановиться — после taskHandler.
+          // Repair E2: redraw the committed destination after this loop's taskHandler.
+          // Repair E2: перерисовать обновлённый фон после taskHandler этого цикла.
           lvgl_ui::requestDeferredRedraw();
           lvgl_ui::noteDisplayBatchBusy();
           break;

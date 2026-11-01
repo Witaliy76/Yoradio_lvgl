@@ -49,6 +49,12 @@ constexpr uint32_t kMaxHoldWarnMs = 10000u;         // ACTIVE_6M with holders: r
 constexpr uint32_t kVsyncBarrier = 2u;              // counts after set_pclk() returned
 constexpr uint32_t kSetPclkRetryMs = 100u;          // back-off after a rejected set_pclk()
 
+// The protected path still uses these. S04-RB1 does not retune them.
+// Защищённый путь по-прежнему использует эти константы. S04-RB1 их не меняет.
+static_assert(kVsyncBarrier == 2u, "protected path keeps the two-VSYNC barrier");
+static_assert(kDownConfirmTimeoutMs == 1000u, "protected path keeps the DOWN timeout");
+static_assert(kReleaseLingerMs == 1500u, "release linger unchanged");
+
 enum State : uint8_t {
   kIdle10M = 0,
   kDownRequested = 1,
@@ -110,6 +116,8 @@ uint32_t s_linger_start_ms = 0;
 uint32_t s_base = 0;
 uint32_t s_transition_ms = 0;
 uint32_t s_requested_hz = 0;
+bool s_promote_pending = false;
+uint32_t s_promote_retry_after_ms = 0;
 
 // Owner task only.
 // Только задача-владелец.
@@ -130,11 +138,13 @@ uint32_t c_upStall = 0;
 uint32_t c_acquire = 0;
 uint32_t c_release = 0;
 uint32_t c_denied = 0;
+uint32_t c_noVsyncDenied = 0;
 uint32_t c_bypass = 0;
 uint32_t c_lingerCancel = 0;
 uint32_t c_maxHoldWarn = 0;
 uint32_t c_setPclkFail = 0;
 uint32_t c_releaseUnderflow = 0;
+uint32_t c_promoteFail = 0;
 
 const char* restartInVsyncName() {
 #if CONFIG_LCD_RGB_RESTART_IN_VSYNC
@@ -144,13 +154,82 @@ const char* restartInVsyncName() {
 #endif
 }
 
+// One classifier for acquire() and for the compile-time matrix.
+// Intentional bypass stays NotApplicable. A ready direct-RGB panel with no VSYNC
+// callback is Denied: no holder, no ACTIVE_6M, no claim that 6 MHz was confirmed.
+// Один классификатор для acquire() и для compile-time матрицы.
+// Намеренный bypass остаётся NotApplicable. Готовая direct-RGB панель без VSYNC
+// callback — Denied: без holder, без ACTIVE_6M и без заявления, что 6 МГц подтверждены.
+enum class GuardDisposition : uint8_t { kApply = 0, kNotApplicable = 1, kDenyNoVsync = 2 };
+
+constexpr GuardDisposition classifyGuard(bool guard_enabled, bool panel_ready,
+                                        uint16_t bounce_px, bool vsync_ready) {
+  if (!guard_enabled) return GuardDisposition::kNotApplicable;
+  if (!panel_ready) return GuardDisposition::kNotApplicable;
+  if (bounce_px > 0) return GuardDisposition::kNotApplicable;
+  if (!vsync_ready) return GuardDisposition::kDenyNoVsync;
+  return GuardDisposition::kApply;
+}
+
+static_assert(classifyGuard(true, false, 0, false) == GuardDisposition::kNotApplicable,
+              "panel not ready stays NotApplicable");
+static_assert(classifyGuard(true, true, 0, true) == GuardDisposition::kApply,
+              "ready panel with VSYNC takes the protected path");
+static_assert(classifyGuard(true, true, 0, false) == GuardDisposition::kDenyNoVsync,
+              "ready direct-RGB panel without VSYNC is Denied");
+static_assert(classifyGuard(true, true, 1, false) == GuardDisposition::kNotApplicable,
+              "bounce topology stays NotApplicable");
+static_assert(classifyGuard(false, true, 0, false) == GuardDisposition::kNotApplicable,
+              "guard off stays NotApplicable");
+
+// Pure admission test for a pending 6 -> 10 MHz promotion. The state machine itself
+// is not duplicated here: state_idle is kIdle10M, and every other guard state is not idle.
+// Чистая проверка допуска повышения 6 -> 10 МГц. Автомат здесь не копируется:
+// state_idle — это kIdle10M, любое другое состояние guard — не idle.
+constexpr bool promotionAllowed(bool guard_enabled, bool panel_ready, uint16_t bounce_px,
+                                bool vsync_ready, bool state_idle, bool holders_zero,
+                                bool linger_armed) {
+  if (!panel_ready) return false;
+  if (!guard_enabled) return true;
+  if (bounce_px > 0) return true;
+  if (!vsync_ready) return false;
+  if (!state_idle || !holders_zero || linger_armed) return false;
+  return true;
+}
+
+static_assert(promotionAllowed(true, true, 0, true, true, true, false),
+              "IDLE, no holder, no linger, VSYNC ready: allowed");
+static_assert(!promotionAllowed(true, true, 0, true, true, false, false),
+              "holder already visible: deferred");
+static_assert(!promotionAllowed(true, true, 0, true, false, true, false),
+              "DOWN, ACTIVE or UP: deferred");
+static_assert(!promotionAllowed(true, true, 0, true, false, true, true),
+              "linger: deferred");
+static_assert(!promotionAllowed(true, true, 0, true, true, true, true),
+              "linger flag blocks even a marked-idle snapshot");
+static_assert(!promotionAllowed(true, true, 0, false, true, true, false),
+              "ready direct-T0 without VSYNC: deferred");
+static_assert(!promotionAllowed(true, false, 0, false, true, true, false),
+              "panel not ready: deferred");
+static_assert(promotionAllowed(false, true, 0, false, false, false, true),
+              "guard disabled and panel ready: previous path kept");
+static_assert(!promotionAllowed(false, false, 0, false, true, true, false),
+              "guard disabled still waits for the panel");
+static_assert(promotionAllowed(true, true, 1, false, false, false, true),
+              "bounce topology keeps the previous promotion path");
+
+// Worst-case s01guard line, including promotePending and promoteFail.
+// Telnet passes 1023 bytes (telnet.cpp, buffer 1024 minus the newline slot).
+// Худшая строка s01guard, включая promotePending и promoteFail.
+// Telnet передаёт 1023 байта (буфер 1024 минус место под перевод строки).
+static_assert(610 < 1023, "s01guard status fits the telnet buffer");
+
 #if YORADIO_RGB_FLASH_GUARD
-// Null when the guard applies; otherwise the reason it does not.
-// Null, если guard применим; иначе причина, почему нет.
+// Null when the guard applies. no_vsync_counter is not a bypass: classifyGuard denies it.
+// Null, если guard применим. no_vsync_counter — не bypass: classifyGuard даёт Denied.
 const char* bypassReason(const DisplayPort::RgbScanoutStatus& st) {
   if (!st.panelReady) return "panel_not_ready";
   if (st.bounceBufferPx > 0) return "bounce";
-  if (!st.vsyncCounterReady) return "no_vsync_counter";
   return nullptr;
 }
 
@@ -326,6 +405,71 @@ void stepOwner() {
 }
 #endif  // YORADIO_RGB_FLASH_GUARD
 
+// Apply a pending Boot->Main promotion. Non-blocking. s_mux is not held across DisplayPort.
+// A writer that arrives after the idle check and before set_pclk(10 MHz) cannot become
+// Protected until stepOwner later enters ACTIVE_6M, and that entry is only from
+// DOWN_REQUESTED after set_pclk(6 MHz) and the two-VSYNC barrier. acquire() returns
+// Protected only when s_state == kActive6M.
+// Применить отложенное повышение Boot->Main. Без блокировки. s_mux не держится на время DisplayPort.
+// Writer, пришедший после проверки idle и до set_pclk(10 МГц), не станет Protected, пока
+// stepOwner не войдёт в ACTIVE_6M. Туда входят только из DOWN_REQUESTED после set_pclk(6 МГц)
+// и барьера в два VSYNC. acquire() возвращает Protected только при s_state == kActive6M.
+void tryRuntimePromotion() {
+  bool pending = false;
+  bool idle = false;
+  bool linger = false;
+  uint32_t holders = 0;
+  uint32_t retry_at = 0;
+  portENTER_CRITICAL(&s_mux);
+  pending = s_promote_pending;
+  idle = (s_state == kIdle10M);
+  holders = s_holders;
+  linger = s_linger_armed;
+  retry_at = s_promote_retry_after_ms;
+  portEXIT_CRITICAL(&s_mux);
+  if (!pending) return;
+
+  const uint32_t now = millis();
+  if (static_cast<int32_t>(now - retry_at) < 0) return;
+
+  const DisplayPort::RgbScanoutStatus st = DisplayPort::rgbScanoutStatus();
+  const bool guard_on = (YORADIO_RGB_FLASH_GUARD != 0);
+  if (!promotionAllowed(guard_on, st.panelReady, st.bounceBufferPx, st.vsyncCounterReady,
+                        idle, holders == 0, linger)) {
+    return;
+  }
+
+  // Direct-T0 with the guard on: sample the idle condition again immediately
+  // before the driver call. The residual race after this release is covered by
+  // the ACTIVE_6M rule above, not by holding s_mux across set_pclk.
+  // Direct-T0 при включённом guard: ещё раз снять idle прямо перед вызовом драйвера.
+  // Остаточная гонка после этого release закрыта правилом ACTIVE_6M, а не удержанием s_mux.
+  if (guard_on && st.bounceBufferPx == 0) {
+    portENTER_CRITICAL(&s_mux);
+    const bool still = s_promote_pending && s_state == kIdle10M && s_holders == 0 &&
+                       !s_linger_armed;
+    portEXIT_CRITICAL(&s_mux);
+    if (!still) return;
+  }
+
+  const bool ok = DisplayPort::promoteRgbPclkToRuntimeNominal();
+  if (!ok) {
+    portENTER_CRITICAL(&s_mux);
+    ++c_promoteFail;
+    s_promote_retry_after_ms = now + kSetPclkRetryMs;
+    portEXIT_CRITICAL(&s_mux);
+    return;
+  }
+
+  const uint32_t accepted_hz = DisplayPort::rgbScanoutStatus().nominalPclkHz;
+  portENTER_CRITICAL(&s_mux);
+  s_promote_pending = false;
+  s_requested_hz = accepted_hz;
+  portEXIT_CRITICAL(&s_mux);
+  GUARD_LOG("pclk_promote driver_accepted hz=%lu divider=vsync_later hardware_hz=not_confirmed",
+            (unsigned long)accepted_hz);
+}
+
 }  // namespace
 
 const char* grantName(Grant grant) {
@@ -345,10 +489,29 @@ Grant acquire(const char* source) {
   return Grant::NotApplicable;
 #else
   const DisplayPort::RgbScanoutStatus st = DisplayPort::rgbScanoutStatus();
-  const char* reason = bypassReason(st);
-  if (reason) {
+  const GuardDisposition disposition =
+      classifyGuard(true, st.panelReady, st.bounceBufferPx, st.vsyncCounterReady);
+  if (disposition == GuardDisposition::kDenyNoVsync) {
+    // No holder and no state-machine step. 6 MHz is not confirmed.
+    // Log the first denial and every 10th so a SaveManager retry cannot flood.
+    // Без holder и без шага автомата. 6 МГц не подтверждены.
+    // Лог — первый отказ и каждый десятый, чтобы повтор SaveManager не заливал консоль.
+    uint32_t count = 0;
+    portENTER_CRITICAL(&s_mux);
+    ++c_noVsyncDenied;
+    ++c_denied;
+    count = c_noVsyncDenied;
+    portEXIT_CRITICAL(&s_mux);
+    if (count == 1u || (count % 10u) == 0u) {
+      GUARD_LOG("acquire_denied source=%s reason=no_vsync_counter count=%lu", src,
+                (unsigned long)count);
+    }
+    return Grant::Denied;
+  }
+  if (disposition == GuardDisposition::kNotApplicable) {
+    const char* reason = bypassReason(st);
     __atomic_fetch_add(&c_bypass, 1u, __ATOMIC_RELAXED);
-    GUARD_TRACE("bypass source=%s reason=%s", src, reason);
+    GUARD_TRACE("bypass source=%s reason=%s", src, reason ? reason : "?");
     return Grant::NotApplicable;
   }
 
@@ -465,6 +628,15 @@ void poll() {
 #if YORADIO_RGB_FLASH_GUARD
   stepOwner();
 #endif
+  tryRuntimePromotion();
+}
+
+void requestRuntimePclkPromotion() {
+  // Sticky until the driver accepts. Does not touch PCLK and does not block.
+  // Висит, пока драйвер не примет. PCLK не трогает и не блокирует.
+  portENTER_CRITICAL(&s_mux);
+  s_promote_pending = true;
+  portEXIT_CRITICAL(&s_mux);
 }
 
 size_t formatStatus(char* out, size_t cap) {
@@ -473,34 +645,39 @@ size_t formatStatus(char* out, size_t cap) {
   }
   const DisplayPort::RgbScanoutStatus st = DisplayPort::rgbScanoutStatus();
   uint8_t state;
-  uint32_t holders, requested_hz;
-  bool linger;
+  uint32_t holders, requested_hz, promote_fail;
+  bool linger, promote_pending;
   portENTER_CRITICAL(&s_mux);
   state = s_state;
   holders = s_holders;
   requested_hz = s_requested_hz;
   linger = s_linger_armed;
+  promote_pending = s_promote_pending;
+  promote_fail = c_promoteFail;
   portEXIT_CRITICAL(&s_mux);
   const int n = snprintf(
       out, cap,
       "[RGB-GUARD] status enabled=%d state=%s holders=%lu requestedHz=%lu nominalHz=%lu "
       "guardHz=%lu vsyncSeq=%lu linger=%d downReq=%lu downOk=%lu "
       "downStall=%lu upReq=%lu upOk=%lu upStall=%lu acquire=%lu release=%lu denied=%lu "
+      "noVsyncDenied=%lu "
       "bypass=%lu lingerCancel=%lu maxHoldWarn=%lu setPclkFail=%lu releaseUnderflow=%lu "
       "restartExec=%lu restartRejectedBounce=%lu bounce=%u vsync_cb=%d "
-      "restart_in_vsync=%s",
+      "restart_in_vsync=%s promotePending=%d promoteFail=%lu",
       YORADIO_RGB_FLASH_GUARD ? 1 : 0, stateName(state), (unsigned long)holders,
       (unsigned long)requested_hz, (unsigned long)st.nominalPclkHz,
       (unsigned long)st.flashGuardPclkHz, (unsigned long)st.vsyncSeq,
       linger ? 1 : 0, (unsigned long)c_downReq,
       (unsigned long)c_downOk, (unsigned long)c_downStall, (unsigned long)c_upReq,
       (unsigned long)c_upOk, (unsigned long)c_upStall, (unsigned long)c_acquire,
-      (unsigned long)c_release, (unsigned long)c_denied, (unsigned long)c_bypass,
+      (unsigned long)c_release, (unsigned long)c_denied, (unsigned long)c_noVsyncDenied,
+      (unsigned long)c_bypass,
       (unsigned long)c_lingerCancel, (unsigned long)c_maxHoldWarn,
       (unsigned long)c_setPclkFail, (unsigned long)c_releaseUnderflow,
       (unsigned long)st.restartExec,
       (unsigned long)st.restartRejectedBounce, (unsigned)st.bounceBufferPx,
-      st.vsyncCounterReady ? 1 : 0, restartInVsyncName());
+      st.vsyncCounterReady ? 1 : 0, restartInVsyncName(),
+      promote_pending ? 1 : 0, (unsigned long)promote_fail);
 
   if (n < 0) {
     out[0] = '\0';

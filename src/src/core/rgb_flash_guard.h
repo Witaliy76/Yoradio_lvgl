@@ -3,7 +3,8 @@
 //
 // Ownership / владение:
 //   storage code   -> acquire() / release()        ("I need a protected flash episode")
-//   Display::loop  -> poll() on DspTask              (sole caller of DisplayPort::requestRgbPclkHz)
+//   Boot->Main     -> requestRuntimePclkPromotion() (pending only, no set_pclk)
+//   Display::loop  -> poll() on DspTask              (sole issuer of runtime set_pclk)
 //   DisplayPort    -> ST7701 backend -> esp_lcd_rgb_panel_set_pclk()
 // The guard knows no setting names, no NVS/Preferences details and no audio state.
 // Guard не знает имён настроек, деталей NVS/Preferences и состояния аудио.
@@ -32,13 +33,15 @@ enum class Grant : uint8_t {
   // PCLK guard подтверждён барьером VSYNC. Вызывающий держит один holder и обязан вызвать
   // release() после возврата последней физической записи.
   Protected = 0,
-  // Guard switched off, panel not up, bounce topology or no VSYNC counter. No holder taken.
-  // Guard выключен, панель не поднята, bounce-топология или нет счётчика VSYNC. Holder не взят.
+  // Guard switched off, panel not up, or bounce topology. No holder taken.
+  // A missing VSYNC callback on a ready direct-RGB panel is not this grant.
+  // Guard выключен, панель не поднята или bounce-топология. Holder не взят.
+  // Отсутствие VSYNC callback на готовой direct-RGB панели — это не этот grant.
   NotApplicable = 1,
-  // Flash-guard PCLK not confirmed within the DOWN timeout. No holder kept.
-  // The caller must NOT write flash now; it keeps its data dirty and retries later.
-  // PCLK guard не подтверждён за DOWN-таймаут. Holder не сохраняется.
-  // Вызывающий НЕ пишет flash сейчас; данные остаются dirty, повтор позже.
+  // DOWN timeout, or a ready direct-RGB panel with no VSYNC callback.
+  // No holder kept. The caller must NOT write flash now.
+  // DOWN-таймаут или готовая direct-RGB панель без VSYNC callback.
+  // Holder не сохраняется. Вызывающий НЕ пишет flash сейчас.
   Denied = 2
 };
 
@@ -56,11 +59,18 @@ Grant acquire(const char* source);
 // Завершает holder после Protected acquire(). Для других grant — no-op.
 void release(Grant grant, const char* source);
 
-// DspTask only (Display::loop). Advances DOWN/UP transitions and the release linger.
-// Non-blocking. The first call registers DspTask as the PCLK owner.
-// Только DspTask (Display::loop). Ведёт переходы DOWN/UP и задержку отпускания.
-// Не блокирует. Первый вызов регистрирует DspTask как владельца PCLK.
+// DspTask only (Display::loop). Advances DOWN/UP transitions, the release linger,
+// and a pending Boot->Main promotion. Non-blocking. The first call registers
+// DspTask as the PCLK owner.
+// Только DspTask (Display::loop). Ведёт переходы DOWN/UP, linger и отложенное
+// повышение Boot->Main. Не блокирует. Первый вызов регистрирует DspTask владельцем PCLK.
 void poll();
+
+// Boot->Main registers one runtime-nominal promotion. Does not change PCLK.
+// poll() applies it later, only when this guard allows it.
+// Boot->Main регистрирует одно повышение к runtime-номиналу. PCLK здесь не меняется.
+// poll() применит его позже, только когда этот guard разрешит.
+void requestRuntimePclkPromotion();
 
 // One status line without a trailing newline. Returns the length written.
 // Одна строка статуса без перевода строки. Возвращает записанную длину.

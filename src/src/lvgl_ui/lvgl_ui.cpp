@@ -112,10 +112,10 @@ static bool preset_open_gesture_allowed() {
 // lv_timer_handler(). Только DspTask — без очередей и мьютексов.
 static lv_dir_t s_deferred_carousel_dir = LV_DIR_NONE;
 
-// Repair E / Slice 6C: runtime RGB recovery owed after normal LVGL paint (theme / JPEG / A2 / FS).
-// DspTask-only; no mutex. Multiple marks collapse to one recovery on the first quiescent iteration.
-// Repair E / слайс 6C: долг RGB recovery после обычной отрисовки. Только DspTask; без mutex.
-// Несколько меток схлопываются в одно восстановление на первой спокойной итерации.
+// Deferred LVGL redraw after theme / JPEG / A2 / FS work; no RGB scanout restart.
+// DspTask-only, no mutex. Multiple marks collapse into one quiet-iteration redraw.
+// Отложенная перерисовка LVGL после темы / JPEG / A2 / FS; без restart RGB scanout.
+// Только DspTask, без mutex; несколько меток дают одну перерисовку в спокойном цикле.
 static bool s_deferred_redraw_pending = false;
 static bool s_runtime_recovery_batch_busy = false;
 
@@ -693,9 +693,11 @@ void lvgl_ui::initDisplayDriver(uint16_t hor_res, uint16_t ver_res) {
     // BASE-LVGL9-MIGRATION C2: lv_display_t owns buffer + flush registration directly —
     // no separate lv_disp_draw_buf_t / lv_disp_drv_t. E5C topology unchanged: one PSRAM buffer.
 #if DSP_MODEL == DSP_ST7701
-    // Block 8-E5B (4848S040): partial stripe 480×160 (was 80 in 8-E5A); 3 full-screen chunks.
-    // Block 8-E5B: полоса 160 строк — тест chunk count для переходов/Station (без UI redesign).
-    constexpr uint32_t kPartialLines = 160;
+    // BoardDefaults owns the tested LVGL host recommendation. Panel geometry comes
+    // through hor_res/ver_res from DisplayPort; UI profile selection remains S06.
+    // BoardDefaults хранит рекомендацию LVGL; размеры приходят от DisplayPort.
+    constexpr uint32_t kPartialLines =
+        yoradio::kActiveBoardDefaults.display.partial_draw_lines;
     const uint32_t buf_bytes = static_cast<uint32_t>(hor_res) * kPartialLines * sizeof(uint16_t);
     s_disp_buf_partial_h = static_cast<uint16_t>(kPartialLines);
     s_disp_buf1 = static_cast<uint8_t*>(ps_malloc(buf_bytes));
@@ -760,9 +762,9 @@ void lvgl_ui::taskHandler() {
         s_deferred_carousel_dir = LV_DIR_NONE;
         map_horizontal_gesture_to_carousel(dir);
     }
-    // A completed screen load can be reported from inside LVGL event dispatch. Keep the event
-    // callback side-effect free; request the Display-owned, next-VSYNC restart only after dispatch.
-    // Завершение загрузки приходит из LVGL callback; сам запрос делаем только после dispatch.
+    // A screen-load event may arrive during LVGL dispatch. Deferred redraw is handled
+    // after dispatch on a quiet DspTask iteration; no RGB restart is requested.
+    // Событие загрузки приходит при dispatch LVGL; перерисовка ждёт спокойного цикла DspTask.
 #if LV_USE_PERF_MONITOR
     // L1-B: scan only while ON and presentation is still pending (armed by applyPerformanceMonitorState).
     // L1-B: скан только при ON, пока стиль не применён (взводит applyPerformanceMonitorState).
@@ -770,12 +772,11 @@ void lvgl_ui::taskHandler() {
         repositionBuiltinLvglPerfMonitorOnce();
     }
 #endif
-    // Slice 6C: consume runtime recovery only when this iteration had no further relevant
-    // display/asset work. A busy iteration keeps the pending flag (coalesce) and folds any
-    // SCREEN_LOADED transition resync into that later redraw → RGB restart. Transition-only
-    // (no runtime pending) keeps the proven no-extra-refr_now path.
-    // Слайс 6C: recovery только на спокойной итерации. Busy оставляет pending и забирает
-    // переходный resync в поздний redraw→restart. Transition-only без runtime pending — как раньше.
+    // Consume deferred redraw only after display/asset work becomes quiet. Busy work
+    // keeps the request pending and coalesces later marks. With no pending redraw,
+    // a screen transition adds no extra lv_refr_now call.
+    // Отложенная перерисовка выполняется в спокойном цикле. Busy сохраняет запрос;
+    // переход экрана без pending не добавляет вызов lv_refr_now.
     // S6-THEME-01: run at most one heavy Theme transaction, for the newest request only.
     // Gate: pending, quiet window elapsed, not already applying, and the display owes no
     // recovery and did no busy work this iteration — the same "quiet iteration" the
@@ -1050,12 +1051,10 @@ void lvgl_ui::bootPrepareActiveMainBackgroundIfNeeded() {
     // Семантика прежняя: «попытка завершена», а не «фон есть».
     if (mainBgCacheRuntimeBusy()) return;
 
-    // S01-5D: the resync request that used to sit here is removed. This point only records that
-    // the boot background attempt has settled; the EARLY boot-only restart already ran long
-    // before, and no flash mutation happens here.
-    // S01-5D: прежний запрос ресинхрона убран. Здесь лишь фиксируется, что попытка подготовки
-    // фона на загрузке завершена; РАННИЙ boot-only restart уже прошёл задолго до этого, и
-    // мутаций flash здесь нет.
+    // The boot background attempt has settled. This point records completion only;
+    // it performs no flash mutation or RGB scanout restart.
+    // Подготовка фона Boot завершилась. Здесь лишь фиксируется результат;
+    // мутаций flash и restart RGB scanout нет.
     s_main_bg_boot_prepare_done = true;
 }
 
@@ -1063,9 +1062,10 @@ void lvgl_ui::mainBgPollRuntimeApply() {
     if (!mainBgCachePollApply()) return;
     if (s_main_screen.refreshBackgroundFromCache()) {
         Serial.println("[MAIN_BG] Applied to Main");
-        // Repair D + E: keep the accepted stable-frame redraw; defer the RGB restart until
-        // after this DspTask iteration's lv_timer_handler (post-dispatch barrier).
-        // Repair D + E: стабильный кадр оставляем; RGB restart — после lv_timer_handler итерации.
+        // Repair D + E: redraw the applied background now and coalesce a later LVGL
+        // redraw after this DspTask iteration's paint. No RGB scanout restart.
+        // Repair D + E: фон перерисовывается сейчас, затем LVGL перерисует в спокойном
+        // цикле после paint. RGB scanout не перезапускается.
         (void)tryRedrawActiveScreenNow();
         requestDeferredRedraw();
         noteDisplayBatchBusy();

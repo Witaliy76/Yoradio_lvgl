@@ -59,6 +59,9 @@
   #define ESP_ARDUINO_3 1
 #endif
 #define CONFIG_VERSION  13 // TIMERS durations + independent enabled presets
+#if CONFIG_VERSION != 13
+#  error "Display Contract S04-5: CONFIG_VERSION must remain 13; review config migration before changing it."
+#endif
 
 enum playMode_e      : uint8_t  { PM_WEB=0, PM_SDCARD=1 };
 enum BitrateFormat { BF_UNCNOWN, BF_MP3, BF_AAC, BF_FLAC, BF_OGG, BF_WAV, BF_VOR, BF_OPU };

@@ -793,6 +793,8 @@ constexpr const char* kV2Namespace = "yo_sm_v2";
 //                    migrated enabled state from the preserved duration presets.
 constexpr const char* kV2MarkerKey = "v2m";
 constexpr uint32_t kV2SchemaVersion = 15u;
+static_assert(kV2SchemaVersion == 15u,
+              "Display Contract S04-5: SaveManager v2 schema must remain 15; review persistence migration before changing it.");
 
 // Legacy blob sentinel — `config.store.config_set` magic (see config.cpp / config.h).
 constexpr uint16_t kLegacyMagic = 4262u;

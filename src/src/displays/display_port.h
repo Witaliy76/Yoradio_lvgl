@@ -95,10 +95,12 @@ uint32_t rgbVsyncSeq();
 // записано. Вызывающий — RGB flash guard на DspTask. Это не restart scanout.
 bool requestRgbPclkHz(uint32_t hz);
 
-// One-shot promotion of the RGB PCLK from the startup frequency to the runtime nominal, issued at
-// the Boot->Main handoff. Ordinary set-PCLK transition; never a scanout restart.
-// Одноразовое повышение PCLK от стартовой частоты к runtime-номиналу на переходе Boot->Main.
-// Обычный переход set-PCLK; не restart scanout.
+// Ask the driver to record the runtime nominal PCLK. True means the driver accepted the
+// request; the divider is programmed later in a VSYNC ISR. The RGB flash guard on DspTask
+// is the only caller. Never a scanout restart.
+// Попросить драйвер записать runtime-номинал PCLK. True = драйвер принял запрос; делитель
+// программируется позже в VSYNC ISR. Единственный вызывающий — RGB flash guard на DspTask.
+// Не restart scanout.
 bool promoteRgbPclkToRuntimeNominal();
 
 }  // namespace DisplayPort

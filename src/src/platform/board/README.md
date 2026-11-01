@@ -10,6 +10,7 @@ Compile-time описание платы: какой это модуль, как
 ## Быстрый старт
 
 Заводская конфигурация в `src/myoptions.h`. Строки `DISP_*` и `TOUCH_*` остаются закомментированными. Итоговые GPIO совпадают с [таблицей 4848S040](profiles/esp32s3_4848s040/README.md).
+Для штатной платы вручную перечислять 24 GPIO дисплея не требуется. `DISP_*` нужен только при реальном изменении проводки.
 
 ```c
 #define YORADIO_BOARD YORADIO_BOARD_4848S040
@@ -34,12 +35,12 @@ board/
 ├── board_select.h        выбор профиля по YORADIO_BOARD, алиасы kActiveBoard и kWiring
 ├── board_wiring.h        наложение DISP_* / TOUCH_* поверх завода
 ├── board_validate.h      проверки семейства сборки и итоговой разводки
-├── compat/               временные имена ST7701_* и TS_*
+├── compat/               migration guards для ST7701 GPIO, временные TS_*
 └── profiles/             по одному каталогу на плату
 ```
 
 Как добавить плату: [profiles/README.md](profiles/README.md).
-Зачем ещё существуют старые имена: [compat/README.md](compat/README.md).
+Как мигрировать старые display GPIO имена: [compat/README.md](compat/README.md).
 
 ## 1. Выбор платы
 
@@ -63,7 +64,9 @@ board/
 
 `BoardProfile` — заводской факт: идентичность, требования к сборке, разводка дисплея и тача, наличие встроенного аудио и слота SD, факты USB и кнопки BOOT. Пользовательский `#define` этот объект не изменяет.
 
-`BoardDefaults` — рекомендации YoRadio, которые можно не соблюдать. Для 4848S040 там внешний I2S (DOUT 40, BCLK 1, LRCK 2) и wake с кнопки BOOT (GPIO0, активный низ). Прошивка `kActiveBoardDefaults` пока не читает. Живые настройки I2S и wake — по-прежнему макросы в `src/myoptions.h`. Удалять или начать применять этот файл — отдельное решение после S02, не часть текущей настройки.
+`BoardDefaults` — проверенные рекомендации YoRadio. Для 4848S040 там внешний I2S (DOUT 40, BCLK 1, LRCK 2), wake с кнопки BOOT (GPIO0, активный низ) и политика дисплея: PARTIAL, один буфер LVGL в 160 строк в PSRAM, один RGB-кадр в PSRAM, bounce 0, старт 6 МГц и один переход на 10 МГц. Геометрия 480×480 находится в профиле платы и PanelMode. Дисплей и LVGL уже читают display policy, а I2S и wake пока используют прежние настройки. `YORADIO_RGB_BOUNCE10` и другие поддерживаемые переключатели остаются доступны.
+
+`PanelMode` задаёт рецепт конкретной панели: controller, native geometry, RGB565, timing и идентичность init. `ResolvedDisplayConfig` на этапе компиляции соединяет его с итоговым `kWiring.display`, рекомендацией `BoardDefaults.display` и разрешёнными пользовательскими choices. Backend и DisplayPort читают этот итог; UI profile Square480 остаётся отдельным слоем S06, touch — S05.
 
 ## 4. kActiveBoard и kWiring
 
@@ -74,7 +77,7 @@ board/
 | `kActiveBoard` | Неизменный заводской `BoardProfile` выбранной платы. |
 | `kWiring` | Копия завода. При `YORADIO_CUSTOM_WIRING 0` она совпадает с заводом. При `1` в ней заменены только те поля, для которых в `myoptions.h` раскомментирован `DISP_*` или `TOUCH_*`. |
 
-Драйверы пока не читают эти структуры напрямую. Они читают временные имена `ST7701_*` и `TS_*`, а те раскрываются в поля `kWiring`. См. [compat/README.md](compat/README.md).
+Дисплей читает `kWiring.display` через `kResolvedDisplayConfig`. Тач пока читает временные `TS_*` aliases из `kWiring.touch`. См. [compat/README.md](compat/README.md).
 
 ## 5. Custom Wiring
 
@@ -132,12 +135,12 @@ Check DISP_*/TOUCH_* overrides against each other and against I2S_DOUT/BCLK/LRC 
 
 | Что | Где |
 |---|---|
-| Имена, которые видит старый код | `compat/legacy_macros.h`, подключается из `src/src/core/options.h` |
+| Ошибки миграции старых display GPIO и временные touch aliases | `compat/legacy_macros.h`, подключается из `src/src/core/options.h` |
 | RGB ST7701, прямой `esp_lcd` | `src/src/displays/esp_lcd_st7701_backend.cpp`, `displayST7701.cpp` |
 | GT911 | `src/src/GT911_Touchscreen/` |
 | Геометрия касания, не пины | `src/src/core/touch_geometry.h` |
 
-Мост исчезнет, когда драйвер дисплея (S04) и драйвер тача (S05) прочитают `kWiring` сами.
+Display GPIO bridge удалён в S04-4. Touch bridge остаётся до перехода драйвера тача на `kWiring` в S05.
 
 ## 11. Проверка и сборка
 

@@ -60,8 +60,10 @@ bool fillRgb565(uint16_t color);
 // stride источника = переданный `w`, вылет за экран отсекается.
 bool blitRgb565(int16_t x, int16_t y, const uint16_t* src, int16_t w, int16_t h);
 
-// Backlight via existing product path: analogWrite(ST7701_BL), 0..100 → 0..255.
-// Подсветка через текущий продуктовый путь: analogWrite(ST7701_BL).
+// Backlight uses effective board wiring, including DISP_BL Custom Wiring;
+// brightness 0..100 maps to PWM 0..255.
+// Подсветка читает итоговую разводку платы, включая DISP_BL Custom Wiring;
+// яркость 0..100 переводится в PWM 0..255.
 void setBrightnessPercent(uint8_t percent);
 
 // Tear down panel handle if begin() partially failed or for harness exit.
@@ -106,12 +108,12 @@ bool vsyncCounterReady();
 // kPclkNominalHz после promotePclkToRuntimeNominal(). Guard читает это как цель UP.
 uint32_t nominalPclkHz();
 
-// One-shot promotion of the startup PCLK to the runtime nominal at the Boot->Main handoff. An
-// ordinary set-PCLK transition: no scanout restart, no panel reinit, no restart-in-VSYNC change.
-// False when already promoted or the panel is not ready (the latter is not latched, so a later
-// call may still succeed).
-// Одноразовое повышение стартового PCLK до runtime-номинала на переходе Boot->Main. Обычный
-// переход set-PCLK.
+// Ask the driver to record the runtime nominal. True = accepted now, or already accepted.
+// True does not mean the divider has been programmed; that happens in a later VSYNC ISR.
+// False = not accepted and not latched, so a later call may still succeed. No scanout restart.
+// Попросить драйвер записать runtime-номинал. True = принято сейчас или уже было принято.
+// True не означает, что делитель уже запрограммирован: это делает поздний VSYNC ISR.
+// False = не принято и не защёлкнуто, повтор возможен. Без restart scanout.
 bool promotePclkToRuntimeNominal();
 
 // Record a new RGB PCLK. esp_lcd stores it and programs the divider in a later VSYNC ISR,

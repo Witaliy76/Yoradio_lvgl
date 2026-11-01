@@ -8,13 +8,12 @@
 // S02-5: the 28 migrated GPIO numbers (24 display + 4 touch) live only in the
 // constexpr BoardProfile below. They are not preprocessor macros, and they are
 // not copied into a second public macro set. The signal name sits in a comment
-// beside each RGB value. Drivers do not read this struct directly: board_select.h
-// publishes kWiring (identical to this profile while Custom Wiring is absent),
-// and compat/legacy_macros.h projects kWiring onto the temporary ST7701_* / TS_* names.
+// beside each RGB value. board_select.h publishes effective kWiring; display
+// consumers read it through kResolvedDisplayConfig, while touch retains TS_* until S05.
 // S02-5: 28 перенесённых GPIO живут только в constexpr BoardProfile ниже.
 // Это не макросы препроцессора и не второй публичный набор имён. Имя сигнала
-// стоит в комментарии рядом со значением. Драйверы читают kWiring через временные
-// имена ST7701_* / TS_*.
+// стоит в комментарии рядом со значением. Дисплей читает kWiring через
+// kResolvedDisplayConfig; тач временно использует TS_* до S05.
 #ifndef YORADIO_PLATFORM_BOARD_PROFILE_ESP32S3_4848S040_H
 #define YORADIO_PLATFORM_BOARD_PROFILE_ESP32S3_4848S040_H
 

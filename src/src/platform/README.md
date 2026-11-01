@@ -6,13 +6,17 @@ Author: Witaliy76 - https://github.com/Witaliy76
 Экраны и виджеты LVGL живут в [`src/src/lvgl_ui/`](../lvgl_ui/README.md) и не включают заголовки драйверов.
 Здесь лежит описание железа, а не вёрстка, темы и страницы.
 
-Сейчас реализован только Board Contract. Каталогов Display, Touch, Audio, Storage и Controls в этом дереве нет.
+Сейчас здесь Board Contract и, с S04-1, каталог `display/` с типами рецепта панели. Это данные, не драйвер: init, scanout и таблица Type9 остаются в `src/src/displays/`. Каталогов Touch, Audio, Storage и Controls в этом дереве нет.
 
 ## Что есть сейчас
 
 ```text
 platform/
 ├── README.md
+├── display/        PanelMode и один рецепт ST7701 RGB565 480×480
+│   ├── panel_mode.h
+│   ├── panel_st7701_rgb565_480.h
+│   └── resolved_display_config.h
 └── board/          Board Contract: выбор платы, заводской профиль, итоговая разводка
     ├── README.md
     ├── board_id.h
@@ -28,16 +32,18 @@ platform/
 
 ## Чего здесь ещё нет
 
-Имена ниже — направления следующих контрактов, не существующие модули:
+Display Contract сейчас связывает данные панели, платы и проверенной политики. Следующие направления остаются отдельными:
 
 | Направление | Когда | Где факты живут сейчас |
 |---|---|---|
-| Display Contract | S04 | Драйвер ST7701 в `src/src/displays/`. Рецепт панели (тайминги, init, PCLK) не скопирован в Board Contract. |
+| Display Contract | S04, код готов; аппаратный Gate B впереди | `PanelMode` хранит controller, 480×480 RGB565, timing и идентичность Type9. `BoardProfile` и `kWiring` задают GPIO. `BoardDefaults.display` хранит проверенную host-политику: LVGL 160 строк, PSRAM, PCLK 6/10/6 МГц, bounce 0. `ResolvedDisplayConfig` собирает их для backend и DisplayPort; LVGL берёт высоту partial buffer из BoardDefaults. Байты Type9 и scanout остаются в драйвере. |
 | Touch Contract | S05 | GT911 в `src/src/GT911_Touchscreen/`, геометрия в `src/src/core/touch_geometry.h`. |
 | UI Profile | S06 | Профили экрана в `src/src/lvgl_ui/profiles/`. |
 | Audio, Storage, Controls | позже | I2S, SD, IR, кнопки и wake остаются в `src/myoptions.h` и соответствующих драйверах. |
 
 Board Contract уже хранит присутствие встроенного аудио и слота microSD и номера заводских GPIO дисплея и тача. Он не выбирает активный выход звука и не назначает пины SD.
+
+Штатная ESP32-4848S040 использует готовую заводскую разводку: перечислять GPIO вручную не нужно. Если провод физически перенесён, `DISP_*` в `src/myoptions.h` переопределяет отдельные линии при `YORADIO_CUSTOM_WIRING=1`. Профиль UI (Square480) — отдельный слой S06, а контракт тача — S05.
 
 ## Граница
 

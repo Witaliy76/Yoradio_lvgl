@@ -2,6 +2,14 @@
 
 Intermediate releases inside a major Beta. Major milestones stay in `README.md`.
 
+## 0.9.434m-r2-lvgl-beta.3.05 — 2026-11-01
+
+- Added typed display configuration and centralized ST7701 panel settings.
+- Added guarded RGB PCLK transitions for safe flash writes.
+- Removed legacy ST7701 display GPIO aliases.
+- Fixed playlist upload so failed or malformed uploads preserve the active playlist.
+- Verified reboot, screensaver, display sleep/wake and flash writes on hardware.
+
 ## 0.9.434m-r2-lvgl-beta.3.04 — 2026-10-31
 
 - Added compile-time Board Contract and board selection for ESP32-S3 4848S040.

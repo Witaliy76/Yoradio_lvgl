@@ -102,6 +102,9 @@ static_assert(kActiveBoard.identity.build.psram_mode == PsramMode::Any
 // Проверки итоговой разводки (S02-5 / S02-6)
 // ---------------------------------------------------------------------------
 #if YORADIO_BOARD == YORADIO_BOARD_4848S040
+#if defined(CONFIG_LCD_RGB_RESTART_IN_VSYNC) && CONFIG_LCD_RGB_RESTART_IN_VSYNC
+#  error "4848S040 display contract: CONFIG_LCD_RGB_RESTART_IN_VSYNC must remain disabled in sdkconfig.4848S040 and sdkconfig.defaults."
+#endif
 
 // Factory profile numbers stay the accepted S02-4 / S02-5 baseline always.
 // Заводской профиль всегда хранит принятый baseline S02-4 / S02-5.
@@ -135,32 +138,8 @@ static_assert(kActiveBoard.touch.int_gpio   == kPinNotConnected, "factory touch 
 static_assert(kActiveBoard.touch.reset_gpio == kPinNotConnected, "factory touch RST is not connected");
 static_assert(kPinNotConnected == 255, "the not-connected sentinel stays 255");
 
-// Temporary aliases always follow kWiring (factory or custom).
-// Временные алиасы всегда следуют за kWiring (завод или custom).
-static_assert(ST7701_B0 == kWiring.display.data_gpio[0],  "ST7701_B0 must follow kWiring");
-static_assert(ST7701_B1 == kWiring.display.data_gpio[1],  "ST7701_B1 must follow kWiring");
-static_assert(ST7701_B2 == kWiring.display.data_gpio[2],  "ST7701_B2 must follow kWiring");
-static_assert(ST7701_B3 == kWiring.display.data_gpio[3],  "ST7701_B3 must follow kWiring");
-static_assert(ST7701_B4 == kWiring.display.data_gpio[4],  "ST7701_B4 must follow kWiring");
-static_assert(ST7701_G0 == kWiring.display.data_gpio[5],  "ST7701_G0 must follow kWiring");
-static_assert(ST7701_G1 == kWiring.display.data_gpio[6],  "ST7701_G1 must follow kWiring");
-static_assert(ST7701_G2 == kWiring.display.data_gpio[7],  "ST7701_G2 must follow kWiring");
-static_assert(ST7701_G3 == kWiring.display.data_gpio[8],  "ST7701_G3 must follow kWiring");
-static_assert(ST7701_G4 == kWiring.display.data_gpio[9],  "ST7701_G4 must follow kWiring");
-static_assert(ST7701_G5 == kWiring.display.data_gpio[10], "ST7701_G5 must follow kWiring");
-static_assert(ST7701_R0 == kWiring.display.data_gpio[11], "ST7701_R0 must follow kWiring");
-static_assert(ST7701_R1 == kWiring.display.data_gpio[12], "ST7701_R1 must follow kWiring");
-static_assert(ST7701_R2 == kWiring.display.data_gpio[13], "ST7701_R2 must follow kWiring");
-static_assert(ST7701_R3 == kWiring.display.data_gpio[14], "ST7701_R3 must follow kWiring");
-static_assert(ST7701_R4 == kWiring.display.data_gpio[15], "ST7701_R4 must follow kWiring");
-static_assert(ST7701_HSYNC == kWiring.display.hsync_gpio,     "ST7701_HSYNC must follow kWiring");
-static_assert(ST7701_VSYNC == kWiring.display.vsync_gpio,     "ST7701_VSYNC must follow kWiring");
-static_assert(ST7701_DE    == kWiring.display.de_gpio,        "ST7701_DE must follow kWiring");
-static_assert(ST7701_PCLK  == kWiring.display.pclk_gpio,      "ST7701_PCLK must follow kWiring");
-static_assert(ST7701_CS    == kWiring.display.cmd_cs_gpio,    "ST7701_CS must follow kWiring");
-static_assert(ST7701_SCK   == kWiring.display.cmd_sck_gpio,   "ST7701_SCK must follow kWiring");
-static_assert(ST7701_SDA   == kWiring.display.cmd_sda_gpio,   "ST7701_SDA must follow kWiring");
-static_assert(ST7701_BL    == kWiring.display.backlight_gpio, "ST7701_BL must follow kWiring");
+// Temporary touch aliases follow effective kWiring until S05.
+// Временные touch-алиасы следуют итоговому kWiring до S05.
 static_assert(TS_SDA == kWiring.touch.i2c_sda_gpio, "TS_SDA must follow kWiring");
 static_assert(TS_SCL == kWiring.touch.i2c_scl_gpio, "TS_SCL must follow kWiring");
 static_assert(TS_INT == kWiring.touch.int_gpio,     "TS_INT must follow kWiring");
@@ -171,30 +150,30 @@ static_assert(TS_SDA != 33 && TS_SCL != 32 && TS_INT != 21 && TS_RST != 25,
 #if !YORADIO_CUSTOM_WIRING
 // Factory mode: effective wiring is identical to the accepted baseline.
 // Штатный режим: итоговая разводка совпадает с принятым baseline.
-static_assert(kWiring.display.data_gpio[0]  == 4  && ST7701_B0 == 4,  "S02-5 B0 is GPIO4");
-static_assert(kWiring.display.data_gpio[1]  == 5  && ST7701_B1 == 5,  "S02-5 B1 is GPIO5");
-static_assert(kWiring.display.data_gpio[2]  == 6  && ST7701_B2 == 6,  "S02-5 B2 is GPIO6");
-static_assert(kWiring.display.data_gpio[3]  == 7  && ST7701_B3 == 7,  "S02-5 B3 is GPIO7");
-static_assert(kWiring.display.data_gpio[4]  == 15 && ST7701_B4 == 15, "S02-5 B4 is GPIO15");
-static_assert(kWiring.display.data_gpio[5]  == 8  && ST7701_G0 == 8,  "S02-5 G0 is GPIO8");
-static_assert(kWiring.display.data_gpio[6]  == 20 && ST7701_G1 == 20, "S02-5 G1 is GPIO20");
-static_assert(kWiring.display.data_gpio[7]  == 3  && ST7701_G2 == 3,  "S02-5 G2 is GPIO3");
-static_assert(kWiring.display.data_gpio[8]  == 46 && ST7701_G3 == 46, "S02-5 G3 is GPIO46");
-static_assert(kWiring.display.data_gpio[9]  == 9  && ST7701_G4 == 9,  "S02-5 G4 is GPIO9");
-static_assert(kWiring.display.data_gpio[10] == 10 && ST7701_G5 == 10, "S02-5 G5 is GPIO10");
-static_assert(kWiring.display.data_gpio[11] == 11 && ST7701_R0 == 11, "S02-5 R0 is GPIO11");
-static_assert(kWiring.display.data_gpio[12] == 12 && ST7701_R1 == 12, "S02-5 R1 is GPIO12");
-static_assert(kWiring.display.data_gpio[13] == 13 && ST7701_R2 == 13, "S02-5 R2 is GPIO13");
-static_assert(kWiring.display.data_gpio[14] == 14 && ST7701_R3 == 14, "S02-5 R3 is GPIO14");
-static_assert(kWiring.display.data_gpio[15] == 0  && ST7701_R4 == 0,  "S02-5 R4 is GPIO0");
-static_assert(kWiring.display.hsync_gpio     == 16 && ST7701_HSYNC == 16, "S02-5 HSYNC is GPIO16");
-static_assert(kWiring.display.vsync_gpio     == 17 && ST7701_VSYNC == 17, "S02-5 VSYNC is GPIO17");
-static_assert(kWiring.display.de_gpio        == 18 && ST7701_DE    == 18, "S02-5 DE is GPIO18");
-static_assert(kWiring.display.pclk_gpio      == 21 && ST7701_PCLK  == 21, "S02-5 PCLK is GPIO21");
-static_assert(kWiring.display.cmd_cs_gpio    == 39 && ST7701_CS    == 39, "S02-5 command CS is GPIO39");
-static_assert(kWiring.display.cmd_sck_gpio   == 48 && ST7701_SCK   == 48, "S02-5 command SCK is GPIO48");
-static_assert(kWiring.display.cmd_sda_gpio   == 47 && ST7701_SDA   == 47, "S02-5 command SDA is GPIO47");
-static_assert(kWiring.display.backlight_gpio == 38 && ST7701_BL    == 38, "S02-5 backlight is GPIO38");
+static_assert(kWiring.display.data_gpio[0]  == 4,  "S02-5 B0 is GPIO4");
+static_assert(kWiring.display.data_gpio[1]  == 5,  "S02-5 B1 is GPIO5");
+static_assert(kWiring.display.data_gpio[2]  == 6,  "S02-5 B2 is GPIO6");
+static_assert(kWiring.display.data_gpio[3]  == 7,  "S02-5 B3 is GPIO7");
+static_assert(kWiring.display.data_gpio[4]  == 15, "S02-5 B4 is GPIO15");
+static_assert(kWiring.display.data_gpio[5]  == 8,  "S02-5 G0 is GPIO8");
+static_assert(kWiring.display.data_gpio[6]  == 20, "S02-5 G1 is GPIO20");
+static_assert(kWiring.display.data_gpio[7]  == 3,  "S02-5 G2 is GPIO3");
+static_assert(kWiring.display.data_gpio[8]  == 46, "S02-5 G3 is GPIO46");
+static_assert(kWiring.display.data_gpio[9]  == 9,  "S02-5 G4 is GPIO9");
+static_assert(kWiring.display.data_gpio[10] == 10, "S02-5 G5 is GPIO10");
+static_assert(kWiring.display.data_gpio[11] == 11, "S02-5 R0 is GPIO11");
+static_assert(kWiring.display.data_gpio[12] == 12, "S02-5 R1 is GPIO12");
+static_assert(kWiring.display.data_gpio[13] == 13, "S02-5 R2 is GPIO13");
+static_assert(kWiring.display.data_gpio[14] == 14, "S02-5 R3 is GPIO14");
+static_assert(kWiring.display.data_gpio[15] == 0,  "S02-5 R4 is GPIO0");
+static_assert(kWiring.display.hsync_gpio     == 16, "S02-5 HSYNC is GPIO16");
+static_assert(kWiring.display.vsync_gpio     == 17, "S02-5 VSYNC is GPIO17");
+static_assert(kWiring.display.de_gpio        == 18, "S02-5 DE is GPIO18");
+static_assert(kWiring.display.pclk_gpio      == 21, "S02-5 PCLK is GPIO21");
+static_assert(kWiring.display.cmd_cs_gpio    == 39, "S02-5 command CS is GPIO39");
+static_assert(kWiring.display.cmd_sck_gpio   == 48, "S02-5 command SCK is GPIO48");
+static_assert(kWiring.display.cmd_sda_gpio   == 47, "S02-5 command SDA is GPIO47");
+static_assert(kWiring.display.backlight_gpio == 38, "S02-5 backlight is GPIO38");
 static_assert(kWiring.touch.i2c_sda_gpio == 19 && TS_SDA == 19, "S02-5 touch SDA is GPIO19");
 static_assert(kWiring.touch.i2c_scl_gpio == 45 && TS_SCL == 45, "S02-5 touch SCL is GPIO45");
 static_assert(kWiring.touch.int_gpio   == kPinNotConnected && TS_INT == kPinNotConnected, "S02-5 touch INT is not connected");

@@ -6,27 +6,30 @@
 // Every value here is a recommendation the user may override in myoptions.h.
 // Nothing in it may be read as a hardware constraint, and no compile-time check
 // may reject a build merely because a user chose different values.
-// S02-5 keeps this file. Nothing in the firmware reads kActiveBoardDefaults yet.
+// Display consumers now read kActiveBoardDefaults.display: the resolved contract
+// supplies backend/DisplayPort policy, and LVGL reads partial_draw_lines directly.
 // Live I2S_DOUT / I2S_BCLK / I2S_LRC and WAKE_PIN stay in myoptions.h, because
 // Audio.h and the wake-range check use them inside #if. A later slice may either
 // start applying these recommendations through #ifndef, or delete the file once
 // that role is clearly unwanted.
-// S02-5 этот файл сохраняет. Прошивка пока не читает kActiveBoardDefaults.
+// Display-потребители теперь читают kActiveBoardDefaults.display: resolved-контракт
+// передаёт политику backend/DisplayPort, LVGL берёт partial_draw_lines напрямую.
 // Живые I2S и WAKE_PIN остаются в myoptions.h. Позже рекомендации можно начать
 // применять через #ifndef либо удалить файл, если эта роль не нужна.
 // ЭТО НЕ ФИЗИЧЕСКАЯ ПРАВДА И НЕ ЗАПРЕТ.
 // Любое значение здесь — рекомендация, переопределяемая в myoptions.h. Ни одна
 // compile-time проверка не вправе отвергнуть сборку только из-за другого выбора.
 //
-// Deliberately NOT here, because no safe owner exists yet:
-//   - display servicing policy, draw buffers, framebuffer count, bounce strategy
-//     and the S01 PCLK pair (kPclkNominalHz / kPclkFlashGuardHz) — these still
-//     live in the proven display backend and are not duplicated. S04.
-//   - touch polling/rotation/calibration policy — touch_geometry.h owns it. S05.
+// S04-2's tested host recommendation is now live through the resolved display
+// contract and LVGL. It remains a recommendation, not proof of other combinations.
+// Рекомендация S04-2 теперь действует через resolved display contract и LVGL,
+// но не является доказательством всех иных сочетаний.
+//
+// Still not here:
+//   - touch polling/rotation/calibration — touch_geometry.h. S05.
 //   - UI profile selection (Square480) — S06.
-// Намеренно отсутствует, так как безопасного владельца пока нет:
-//   - политика обслуживания дисплея и пара PCLK S01 остаются в backend. S04.
-//   - политика тача остаётся в touch_geometry.h. S05.
+// Всё ещё не здесь:
+//   - политика тача — touch_geometry.h. S05.
 //   - выбор UI-профиля (Square480). S06.
 #ifndef YORADIO_PLATFORM_BOARD_DEFAULTS_ESP32S3_4848S040_H
 #define YORADIO_PLATFORM_BOARD_DEFAULTS_ESP32S3_4848S040_H
@@ -52,6 +55,20 @@
 // Works with no extra wiring because the button provides the pull itself.
 // Рекомендуемый источник пробуждения: штатная кнопка BOOT на GPIO0, активный ноль.
 #define YORADIO_BD_4848_WAKE_GPIO     0
+
+// Tested display host policy for this board (S01 path). Recommendation only.
+// Native 480×480 stays in PanelMode / BoardProfile and is not repeated here.
+// Restart-in-VSYNC is a build-family sdkconfig switch, not one of these macros.
+// Проверенная политика хоста дисплея (путь S01). Только рекомендация.
+// Родные 480×480 остаются в PanelMode / BoardProfile и здесь не повторяются.
+// Restart-in-VSYNC — переключатель sdkconfig семейства сборки, не эти макросы.
+#define YORADIO_BD_4848_DRAW_BUFFERS            1
+#define YORADIO_BD_4848_PARTIAL_DRAW_LINES      160
+#define YORADIO_BD_4848_RGB_FRAMEBUFFERS        1
+#define YORADIO_BD_4848_BOUNCE_PX               0
+#define YORADIO_BD_4848_PCLK_STARTUP_HZ         6000000u
+#define YORADIO_BD_4848_PCLK_RUNTIME_HZ         10000000u
+#define YORADIO_BD_4848_PCLK_FLASH_GUARD_HZ     6000000u
 
 // ---------------------------------------------------------------------------
 // Section 2 — constexpr typed view
@@ -80,7 +97,70 @@ inline constexpr BoardDefaults kBoardDefaults_Esp32S3_4848S040 = {
         .wake_gpio       = YORADIO_BD_4848_WAKE_GPIO,
         .wake_active_low = true,
     },
+    .display = {
+        .render_mode          = DisplayRenderMode::Partial,
+        .draw_buffer_count    = YORADIO_BD_4848_DRAW_BUFFERS,
+        .partial_draw_lines   = YORADIO_BD_4848_PARTIAL_DRAW_LINES,
+        .draw_buffer_memory   = DisplayBufferMemory::Psram,
+        .rgb_framebuffer_count  = YORADIO_BD_4848_RGB_FRAMEBUFFERS,
+        .rgb_framebuffer_memory = DisplayBufferMemory::Psram,
+        .rgb_framebuffer_owner  = RgbFramebufferOwner::PanelDriver,
+        .double_framebuffer   = false,
+        .bounce_buffer_px     = YORADIO_BD_4848_BOUNCE_PX,
+        .flush                = DisplayFlush::PartialBlitThenFullWriteback,
+        .startup_pclk_hz      = YORADIO_BD_4848_PCLK_STARTUP_HZ,
+        .runtime_pclk_hz      = YORADIO_BD_4848_PCLK_RUNTIME_HZ,
+        .flash_guard_pclk_hz  = YORADIO_BD_4848_PCLK_FLASH_GUARD_HZ,
+        .promote_pclk_once_on_boot_to_main = true,
+    },
 };
+
+// These checks describe this defaults object. They do not read myoptions.h
+// and do not reject YORADIO_RGB_BOUNCE10 or any other user override.
+// Проверки описывают этот объект рекомендаций. Они не читают myoptions.h
+// и не отвергают YORADIO_RGB_BOUNCE10 или другой пользовательский override.
+static_assert(kBoardDefaults_Esp32S3_4848S040.display.render_mode == DisplayRenderMode::Partial,
+              "display default is partial rendering");
+static_assert(kBoardDefaults_Esp32S3_4848S040.display.draw_buffer_count == 1,
+              "display default is one draw buffer");
+static_assert(kBoardDefaults_Esp32S3_4848S040.display.partial_draw_lines == 160,
+              "display default partial height is 160");
+static_assert(kBoardDefaults_Esp32S3_4848S040.display.draw_buffer_memory == DisplayBufferMemory::Psram,
+              "display default draw buffer is PSRAM");
+static_assert(kBoardDefaults_Esp32S3_4848S040.display.rgb_framebuffer_count == 1,
+              "display default is one RGB framebuffer");
+static_assert(kBoardDefaults_Esp32S3_4848S040.display.rgb_framebuffer_memory == DisplayBufferMemory::Psram,
+              "display default RGB framebuffer is PSRAM");
+static_assert(kBoardDefaults_Esp32S3_4848S040.display.rgb_framebuffer_owner == RgbFramebufferOwner::PanelDriver,
+              "display default framebuffer owner is the panel driver");
+static_assert(kBoardDefaults_Esp32S3_4848S040.display.double_framebuffer == false,
+              "display default is not double-buffered");
+static_assert(kBoardDefaults_Esp32S3_4848S040.display.bounce_buffer_px == 0,
+              "display default bounce is 0");
+static_assert(kBoardDefaults_Esp32S3_4848S040.display.flush == DisplayFlush::PartialBlitThenFullWriteback,
+              "display default flush is partial blit plus full writeback");
+static_assert(kBoardDefaults_Esp32S3_4848S040.display.startup_pclk_hz == 6000000u,
+              "display default startup PCLK is 6 MHz");
+static_assert(kBoardDefaults_Esp32S3_4848S040.display.runtime_pclk_hz == 10000000u,
+              "display default runtime PCLK is 10 MHz");
+static_assert(kBoardDefaults_Esp32S3_4848S040.display.flash_guard_pclk_hz == 6000000u,
+              "display default flash-guard PCLK is 6 MHz");
+static_assert(kBoardDefaults_Esp32S3_4848S040.display.promote_pclk_once_on_boot_to_main,
+              "display default promotes PCLK once at Boot to Main");
+
+static_assert(YORADIO_BD_4848_I2S_DOUT == 40, "audio dout recommendation unchanged");
+static_assert(YORADIO_BD_4848_I2S_BCLK == 1, "audio bclk recommendation unchanged");
+static_assert(YORADIO_BD_4848_I2S_LRCK == 2, "audio lrck recommendation unchanged");
+static_assert(kBoardDefaults_Esp32S3_4848S040.audio.i2s_dout_gpio == 40, "audio dout field unchanged");
+static_assert(kBoardDefaults_Esp32S3_4848S040.audio.i2s_bclk_gpio == 1, "audio bclk field unchanged");
+static_assert(kBoardDefaults_Esp32S3_4848S040.audio.i2s_lrck_gpio == 2, "audio lrck field unchanged");
+static_assert(kBoardDefaults_Esp32S3_4848S040.audio.i2s_mclk_gpio == kPinNotConnected,
+              "audio mclk recommendation unchanged");
+static_assert(kBoardDefaults_Esp32S3_4848S040.audio.prefer_external_output,
+              "audio prefers external output");
+static_assert(YORADIO_BD_4848_WAKE_GPIO == 0, "wake gpio recommendation unchanged");
+static_assert(kBoardDefaults_Esp32S3_4848S040.power.wake_gpio == 0, "wake gpio field unchanged");
+static_assert(kBoardDefaults_Esp32S3_4848S040.power.wake_active_low, "wake remains active low");
 
 }  // namespace yoradio
 #endif  // __cplusplus

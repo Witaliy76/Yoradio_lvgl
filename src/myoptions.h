@@ -141,7 +141,7 @@
    255 disables GPIO wake; existing sleep-timer deep sleep is unchanged.
    ESP32-4848S040: the stock BOOT button sits on GPIO0 and shorts it to GND, so the
    board wakes on WAKE_PIN=0 with WAKE_LEVEL=LOW - no extra wiring and no external pull.
-   GPIO0 is shared with the RGB panel as ST7701_R4, so it is only safe to press BOOT
+   GPIO0 is shared with the RGB panel as factory display R4, so it is only safe to press BOOT
    once the device has fully entered Deep Sleep (display and backlight already off).
    Press BOOT briefly and release; after wake sleep_wakeup_early_init() returns the pin
    from RTC IO to digital GPIO before display init. Do NOT press BOOT while the display
@@ -152,7 +152,7 @@
    255 выключает GPIO-wake; текущий deep sleep по sleep timer не меняется.
    ESP32-4848S040: штатная кнопка BOOT сидит на GPIO0 и замыкает его на GND, поэтому
    пробуждение работает при WAKE_PIN=0 и WAKE_LEVEL=LOW - без доп. проводов и подтяжки.
-   GPIO0 одновременно используется RGB-панелью как ST7701_R4, поэтому нажимать BOOT
+   GPIO0 одновременно используется RGB-панелью как заводская линия display R4, поэтому нажимать BOOT
    можно только после полного входа в Deep Sleep (экран и подсветка уже выключены).
    Нажать BOOT коротко и отпустить; после пробуждения sleep_wakeup_early_init()
    возвращает пин из RTC IO в digital GPIO до инициализации дисплея. НЕ нажимать
