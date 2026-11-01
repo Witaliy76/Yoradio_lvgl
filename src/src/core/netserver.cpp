@@ -60,10 +60,15 @@ static uint32_t s_ws_boot_guard_started_ms = 0;
 constexpr uint32_t kWsHeavyClientBootGuardMs = 12000;
 
 String processor(const String& var);
-// S01-5C-2: playlist upload request whose RGB flash guard was Denied (set in handleUpload, read in
-// beginUpload, cleared on its disconnect). Defined here because beginUpload comes first.
-// S01-5C-2: запрос загрузки плейлиста с Denied guard (handleUpload ставит, beginUpload читает).
-static AsyncWebServerRequest* s_playlistUploadDeniedReq = nullptr;
+enum class PlaylistUploadStatus : uint8_t { None, Denied, Busy, Failed, Ready };
+struct PlaylistUploadReqState {
+  PlaylistUploadStatus status;
+  size_t free_space;
+  bool file_part_seen;
+};
+static PlaylistUploadReqState* playlistUploadReqState(AsyncWebServerRequest* request) {
+  return static_cast<PlaylistUploadReqState*>(request->_tempObject);
+}
 void handleUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
 void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
 void handleWebUploadComplete(AsyncWebServerRequest *request);
@@ -283,24 +288,44 @@ void handleUpdate(AsyncWebServerRequest *request, String filename, size_t index,
 }
 
 void NetServer::beginUpload(AsyncWebServerRequest *request) {
+  PlaylistUploadReqState* const state = playlistUploadReqState(request);
+  if (!state) {
+    // A file callback with no state already answered 500 on allocation failure.
+    // A request with no file callback is malformed and still needs a response.
+    for (size_t i = 0; i < request->params(); ++i) {
+      AsyncWebParameter* const param = request->getParam(i);
+      if (param && param->isFile()) return;
+    }
+    request->send(400, "text/plain", "expected multipart file field 'plfile' or 'wifile'");
+    return;
+  }
   // S01-5C-2: the upload stage was Denied before touching flash and already answered 503.
   // No import must run on whatever tmp file may exist from an older request.
   // S01-5C-2: этап загрузки получил Denied до касания flash и уже ответил 503 — импорт не запускаем.
-  if (s_playlistUploadDeniedReq == request) {
-    s_playlistUploadDeniedReq = nullptr;
+  if (state->status == PlaylistUploadStatus::Denied ||
+      state->status == PlaylistUploadStatus::Busy) return;
+  if (state->status != PlaylistUploadStatus::Ready) {
+    Serial.println("[LFS-UPLOAD] rejected reason=staging_incomplete live_playlist_untouched=1");
+    request->send(400, "text/plain", "upload staging incomplete");
     return;
   }
-  if (request->hasParam("plfile", true, true)) {
+  const bool playlist = request->hasParam("plfile", true, true);
+  const bool wifi = request->hasParam("wifile", true, true);
+  if (!playlist && !wifi) {
+    // P1 can only stage TMP_PATH. A malformed form must never invalidate live files.
+    // P1 пишет только TMP_PATH. Неверная форма не должна затрагивать рабочие файлы.
+    Serial.println("[LFS-UPLOAD] rejected reason=bad_multipart live_playlist_untouched=1");
+    state->status = PlaylistUploadStatus::Failed;
+    request->send(400, "text/plain", "expected multipart file field 'plfile' or 'wifile'");
+    return;
+  }
+  state->status = PlaylistUploadStatus::None;
+  if (playlist) {
     netserver.importRequest = IMPL;
     request->send(200);
-  } else if (request->hasParam("wifile", true, true)) {
+  } else if (wifi) {
     netserver.importRequest = IMWIFI;
     request->send(200);
-  } else {
-    // Neither import will run. The upload stage (if any) already ran and released under its own
-    // guard; no post-write repair is owed (S01-5C-2).
-    // Ни один импорт не запустится. Этап загрузки (если был) уже прошёл под своим guard (S01-5C-2).
-    request->send(404);
   }
 }
 
@@ -1242,14 +1267,51 @@ uint8_t NetServer::_readPlaylistLine(File &file, char * line, size_t size){
   return bytesRead;
 }
 
+static constexpr char kPlaylistCsvStagePath[] = "/data/playlist_new.csv";
+
+static bool readPlaylistImportLine(File& file, char* line, size_t capacity) {
+  const size_t n = file.readBytesUntil('\n', line, capacity - 1);
+  if (n == 0 || n >= capacity - 1) return false;
+  size_t end = n;
+  if (line[end - 1] == '\r') --end;
+  line[end] = '\0';
+  return end != 0;
+}
+
+static bool parsePlaylistCsvSafe(const char* line, char* name, char* url, int& volume) {
+  const char* first = strchr(line, '\t');
+  const char* second = first ? strchr(first + 1, '\t') : nullptr;
+  if (!first || !second || first - line >= BUFLEN || second - first - 1 >= BUFLEN) return false;
+  return config.parseCSV(line, name, url, volume);
+}
+
+static bool parsePlaylistJsonSafe(const char* line, char* name, char* url, int& volume) {
+  // Legacy parseJSON copies values into fixed buffers. Bound them before calling it.
+  // Старый parseJSON копирует значения в фиксированные буферы: проверяем длины заранее.
+  const size_t limits[5] = {BUFLEN - 1, 238, 253, 7, 7};
+  size_t lengths[5] = {};
+  const char* cursor = line;
+  for (size_t i = 0; i < 5; ++i) {
+    const char* start = strstr(cursor, "\":\"");
+    if (!start) return false;
+    const char* value = start + 3;
+    const char* end = strstr(value, i == 4 ? "\"}" : "\",\"");
+    if (!end) return false;
+    lengths[i] = static_cast<size_t>(end - value);
+    // Legacy JSON permits empty path, port and volume fields; name and host are required.
+    if (lengths[i] > limits[i] || (i < 2 && lengths[i] == 0)) return false;
+    if (i < 4) cursor = end + 3;
+  }
+  if (lengths[1] + 7 + 1 + lengths[3] + lengths[2] >= BUFLEN) return false;
+  return config.parseJSON(line, name, url, volume);
+}
+
 bool NetServer::importPlaylist() {
-  // S01-5C-2 stage P2 (commit, loopTask): handleUpload() (P1) already finished /data/tmp under its
-  // own guard. This stage is one synchronous transaction under a fresh guard: rename tmp ->
-  // playlist (CSV), or rewrite playlist + remove tmp (JSON), or remove tmp (rejected). Denied:
-  // nothing is touched and the import is skipped (tmp kept). P3 index rebuild follows via
-  // PLAYLISTSAVED with its own guard; the shared linger usually keeps P1..P3 in one 6 MHz window.
-  // S01-5C-2 этап P2 (коммит, loopTask): P1 уже завершил /data/tmp под своим guard. Этот этап —
-  // одна синхронная транзакция под новым guard. Denied: ничего не трогаем, импорт пропускается.
+  // P2 stays on loopTask. Validate the staged input before touching any live file.
+  // esp_littlefs 1.22.3 delegates FS.rename to lfs_rename; same-type replacement is atomic
+  // even on power loss. A failed rename leaves the old live playlist in place.
+  // P2 остаётся на loopTask. Сначала проверяем staged файл; замена через lfs_rename атомарна,
+  // включая сбой питания. При неудаче старый playlist остаётся рабочим.
   if(config.getMode()==PM_SDCARD) return false;
   rgb_flash_guard::Scope flash_guard("LFS_PL_COMMIT");
   if (!flash_guard.ok()) {
@@ -1259,42 +1321,126 @@ bool NetServer::importPlaylist() {
   lfs_upload::StageTimer stage("LFS_PL_COMMIT", "no_tmp");
   File tempfile = LittleFS.open(TMP_PATH, "r");
   if (!tempfile) {
+    Serial.println("[LFS-UPLOAD] commit rejected reason=no_tmp live_playlist_preserved=1");
     return false;
   }
   stage.addBytes(tempfile.size());
-  char sName[BUFLEN], sUrl[BUFLEN], linePl[BUFLEN*3];;
+  char sName[BUFLEN], sUrl[BUFLEN], linePl[BUFLEN * 3];
   int sOvol;
-  _readPlaylistLine(tempfile, linePl, sizeof(linePl)-1);
-  if (config.parseCSV(linePl, sName, sUrl, sOvol)) {
-    tempfile.close();
-    LittleFS.rename(TMP_PATH, PLAYLIST_PATH);
-    stage.outcome("csv_rename");
-    requestOnChange(PLAYLISTSAVED, 0);
-    return true;
-  }
-  if (config.parseJSON(linePl, sName, sUrl, sOvol)) {
-    File playlistfile = LittleFS.open(PLAYLIST_PATH, "w");
-    snprintf(linePl, sizeof(linePl)-1, "%s\t%s\t%d", sName, sUrl, 0);
-    playlistfile.println(linePl);
-    while (tempfile.available()) {
-      _readPlaylistLine(tempfile, linePl, sizeof(linePl)-1);
-      if (config.parseJSON(linePl, sName, sUrl, sOvol)) {
-        snprintf(linePl, sizeof(linePl)-1, "%s\t%s\t%d", sName, sUrl, 0);
-        playlistfile.println(linePl);
-      }
+  bool csv = false;
+  bool json = false;
+  size_t rows = 0;
+  while (tempfile.available()) {
+    if (!readPlaylistImportLine(tempfile, linePl, sizeof(linePl))) {
+      stage.outcome("validation_rejected");
+      Serial.println("[LFS-UPLOAD] commit rejected reason=line_invalid live_playlist_preserved=1");
+      return false;
     }
-    playlistfile.flush();
-    playlistfile.close();
-    tempfile.close();
-    LittleFS.remove(TMP_PATH);
-    stage.outcome("json_rewrite");
-    requestOnChange(PLAYLISTSAVED, 0);
-    return true;
+    if (rows == 0) {
+      csv = parsePlaylistCsvSafe(linePl, sName, sUrl, sOvol);
+      if (!csv) json = parsePlaylistJsonSafe(linePl, sName, sUrl, sOvol);
+    } else if (csv) {
+      if (!parsePlaylistCsvSafe(linePl, sName, sUrl, sOvol)) {
+        stage.outcome("validation_rejected");
+        Serial.println("[LFS-UPLOAD] commit rejected reason=csv_invalid live_playlist_preserved=1");
+        return false;
+      }
+    } else if (json && !parsePlaylistJsonSafe(linePl, sName, sUrl, sOvol)) {
+      stage.outcome("validation_rejected");
+      Serial.println("[LFS-UPLOAD] commit rejected reason=json_invalid live_playlist_preserved=1");
+      return false;
+    }
+    if (!csv && !json) {
+      stage.outcome("validation_rejected");
+      Serial.println("[LFS-UPLOAD] commit rejected reason=format_invalid live_playlist_preserved=1");
+      return false;
+    }
+    ++rows;
   }
   tempfile.close();
-  LittleFS.remove(TMP_PATH);
-  stage.outcome("rejected");
-  return false;
+  if (rows == 0) {
+    stage.outcome("validation_rejected");
+    Serial.println("[LFS-UPLOAD] commit rejected reason=empty live_playlist_preserved=1");
+    return false;
+  }
+
+  const char* candidate = TMP_PATH;
+  if (json) {
+    // JSON conversion writes a second staged file. The live CSV is never opened for write.
+    // JSON конвертируем во второй staged файл; рабочий CSV не открываем на запись.
+    if (LittleFS.exists(kPlaylistCsvStagePath)) LittleFS.remove(kPlaylistCsvStagePath);
+    File playlistfile = LittleFS.open(kPlaylistCsvStagePath, "w");
+    tempfile = LittleFS.open(TMP_PATH, "r");
+    if (!playlistfile || !tempfile) {
+      if (playlistfile) playlistfile.close();
+      if (tempfile) tempfile.close();
+      stage.outcome("convert_open_failed");
+      Serial.println("[LFS-UPLOAD] commit rejected reason=convert_open live_playlist_preserved=1");
+      return false;
+    }
+    size_t outputBytes = 0;
+    while (tempfile.available()) {
+      if (!readPlaylistImportLine(tempfile, linePl, sizeof(linePl)) ||
+          !parsePlaylistJsonSafe(linePl, sName, sUrl, sOvol)) {
+        playlistfile.close();
+        tempfile.close();
+        LittleFS.remove(kPlaylistCsvStagePath);
+        stage.outcome("convert_parse_failed");
+        Serial.println("[LFS-UPLOAD] commit rejected reason=convert_parse live_playlist_preserved=1");
+        return false;
+      }
+      const int n = snprintf(linePl, sizeof(linePl), "%s\t%s\t%d\n", sName, sUrl, 0);
+      if (n <= 0 || static_cast<size_t>(n) >= sizeof(linePl) ||
+          playlistfile.write(reinterpret_cast<const uint8_t*>(linePl), n) != static_cast<size_t>(n)) {
+        playlistfile.close();
+        tempfile.close();
+        LittleFS.remove(kPlaylistCsvStagePath);
+        stage.outcome("convert_write_failed");
+        Serial.println("[LFS-UPLOAD] commit rejected reason=convert_write live_playlist_preserved=1");
+        return false;
+      }
+      outputBytes += static_cast<size_t>(n);
+    }
+    playlistfile.close();
+    tempfile.close();
+    File verify = LittleFS.open(kPlaylistCsvStagePath, "r");
+    const bool complete = verify && verify.size() == outputBytes;
+    if (verify) verify.close();
+    if (!complete) {
+      LittleFS.remove(kPlaylistCsvStagePath);
+      stage.outcome("convert_verify_failed");
+      Serial.println("[LFS-UPLOAD] commit rejected reason=convert_verify live_playlist_preserved=1");
+      return false;
+    }
+    stage.addBytes(outputBytes);
+    candidate = kPlaylistCsvStagePath;
+  }
+
+  // Remove the old index first: a crash may leave either playlist without an index,
+  // but must never pair the new playlist with the old index.
+  if (LittleFS.exists(INDEX_PATH) && !LittleFS.remove(INDEX_PATH)) {
+    stage.outcome("index_invalidate_failed");
+    Serial.println("[LFS-UPLOAD] commit rejected reason=index_invalidate_failed live_playlist_preserved=1");
+    return false;
+  }
+  if (!LittleFS.rename(candidate, PLAYLIST_PATH)) {
+    stage.outcome("rename_failed");
+    Serial.println("[LFS-UPLOAD] commit rename_failed live_playlist_preserved=1 index_rebuild_requested=1");
+    requestOnChange(PLAYLISTSAVED, 0);  // P3 rebuilds the old playlist index.
+    return false;
+  }
+  if (json && LittleFS.exists(TMP_PATH)) LittleFS.remove(TMP_PATH);
+  // Preserve legacy SD cache invalidation, but only after a successful Web commit.
+  // Старый SD-кэш инвалидируется как раньше, но только после успешного Web commit.
+  if (LittleFS.exists(PLAYLIST_SD_PATH) && !LittleFS.remove(PLAYLIST_SD_PATH))
+    Serial.println("[LFS-UPLOAD] SD playlist cache invalidate_failed");
+  if (LittleFS.exists(INDEX_SD_PATH) && !LittleFS.remove(INDEX_SD_PATH))
+    Serial.println("[LFS-UPLOAD] SD index cache invalidate_failed");
+  Serial.printf("[LFS-UPLOAD] commit success format=%s rows=%lu index=invalidated\n",
+                csv ? "csv" : "json", static_cast<unsigned long>(rows));
+  stage.outcome(csv ? "csv_committed" : "json_committed");
+  requestOnChange(PLAYLISTSAVED, 0);  // P3: Config::indexPlaylist() owns LFS_PL_INDEX guard.
+  return true;
 }
 
 void NetServer::requestOnChange(requestType_e request, uint8_t clientId) {
@@ -2762,16 +2908,16 @@ String processor(const String& var) { // %Templates%
   return String();
 }
 
-int freeSpace;
-
 // S01-5C-2 playlist/Wi-Fi CSV import, stage P1 (upload, async_tcp): one RGB-flash-guarded
-// transaction per request, from chunk 0 (before the playlist/index removes and the tmp open) to
-// the final close. An aborted request closes and removes the partial tmp under the guard. A
+// transaction per request, from chunk 0 (before the tmp open) to the final close. P1 must not
+// remove live playlist/index: multipart fields are checked only by beginUpload() after P1.
+// An aborted request closes and removes its partial tmp under the guard. A
 // request whose guard was Denied gets 503 here and is skipped by beginUpload(), so no import runs.
 // Stages P2 (importPlaylist) and P3 (indexPlaylist) run later on loopTask with their own guard.
 // S01-5C-2 импорт плейлиста / Wi-Fi CSV, этап P1 (загрузка, async_tcp): одна транзакция под guard
-// на запрос — от chunk 0 (до удаления playlist/index и открытия tmp) до финального close. Обрыв
-// закрывает и удаляет частичный tmp под guard. Запрос с Denied получает 503 здесь, и beginUpload()
+// на запрос — от chunk 0 (до открытия tmp) до финального close. P1 не удаляет рабочие playlist/index:
+// multipart-поля проверяются beginUpload() только после P1. Обрыв закрывает и удаляет свой tmp под
+// guard. Запрос с Denied получает 503 здесь, и beginUpload()
 // его пропускает. Этапы P2 и P3 позже идут на loopTask со своим guard.
 static lfs_upload::Txn s_playlistUploadTxn;
 static void playlistUploadAbortCleanup(void* owner) {
@@ -2785,39 +2931,77 @@ static void playlistUploadAbortCleanup(void* owner) {
 }
 
 void handleUpload(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
+  (void)filename;
+  PlaylistUploadReqState* state = playlistUploadReqState(request);
   if (!index) {
-    s_playlistUploadDeniedReq = nullptr;
+    if (!state) {
+      state = static_cast<PlaylistUploadReqState*>(calloc(1, sizeof(PlaylistUploadReqState)));
+      if (!state) {
+        request->send(500, "text/plain", "upload state allocation failed");
+        return;
+      }
+      request->_tempObject = state;
+    }
+    if (state->file_part_seen) {
+      if (state->status != PlaylistUploadStatus::Denied &&
+          state->status != PlaylistUploadStatus::Busy) {
+        state->status = PlaylistUploadStatus::Failed;
+        if (s_playlistUploadTxn.activeFor(request)) {
+          request->_tempFile.close();
+          s_playlistUploadTxn.finish("multiple_file_parts");
+        }
+      }
+      return;
+    }
+    state->file_part_seen = true;
+    if (netserver.importRequest != IMDONE) {
+      state->status = PlaylistUploadStatus::Busy;
+      Serial.println("[LFS-UPLOAD] rejected reason=import_pending staging_untouched=1");
+      request->send(409, "application/json", "{\"ok\":false,\"error\":\"import_pending\"}");
+      return;
+    }
+    state->status = PlaylistUploadStatus::None;
     if (!s_playlistUploadTxn.begin(request, "LFS_PL_UPLOAD", playlistUploadAbortCleanup)) {
-      s_playlistUploadDeniedReq = request;
-      request->onDisconnect([request]() {
-        if (s_playlistUploadDeniedReq == request) s_playlistUploadDeniedReq = nullptr;
-      });
+      state->status = PlaylistUploadStatus::Denied;
       request->send(503, "application/json", "{\"ok\":false,\"error\":\"flash_busy\"}");
       return;
     }
     request->onDisconnect([request]() {
       s_playlistUploadTxn.ownerGone(request);
-      if (s_playlistUploadDeniedReq == request) s_playlistUploadDeniedReq = nullptr;
     });
-    if(filename!="tempwifi.csv"){
-      if(LittleFS.exists(PLAYLIST_PATH)) LittleFS.remove(PLAYLIST_PATH);
-      if(LittleFS.exists(INDEX_PATH)) LittleFS.remove(INDEX_PATH);
-      if(LittleFS.exists(PLAYLIST_SD_PATH)) LittleFS.remove(PLAYLIST_SD_PATH);
-      if(LittleFS.exists(INDEX_SD_PATH)) LittleFS.remove(INDEX_SD_PATH);
-    }
-    freeSpace = (float)(LittleFS.totalBytes() - LittleFS.usedBytes()) - 4096;
+    const size_t total = LittleFS.totalBytes();
+    const size_t used = LittleFS.usedBytes();
+    const size_t available = total > used ? total - used : 0;
+    state->free_space = available > 4096 ? available - 4096 : 0;
     request->_tempFile = LittleFS.open(TMP_PATH , "w");
-  } else if (!s_playlistUploadTxn.activeFor(request)) {
+    if (!request->_tempFile) {
+      state->status = PlaylistUploadStatus::Failed;
+      s_playlistUploadTxn.finish("open_failed");
+      return;
+    }
+  } else if (!state || state->status != PlaylistUploadStatus::None ||
+             !s_playlistUploadTxn.activeFor(request)) {
     return;
   }
   if (len) {
-    if(freeSpace>index+len){
-      s_playlistUploadTxn.addBytes(request->_tempFile.write(data, len));
+    if (len >= state->free_space || index >= state->free_space - len) {
+      state->status = PlaylistUploadStatus::Failed;
+      s_playlistUploadTxn.abort("no_space");
+      return;
+    }
+    const size_t written = request->_tempFile.write(data, len);
+    s_playlistUploadTxn.addBytes(written);
+    if (written != len) {
+      state->status = PlaylistUploadStatus::Failed;
+      s_playlistUploadTxn.abort("write_failed");
+      return;
     }
   }
   if (final) {
     request->_tempFile.close();
+    state->status = PlaylistUploadStatus::Ready;
     s_playlistUploadTxn.finish("ok");
+    Serial.println("[LFS-UPLOAD] staged source=LFS_PL_UPLOAD live_playlist_untouched=1");
   }
 }
 
