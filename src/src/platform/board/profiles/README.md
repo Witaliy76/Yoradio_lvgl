@@ -1,65 +1,88 @@
-# Профили плат
+# Board profiles
 
-Author: Witaliy76 - https://github.com/Witaliy76
+## English
 
-Один каталог — одна плата. Как пользователь выбирает уже существующую плату и включает Custom Wiring, написано в [Board Contract](../README.md). Сейчас в дереве только [esp32s3_4848s040](esp32s3_4848s040/README.md). Этот файл не добавляет вторую плату.
+One directory represents one named board. A profile records factory facts; it
+does not automatically create a supported display or touch implementation.
 
-## Состав каталога
+### Directory contract
 
-```text
-profiles/<имя>/
-├── README.md           аппаратное описание, если плата публикуется
-├── board_profile.h     заводской BoardProfile
-└── board_defaults.h    рекомендации I2S, wake и политики дисплея; board_select.h включает файл безусловно
-```
+    profiles/<board>/
+      README.md          hardware facts and confirmed constraints
+      board_profile.h    BoardProfile factory initializer
+      board_defaults.h   tested recommendations required by board_select.h
 
-Имя каталога — метка для пользователя. Выбор идёт не по имени папки, а по `BoardId`.
+### Add a profile
 
-## BoardId и board_select
+1. Add a unique YORADIO_BOARD_<NAME> macro and BoardId value in board_id.h.
+2. Create board_profile.h and board_defaults.h. The selector currently requires
+   both files.
+3. Add the corresponding branch in board_select.h, publishing kActiveBoard and
+   kActiveBoardDefaults.
+4. Extend board_validate.h with board-specific assertions and use a matching
+   PlatformIO environment.
+5. Add/qualify PanelMode/backend and TouchPort backend when controller or
+   transport differs; then validate hardware. The same ST7701 RGB565 480×480
+   and GT911 keep the current backends.
 
-1. В `board_id.h` добавить новый макрос `YORADIO_BOARD_<ИМЯ>` с новым числом и значение `enum class BoardId`. Номер, уже выданный плате, не переназначать. Ноль занят `YORADIO_BOARD_NONE`.
-2. В `board_select.h` добавить ветку `#if YORADIO_BOARD == ...`: включить `board_profile.h` и `board_defaults.h`, затем завести алиасы `kActiveBoard` и `kActiveBoardDefaults`. Ветка 4848S040 делает оба `#include` без проверки, что файл defaults существует.
-3. Пользователь пишет в `src/myoptions.h` только `#define YORADIO_BOARD` с этим макросом.
+DisplayWiring contains 16 RGB slots in fixed esp_lcd order B0..B4, G0..G5,
+R0..R4. Missing hardware lines use kPinNotConnected (255), never GPIO0.
+BoardDefaults records recommendations. Its display host policy and touch
+service are read; its audio and wake pins are not a replacement for
+`I2S_*` and `WAKE_PIN` in myoptions.h. The production profile is
+[ESP32-S3 4848S040](esp32s3_4848s040/README.md).
 
-Вне `board_select.h` конкретный профиль не подключают. Display runtime читает `kWiring.display` через `ResolvedDisplayConfig`; touch runtime с S05-1 читает `kWiring.touch` через `ResolvedTouchConfig`. Временные `TS_*` остаются compatibility-only до S05-4.
+### Scope limits
 
-## BoardProfile
+Only the ST7701 RGB565 480x480 and GT911 combination is implemented.
+`ResolvedDisplayConfig` is that one recipe, and the GPIO range/duplicate
+checks in `board_validate.h` sit inside the 4848S040 branch, so a new id does
+not inherit them until that block is extended. A new BoardProfile may set its
+own `touch.i2c_address`; the GT911 backend reads that field. Custom Wiring
+still cannot override it. A new profile does not provide raw-range
+portability, 90/270 touch rotation, an LVGL layout for another resolution, or
+device validation. Changing the locked 160-line / 6/10/6 MHz policy, or wiring
+panel RESX, fails the current asserts.
 
-Это неизменяемый завод. Поля одни и те же для любой модели, их задаёт `board_contract.h`: `identity`, `display`, `touch`, `audio`, `storage`, `usb`, `network`, `power`. Новая плата заполняет те же поля, а не заводит свой набор имён под свой контроллер.
+## Русский
 
-Для RGB-линии данных порядок слотов фиксирован: `[0..4]` = B0..B4, `[5..10]` = G0..G5, `[11..15]` = R0..R4. Это порядок `esp_lcd`, его не переставляют «для красоты».
+Один каталог представляет одну именованную плату. Profile записывает factory
+facts; он не создаёт автоматически поддерживаемую display/touch implementation.
 
-Числа 28 GPIO дисплея и тача пишутся в инициализаторе профиля один раз. Отдельный второй набор макросов с теми же пинами не заводится. Линия, которой на плате нет, получает `kPinNotConnected` (255), не ноль.
+### Контракт каталога
 
-`audio` описывает только наличие встроенного тракта и нужен ли для него аппаратный ремонт. Пины внешнего ЦАП сюда не кладут. `storage` говорит, есть ли слот microSD, и не назначает его GPIO, пока распиновка не подтверждена на железе.
+    profiles/<board>/
+      README.md          hardware facts и подтверждённые ограничения
+      board_profile.h    factory initializer BoardProfile
+      board_defaults.h   tested recommendations, обязательные для board_select.h
 
-## BoardDefaults
+### Добавление profile
 
-Файл хранит рекомендации I2S, wake, display host policy и touch servicing policy. Display читает `kActiveBoardDefaults.display` через `ResolvedDisplayConfig`; touch читает polling/I²C defaults через `ResolvedTouchConfig`. Живые `I2S_*` и `WAKE_PIN` пока остаются в `src/myoptions.h`. Рекомендации не заменяют физический PanelMode/TouchWiring и не содержат persisted Flip Touch.
+1. Добавьте уникальные macro YORADIO_BOARD_<NAME> и значение BoardId в board_id.h.
+2. Создайте board_profile.h и board_defaults.h. Selector сейчас требует оба файла.
+3. Добавьте соответствующую ветку в board_select.h, публикующую kActiveBoard и
+   kActiveBoardDefaults.
+4. Расширьте board_validate.h board-specific assertions и используйте matching
+   PlatformIO environment.
+5. Добавьте/квалифицируйте PanelMode/backend и TouchPort backend при отличии
+   controller или transport, затем выполните hardware validation. Те же ST7701
+   RGB565 480×480 и GT911 остаются на текущих backend.
 
-Для единственной ветки `board_select.h` файл обязателен: заголовок безусловно включает `profiles/esp32s3_4848s040/board_defaults.h` и публикует `kActiveBoardDefaults`. Отсутствующий файл сборка не соберёт. Режима «плата без defaults» в селекторе нет. Чтобы каталог профиля мог обойтись без этого файла, нужно менять `board_select.h`. Такое изменение здесь не делается.
+DisplayWiring содержит 16 RGB slots в фиксированном порядке esp_lcd B0..B4,
+G0..G5, R0..R4. Отсутствующие hardware lines используют kPinNotConnected (255),
+никогда GPIO0. BoardDefaults хранит recommendations. Политика хоста дисплея и
+обслуживание тача читаются; пины audio и wake не заменяют `I2S_*` и `WAKE_PIN`
+в myoptions.h. Production profile:
+[ESP32-S3 4848S040](esp32s3_4848s040/README.md).
 
-Новая плата, подключаемая так же, как 4848S040, заводит `board_defaults.h` и объект рекомендаций, даже если рекомендации пока только повторяют то, что пользователь пишет в `myoptions.h`.
+### Ограничения scope
 
-## Что подтвердить на железе до публикации профиля
-
-- Модуль: SoC, объём flash, наличие и режим PSRAM. Требования в `identity.build` должны совпадать с реальным модулем и с sdkconfig окружения.
-- Каждый GPIO дисплея и тача, включая линии, которых нет (INT, RST, RESX).
-- Кнопка BOOT и её активный уровень, если она есть.
-- Есть ли встроенный аудиовыход и включается ли он только перемычками.
-- Есть ли слот SD. Пины SD не записывать в профиль по комментарию или чужой схеме без проверки.
-- Совпадает ли выбранный `DSP_MODEL` / будущий контракт дисплея с контроллером в профиле. Сейчас валидатор 4848S040 дополнительно требует `DSP_MODEL == DSP_ST7701`. `TS_MODEL` с профилем автоматически не сверяется.
-
-## Минимальные проверки
-
-В `board_validate.h`, в ветке этой платы:
-
-- семейство сборки уже проверяется общими `static_assert` (SoC, flash, PSRAM) через `identity.build`;
-- заводские номера, которые считаются принятыми, сверить с инициализатором профиля;
-- обязательные линии не равны 255, отсутствующие линии равны 255;
-- итоговый `kWiring` не содержит двух активных сигналов на одном GPIO среди дисплея, тача и I2S;
-- временные touch aliases совпадают с `kWiring.touch`, хотя production с S05-1 читает resolved config; display GPIO aliases удалены в S04-4.
-
-Сборка: `pio run -e <окружение>` из корня. Окружение должно реально собирать нужный SoC и объём flash. Новое окружение и новый профиль — разные решения; одно не заменяет другое.
-
-Сейчас реализована одна комбинация ST7701/GT911. Для панели с другим контроллером понадобятся отдельные проверенные PanelMode, touch semantics и backend, а не только новый профиль платы. S05-3B переключает production path на official GT911, сохраняя TouchPort и typed LVGL adapter.
+Реализована только комбинация ST7701 RGB565 480x480 и GT911.
+`ResolvedDisplayConfig` — этот один рецепт, а проверки диапазона GPIO и
+дубликатов в `board_validate.h` находятся внутри ветки 4848S040, поэтому новый
+id не наследует их, пока этот блок не расширен. Новый BoardProfile может задать
+свой `touch.i2c_address`; backend GT911 читает это поле. Custom Wiring по-прежнему
+не может его переопределить. Новый profile не даёт автоматически raw-range
+portability, touch rotation 90/270, раскладку LVGL под другое разрешение или
+device validation. Изменение зафиксированной политики 160 строк / 6/10/6 МГц
+или подключение RESX панели останавливает сборку текущими `static_assert`.

@@ -1,59 +1,164 @@
-# platform — аппаратный слой YoRadio
+# YoRadio platform architecture
 
 Author: Witaliy76 - https://github.com/Witaliy76
 
-`src/src/platform/` отделяет факты платы и будущие аппаратные контракты от продуктового UI.
-Экраны и виджеты LVGL живут в [`src/src/lvgl_ui/`](../lvgl_ui/README.md) и не включают заголовки драйверов.
-Здесь лежит описание железа, а не вёрстка, темы и страницы.
+## English
 
-Сейчас здесь Board Contract, каталог `display/` с типами рецепта панели и каталог `touch/` с resolved touch policy, официальным `esp_lcd_touch_gt911` backend и LVGL-neutral `TouchPort`. `TouchScreen` реализует порт поверх official backend. Init, scanout и таблица Type9 остаются в `src/src/displays/`. Каталогов Audio, Storage и Controls в этом дереве нет.
+`src/src/platform/` is the compile-time hardware boundary. It turns a selected
+board profile and optional wiring overrides into typed values consumed by the
+display and touch implementations. It is not a UI, theme, persistence, or
+generic hardware framework.
 
-Единственный production board profile — 4848S040 с обязательным ST7701/LVGL display path. Display-less profile или PlatformIO environment отсутствует; устаревший `DUMMYDISPLAY` fallback удалён в S05-3C-FIX1.
-
-## Что есть сейчас
+### Map
 
 ```text
-platform/
-├── README.md
-├── display/        PanelMode и один рецепт ST7701 RGB565 480×480
-│   ├── panel_mode.h
-│   ├── panel_st7701_rgb565_480.h
-│   └── resolved_display_config.h
-├── touch/          resolved policy + LVGL-neutral primary-pointer contract
-│   ├── gt911_backend.h/.cpp
-│   ├── resolved_touch_config.h
-│   └── touch_port.h
-└── board/          Board Contract: выбор платы, заводской профиль, итоговая разводка
-    ├── README.md
-    ├── board_id.h
-    ├── board_contract.h
-    ├── board_select.h
-    ├── board_wiring.h
-    ├── board_validate.h
-    ├── compat/
-    └── profiles/
+src/myoptions.h
+  -> platform/board: BoardProfile + BoardDefaults + kWiring
+  -> platform/display: PanelMode + ResolvedDisplayConfig
+  -> DisplayPort -> direct ST7701 / esp_lcd backend
+  -> platform/touch: ResolvedTouchConfig -> Gt911Backend -> TouchPort
+  -> lvgl_ui/lv_touch_indev.cpp -> LVGL pointer input
 ```
 
-Подробности, пользовательская настройка и ограничения — в [board/README.md](board/README.md).
-
-## Чего здесь ещё нет
-
-Display Contract сейчас связывает данные панели, платы и проверенной политики. Следующие направления остаются отдельными:
-
-| Направление | Когда | Где факты живут сейчас |
+| Area | Start here | Responsibility |
 |---|---|---|
-| Display Contract | S04, код готов; аппаратный Gate B впереди | `PanelMode` хранит controller, 480×480 RGB565, timing и идентичность Type9. `BoardProfile` и `kWiring` задают GPIO. `BoardDefaults.display` хранит проверенную host-политику: LVGL 160 строк, PSRAM, PCLK 6/10/6 МГц, bounce 0. `ResolvedDisplayConfig` собирает их для backend и DisplayPort; LVGL берёт высоту partial buffer из BoardDefaults. Байты Type9 и scanout остаются в драйвере. |
-| Touch Contract | S05 ACTIVE; S05-3C legacy cleanup complete | `Gt911Backend` переиспользует Arduino Wire bus через typed new-IDF handle; `ResolvedTouchConfig` передаёт official mirror flags для Flip. `TouchScreen` реализует только LVGL-neutral `TouchPort`; жесты и scrolling принадлежат LVGL adapter/UI path. |
-| UI Profile | S06 | Профили экрана в `src/src/lvgl_ui/profiles/`. |
-| Audio, Storage, Controls | позже | I2S, SD, IR, кнопки и wake остаются в `src/myoptions.h` и соответствующих драйверах. |
+| Board selection and GPIO overrides | [board/README.md](board/README.md) | `YORADIO_BOARD`, `kActiveBoard`, `kWiring`, validation |
+| Existing board profiles | [board/profiles/README.md](board/profiles/README.md) | How a new profile is registered and what must be proven |
+| 4848S040 wiring | [board profile](board/profiles/esp32s3_4848s040/README.md) | Factory GPIO tables and known board-specific constraints |
+| Legacy-name migration errors | [board/compat/README.md](board/compat/README.md) | Why `ST7701_*` and `TS_*` names must not return |
+| Display Contract | [display/README.md](display/README.md) | Panel recipe, effective display configuration and DisplayPort |
+| Touch Contract | [touch/README.md](touch/README.md) | GT911, TouchPort and LVGL input path |
 
-Board Contract уже хранит присутствие встроенного аудио и слота microSD и номера заводских GPIO дисплея и тача. Он не выбирает активный выход звука и не назначает пины SD.
+### Layers
 
-Штатная ESP32-4848S040 использует готовую заводскую разводку: перечислять GPIO вручную не нужно. Если провод физически перенесён, `DISP_*` в `src/myoptions.h` переопределяет отдельные линии при `YORADIO_CUSTOM_WIRING=1`. Профиль UI (Square480) — отдельный слой S06, а контракт тача — S05.
+| Name | Role | What the running firmware uses |
+|---|---|---|
+| `BoardProfile` / `kActiveBoard` | Factory facts of the selected board | Not changed by `myoptions.h` |
+| Custom Wiring | `DISP_*` / `TOUCH_*` in `src/myoptions.h` when `YORADIO_CUSTOM_WIRING` is 1 | Only the lines you actually define |
+| `kWiring` | Factory profile plus those overrides | Display and GT911 GPIO |
+| `BoardDefaults` | Tested recommendations | Display host policy and touch poll / I2C clock. `audio` and `power` pins are not applied |
+| Resolved display / touch config | Compile-time view for the backends | ST7701 480×480 recipe stays in PanelMode. Bounce, flash guard and boot orientation come from `myoptions.h` |
 
-## Граница
+`I2S_DOUT`, `I2S_BCLK`, `I2S_LRC` and `WAKE_PIN` stay macros in `src/myoptions.h`.
+Editing `BoardDefaults.audio` or `BoardDefaults.power` does not move the DAC or
+the wake pin.
 
-- UI не владеет пинами и не включает `esp_lcd`, I2S и Wi-Fi.
-- Плата выбирается одним макросом `YORADIO_BOARD` в `src/myoptions.h`.
-- Окружение PlatformIO (`4848S040` в `platformio.ini`) задаёт семейство сборки: SoC, flash, PSRAM, тулчейн, разделы. Это не выбор модели платы.
-- `SharedResources` и `ResourceManager` в S02 не реализованы. Совпадения пинов описаны в [профиле 4848S040](board/profiles/esp32s3_4848s040/README.md); автоматический реестр ресурсов не создавался.
+### Four common tasks
+
+1. **Change an external I2S DAC.** Edit `I2S_DOUT`, `I2S_BCLK`, and `I2S_LRC`
+   in `src/myoptions.h`, then build `[env:4848S040]` and flash that firmware.
+   Packages in `build_bin/` ignore these edits. All three signals are ESP32
+   outputs in I2S master mode: DOUT goes to the DAC DIN/DATA input, BCLK to
+   BCK, LRC to LRCK/WS. The firmware does not drive an I2S data input or an
+   MCLK pin. This is user configuration, not Custom Wiring. The validator
+   rejects a collision with effective display/touch pins. It does not
+   range-check the I2S numbers (GPIO 22–37 and numbers above 48 are rejected
+   only on `DISP_*` / `TOUCH_*`) and it cannot prove the DAC or that any other
+   pin is free. After boot, Serial `bootInfo` prints `i2s-dout`, `i2s-bclk`
+   and `i2s-lrc`. Those are the compiled macros, not proof that the I2S driver
+   accepted the pins.
+2. **Rewire the same ST7701 and GT911.** Set `YORADIO_CUSTOM_WIRING 1` in
+   `src/myoptions.h`, then enable only the changed `DISP_*` or `TOUCH_*`
+   lines. Unnamed lines stay factory values. Pins flow through `kWiring`.
+   `ST7701_*` and `TS_*` names are rejected. Custom Wiring does not change
+   the controller, 480×480 geometry, panel timing, the GT911 I2C address, or
+   panel RESX. RESX has no `DISP_*` entry and the backend requires it to stay
+   disconnected. Setting `TOUCH_INT` does not switch the touch to interrupt
+   mode; the supported path stays polling. Serial prints `wiring: custom` and
+   `backlight-gpio`. It does not print the RGB map or SDA/SCL.
+3. **Add a board based on an existing profile.** This is implementation work:
+   add an ID, a profile/defaults directory, a `board_select.h` branch and
+   validation/build support. The same ST7701 RGB565 480×480 and GT911 do not
+   need a new backend. A profile alone does not make another panel or touch
+   controller supported. GPIO range and duplicate checks currently live inside
+   the 4848S040 branch of `board_validate.h`.
+4. **Use another panel or touch controller.** This needs a new tested backend
+   and contract-compatible descriptor. No second backend is in the tree.
+   Screen code stays behind DisplayPort; controller-specific touch code stays
+   behind TouchPort. LVGL layout for another resolution is not built yet.
+
+Only ESP32-S3 4848S040 with ST7701 RGB565 480x480 and GT911 is production
+supported today. The `night_build` sources currently report
+`0.9.434m-r2-lvgl-beta.3.06` in `YOVERSION`. That string is not a GitHub
+Release. This documentation does not claim plug-and-play support for other
+boards.
+
+## Русский
+
+`src/src/platform/` — compile-time граница аппаратуры. Она превращает выбранный
+профиль платы и необязательные override разводки в типизированные значения для
+реализаций дисплея и тача. Это не UI, тема, persistence и не универсальный
+аппаратный framework.
+
+### Карта
+
+```text
+src/myoptions.h
+  -> platform/board: BoardProfile + BoardDefaults + kWiring
+  -> platform/display: PanelMode + ResolvedDisplayConfig
+  -> DisplayPort -> прямой ST7701 / esp_lcd backend
+  -> platform/touch: ResolvedTouchConfig -> Gt911Backend -> TouchPort
+  -> lvgl_ui/lv_touch_indev.cpp -> pointer input LVGL
+```
+
+| Область | Начать здесь | Ответственность |
+|---|---|---|
+| Выбор платы и GPIO override | [board/README.md](board/README.md) | `YORADIO_BOARD`, `kActiveBoard`, `kWiring`, проверки |
+| Существующие профили плат | [board/profiles/README.md](board/profiles/README.md) | Регистрация профиля и необходимое подтверждение |
+| Разводка 4848S040 | [профиль платы](board/profiles/esp32s3_4848s040/README.md) | Заводские GPIO и известные ограничения платы |
+| Ошибки миграции старых имён | [board/compat/README.md](board/compat/README.md) | Почему имена `ST7701_*` и `TS_*` не возвращаются |
+| Display Contract | [display/README.md](display/README.md) | Рецепт панели, effective display config и DisplayPort |
+| Touch Contract | [touch/README.md](touch/README.md) | GT911, TouchPort и путь ввода LVGL |
+
+### Слои
+
+| Имя | Роль | Что использует работающая прошивка |
+|---|---|---|
+| `BoardProfile` / `kActiveBoard` | Заводские факты выбранной платы | `myoptions.h` их не меняет |
+| Custom Wiring | `DISP_*` / `TOUCH_*` в `src/myoptions.h` при `YORADIO_CUSTOM_WIRING` 1 | Только реально заданные строки |
+| `kWiring` | Заводской профиль плюс эти override | GPIO дисплея и GT911 |
+| `BoardDefaults` | Проверенные рекомендации | Политика хоста дисплея и опрос / частота I2C тача. Пины `audio` и `power` не применяются |
+| Resolved display / touch config | Compile-time вид для backend | Рецепт ST7701 480×480 остаётся в PanelMode. Bounce, flash guard и boot orientation берутся из `myoptions.h` |
+
+`I2S_DOUT`, `I2S_BCLK`, `I2S_LRC` и `WAKE_PIN` остаются макросами в
+`src/myoptions.h`. Правка `BoardDefaults.audio` или `BoardDefaults.power` не
+переносит ЦАП и не меняет пин пробуждения.
+
+### Четыре частых задачи
+
+1. **Сменить внешний I2S ЦАП.** Измените `I2S_DOUT`, `I2S_BCLK`, `I2S_LRC` в
+   `src/myoptions.h`, соберите `[env:4848S040]` и прошейте эту прошивку.
+   Пакеты в `build_bin/` эти правки игнорируют. Все три сигнала — выходы ESP32
+   в режиме I2S master: DOUT идёт на DIN/DATA ЦАП, BCLK на BCK, LRC на
+   LRCK/WS. Прошивка не использует вход данных I2S и не выводит MCLK. Это
+   пользовательская настройка, не Custom Wiring. Валидатор отвергает
+   пересечение с effective display/touch GPIO. Диапазон номеров `I2S_*` он не
+   проверяет (GPIO 22–37 и номера больше 48 отвергаются только у `DISP_*` /
+   `TOUCH_*`) и не доказывает исправность ЦАП или свободу любого другого
+   пина. После старта Serial `bootInfo` печатает `i2s-dout`, `i2s-bclk` и
+   `i2s-lrc`. Это макросы, с которыми собрана прошивка, а не подтверждение,
+   что драйвер I2S принял пины.
+2. **Переразвести тот же ST7701 и GT911.** Установите `YORADIO_CUSTOM_WIRING 1`
+   в `src/myoptions.h` и включите только изменившиеся строки `DISP_*` или
+   `TOUCH_*`. Неназванные линии остаются заводскими. Пины попадают в `kWiring`.
+   Имена `ST7701_*` и `TS_*` отвергаются. Custom Wiring не меняет контроллер,
+   геометрию 480×480, timing панели, адрес I2C GT911 и RESX. У RESX нет строки
+   `DISP_*`, backend требует, чтобы сброс панели оставался неподключённым.
+   Задание `TOUCH_INT` не включает режим прерывания; поддерживаемый путь —
+   опрос. Serial печатает `wiring: custom` и `backlight-gpio`. Карту RGB и
+   SDA/SCL этот лог не печатает.
+3. **Добавить плату по образцу профиля.** Нужна реализация: ID, каталог
+   profile/defaults, ветка `board_select.h`, validation/build support. Те же
+   ST7701 RGB565 480×480 и GT911 новый backend не требуют. Сам по себе профиль
+   не делает другую панель или touch controller поддержанными. Проверки
+   диапазона GPIO и дубликатов сейчас живут внутри ветки 4848S040 в
+   `board_validate.h`.
+4. **Использовать другую панель или touch controller.** Нужны новый проверенный
+   backend и descriptor, совместимый с контрактом. Второго backend в дереве нет.
+   Экранный код остаётся за DisplayPort, controller-specific touch код — за
+   TouchPort. Раскладка LVGL под другое разрешение ещё не собрана.
+
+Сейчас production поддерживает только ESP32-S3 4848S040 со ST7701 RGB565
+480x480 и GT911. Исходники `night_build` сейчас сообщают
+`0.9.434m-r2-lvgl-beta.3.06` в `YOVERSION`. Эта строка не является GitHub
+Release. Документ не заявляет plug-and-play поддержку других плат.

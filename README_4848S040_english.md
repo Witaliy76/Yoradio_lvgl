@@ -4,7 +4,7 @@
 
 Hardware guide for ESP32-4848S040, the board supported in the public YoRadio LVGL beta: specifications, audio, configuration, ready-to-flash packages, and wiring notes. Interface, themes, and Web UI are described in the [main English README](readme_english.md).
 
-Public project version: `0.9.434m-r2-lvgl-beta.3`. Current source: `0.9.434m-r2-lvgl-beta.3`.
+Stable version on `main`: `0.9.434m-r2-lvgl-beta.3.01`. `night_build` sources: `0.9.434m-r2-lvgl-beta.3.06` (the `YOVERSION` string, not a GitHub Release). The packages below are the historical beta.3 line.
 
 <p align="center">
   <img src="readme/english/device-front.jpg" alt="ESP32-4848S040 with the YoRadio interface" width="450">
@@ -51,6 +51,14 @@ Lines required for an external DAC:
 | GND | — | Common ground |
 | Power | — | Per DAC requirements |
 
+All three signals are ESP32 outputs in I2S master mode. Connect DOUT to the DAC DIN/DATA input, BCLK to BCK, and LRC to LRCK/WS. The firmware does not use an I2S data input and does not drive MCLK: there is no MCLK macro.
+
+The numbers 40 / 1 / 2 are the rear-connector wiring of this board, not a list of free GPIO. For different wiring, change only `I2S_DOUT`, `I2S_BCLK`, and `I2S_LRC` in `src/myoptions.h`. That is not Custom Wiring, and the firmware does not apply `BoardDefaults.audio`. Take the new numbers from your DAC schematic. The build rejects a collision with display or touch pins. It does not range-check GPIO 22–37 or numbers above 48 on these three macros, and it does not prove that a pin is free of USB, BOOT, or SD.
+
+Build the `[env:4848S040]` environment and flash your own `firmware.bin`. A `build_bin/` package does not contain `myoptions.h` edits. After boot, Serial prints `i2s-dout`, `i2s-bclk`, and `i2s-lrc` inside `[HARDWARE CONFIG]`. Those are the values compiled into the firmware. That log does not include a successful reply from the I2S driver.
+
+Layer details: [src/src/platform/README.md](src/src/platform/README.md), [Board Contract](src/src/platform/board/README.md), [Display Contract](src/src/platform/display/README.md), [Touch Contract](src/src/platform/touch/README.md).
+
 Rear connector with the wiring lines:
 
 <p align="center">
@@ -73,16 +81,28 @@ Confirm the exact electrical details of your board revision against its marking 
 
 ## Preparing the configuration
 
-1. Copy `src/myoptions_4848S040.h` over `src/myoptions.h`.
-2. In `src/myoptions.h` set `L10N_LANGUAGE`: `RU`, `EN`, `PL`, or `SK`.
-3. In PlatformIO select the `[env:4848S040]` environment.
+1. Open `src/myoptions.h`. The build reads this file through `src/src/core/options.h`. There is no separate template to copy.
+2. Set `L10N_LANGUAGE`: `RU`, `EN`, `PL`, or `SK`.
+3. In PlatformIO select the `[env:4848S040]` environment. It sets the SoC, flash, and PSRAM. The board is selected by `YORADIO_BOARD` in `src/myoptions.h`.
 4. Wi-Fi and the station list are configured on first start and through the Web UI / files in `data/`.
 
 Build-from-source details, including the matched ESP-IDF library set, are in the [main English README](readme_english.md#note-on-building-from-source) and in `platformio.ini`.
 
+## Different wiring of the same ST7701 and GT911
+
+Factory display and touch GPIO live in the [board profile](src/src/platform/board/profiles/esp32s3_4848s040/README.md). To move individual lines of the same ST7701 480×480 panel and the same GT911:
+
+1. In `src/myoptions.h` set `YORADIO_CUSTOM_WIRING` to `1`.
+2. Uncomment only the `DISP_*` or `TOUCH_*` lines that changed and write your board's GPIO.
+3. Do not define `ST7701_*` or `TS_*`. The build stops and names the `DISP_*` or `TOUCH_*` replacement.
+
+Lines you leave commented stay at factory values. Custom Wiring does not change the controller, the 480×480 size, panel timing, or the GT911 address `0x5D`. There is no RESX line: panel reset must stay disconnected. `TOUCH_INT` does not switch touch to interrupt mode; the supported path polls. The build checks the display and touch GPIO range and a GPIO reused among display, touch, and the three I2S pins. It does not prove the wire is correct, and it does not assign a free GPIO.
+
+Serial line `wiring: custom` means the flag is on. `backlight-gpio` is printed too. Individual RGB, SDA, and SCL lines are not printed in that log.
+
 ## Ready-to-flash packages
 
-Ready packages for `0.9.434m-r2-lvgl-beta.3` are in [build_bin/4848S040/](build_bin/4848S040/) for **RU**, **EN**, **PL**, and **SK**. Exact checksums and the exact source commit for each package are listed in the README inside the corresponding language directory.
+Ready packages for the beta.3 line are in [build_bin/4848S040/](build_bin/4848S040/) for **RU**, **EN**, **PL**, and **SK**. They are a historical set, not a firmware build of the current `night_build` sources. Exact checksums and the exact source commit for each package are listed in the README inside the corresponding language directory. These packages are not a GitHub Release of `beta.3.06`.
 
 Each language folder contains:
 
@@ -127,7 +147,7 @@ On this board control is touch-only; no encoder is wired.
 
 Deep Sleep puts the ESP32-S3 into its low-power sleep state. The GT911 touchscreen is not a wake source, but wake through the configurable `WAKE_PIN` is supported; in the stock configuration that is the BOOT button on GPIO0, active LOW.
 
-Default configuration (`src/myoptions.h`, `src/myoptions_4848S040.h`):
+Default configuration (`src/myoptions.h`):
 
 ```cpp
 #define WAKE_PIN      0     // stock BOOT button
@@ -136,7 +156,7 @@ Default configuration (`src/myoptions.h`, `src/myoptions_4848S040.h`):
 
 The stock **BOOT** button sits on **GPIO0** and shorts it to GND when pressed, so wake works without extra soldering and without an external pull-up — the pull-up is already on the board.
 
-GPIO0 is also used by the RGB panel as `ST7701_R4` (red-channel data line). To avoid a conflict, the firmware calls `rtc_gpio_deinit()` at the very start of `setup()` — before configuration and display init — and returns GPIO0 from RTC IO mode to ordinary digital GPIO. The log then shows:
+GPIO0 is also used by the RGB panel as factory red line R4 (`DISP_R4` in Custom Wiring). Do not define the name `ST7701_R4`: the build rejects it. So that this share does not block wake, the firmware calls `rtc_gpio_deinit()` at the very start of `setup()` — before configuration and display init — and returns GPIO0 from RTC IO mode to ordinary digital GPIO. The log then shows:
 
 ```text
 [WAKE] cause=EXT0
@@ -153,7 +173,7 @@ GPIO0 is also used by the RGB panel as `ST7701_R4` (red-channel data line). To a
 
 > **Caution.** Do not hold BOOT during a hardware Reset — GPIO0 is a boot strapping pin, and holding it LOW through Reset puts the chip into download mode instead of normal boot.
 
-Reset and power reconnect remain fallback startup methods. `WAKE_PIN=255` fully disables GPIO wake (it does not affect the RTC timer below). In the stock ESP32-4848S040 map there is no free RTC GPIO besides GPIO0 — BOOT/GPIO0 remains the default for this profile. On another board or with a different layout you can choose another free RTC GPIO (GPIO0–21 on ESP32-S3) and active level LOW or HIGH.
+Reset and power reconnect remain fallback startup methods. `WAKE_PIN=255` fully disables GPIO wake (it does not affect the RTC timer below). On ESP32-4848S040 the default is the BOOT button on GPIO0. This text does not name another RTC GPIO as free. `WAKE_PIN` may be 255 or an RTC GPIO 0–21; the active level is LOW or HIGH. The build checks only that range.
 
 Before Deep Sleep the firmware cleanly stops playback, saves state, turns off the display, and only then puts the ESP32-S3 to sleep.
 
@@ -186,23 +206,23 @@ The commands work over Serial and Telnet. The valid range is 0…1499 minutes wh
 
 ## GPIO reference table
 
-Pins from `src/myoptions_4848S040.h`:
+Factory wiring of ESP32-4848S040. The full display and touch map is in the [board profile](src/src/platform/board/profiles/esp32s3_4848s040/README.md). Live DAC and wake pins are macros in `src/myoptions.h`.
 
 | Purpose | GPIO |
 |---|---|
 | Display: CS / SCK / SDA (SWSPI) | 39 / 48 / 47 |
 | Display: DE / VSYNC / HSYNC / PCLK | 18 / 17 / 16 / 21 |
-| Display: data R0–R4, G0–G5, B0–B4 | 16-bit RGB bus (see `src/myoptions_4848S040.h`) |
+| Display: data R0–R4, G0–G5, B0–B4 | 16-bit RGB bus; factory numbers are in the [board profile](src/src/platform/board/profiles/esp32s3_4848s040/README.md) |
 | Backlight (PWM) | 38 |
 | Touch GT911: SDA / SCL | 19 / 45 |
 | I2S: DATA / BCLK / LRCK | 40 / 1 / 2 |
-| BOOT button / Deep Sleep wake (`WAKE_PIN`, active LOW) | 0 — shared with `ST7701_R4` |
+| BOOT button / Deep Sleep wake (`WAKE_PIN`, active LOW) | 0 — shared with factory line R4 |
 | Physical MUTE button (`BTN_MUTE`, optional) | 255 — unused by default |
 | Amplifier MUTE/enable output (`MUTE_PIN`, optional) | 255 — unused by default |
 
 SD pins (CS=42, SCK=48, MISO=41, MOSI=47) are unused in this configuration: SD playback is disabled in the public beta.
 
-**MUTE.** `BTN_MUTE` is an optional physical button to GND with an internal pull-up. `MUTE_PIN` is an independent optional GPIO output for mute/enable of an external amplifier (not the same signal as the button). Both lines are disabled by default (`255`) on ESP32-4848S040. If your board or amplifier supports hardware mute/enable, set a free GPIO in `src/myoptions_4848S040.h`.
+**MUTE.** `BTN_MUTE` is an optional physical button to GND with an internal pull-up. `MUTE_PIN` is an independent optional GPIO output for mute/enable of an external amplifier (not the same signal as the button). Both lines are disabled by default (`255`) on ESP32-4848S040. If the amplifier needs a hardware mute/enable line, set the GPIO in `src/myoptions.h`. The build does not check whether that GPIO collides with the display, touch, I2S, USB, BOOT, or SD. Compare the number with the profile map and your schematic. This text does not assign a free GPIO.
 
 ## Closing
 

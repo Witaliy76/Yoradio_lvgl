@@ -1,180 +1,185 @@
 # Board Contract
 
-Author: Witaliy76 - https://github.com/Witaliy76
+## English
 
-Compile-time описание платы: какой это модуль, какие GPIO разведены на заводе и какая итоговая разводка попадёт в драйверы.
-Слой platform в целом — [../README.md](../README.md). Заводская плата, которая сейчас поддерживается, — [4848S040](profiles/esp32s3_4848s040/README.md).
+Board Contract is the compile-time source of selected-board facts and effective
+display/touch wiring. The current production board is ESP32-S3 4848S040.
 
-Сборка читает `src/myoptions.h`. Файл `src/myoptions_4848S040.h` — копия того же текста и сам по себе не выбирается.
+### Core model
 
-## Быстрый старт
-
-Заводская конфигурация в `src/myoptions.h`. Строки `DISP_*` и `TOUCH_*` остаются закомментированными. Итоговые GPIO совпадают с [таблицей 4848S040](profiles/esp32s3_4848s040/README.md).
-Для штатной платы вручную перечислять 24 GPIO дисплея не требуется. `DISP_*` нужен только при реальном изменении проводки.
-
-```c
-#define YORADIO_BOARD YORADIO_BOARD_4848S040
-#define YORADIO_CUSTOM_WIRING 0
-```
-
-Один override, чтобы проверить, что сборка принимает замену одной линии. Неназванные линии остаются заводскими.
-
-```c
-#define YORADIO_CUSTOM_WIRING 1
-#define DISP_B3      41
-```
-
-`DISP_B3 41` — пример проверки компиляции, не рекомендация по подключению. Валидатор видит только, что 41 не занят дисплеем, тачем и I2S и входит в допустимый диапазон. Свободна ли ножка на плате и нет ли конфликта вне этого валидатора, нужно проверять отдельно. `#define` провод не переносит.
-
-## Файлы
-
-```text
-board/
-├── board_id.h            постоянные номера YORADIO_BOARD_*
-├── board_contract.h      типы BoardProfile, BoardDefaults, сентинел 255
-├── board_select.h        выбор профиля по YORADIO_BOARD, алиасы kActiveBoard и kWiring
-├── board_wiring.h        наложение DISP_* / TOUCH_* поверх завода
-├── board_validate.h      проверки семейства сборки и итоговой разводки
-├── compat/               migration guards для старых ST7701/Touch GPIO имён
-└── profiles/             по одному каталогу на плату
-```
-
-Как добавить плату: [profiles/README.md](profiles/README.md).
-Как мигрировать старые display GPIO имена: [compat/README.md](compat/README.md).
-
-## 1. Выбор платы
-
-В `src/myoptions.h` достаточно одной строки:
-
-```c
-#define YORADIO_BOARD YORADIO_BOARD_4848S040
-```
-
-Известные номера лежат в `board_id.h`. Сейчас это `YORADIO_BOARD_NONE` (0, не плата) и `YORADIO_BOARD_4848S040` (1). Номер 0 зарезервирован: опечатка в имени внутри `#if` превращается в 0, и `board_select.h` сообщает об ошибке, а не выбирает другую плату молча.
-
-Окружение `pio run -e 4848S040` при этом не меняется. Валидатор сверяет профиль с sdkconfig: ESP32-S3, не меньше 16 МБ flash, octal PSRAM.
-
-## 2. Где смотреть заводскую разводку
-
-Числовые GPIO 4848S040 записаны один раз в инициализаторе `profiles/esp32s3_4848s040/board_profile.h`. Рядом с каждым значением в комментарии стоит имя сигнала. Таблица для чтения — в [README этой платы](profiles/esp32s3_4848s040/README.md).
-
-Закомментированные числа в блоке CUSTOM WIRING файла `src/myoptions.h` повторяют тот же завод для удобства правки. Источник истины — профиль, не эти комментарии.
-
-## 3. BoardProfile и BoardDefaults
-
-`BoardProfile` — заводской факт: идентичность, требования к сборке, разводка дисплея и тача, наличие встроенного аудио и слота SD, факты USB и кнопки BOOT. Пользовательский `#define` этот объект не изменяет.
-
-`BoardDefaults` — проверенные рекомендации YoRadio. Для 4848S040 там внешний I2S (DOUT 40, BCLK 1, LRCK 2), wake с кнопки BOOT (GPIO0, активный низ), display policy и touch servicing: polling, I²C 100 кГц. Геометрия 480×480 находится в display contract; официальный touch component выполняет orientation, а YoRadio ограничивает только допустимый pixel range. Display и touch runtime читают соответствующие resolved policies, а I2S и wake пока используют прежние настройки. `YORADIO_RGB_BOUNCE10` и другие поддерживаемые переключатели остаются доступны.
-
-`PanelMode` задаёт рецепт конкретной панели: controller, native geometry, RGB565, timing и идентичность init. `ResolvedDisplayConfig` соединяет его с `kWiring.display`, `BoardDefaults.display` и пользовательскими choices. `ResolvedTouchConfig` берёт из display contract effective geometry, а из `kWiring.touch` и `BoardDefaults.touch` — wiring и servicing; persisted Flip Touch выбирает штатные mirror-флаги official component. UI profile Square480 остаётся отдельным слоем S06.
-
-## 4. kActiveBoard и kWiring
-
-`board_select.h` публикует два значения.
-
-| Имя | Что это |
+| Value | Meaning |
 |---|---|
-| `kActiveBoard` | Неизменный заводской `BoardProfile` выбранной платы. |
-| `kWiring` | Копия завода. При `YORADIO_CUSTOM_WIRING 0` она совпадает с заводом. При `1` в ней заменены только те поля, для которых в `myoptions.h` раскомментирован `DISP_*` или `TOUCH_*`. |
+| BoardProfile | Immutable factory facts: identity, build requirements, display/touch wiring and hardware presence |
+| BoardDefaults | Tested YoRadio recommendations: external-I2S pins, wake, display host policy and touch servicing |
+| kActiveBoard | Selected factory BoardProfile |
+| kWiring | Effective wiring: factory profile with only enabled DISP_* / TOUCH_* overrides applied |
+| kActiveBoardDefaults | Defaults for the selected profile |
 
-Дисплей читает `kWiring.display` через `kResolvedDisplayConfig`. Тач с S05-1 читает `kWiring.touch` через `ResolvedTouchConfig`; S05-4 удалил временные `TS_SDA` / `TS_SCL` / `TS_INT` / `TS_RST` aliases. В `compat/` остались только направленные migration guards. См. [compat/README.md](compat/README.md).
+BoardProfile is not changed by user defines. BoardDefaults is not a hardware
+truth or a complete runtime configuration. Display uses ResolvedDisplayConfig;
+touch uses ResolvedTouchConfig. External I2S and wake remain macros because
+their consumers require preprocessor values.
 
-## 5. Custom Wiring
+### Select and configure an existing board
 
-В `src/myoptions.h`:
+In src/myoptions.h:
 
-1. Поставить `#define YORADIO_CUSTOM_WIRING 1`.
-2. Раскомментировать одну нужную строку `DISP_*` или `TOUCH_*`.
-3. Записать новый номер GPIO.
-4. Пересобрать прошивку.
+    #define YORADIO_BOARD YORADIO_BOARD_4848S040
+    #define YORADIO_CUSTOM_WIRING 0
 
-Пока флаг равен 0, любая раскомментированная строка `DISP_*` или `TOUCH_*` — ошибка компиляции с текстом, который просит либо включить флаг, либо снова закомментировать строку. Старые GPIO-имена `ST7701_*`, `TS_SDA`, `TS_SCL`, `TS_INT` и `TS_RST` в `myoptions.h` писать нельзя: guards отвергают их и указывают на `DISP_*` / `TOUCH_*`. `TS_MODEL` остаётся отдельным селектором драйвера.
+The PlatformIO environment (for example, 4848S040) selects build-family
+properties such as SoC, flash, PSRAM and partitions; it does not select a
+BoardProfile. board_validate.h checks that the profile agrees with that build.
 
-`#define` не переносит дорожку на плате. Пока физический провод не пересажен на новый GPIO, прошивать такую сборку нельзя.
+For a physically rewired display or GT911, set Custom Wiring to 1 and uncomment
+only changed DISP_* or TOUCH_* entries. Unnamed lines stay factory values:
 
-## 6. Что происходит с остальными GPIO
+    #define YORADIO_CUSTOM_WIRING 1
+    #define TOUCH_SDA 19
 
-`makeWiring()` копирует весь заводской профиль и подменяет только те поля, для которых в `myoptions.h` есть раскомментированный `DISP_*` или `TOUCH_*`. Каждая неназванная линия остаётся заводской, сколько бы строк ни переопределялось. Незакомментированная строка со старым числом тоже явное переопределение, просто на то же значение.
+The validator rejects a GPIO used twice among display, touch and
+`I2S_DOUT` / `I2S_BCLK` / `I2S_LRC`; ESP32-S3 numbers 22–37 and numbers above
+48 on `DISP_*` and `TOUCH_*` only; a required display or touch line set to
+255; and a `DISP_*` or `TOUCH_*` override while the flag is off. It does not
+range-check the three I2S macros. It does not check `MUTE_PIN`, `WAKE_PIN`,
+IR or SD against the display. It cannot prove a physical wire or that a pin
+is free.
 
-## 7. Проверки конфликтов
+### External I2S DAC
 
-`board_validate.h` смотрит итоговый `kWiring` плюс активные `I2S_DOUT`, `I2S_BCLK` и `I2S_LRC` (пин 255 в I2S не занимает линию). Ошибка — `static_assert` или `#error`, сборка не доходит до прошивки.
+Change `I2S_DOUT`, `I2S_BCLK` and `I2S_LRC` in `src/myoptions.h`. Do not edit
+BoardProfile, Custom Wiring, or `BoardDefaults.audio`: the audio and wake
+fields there are recommendations and are not applied. The 4848S040 rear
+connector uses DOUT 40, BCLK 1 and LRC 2. Those three signals are ESP32
+outputs in I2S master mode: DOUT to the DAC DIN/DATA pin, BCLK to BCK, LRC to
+LRCK/WS. No MCLK pin is driven. The validator checks collisions with effective
+display/touch pins only. Serial `bootInfo` prints the compiled `i2s-dout`,
+`i2s-bclk` and `i2s-lrc` values. That log does not prove the I2S driver
+accepted the pins. Verify the DAC, voltage levels and remaining board
+functions on hardware. Rebuild and flash your own firmware; `build_bin/`
+packages do not contain `myoptions.h` edits.
 
-Проверяется:
+### GT911 and display GPIO
 
-- два активных сигнала на одном GPIO: дисплей, тач и I2S;
-- обязательные линии дисплея и `TOUCH_SDA` / `TOUCH_SCL` не равны 255;
-- `TOUCH_INT` и `TOUCH_RST` могут остаться 255;
-- номер входит в допустимые GPIO ESP32-S3 этой сборки: 0–21 и 38–48. Диапазон 22–37 и номер больше 48 отвергаются;
-- при выключенном Custom Wiring итоговые 28 GPIO совпадают с заводом S02-5.
+Display and GT911 GPIO use `DISP_*` and `TOUCH_*` under Custom Wiring. See
+[Touch Contract](../touch/README.md). `TS_*` and `ST7701_*` names are
+migration errors. The profile owns the GT911 address (`0x5D` on 4848S040);
+Custom Wiring does not override it. Panel timing and 480×480 geometry stay in
+PanelMode. There is no `DISP_*` line for panel RESX, and the backend requires
+that reset to stay disconnected. `TOUCH_INT` does not select interrupt mode.
+Serial shows `wiring: custom` and `backlight-gpio`, not the full RGB or
+SDA/SCL map.
 
-Не проверяются USB, кнопка BOOT, `WAKE_PIN`, `IR_PIN`, `MUTE_PIN`, `BTN_MUTE` и линии SD. Совпадения, которые из-за этого остаются долгом, перечислены в [README 4848S040](profiles/esp32s3_4848s040/README.md). Отдельного `shared_resources.h` в S02 нет и для закрытия этапа он не требуется.
+### Add a board
 
-Сообщение конфликта одно:
+Adding a board is programming work:
 
-```text
-YoRadio Custom Wiring: two active signals share the same GPIO.
-Check DISP_*/TOUCH_* overrides against each other and against I2S_DOUT/BCLK/LRC in src/myoptions.h.
-```
+1. Allocate a stable BoardId in board_id.h.
+2. Add profiles/<board>/board_profile.h and board_defaults.h.
+3. Add the selection branch in board_select.h.
+4. Extend board_validate.h and add a real PlatformIO build environment if the
+   SoC/flash/PSRAM family differs.
+5. Supply/qualify matching display and touch implementations, then perform
+   hardware validation.
 
-Негодный номер даёт текст вида `DISP_B3 uses an invalid ESP32-S3 GPIO`. Обязательная линия со значением 255 — `DISP_B3 cannot be disconnected` (имя линии в тексте своё).
+The same ST7701 RGB565 480×480 and GT911 keep the current backends. A
+BoardProfile cannot by itself add a new panel, resolution, or controller.
+The current GPIO range and duplicate checks sit inside the 4848S040 branch.
+See [profiles README](profiles/README.md) and [display README](../display/README.md).
 
-## 8. GPIO 255
+### Compatibility
 
-255 — это `YORADIO_BP_PIN_NOT_CONNECTED` / `kPinNotConnected`: линия на плату не заведена. Ноль так использовать нельзя: GPIO0 на 4848S040 — это данные R4 и кнопка BOOT.
+Old ST7701_* and TS_* wiring names are intentionally rejected by
+compat/legacy_macros.h. ST7701_BOOT_ORIENTATION_180 is an allowed display
+policy choice, not a GPIO alias. See [compat README](compat/README.md).
 
-Для тача 255 у `TOUCH_INT` и `TOUCH_RST` означает опрос без отдельного провода INT/RST. Для обязательной линии данных, синхронизации, командной шины, подсветки, `TOUCH_SDA` и `TOUCH_SCL` значение 255 — ошибка.
+## Русский
 
-## 9. Почему I2S и WAKE настраиваются отдельно
+Board Contract — compile-time источник фактов выбранной платы и effective
+разводки display/touch. Текущая production-плата — ESP32-S3 4848S040.
 
-`I2S_DOUT`, `I2S_BCLK`, `I2S_LRC` и `WAKE_PIN` читаются в `#if` аудиобиблиотекой и проверкой диапазона RTC GPIO. Поле `kWiring` — выражение C++, в `#if` оно не годится. Поэтому эти четыре макроса остаются в своих секциях `src/myoptions.h`. Рекомендации лежат в BoardDefaults и на итоговую сборку сами не действуют.
+### Основная модель
 
-На 4848S040 в `myoptions.h` сейчас DOUT 40, BCLK 1, LRC 2, `WAKE_PIN` 0. Это проверенная рекомендация и текущая настройка пользователя, не дорожка заводского ЦАП на плате.
-
-## 10. Драйверы и мост совместимости
-
-| Что | Где |
+| Значение | Смысл |
 |---|---|
-| Ошибки миграции старых display/touch GPIO имён | `compat/legacy_macros.h`, подключается из `src/src/core/options.h` |
-| RGB ST7701, прямой `esp_lcd` | `src/src/displays/esp_lcd_st7701_backend.cpp`, `displayST7701.cpp` |
-| GT911 | `src/src/platform/touch/gt911_backend.*` + managed `espressif/esp_lcd_touch_gt911` |
-| Геометрия касания, не пины | `src/src/core/touch_geometry.h` |
+| BoardProfile | Неизменяемые заводские факты: identity, build requirements, display/touch wiring, наличие hardware |
+| BoardDefaults | Проверенные рекомендации YoRadio: external-I2S pins, wake, display host policy, touch servicing |
+| kActiveBoard | Выбранный заводской BoardProfile |
+| kWiring | Effective wiring: factory profile с наложенными только включёнными DISP_* / TOUCH_* override |
+| kActiveBoardDefaults | Defaults выбранного profile |
 
-Display GPIO bridge удалён в S04-4. Production touch перешёл на `kWiring.touch` в S05-1; S05-4 удалил touch aliases после поиска consumers и compile proof. Guards сохранены, чтобы старые определения не игнорировались молча.
+BoardProfile не меняется user defines. BoardDefaults не является hardware truth
+или полной runtime configuration. Display использует ResolvedDisplayConfig;
+touch — ResolvedTouchConfig. External I2S и wake остаются macros, потому что их
+consumers требуют preprocessor values.
 
-## 11. Проверка и сборка
+### Выбор и настройка существующей платы
 
-Из корня репозитория:
+В src/myoptions.h:
 
-```text
-pio run -e 4848S040
-```
+    #define YORADIO_BOARD YORADIO_BOARD_4848S040
+    #define YORADIO_CUSTOM_WIRING 0
 
-Отдельной утилиты проверки нет: конфликт виден как ошибка этой сборки. Прошивать стоит только ту конфигурацию, которая совпадает с реальной проводкой. Стирание NVS и смена таблицы разделов к правке GPIO не относятся.
+PlatformIO environment (например, 4848S040) выбирает build-family properties:
+SoC, flash, PSRAM, partitions; он не выбирает BoardProfile. board_validate.h
+проверяет, что profile соответствует этой сборке.
 
-## Пример: завод 4848S040
+Для физически переподключённого display или GT911 установите Custom Wiring в 1
+и раскомментируйте только изменённые DISP_* или TOUCH_* строки. Неназванные
+линии сохраняют заводские значения:
 
-```c
-#define YORADIO_BOARD YORADIO_BOARD_4848S040
-#define YORADIO_CUSTOM_WIRING 0
-```
+    #define YORADIO_CUSTOM_WIRING 1
+    #define TOUCH_SDA 19
 
-Все строки `DISP_*` и `TOUCH_*` остаются закомментированными. Итоговые 28 GPIO равны [таблице платы](profiles/esp32s3_4848s040/README.md).
+Validator отвергает GPIO, занятый дважды среди дисплея, тача и
+`I2S_DOUT` / `I2S_BCLK` / `I2S_LRC`; номера ESP32-S3 22–37 и номера больше 48
+только у `DISP_*` и `TOUCH_*`; обязательную линию дисплея или тача со
+значением 255; override `DISP_*` или `TOUCH_*` при выключенном flag. Диапазон
+трёх макросов I2S он не проверяет. `MUTE_PIN`, `WAKE_PIN`, IR и SD с дисплеем
+он не сверяет. Физический провод и свободу пина он не доказывает.
 
-## Пример: одна замена, которую принимает компилятор
+### Внешний I2S ЦАП
 
-```c
-#define YORADIO_CUSTOM_WIRING 1
-#define DISP_B3      41
-```
+Меняйте `I2S_DOUT`, `I2S_BCLK`, `I2S_LRC` в `src/myoptions.h`. Не правьте
+BoardProfile, Custom Wiring и `BoardDefaults.audio`: поля audio и wake там —
+рекомендации, и прошивка их не применяет. Задний разъём 4848S040: DOUT 40,
+BCLK 1, LRC 2. Эти три сигнала — выходы ESP32 в режиме I2S master: DOUT на
+DIN/DATA ЦАП, BCLK на BCK, LRC на LRCK/WS. Пин MCLK не выводится. Validator
+проверяет только пересечение с effective display/touch pins. Serial `bootInfo`
+печатает собранные значения `i2s-dout`, `i2s-bclk`, `i2s-lrc`. Этот лог не
+доказывает, что драйвер I2S принял пины. ЦАП, уровни напряжения и остальные
+функции платы проверяйте на hardware. Нужна своя сборка и прошивка; пакеты
+`build_bin/` правки `myoptions.h` не содержат.
 
-Это проверка компиляции, не схема подключения. GPIO 41 не занят дисплеем, тачем и I2S и входит в допустимый диапазон, поэтому текущий валидатор пару принимает. B2 при этом остаётся на заводском GPIO6. Свободна ли ножка на плате и нет ли конфликта вне валидатора — USB, BOOT, комментарий SD, IR, MUTE, индикация — этот пример не отвечает. В комментарии SD номер 41 назван MISO; проверка SD не смотрит. Прошивать такой вариант можно только после отдельной проверки и реального переноса провода. Сам `#define` провод не переносит.
+### GT911 и GPIO дисплея
 
-## Пример ошибки: B3 на GPIO, который уже занимает B2
+GPIO дисплея и GT911 задаются `DISP_*` и `TOUCH_*` через Custom Wiring. См.
+[Touch Contract](../touch/README.md). Имена `TS_*` и `ST7701_*` — ошибки
+миграции. Profile владеет адресом GT911 (`0x5D` на 4848S040); Custom Wiring
+его не меняет. Timing и геометрия 480×480 остаются в PanelMode. Строки
+`DISP_*` для RESX нет, backend требует, чтобы сброс панели оставался
+неподключённым. `TOUCH_INT` не выбирает режим прерывания. Serial показывает
+`wiring: custom` и `backlight-gpio`, не полную карту RGB или SDA/SCL.
 
-```c
-#define YORADIO_CUSTOM_WIRING 1
-#define DISP_B3      6
-```
+### Добавление платы
 
-B2 на заводе сидит на GPIO6, и строка B2 не менялась. Итоговый список содержит две шестёрки, `static_assert` в `board_validate.h` останавливает сборку.
+Добавление платы — programming work:
+
+1. Выделите стабильный BoardId в board_id.h.
+2. Добавьте profiles/<board>/board_profile.h и board_defaults.h.
+3. Добавьте ветку выбора в board_select.h.
+4. Расширьте board_validate.h и добавьте реальный PlatformIO build environment,
+   если отличается семейство SoC/flash/PSRAM.
+5. Добавьте/квалифицируйте matching display/touch implementations, затем
+   проведите hardware validation.
+
+Те же ST7701 RGB565 480×480 и GT911 остаются на текущих backend.
+BoardProfile сам по себе не добавляет новую panel, resolution или controller.
+Текущие проверки диапазона GPIO и дубликатов находятся внутри ветки 4848S040.
+См. [profiles README](profiles/README.md) и [display README](../display/README.md).
+
+### Совместимость
+
+Старые wiring names ST7701_* и TS_* намеренно отвергаются
+compat/legacy_macros.h. ST7701_BOOT_ORIENTATION_180 — допустимый display policy
+choice, не GPIO alias. См. [compat README](compat/README.md).

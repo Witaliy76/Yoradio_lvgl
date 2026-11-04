@@ -8,8 +8,9 @@ YoRadio LVGL — Wi-Fi интернет-радио на ESP32-S3 с сенсор
 
 Проект основан на [e2002/yoradio](https://github.com/e2002/yoradio); текущий репозиторий — [Yoradio_lvgl](https://github.com/Witaliy76/Yoradio_lvgl).
 
-> **Публичная версия:** `0.9.434m-r2-lvgl-beta.3`
-> **Текущие исходники:** `0.9.434m-r2-lvgl-beta.3`
+> **Стабильная версия на `main`:** `0.9.434m-r2-lvgl-beta.3.01`
+> **Исходники ветки `night_build`:** `0.9.434m-r2-lvgl-beta.3.06` (`YOVERSION`; это не GitHub Release)
+> **Готовые пакеты `build_bin/`:** исторический комплект линии beta.3, не сборка текущих исходников
 > **Проверенная плата:** ESP32-4848S040
 
 ![YoRadio LVGL — музыкальный интернет-радиоприёмник](readme/device-front.jpg)
@@ -296,6 +297,8 @@ AI Layer — необязательный тихий слой поверх му�
 
 → **[README_4848S040.md](README_4848S040.md)**
 
+Граница аппаратуры в исходниках — [src/src/platform/README.md](src/src/platform/README.md): выбор платы и GPIO ([Board Contract](src/src/platform/board/README.md)), дисплей ([Display Contract](src/src/platform/display/README.md)), тач ([Touch Contract](src/src/platform/touch/README.md)). Пины внешнего ЦАП и Custom Wiring задаются в `src/myoptions.h`. Пакет из `build_bin/` эти правки не содержит: нужна своя сборка и прошивка.
+
 ### Замечание для сборки из исходников
 
 Порядок сборки:
@@ -306,7 +309,7 @@ AI Layer — необязательный тихий слой поверх му�
 
 Больше ничего не требуется. Вручную заменять архивы ESP-IDF внутри `.platformio` **не нужно** — прежняя инструкция по копированию `.a`-файлов в `framework-arduinoespressif32-libs` больше неактуальна и не поддерживается.
 
-PlatformIO сам загружает закреплённый в [platformio.ini](platformio.ini) пакет — PIOArduino `55.03.311` (Arduino-ESP32 `3.3.11`, ESP-IDF `5.5.5`). Общий пакет PlatformIO при этом остаётся нетронутым: YoRadio ничего в нём не меняет и не перезаписывает.
+PlatformIO сам загружает закреплённый в [platformio.ini](platformio.ini) пакет — PIOArduino `55.03.312` (Arduino-ESP32 `3.3.12`, ESP-IDF `5.5.5`). Общий пакет PlatformIO при этом остаётся нетронутым: YoRadio ничего в нём не меняет и не перезаписывает.
 
 Свои правки YoRadio держит в репозитории, в каталоге `library!/esp-idf-5.5.5/s3/`. Для S3 там лежит согласованный набор из **семи** локальных архивов ESP-IDF (LwIP, Wi-Fi, mbedTLS и связанные сетевые/TLS-библиотеки), пересобранных из штатных исходников Espressif с конфигурацией YoRadio, плюс `manifest.txt` с версиями, коммитами и SHA256. Графический `libesp_lcd` **не** входит в этот набор — используется штатный из ESP-IDF 5.5.5. Это **не** обычная Arduino-библиотека: файлы оттуда не нужно никуда копировать, устанавливать или подключать по отдельности.
 

@@ -1,80 +1,103 @@
-# ESP32-S3 4848S040
+# ESP32-S3 4848S040 profile
 
-Author: Witaliy76 - https://github.com/Witaliy76
+## English
 
-Единственная плата, которую Board Contract сейчас выбирает. Настройка и Custom Wiring — в [Board Contract](../../README.md). Как устроен каталог профиля — в [profiles/README.md](../README.md).
+This is the only production BoardProfile. Select it in src/myoptions.h with
+YORADIO_BOARD_4848S040. Factory facts live in board_profile.h; tested
+recommendations live in board_defaults.h.
 
-Идентификатор: `YORADIO_BOARD_4848S040`. Физическая разводка: `board_profile.h`. Проверенная host-политика дисплея: `board_defaults.h`, уже читается display runtime и LVGL.
+| Hardware | Current contract |
+|---|---|
+| SoC / memory | ESP32-S3, 16 MB flash minimum, octal PSRAM required |
+| Display | ST7701, RGB565 parallel-16, 480x480 |
+| Touch | GT911 at I2C address 0x5D; polling, 100 kHz |
+| Panel reset | Not routed to SoC; Custom Wiring cannot assign RESX |
+| External I2S recommendation | DOUT 40, BCLK 1, LRC 2. These are ESP32 outputs. The live macros are `I2S_DOUT`, `I2S_BCLK`, `I2S_LRC` in `src/myoptions.h`. `BoardDefaults.audio` is not applied |
+| Wake recommendation | GPIO0, active low. The live macros are `WAKE_PIN` and `WAKE_LEVEL` |
 
-## Модуль
+### Factory display GPIO
 
-| Факт | Значение | Откуда |
-|---|---|---|
-| SoC | ESP32-S3 | `identity.build.soc` |
-| Flash | 16 МБ, меньше боевая таблица `partition_16MB_ota_largefs.csv` не входит | `min_flash_bytes` |
-| PSRAM | 8 МБ, octal (OPI); сборка без PSRAM не принимается | комментарий модуля N16R8 в `board_profile.h`. В структуре хранятся только `requires_psram` и `PsramMode::Octal`, отдельного поля объёма нет |
-| Панель | ST7701, RGB565, 16 линий данных, 480×480 | `DisplayWiring` |
-| Тач | GT911, адрес `0x5D` | `TouchWiring` |
-| RESX панели | на SoC не заведён | `panel_reset_gpio = kPinNotConnected` |
-
-Числа GPIO ниже скопированы из инициализатора `board_profile.h`. Менять их в этом README бессмысленно: сборка читает заголовок.
-
-## 24 GPIO дисплея
-
-Порядок данных — слоты `esp_lcd`: B0..B4, G0..G5, R0..R4.
-
-| Сигнал | GPIO | Сигнал | GPIO |
+| Signal | GPIO | Signal | GPIO |
 |---|---:|---|---:|
-| B0 | 4 | G3 | 46 |
-| B1 | 5 | G4 | 9 |
-| B2 | 6 | G5 | 10 |
-| B3 | 7 | R0 | 11 |
-| B4 | 15 | R1 | 12 |
-| G0 | 8 | R2 | 13 |
-| G1 | 20 | R3 | 14 |
-| G2 | 3 | R4 | 0 |
-| HSYNC | 16 | VSYNC | 17 |
-| DE | 18 | PCLK | 21 |
-| команда CS | 39 | команда SCK | 48 |
-| команда SDA | 47 | подсветка BL | 38 |
+| B0/B1/B2/B3/B4 | 4/5/6/7/15 | G0/G1/G2/G3/G4/G5 | 8/20/3/46/9/10 |
+| R0/R1/R2/R3/R4 | 11/12/13/14/0 | HSYNC/VSYNC/DE/PCLK | 16/17/18/21 |
+| Type9 CS/SCK/SDA | 39/48/47 | Backlight | 38 |
 
-Командная шина — программный 9-битный SPI, только на время инициализации панели. Подсветка — одна PWM-линия, отдельного enable нет.
+### Factory touch GPIO
 
-## 4 GPIO тача
-
-| Сигнал | GPIO | Смысл |
+| Signal | GPIO | Meaning |
 |---|---:|---|
-| SDA | 19 | I2C данные |
-| SCL | 45 | I2C такт |
-| INT | 255 | не подключён |
-| RST | 255 | не подключён |
+| SDA | 19 | I2C data |
+| SCL | 45 | I2C clock |
+| INT | 255 | not connected |
+| RST | 255 | not connected |
 
-255 здесь — `kPinNotConnected`: провода нет, драйвер GT911 работает опросом. Это заводской факт, не «забыли указать пин». Ноль так не пишется.
+255 is kPinNotConnected, not GPIO0. The board uses polling, so INT/RST are
+intentionally absent. Rewire only through TOUCH_* Custom Wiring entries.
 
-## Что подтверждено на плате и что является поведением программы
+### Important constraints
 
-Штатная разводка из таблицы выше на этой плате работает: аппаратный smoke S02-6 (2026-10-31) прошёл на заводской конфигурации. Полного прозвона или измерения дорожек не выполнялось. Таблица — числа `board_profile.h`, с которыми собрана и дымово проверена эта прошивка. Кнопка BOOT замыкает GPIO0 на GND. RESX на SoC не заведён. Встроенный моно-выход звука на плате есть, но включается перемычками R21/R22/R23; из прошивки его выбрать нельзя. Модель микросхемы этого тракта профиль не называет.
+- GPIO0 is both RGB R4 and the BOOT button/wake default; pressing BOOT while
+  RGB output is active can affect the image.
+- GPIO19/20 are GT911 SDA/RGB G1 and overlap native USB D-/D+ roles
+  respectively; stock native USB pins are not free.
+- GPIO47/48 are the panel Type9 command bus and overlap unvalidated SD comments.
+- The onboard SD slot is only a presence fact; its pin map is not validated here.
+- The onboard mono audio path requires physical R21/R22/R23 rework and is not
+  selected by software.
 
-Текущее программное поведение, не дорожка ЦАП:
+The display policy is one 160-line PSRAM draw buffer, one panel-driver PSRAM
+framebuffer, bounce 0 and PCLK 6/10/6 MHz. It is validated 4848S040 evidence,
+not a transferable recipe. See [Display Contract](../../../display/README.md)
+and [Touch Contract](../../../touch/README.md).
 
-- Внешний I2S задаётся в `src/myoptions.h`: DOUT 40, BCLK 1, LRC 2. Те же числа лежат в `board_defaults.h` как рекомендация. Их можно сменить. Валидатор следит только за тем, чтобы новый I2S не сел на занятый дисплей или тач.
-- `WAKE_PIN` в `myoptions.h` равен 0. Это настройка пробуждения, а не отдельная ножка питания.
-- Политика дисплея в `board_defaults.h` записывает проверенный путь S01: PARTIAL, один буфер 160 строк в PSRAM, один RGB-кадр, bounce 0, 6 МГц на старте и один переход на 10 МГц. Backend/DisplayPort читают её через `ResolvedDisplayConfig`, LVGL берёт высоту буфера напрямую. Родные 480×480 и timing принадлежат PanelMode, не host-рекомендации.
-- Touch servicing в `board_defaults.h`: polling и I²C 100 кГц. `ResolvedTouchConfig` соединяет defaults с `kWiring.touch`, display geometry и persisted Flip Touch; production backend — official `esp_lcd_touch_gt911`, Flip передаётся штатными mirror-флагами.
+## Русский
 
-Холодный старт панели ограничен отсутствием RESX. Backend ставит `disp_gpio_num = GPIO_NUM_NC` и не дёргает аппаратный сброс; остаётся программная команда сброса. SoC не может импульсом RESX вернуть ST7701 в известное состояние при включении питания.
+Это единственный production BoardProfile. Выбирайте его в src/myoptions.h через
+YORADIO_BOARD_4848S040. Factory facts находятся в board_profile.h; tested
+recommendations — в board_defaults.h.
 
-## Совпадения пинов
+| Hardware | Текущий контракт |
+|---|---|
+| SoC / memory | ESP32-S3, минимум 16 MB flash, требуется octal PSRAM |
+| Display | ST7701, RGB565 parallel-16, 480x480 |
+| Touch | GT911 по I2C адресу 0x5D; polling, 100 кГц |
+| Panel reset | Не подключён к SoC; Custom Wiring не назначает RESX |
+| Рекомендация внешнего I2S | DOUT 40, BCLK 1, LRC 2. Это выходы ESP32. Живые макросы — `I2S_DOUT`, `I2S_BCLK`, `I2S_LRC` в `src/myoptions.h`. `BoardDefaults.audio` не применяется |
+| Рекомендация пробуждения | GPIO0, active low. Живые макросы — `WAKE_PIN` и `WAKE_LEVEL` |
 
-Валидатор не считает ошибкой совпадение, которого нет среди одновременно активных линий дисплея, тача и I2S. Поэтому строки ниже — описание платы и долг, а не то, что сборка уже запрещает.
+### Заводские display GPIO
 
-| GPIO | Что сходится | Как это классифицировано |
-|---|---|---|
-| 0 | R4, кнопка BOOT и текущий `WAKE_PIN` | В список дублей не входит. Пробуждение с BOOT рассчитано на deep sleep, до включения дисплея. Нажатие BOOT при уже работающем RGB замыкает линию данных R4 и может испортить картинку. |
-| 19 | Touch SDA и native USB D− | Завод занимает пин тачем. USB в проверку дублей не входит. `native_usb_pins_free_in_stock_wiring = false`. |
-| 20 | RGB G1 и native USB D+ | То же для DP. |
-| 41, 42 | Комментарий SD в `myoptions.h` (41 MISO, 42 CS) и возможные будущие IR/MUTE | SD выключена (`USE_SD` не задан). Пины SD в профиль не записаны и на железе этим контрактом не подтверждены. `IR_PIN`, `BTN_MUTE` и `MUTE_PIN` по умолчанию 255 и в проверку дублей не входят. |
-| 47, 48 | Команда SDA / SCK и тот же комментарий SD (47 MOSI, 48 SCK) | Заводское использование — командная шина дисплея. Совпадение с SD не проверяется, пока SD не подтверждена. |
-| 48 | Командный SCK и путь Arduino RGB LED | Долг миграции. В варианте `esp32s3` Arduino `PIN_RGB_LED` равен 48, а `LED_BUILTIN` — специальный индекс RGB, не номер GPIO. `USE_BUILTIN_LED` по умолчанию истинно (`src/src/core/options.h`), и код индикации вызывает `digitalWrite(REAL_LEDBUILTIN)`. Проверка дублей этот путь не видит. Отдельный пользовательский RGB-светодиод на 4848S040 профилем не объявлен. Дымовой прогон S02-6 этот конфликт как отказ панели не показал. |
+| Signal | GPIO | Signal | GPIO |
+|---|---:|---|---:|
+| B0/B1/B2/B3/B4 | 4/5/6/7/15 | G0/G1/G2/G3/G4/G5 | 8/20/3/46/9/10 |
+| R0/R1/R2/R3/R4 | 11/12/13/14/0 | HSYNC/VSYNC/DE/PCLK | 16/17/18/21 |
+| Type9 CS/SCK/SDA | 39/48/47 | Backlight | 38 |
 
-Слот microSD на плате отмечен как присутствующий (`onboard_sd_present`). Распиновка из комментария `myoptions.h` не проверялась этим этапом, и поддержка SD в прошивке для этой платы выключена. Утверждать, что SD восстановлена, нельзя.
+### Заводские touch GPIO
+
+| Signal | GPIO | Смысл |
+|---|---:|---|
+| SDA | 19 | I2C data |
+| SCL | 45 | I2C clock |
+| INT | 255 | not connected |
+| RST | 255 | not connected |
+
+255 — это kPinNotConnected, не GPIO0. Плата использует polling, поэтому INT/RST
+намеренно отсутствуют. Переподключайте только через TOUCH_* Custom Wiring.
+
+### Важные ограничения
+
+- GPIO0 одновременно RGB R4 и BOOT button/wake default; нажатие BOOT при
+  активном RGB output может повлиять на изображение.
+- GPIO19/20 являются GT911 SDA/RGB G1 и пересекаются с native USB D-/D+
+  соответственно; stock native USB pins не свободны.
+- GPIO47/48 — command bus Type9 панели и пересекаются с непроверенными SD comments.
+- Onboard SD slot — только presence fact; его pin map здесь не validated.
+- Onboard mono audio path требует physical rework R21/R22/R23 и не выбирается
+  software.
+
+Display policy: один 160-line PSRAM draw buffer, один panel-driver PSRAM
+framebuffer, bounce 0, PCLK 6/10/6 МГц. Это validated evidence 4848S040, не
+переносимый рецепт. См. [Display Contract](../../../display/README.md) и
+[Touch Contract](../../../touch/README.md).

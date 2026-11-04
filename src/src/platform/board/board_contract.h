@@ -71,10 +71,10 @@ enum class PanelController  : uint8_t { Unknown = 0, St7701 };
 enum class DisplayTransport : uint8_t { Unknown = 0, Rgb565Parallel16 };
 enum class TouchController  : uint8_t { Unknown = 0, Gt911 };
 
-// Factory display wiring. Panel recipe (timings, porches, init table) belongs to
-// PanelMode and stays in the proven backend until S04; only wiring lives here.
-// Заводская разводка дисплея. Рецепт панели (тайминги, порчи, init-таблица) —
-// это PanelMode, он остаётся в проверенном backend до S04; здесь только разводка.
+// Factory display wiring. Panel recipe (timings, porches, init identity)
+// belongs to PanelMode under platform/display. This struct holds wiring only.
+// Заводская разводка дисплея. Рецепт панели (тайминги, порчи, init) —
+// это PanelMode в platform/display. Здесь только разводка.
 struct DisplayWiring {
     PanelController  controller;
     DisplayTransport transport;
@@ -108,10 +108,10 @@ struct DisplayWiring {
     uint8_t panel_reset_gpio;
 };
 
-// Factory touch wiring. Geometry, rotation and calibration are NOT board truth
-// in this struct: they stay in touch_geometry.h until S05.
-// Заводская разводка тача. Геометрия, поворот и калибровка здесь не хранятся:
-// они остаются в touch_geometry.h до S05.
+// Factory touch wiring. Geometry and orientation are not stored here.
+// ResolvedTouchConfig takes logical size from the display contract.
+// Заводская разводка тача. Геометрия и ориентация здесь не хранятся.
+// ResolvedTouchConfig берёт логический размер из контракта дисплея.
 struct TouchWiring {
     TouchController controller;
     uint8_t         i2c_sda_gpio;
@@ -193,28 +193,34 @@ struct BoardProfile {
 // ---------------------------------------------------------------------------
 // BoardDefaults — tested YoRadio recommendations for one board.
 // NOT physical truth and NOT a restriction: a value here does not ban a
-// different user setting in myoptions.h. UI policy is still absent (S06).
-// Touch servicing and display host recommendations are the defaults below.
+// different user setting in myoptions.h. Another screen layout is not
+// selected from this struct.
 //
 // Three different layers, not one switch:
-//   BoardDefaults.display — the tested recommendation.
+//   BoardDefaults.display / .touch — tested host and touch-service recommendations.
 //   User overrides — myoptions.h (YORADIO_RGB_BOUNCE10, YORADIO_RGB_FLASH_GUARD,
-//     ST7701_BOOT_ORIENTATION_180). This struct does not read them.
+//     ST7701_BOOT_ORIENTATION_180, I2S_* , WAKE_PIN). This struct does not read them.
 //   Backend constraints — what the current driver can actually do. Not stored here.
 //
-// S04-2 records the display recommendation. Firmware still does not read
-// kActiveBoardDefaults, so the live PCLK pair remains in the display backend
-// until a later slice connects one effective policy.
+// ResolvedDisplayConfig and ResolvedTouchConfig read the display host policy
+// and the touch service mode / I2C clock. AudioDefaults and PowerDefaults are
+// not applied: live I2S pins and wake stay the myoptions.h macros.
+// Several display numbers are locked by static_assert to the tested 4848S040
+// policy (partial 160 lines, PCLK 6/10/6 MHz). Panel bounce follows
+// YORADIO_RGB_BOUNCE10, not bounce_buffer_px.
 // CONFIG_LCD_RGB_RESTART_IN_VSYNC stays a build-family sdkconfig switch.
 // It is not a second knob in this struct.
 // BoardDefaults — проверенные рекомендации YoRadio для одной платы.
 // Это НЕ физическая правда и НЕ запрет на другую настройку в myoptions.h.
-// Политика UI всё ещё отсутствует (S06). Рекомендации обслуживания тача и
-// хоста дисплея находятся ниже.
+// Другая раскладка экрана отсюда не выбирается.
 //
 // Три разных слоя: рекомендация, пользовательский override, ограничение backend.
-// S04-2 только записывает рекомендацию дисплея. Прошивка kActiveBoardDefaults
-// по-прежнему не читает, живая пара PCLK остаётся в backend.
+// ResolvedDisplayConfig и ResolvedTouchConfig читают политику хоста дисплея
+// и режим опроса / частоту I2C тача. AudioDefaults и PowerDefaults не
+// применяются: живые I2S и wake остаются макросами myoptions.h.
+// Часть чисел дисплея зафиксирована static_assert на проверенной политике
+// 4848S040 (partial 160 строк, PCLK 6/10/6 МГц). Bounce панели берётся из
+// YORADIO_RGB_BOUNCE10, не из bounce_buffer_px.
 // CONFIG_LCD_RGB_RESTART_IN_VSYNC остаётся настройкой build-family, не полем здесь.
 // ---------------------------------------------------------------------------
 

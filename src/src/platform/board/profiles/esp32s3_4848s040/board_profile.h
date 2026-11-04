@@ -5,15 +5,17 @@
 // Владелец: platform/board. Выбирается board_select.h; подсистемы его напрямую не
 // включают. Не должен определять или отменять пользовательские макросы.
 //
-// S02-5: the 28 migrated GPIO numbers (24 display + 4 touch) live only in the
-// constexpr BoardProfile below. They are not preprocessor macros, and they are
-// not copied into a second public macro set. The signal name sits in a comment
-// beside each RGB value. board_select.h publishes effective kWiring; display
-// consumers read it through kResolvedDisplayConfig, while touch retains TS_* until S05.
-// S02-5: 28 перенесённых GPIO живут только в constexpr BoardProfile ниже.
-// Это не макросы препроцессора и не второй публичный набор имён. Имя сигнала
-// стоит в комментарии рядом со значением. Дисплей читает kWiring через
-// kResolvedDisplayConfig; тач временно использует TS_* до S05.
+// The 28 GPIO numbers (24 display + 4 touch) live only in the constexpr
+// BoardProfile below. They are not preprocessor macros. The signal name sits
+// in a comment beside each RGB value. board_select.h publishes effective
+// kWiring. Display reads it through kResolvedDisplayConfig; touch reads it
+// through ResolvedTouchConfig. User overrides are DISP_* / TOUCH_* in
+// myoptions.h. TS_* names are rejected.
+// 28 GPIO (24 дисплея + 4 тача) живут только в constexpr BoardProfile ниже.
+// Это не макросы. Имя сигнала стоит в комментарии рядом со значением.
+// Дисплей читает kWiring через kResolvedDisplayConfig, тач — через
+// ResolvedTouchConfig. Пользовательские замены — DISP_* / TOUCH_* в
+// myoptions.h. Имена TS_* отвергаются.
 #ifndef YORADIO_PLATFORM_BOARD_PROFILE_ESP32S3_4848S040_H
 #define YORADIO_PLATFORM_BOARD_PROFILE_ESP32S3_4848S040_H
 

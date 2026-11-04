@@ -36,13 +36,10 @@ STORE YOUR SETTINGS IN THE *** myoptions.h *** FILE.
    Строго после myoptions.h (где задан YORADIO_BOARD) и до legacy-умолчаний ниже. */
 #include "../platform/board/board_select.h"
 
-/* Board Contract step 3/4: display runtime uses the typed contract. Retired
-   ST7701 GPIO definitions receive migration errors; temporary TS_* aliases
-   still follow kWiring.touch until S05. Keep this after board_select.h and
-   before the generic #ifndef TS_* fallbacks below.
-   Runtime дисплея читает typed-контракт. Старые ST7701 GPIO дают подсказку
-   миграции; TS_* временно читают kWiring.touch до S05. Порядок include важен
-   для запасных #ifndef TS_* ниже. */
+/* Board Contract step 3/4: retired ST7701_* and TS_* GPIO names are migration
+   errors, not aliases. Keep this after board_select.h.
+   Старые GPIO-имена ST7701_* и TS_* — ошибки миграции, не aliases.
+   Подключать строго после board_select.h. */
 #include "../platform/board/compat/legacy_macros.h"
 /*******************************************************
 

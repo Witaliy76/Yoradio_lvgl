@@ -8,8 +8,9 @@ Besides the on-device UI there is a Web UI for playback, stations, behavior sett
 
 The project is based on [e2002/yoradio](https://github.com/e2002/yoradio); the current repository is [Yoradio_lvgl](https://github.com/Witaliy76/Yoradio_lvgl).
 
-> **Public version:** `0.9.434m-r2-lvgl-beta.3`
-> **Current source:** `0.9.434m-r2-lvgl-beta.3`
+> **Stable version on `main`:** `0.9.434m-r2-lvgl-beta.3.01`
+> **`night_build` sources:** `0.9.434m-r2-lvgl-beta.3.06` (`YOVERSION`; this is not a GitHub Release)
+> **Ready packages in `build_bin/`:** historical beta.3 line packages, not a build of the current sources
 > **Validated board:** ESP32-4848S040
 
 ![YoRadio LVGL — musical internet radio](readme/english/device-front.jpg)
@@ -296,6 +297,8 @@ Hardware guide for ESP32-4848S040 — DAC wiring, configuration, first start, an
 
 → **[README_4848S040_english.md](README_4848S040_english.md)**
 
+The hardware boundary in the sources is [src/src/platform/README.md](src/src/platform/README.md): board selection and GPIO ([Board Contract](src/src/platform/board/README.md)), display ([Display Contract](src/src/platform/display/README.md)), and touch ([Touch Contract](src/src/platform/touch/README.md)). External DAC pins and Custom Wiring are set in `src/myoptions.h`. A package from `build_bin/` does not contain those edits: build and flash your own firmware.
+
 ### Note on building from source
 
 Build steps:
@@ -306,7 +309,7 @@ Build steps:
 
 Nothing else is required. Manually replacing ESP-IDF archives inside `.platformio` is **not needed** — the old instructions for copying `.a` files into `framework-arduinoespressif32-libs` are obsolete and unsupported.
 
-PlatformIO downloads the package pinned in [platformio.ini](platformio.ini) itself — PIOArduino `55.03.311` (Arduino-ESP32 `3.3.11`, ESP-IDF `5.5.5`). The shared PlatformIO package stays untouched: YoRadio does not modify or overwrite it.
+PlatformIO downloads the package pinned in [platformio.ini](platformio.ini) itself — PIOArduino `55.03.312` (Arduino-ESP32 `3.3.12`, ESP-IDF `5.5.5`). The shared PlatformIO package stays untouched: YoRadio does not modify or overwrite it.
 
 YoRadio keeps its own overrides in the repository under `library!/esp-idf-5.5.5/s3/`. For S3 that directory holds a matched set of **seven** local ESP-IDF archives (LwIP, Wi-Fi, mbedTLS, and related network/TLS libraries), rebuilt from stock Espressif sources with YoRadio configuration, plus a `manifest.txt` with versions, commits, and SHA256. Graphics `libesp_lcd` is **not** part of that set — the stock ESP-IDF 5.5.5 library is used. This is **not** a normal Arduino library: the files do not need to be copied, installed, or linked individually.
 

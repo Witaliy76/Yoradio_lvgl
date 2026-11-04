@@ -6,30 +6,28 @@
 // Every value here is a recommendation the user may override in myoptions.h.
 // Nothing in it may be read as a hardware constraint, and no compile-time check
 // may reject a build merely because a user chose different values.
-// Display consumers now read kActiveBoardDefaults.display: the resolved contract
+// Display consumers read kActiveBoardDefaults.display: the resolved contract
 // supplies backend/DisplayPort policy, and LVGL reads partial_draw_lines directly.
+// Touch service mode and I2C clock are read through ResolvedTouchConfig.
 // Live I2S_DOUT / I2S_BCLK / I2S_LRC and WAKE_PIN stay in myoptions.h, because
-// Audio.h and the wake-range check use them inside #if. A later slice may either
-// start applying these recommendations through #ifndef, or delete the file once
-// that role is clearly unwanted.
-// Display-потребители теперь читают kActiveBoardDefaults.display: resolved-контракт
+// Audio.h and the wake-range check use them inside #if. AudioDefaults and
+// PowerDefaults in this file are not applied.
+// Display-потребители читают kActiveBoardDefaults.display: resolved-контракт
 // передаёт политику backend/DisplayPort, LVGL берёт partial_draw_lines напрямую.
-// Живые I2S и WAKE_PIN остаются в myoptions.h. Позже рекомендации можно начать
-// применять через #ifndef либо удалить файл, если эта роль не нужна.
+// Режим опроса тача и частота I2C читаются через ResolvedTouchConfig.
+// Живые I2S и WAKE_PIN остаются в myoptions.h. AudioDefaults и PowerDefaults
+// из этого файла не применяются.
 // ЭТО НЕ ФИЗИЧЕСКАЯ ПРАВДА И НЕ ЗАПРЕТ.
 // Любое значение здесь — рекомендация, переопределяемая в myoptions.h. Ни одна
 // compile-time проверка не вправе отвергнуть сборку только из-за другого выбора.
 //
-// S04-2's tested host recommendation is now live through the resolved display
-// contract and LVGL. It remains a recommendation, not proof of other combinations.
-// Рекомендация S04-2 теперь действует через resolved display contract и LVGL,
-// но не является доказательством всех иных сочетаний.
-//
-// Touch servicing defaults are recorded here by S05. Orientation is resolved
-// into official esp_lcd_touch flags; no calibration is active.
-// UI profile selection (Square480) remains S06.
-// S05 записывает здесь defaults обслуживания тача. Orientation передаётся
-// штатными флагами esp_lcd_touch; calibration не активна. UI-профиль — S06.
+// The display numbers below are the tested 4848S040 host policy. They are
+// not proof of other combinations. Touch orientation uses official
+// esp_lcd_touch flags; no calibration is stored here. Another UI layout
+// is not selected from this file.
+// Числа дисплея ниже — проверенная политика хоста 4848S040. Они не доказывают
+// другие сочетания. Ориентация тача передаётся штатными флагами esp_lcd_touch;
+// calibration здесь нет. Другая раскладка UI из этого файла не выбирается.
 #ifndef YORADIO_PLATFORM_BOARD_DEFAULTS_ESP32S3_4848S040_H
 #define YORADIO_PLATFORM_BOARD_DEFAULTS_ESP32S3_4848S040_H
 

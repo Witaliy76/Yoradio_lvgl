@@ -1,20 +1,19 @@
-// Reject retired ST7701 GPIO names and temporarily bridge TS_* touch names.
-// Отвергаем старые GPIO-имена ST7701 и временно сохраняем TS_* для тача.
+// Reject retired ST7701_* and TS_* GPIO names. They are not aliases.
+// Отвергаем старые GPIO-имена ST7701_* и TS_*. Это не aliases.
 // Ownership: platform/board.
 //
-// Display runtime reads typed kResolvedDisplayConfig/kWiring. User GPIO overrides
-// use DISP_*/TOUCH_* in myoptions.h with YORADIO_CUSTOM_WIRING=1. This header
-// keeps explicit migration errors for old ST7701_* definitions and provides
-// only four TS_* aliases through effective kWiring.touch until S05.
-// Runtime дисплея читает typed-контракт. Пользовательские GPIO задаются через
-// DISP_*/TOUCH_* в myoptions.h. Старые ST7701_* дают подсказку миграции;
-// четыре TS_* пока читают итоговый kWiring.touch до S05.
+// Display and touch runtime read typed resolved configuration. User GPIO
+// overrides use DISP_*/TOUCH_* in myoptions.h with YORADIO_CUSTOM_WIRING=1.
+// A defined legacy name stops the build with the replacement name.
+// Runtime дисплея и тача читает typed resolved configuration. Пользовательские
+// GPIO задаются через DISP_*/TOUCH_* в myoptions.h. Старое имя останавливает
+// сборку и называет замену.
 //
 // ST7701_BOOT_ORIENTATION_180 is deliberately NOT here: it is display policy.
 // ST7701_BOOT_ORIENTATION_180 намеренно отсутствует: это политика дисплея.
 //
-// Included from options.h after board_select.h and before generic TS_* fallbacks.
-// Подключается после board_select.h и до запасных TS_* в options.h.
+// Included from options.h after board_select.h.
+// Подключается из options.h после board_select.h.
 #ifndef YORADIO_PLATFORM_BOARD_COMPAT_LEGACY_MACROS_H
 #define YORADIO_PLATFORM_BOARD_COMPAT_LEGACY_MACROS_H
 
