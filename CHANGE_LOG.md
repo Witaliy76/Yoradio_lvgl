@@ -2,6 +2,14 @@
 
 Intermediate releases inside a major Beta. Major milestones stay in `README.md`.
 
+## 0.9.434m-r2-lvgl-beta.3.06 — 2026-11-04
+
+- Migrated GT911 touch to the official Espressif driver with TouchPort and LVGL adapter.
+- Fixed touch release coordinates and removed legacy TAMC touch code.
+- Added WebUI Debug Touch diagnostics and preserved screensaver wake-only input.
+- Fixed Main button pressed feedback and clipping across Dark, Custom and Light themes.
+- Passed the 4848S040 hardware touch gate (9/9) and verified Main button feedback.
+
 ## 0.9.434m-r2-lvgl-beta.3.05 — 2026-11-01
 
 - Added typed display configuration and centralized ST7701 panel settings.
