@@ -161,17 +161,6 @@ void loopControls() {
 #if IR_PIN!=255
   irLoop();
 #endif
-#if (TS_MODEL!=TS_MODEL_UNDEFINED)
-  if (network.status == CONNECTED || network.status == SDREADY) {
-#if defined(DUMMYDISPLAY)
-    // Headless / no panel: raw touch loop still used when hardware present.
-    // Без дисплея: сырой touch loop, если тач подключён.
-    touchscreen.loop();
-#endif
-    // 8-E19C-1: LVGL-only product — touch via LVGL indev; do not call touchscreen.loop().
-    // 8-E19C-1: LVGL-only — touch через LVGL indev; touchscreen.loop() не вызываем.
-  }
-#endif
 }
 #if ENC_BTNL!=255 || ENC2_BTNL!=255
 void encodersLoop(yoEncoder *enc, bool first){
@@ -181,17 +170,6 @@ void encodersLoop(yoEncoder *enc, bool first){
   if (encoderDelta!=0)
   {
     uint8_t encBtnState = digitalRead(first?ENC_BTNB:ENC2_BTNB);
-#   if defined(DUMMYDISPLAY)
-    first = first?(first && encBtnState):(!encBtnState);
-    if(first){
-      int nv = config.store.volume+encoderDelta;
-      if(nv<0) nv=0;
-      if(nv>254) nv=254;
-      player.setVol((uint8_t)nv);  
-    }else{
-      if(encoderDelta > 0) player.next(); else player.prev();
-    }
-#   else
     if(first){
       controlsEvent(encoderDelta > 0, encoderDelta);
     }else{
@@ -205,7 +183,6 @@ void encodersLoop(yoEncoder *enc, bool first){
       }
       controlsEvent(encoderDelta > 0, encoderDelta);
     }
-#   endif
   }
 }
 #endif
@@ -399,16 +376,10 @@ void onBtnLongPressStart(int id) {
       }
     case EVT_BTNCENTER:
     case EVT_ENCBTNB: {
-#       if defined(DUMMYDISPLAY)
-        break;
-#       endif
         lvgl_ui::toggleStationListUiFromProductInput();
         break;
       }
     case EVT_ENC2BTNB: {
-#       if defined(DUMMYDISPLAY)
-        break;
-#       endif
         display.putRequest(NEWMODE, display.mode() == PLAYER ? VOL : PLAYER);
         break;
       }
@@ -481,11 +452,9 @@ void controlsEvent(bool toRight, int8_t volDelta) {
     display.numOfNextStation = 0;
   }
   if (display.mode() != STATIONS && !display.isStationsChanging()) {
-    #if !defined(DUMMYDISPLAY)
-      if(!display.isVolumeChanging()) {
+    if(!display.isVolumeChanging()) {
       display.putRequest(NEWMODE, VOL);
-      }
-    #endif
+    }
     if(volDelta!=0){
       int nv = config.store.volume+volDelta;
       if(nv<0) nv=0;

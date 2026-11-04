@@ -60,6 +60,7 @@ Author: Witaliy76 - https://github.com/Witaliy76
 - Внешний I2S задаётся в `src/myoptions.h`: DOUT 40, BCLK 1, LRC 2. Те же числа лежат в `board_defaults.h` как рекомендация. Их можно сменить. Валидатор следит только за тем, чтобы новый I2S не сел на занятый дисплей или тач.
 - `WAKE_PIN` в `myoptions.h` равен 0. Это настройка пробуждения, а не отдельная ножка питания.
 - Политика дисплея в `board_defaults.h` записывает проверенный путь S01: PARTIAL, один буфер 160 строк в PSRAM, один RGB-кадр, bounce 0, 6 МГц на старте и один переход на 10 МГц. Backend/DisplayPort читают её через `ResolvedDisplayConfig`, LVGL берёт высоту буфера напрямую. Родные 480×480 и timing принадлежат PanelMode, не host-рекомендации.
+- Touch servicing в `board_defaults.h`: polling и I²C 100 кГц. `ResolvedTouchConfig` соединяет defaults с `kWiring.touch`, display geometry и persisted Flip Touch; production backend — official `esp_lcd_touch_gt911`, Flip передаётся штатными mirror-флагами.
 
 Холодный старт панели ограничен отсутствием RESX. Backend ставит `disp_gpio_num = GPIO_NUM_NC` и не дёргает аппаратный сброс; остаётся программная команда сброса. SoC не может импульсом RESX вернуть ST7701 в известное состояние при включении питания.
 

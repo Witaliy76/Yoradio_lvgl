@@ -116,11 +116,10 @@ inline constexpr BoardProfile kBoardProfile_Esp32S3_4848S040 = {
         .controller   = TouchController::Gt911,
         .i2c_sda_gpio = 19,  // SDA; GPIO19 is also native USB DM, used here as touch SDA
         .i2c_scl_gpio = 45,  // SCL
-        // Neither INT nor RST is routed, so the driver polls. The value is the
-        // contract sentinel, not a second spelling of 255. TAMC_GT911.cpp skips
-        // its GPIO reset when both pins compare unequal to 255.
-        // Ни INT, ни RST не разведены, драйвер работает опросом. Значение — сентинел
-        // контракта. TAMC_GT911.cpp пропускает GPIO-сброс, если оба пина не равны 255.
+        // Neither INT nor RST is routed, so the official driver polls. The
+        // contract sentinel is converted to GPIO_NUM_NC at the backend boundary.
+        // Ни INT, ни RST не разведены, официальный драйвер работает опросом.
+        // Сентинел контракта преобразуется в GPIO_NUM_NC на границе backend.
         .int_gpio     = kPinNotConnected,  // INT
         .reset_gpio   = kPinNotConnected,  // RST
         .i2c_address  = YORADIO_BP_4848_TOUCH_ADDR,

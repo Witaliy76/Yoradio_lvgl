@@ -719,7 +719,6 @@ void Telnet::on_input(const char* str, uint8_t clientId) {
     printf(clientId, "Free heap:\t%d bytes\n> ", xPortGetFreeHeapSize());
     return;
   }
-#ifndef DUMMYDISPLAY
   // Block 8-E1: one-shot display topology / memory snapshot (no periodic logging).
   // Block 8-E1: однократный снимок дисплея / памяти (без периодических логов).
   // Short alias "dd" for interactive telnet (same handler as diag display).
@@ -734,7 +733,6 @@ void Telnet::on_input(const char* str, uint8_t clientId) {
     printf(clientId, "##DIAG.DISPLAY#\n> ");
     return;
   }
-#endif
   // S01-5B temporary read-only diagnostic: one RGB flash guard status line. No on/off command.
   // S01-5B временная диагностика только для чтения: одна строка статуса RGB flash guard.
   if (strcmp(str, "s01guard status") == 0 || strcmp(str, "s01guard") == 0) {

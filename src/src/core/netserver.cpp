@@ -370,7 +370,7 @@ void NetServer::chunkedHtmlPage(const String& contentType, AsyncWebServerRequest
 #else
   #define DSP_CAN_FLIPPED false
 #endif
-#if !defined(HIDE_WEATHER) && !defined(DUMMYDISPLAY)
+#if !defined(HIDE_WEATHER)
   #define SHOW_WEATHER  true
 #else
   #define SHOW_WEATHER  false

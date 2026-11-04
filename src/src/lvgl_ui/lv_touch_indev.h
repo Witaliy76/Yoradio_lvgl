@@ -4,8 +4,8 @@
 
 #include <stdint.h>
 
-// Stage 5.2: LVGL pointer input device registration (DspTask / lv_timer_handler only).
-// Этап 5.2: регистрация LVGL pointer indev (только DspTask / lv_timer_handler).
+// S05-2B: typed TouchPort adapter; registration/polling remain on DspTask.
+// S05-2B: typed TouchPort adapter; регистрация/опрос остаются на DspTask.
 
 namespace lvgl_ui {
 

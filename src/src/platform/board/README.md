@@ -35,7 +35,7 @@ board/
 ├── board_select.h        выбор профиля по YORADIO_BOARD, алиасы kActiveBoard и kWiring
 ├── board_wiring.h        наложение DISP_* / TOUCH_* поверх завода
 ├── board_validate.h      проверки семейства сборки и итоговой разводки
-├── compat/               migration guards для ST7701 GPIO, временные TS_*
+├── compat/               migration guards для старых ST7701/Touch GPIO имён
 └── profiles/             по одному каталогу на плату
 ```
 
@@ -64,9 +64,9 @@ board/
 
 `BoardProfile` — заводской факт: идентичность, требования к сборке, разводка дисплея и тача, наличие встроенного аудио и слота SD, факты USB и кнопки BOOT. Пользовательский `#define` этот объект не изменяет.
 
-`BoardDefaults` — проверенные рекомендации YoRadio. Для 4848S040 там внешний I2S (DOUT 40, BCLK 1, LRCK 2), wake с кнопки BOOT (GPIO0, активный низ) и политика дисплея: PARTIAL, один буфер LVGL в 160 строк в PSRAM, один RGB-кадр в PSRAM, bounce 0, старт 6 МГц и один переход на 10 МГц. Геометрия 480×480 находится в профиле платы и PanelMode. Дисплей и LVGL уже читают display policy, а I2S и wake пока используют прежние настройки. `YORADIO_RGB_BOUNCE10` и другие поддерживаемые переключатели остаются доступны.
+`BoardDefaults` — проверенные рекомендации YoRadio. Для 4848S040 там внешний I2S (DOUT 40, BCLK 1, LRCK 2), wake с кнопки BOOT (GPIO0, активный низ), display policy и touch servicing: polling, I²C 100 кГц. Геометрия 480×480 находится в display contract; официальный touch component выполняет orientation, а YoRadio ограничивает только допустимый pixel range. Display и touch runtime читают соответствующие resolved policies, а I2S и wake пока используют прежние настройки. `YORADIO_RGB_BOUNCE10` и другие поддерживаемые переключатели остаются доступны.
 
-`PanelMode` задаёт рецепт конкретной панели: controller, native geometry, RGB565, timing и идентичность init. `ResolvedDisplayConfig` на этапе компиляции соединяет его с итоговым `kWiring.display`, рекомендацией `BoardDefaults.display` и разрешёнными пользовательскими choices. Backend и DisplayPort читают этот итог; UI profile Square480 остаётся отдельным слоем S06, touch — S05.
+`PanelMode` задаёт рецепт конкретной панели: controller, native geometry, RGB565, timing и идентичность init. `ResolvedDisplayConfig` соединяет его с `kWiring.display`, `BoardDefaults.display` и пользовательскими choices. `ResolvedTouchConfig` берёт из display contract effective geometry, а из `kWiring.touch` и `BoardDefaults.touch` — wiring и servicing; persisted Flip Touch выбирает штатные mirror-флаги official component. UI profile Square480 остаётся отдельным слоем S06.
 
 ## 4. kActiveBoard и kWiring
 
@@ -77,7 +77,7 @@ board/
 | `kActiveBoard` | Неизменный заводской `BoardProfile` выбранной платы. |
 | `kWiring` | Копия завода. При `YORADIO_CUSTOM_WIRING 0` она совпадает с заводом. При `1` в ней заменены только те поля, для которых в `myoptions.h` раскомментирован `DISP_*` или `TOUCH_*`. |
 
-Дисплей читает `kWiring.display` через `kResolvedDisplayConfig`. Тач пока читает временные `TS_*` aliases из `kWiring.touch`. См. [compat/README.md](compat/README.md).
+Дисплей читает `kWiring.display` через `kResolvedDisplayConfig`. Тач с S05-1 читает `kWiring.touch` через `ResolvedTouchConfig`; S05-4 удалил временные `TS_SDA` / `TS_SCL` / `TS_INT` / `TS_RST` aliases. В `compat/` остались только направленные migration guards. См. [compat/README.md](compat/README.md).
 
 ## 5. Custom Wiring
 
@@ -88,7 +88,7 @@ board/
 3. Записать новый номер GPIO.
 4. Пересобрать прошивку.
 
-Пока флаг равен 0, любая раскомментированная строка `DISP_*` или `TOUCH_*` — ошибка компиляции с текстом, который просит либо включить флаг, либо снова закомментировать строку. Имена `ST7701_*` и `TS_*` в `myoptions.h` писать нельзя: мост их отвергает и указывает на `DISP_*` / `TOUCH_*`.
+Пока флаг равен 0, любая раскомментированная строка `DISP_*` или `TOUCH_*` — ошибка компиляции с текстом, который просит либо включить флаг, либо снова закомментировать строку. Старые GPIO-имена `ST7701_*`, `TS_SDA`, `TS_SCL`, `TS_INT` и `TS_RST` в `myoptions.h` писать нельзя: guards отвергают их и указывают на `DISP_*` / `TOUCH_*`. `TS_MODEL` остаётся отдельным селектором драйвера.
 
 `#define` не переносит дорожку на плате. Пока физический провод не пересажен на новый GPIO, прошивать такую сборку нельзя.
 
@@ -135,12 +135,12 @@ Check DISP_*/TOUCH_* overrides against each other and against I2S_DOUT/BCLK/LRC 
 
 | Что | Где |
 |---|---|
-| Ошибки миграции старых display GPIO и временные touch aliases | `compat/legacy_macros.h`, подключается из `src/src/core/options.h` |
+| Ошибки миграции старых display/touch GPIO имён | `compat/legacy_macros.h`, подключается из `src/src/core/options.h` |
 | RGB ST7701, прямой `esp_lcd` | `src/src/displays/esp_lcd_st7701_backend.cpp`, `displayST7701.cpp` |
-| GT911 | `src/src/GT911_Touchscreen/` |
+| GT911 | `src/src/platform/touch/gt911_backend.*` + managed `espressif/esp_lcd_touch_gt911` |
 | Геометрия касания, не пины | `src/src/core/touch_geometry.h` |
 
-Display GPIO bridge удалён в S04-4. Touch bridge остаётся до перехода драйвера тача на `kWiring` в S05.
+Display GPIO bridge удалён в S04-4. Production touch перешёл на `kWiring.touch` в S05-1; S05-4 удалил touch aliases после поиска consumers и compile proof. Guards сохранены, чтобы старые определения не игнорировались молча.
 
 ## 11. Проверка и сборка
 

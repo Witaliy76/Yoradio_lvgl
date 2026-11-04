@@ -25,12 +25,11 @@
 // Рекомендация S04-2 теперь действует через resolved display contract и LVGL,
 // но не является доказательством всех иных сочетаний.
 //
-// Still not here:
-//   - touch polling/rotation/calibration — touch_geometry.h. S05.
-//   - UI profile selection (Square480) — S06.
-// Всё ещё не здесь:
-//   - политика тача — touch_geometry.h. S05.
-//   - выбор UI-профиля (Square480). S06.
+// Touch servicing defaults are recorded here by S05. Orientation is resolved
+// into official esp_lcd_touch flags; no calibration is active.
+// UI profile selection (Square480) remains S06.
+// S05 записывает здесь defaults обслуживания тача. Orientation передаётся
+// штатными флагами esp_lcd_touch; calibration не активна. UI-профиль — S06.
 #ifndef YORADIO_PLATFORM_BOARD_DEFAULTS_ESP32S3_4848S040_H
 #define YORADIO_PLATFORM_BOARD_DEFAULTS_ESP32S3_4848S040_H
 
@@ -69,6 +68,12 @@
 #define YORADIO_BD_4848_PCLK_STARTUP_HZ         6000000u
 #define YORADIO_BD_4848_PCLK_RUNTIME_HZ         10000000u
 #define YORADIO_BD_4848_PCLK_FLASH_GUARD_HZ     6000000u
+
+// Tested GT911 servicing policy. Controller/address/pins are BoardProfile facts;
+// Flip Touch is persisted user correction and is deliberately absent here.
+// Проверенная политика обслуживания GT911. Controller/address/pins принадлежат
+// BoardProfile, Flip Touch — persisted user correction и здесь отсутствует.
+#define YORADIO_BD_4848_TOUCH_I2C_HZ             100000u
 
 // ---------------------------------------------------------------------------
 // Section 2 — constexpr typed view
@@ -113,6 +118,10 @@ inline constexpr BoardDefaults kBoardDefaults_Esp32S3_4848S040 = {
         .flash_guard_pclk_hz  = YORADIO_BD_4848_PCLK_FLASH_GUARD_HZ,
         .promote_pclk_once_on_boot_to_main = true,
     },
+    .touch = {
+        .service_mode = TouchServiceMode::Polling,
+        .i2c_clock_hz = YORADIO_BD_4848_TOUCH_I2C_HZ,
+    },
 };
 
 // These checks describe this defaults object. They do not read myoptions.h
@@ -147,6 +156,11 @@ static_assert(kBoardDefaults_Esp32S3_4848S040.display.flash_guard_pclk_hz == 600
               "display default flash-guard PCLK is 6 MHz");
 static_assert(kBoardDefaults_Esp32S3_4848S040.display.promote_pclk_once_on_boot_to_main,
               "display default promotes PCLK once at Boot to Main");
+static_assert(kBoardDefaults_Esp32S3_4848S040.touch.service_mode ==
+                  TouchServiceMode::Polling,
+              "touch default is polling");
+static_assert(kBoardDefaults_Esp32S3_4848S040.touch.i2c_clock_hz == 100000u,
+              "touch default I2C clock is 100 kHz");
 
 static_assert(YORADIO_BD_4848_I2S_DOUT == 40, "audio dout recommendation unchanged");
 static_assert(YORADIO_BD_4848_I2S_BCLK == 1, "audio bclk recommendation unchanged");

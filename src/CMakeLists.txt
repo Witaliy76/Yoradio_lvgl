@@ -21,6 +21,8 @@ idf_component_register(
     REQUIRES
         framework-arduinoespressif32
         esp_lcd
+        esp_lcd_touch
+        esp_lcd_touch_gt911
         esp_timer
         mbedtls
         freertos

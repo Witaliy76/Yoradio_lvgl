@@ -21,7 +21,7 @@ profiles/<имя>/
 2. В `board_select.h` добавить ветку `#if YORADIO_BOARD == ...`: включить `board_profile.h` и `board_defaults.h`, затем завести алиасы `kActiveBoard` и `kActiveBoardDefaults`. Ветка 4848S040 делает оба `#include` без проверки, что файл defaults существует.
 3. Пользователь пишет в `src/myoptions.h` только `#define YORADIO_BOARD` с этим макросом.
 
-Вне `board_select.h` конкретный профиль не подключают. Display runtime читает итоговый `kWiring.display` через `ResolvedDisplayConfig`; touch пока использует временные `TS_*` до S05.
+Вне `board_select.h` конкретный профиль не подключают. Display runtime читает `kWiring.display` через `ResolvedDisplayConfig`; touch runtime с S05-1 читает `kWiring.touch` через `ResolvedTouchConfig`. Временные `TS_*` остаются compatibility-only до S05-4.
 
 ## BoardProfile
 
@@ -35,7 +35,7 @@ profiles/<имя>/
 
 ## BoardDefaults
 
-Файл хранит рекомендации I2S, wake и host-политики дисплея. Display backend и DisplayPort читают `kActiveBoardDefaults.display` через `ResolvedDisplayConfig`; LVGL напрямую берёт `partial_draw_lines`. Живые `I2S_*` и `WAKE_PIN` пока остаются в `src/myoptions.h`. Рекомендация не заменяет физический рецепт PanelMode и не запрещает поддерживаемые пользовательские choices.
+Файл хранит рекомендации I2S, wake, display host policy и touch servicing policy. Display читает `kActiveBoardDefaults.display` через `ResolvedDisplayConfig`; touch читает polling/I²C defaults через `ResolvedTouchConfig`. Живые `I2S_*` и `WAKE_PIN` пока остаются в `src/myoptions.h`. Рекомендации не заменяют физический PanelMode/TouchWiring и не содержат persisted Flip Touch.
 
 Для единственной ветки `board_select.h` файл обязателен: заголовок безусловно включает `profiles/esp32s3_4848s040/board_defaults.h` и публикует `kActiveBoardDefaults`. Отсутствующий файл сборка не соберёт. Режима «плата без defaults» в селекторе нет. Чтобы каталог профиля мог обойтись без этого файла, нужно менять `board_select.h`. Такое изменение здесь не делается.
 
@@ -58,8 +58,8 @@ profiles/<имя>/
 - заводские номера, которые считаются принятыми, сверить с инициализатором профиля;
 - обязательные линии не равны 255, отсутствующие линии равны 255;
 - итоговый `kWiring` не содержит двух активных сигналов на одном GPIO среди дисплея, тача и I2S;
-- временные touch aliases, если мост ещё нужен, совпадают с `kWiring.touch`; display GPIO aliases удалены в S04-4.
+- временные touch aliases совпадают с `kWiring.touch`, хотя production с S05-1 читает resolved config; display GPIO aliases удалены в S04-4.
 
 Сборка: `pio run -e <окружение>` из корня. Окружение должно реально собирать нужный SoC и объём flash. Новое окружение и новый профиль — разные решения; одно не заменяет другое.
 
-Сейчас реализована одна комбинация ST7701/GT911. Для панели с другим контроллером понадобится отдельный проверенный PanelMode и подходящий backend, а не только новый профиль платы. Контракт тача остаётся этапом S05.
+Сейчас реализована одна комбинация ST7701/GT911. Для панели с другим контроллером понадобятся отдельные проверенные PanelMode, touch semantics и backend, а не только новый профиль платы. S05-3B переключает production path на official GT911, сохраняя TouchPort и typed LVGL adapter.

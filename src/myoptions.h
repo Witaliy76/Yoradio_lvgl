@@ -219,13 +219,6 @@
 // Пины GT911 принадлежат BoardProfile. Переназначение — в CUSTOM WIRING ниже
 // именами TOUCH_*. Не определяйте TS_* здесь. TS_MODEL — селектор драйвера.
 
-// Touchscreen calibration (coordinates):
-#define TS_X_MIN              0                  // X minimum
-#define TS_X_MAX              480                // X maximum
-#define TS_Y_MIN              0                  // Y minimum
-#define TS_Y_MAX              480                // Y maximum
-
-
 /* ===============================================
    DISPLAY OPTIONS
    =============================================== */

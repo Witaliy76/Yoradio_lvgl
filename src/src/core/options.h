@@ -245,22 +245,6 @@ The connection tables are located here https://github.com/e2002/yoradio#connecti
   #define TS_MODEL              TS_MODEL_UNDEFINED
 #endif
 
-#ifndef TS_CS
-  #define TS_CS                 13
-#endif
-#ifndef TS_SDA
-  #define TS_SDA                33
-#endif
-#ifndef TS_SCL
-  #define TS_SCL                32
-#endif
-#ifndef TS_INT
-  #define TS_INT                21
-#endif
-#ifndef TS_RST
-  #define TS_RST                25
-#endif
-
 #ifndef TS_HSPI
   #define TS_HSPI   false      // use HSPI for touchscreen (miso=12, mosi=13, clk=14) instead of VSPI (by default)
 #endif

@@ -8,9 +8,8 @@
 #include "common.h"
 #include "../displays/dspcore.h"
 
-#ifndef DUMMYDISPLAY
-  #include "../lvgl_ui/lvgl_ui.h"
-  void loopDspTask(void * pvParameters);
+#include "../lvgl_ui/lvgl_ui.h"
+void loopDspTask(void * pvParameters);
 
 // Forward decl for DspCore scroll helpers (8-E16.2B-1 stub returns nullptr until E16.2B-2/E17).
 // Forward decl для scroll-хелперов DspCore (заглушка nullptr до E16.2B-2/E17).
@@ -76,38 +75,6 @@ class Display {
     void _createDspTask();
     void _setReturnTicker(uint8_t time_s);
 };
-
-#else
-
-class Display {
-  public:
-    uint16_t currentPlItem;
-    uint16_t numOfNextStation;
-    displayMode_e _mode;
-  public:
-    Display() {};
-    displayMode_e mode() { return _mode; }
-    void mode(displayMode_e m) { _mode=m; }
-    void init();
-    void _start();
-    void putRequest(displayRequestType_e type, int payload=0);
-    void loop(){}
-    bool ready() { return true; }
-    void resetQueue(){}
-    void centerText(const char* text, uint8_t y, uint16_t fg, uint16_t bg){}
-    void rightText(const char* text, uint8_t y, uint16_t fg, uint16_t bg){}
-    void flip(){}
-    void invert(){}
-    void setContrast(){}
-    bool deepsleep(){return true;}
-    void wakeup(){}
-    void setAIInterpretation(const String& text){}  // AI interpretation widget / Виджет AI интерпретации
-    void copyAIInterpretationForLvgl(char* buf, size_t cap) const {
-        if (buf && cap) buf[0] = '\0';
-    }
-};
-
-#endif
 
 extern Display display;
 

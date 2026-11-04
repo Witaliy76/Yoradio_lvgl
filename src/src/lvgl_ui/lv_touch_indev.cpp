@@ -1,9 +1,11 @@
 // Author: Witaliy76 - https://github.com/Witaliy76
 #include "../core/options.h"
 #include "lv_touch_indev.h"
+#include "lv_touch_indev_feed.h"
 #include "lvgl.h"
 
 #if (TS_MODEL!=TS_MODEL_UNDEFINED)
+#include <Arduino.h>
 #include "../core/touchscreen.h"
 #include "../core/display.h"
 #include "../core/config.h"
@@ -23,89 +25,120 @@ static bool s_touch_is_down = false;
 static int16_t s_touch_last_x = 0;
 static int16_t s_touch_last_y = 0;
 
-// After wake putRequest, feed LVGL RELEASED until finger up — avoids click/gesture on Main/Info same stroke.
-// После wake в LVGL подаём RELEASED до отпускания — иначе тот же жест даёт toggle/карусель под оверлеем.
-static bool s_suppress_lvgl_pointer_until_release = false;
+// Minimal typed boundary: TouchPort owns hardware/geometry, this adapter owns
+// only release-before-rearm state and an LVGL-neutral feed decision.
+class LvglTouchAdapter final {
+  public:
+    explicit LvglTouchAdapter(yoradio::TouchPort& port) : port_(port) {}
+
+    lvgl_ui::LvglTouchFrame read() {
+        return state_.consume(port_.read());
+    }
+
+  private:
+    yoradio::TouchPort& port_;
+    lvgl_ui::LvglTouchAdapterState state_;
+};
+
+static LvglTouchAdapter s_touch_adapter(touchscreen);
+static lvgl_ui::ScreensaverTouchState s_screensaver_touch_state;
 
 // Stage 5.6: any touch press or finger movement wakes SCREENSAVER / SCREENBLANK (single path with LVGL indev).
 // Этап 5.6: любое нажатие или движение пальца будит SCREENSAVER / SCREENBLANK (единый путь через LVGL indev).
-static void touch_wake_saver_or_blank_if_needed(uint16_t x, uint16_t y, bool pointer_down) {
-    static bool s_finger_down;
-    static bool s_wake_sent_this_stroke;
-    static uint16_t s_last_x;
-    static uint16_t s_last_y;
-    // Release clears suppress even after mode is PLAYER — wake putRequest is async.
-    // Отпускание сбрасывает suppress даже при PLAYER — смена режима асинхронная.
-    if (!pointer_down) {
-        s_finger_down = false;
-        s_wake_sent_this_stroke = false;
-        s_suppress_lvgl_pointer_until_release = false;
-        return;
-    }
+static lvgl_ui::ScreensaverTouchDecision apply_screensaver_wake_policy(
+    const lvgl_ui::LvglTouchFrame& frame) {
     const displayMode_e m = display.mode();
-    if (m != SCREENSAVER && m != SCREENBLANK) {
-        return;
+    const lvgl_ui::ScreensaverTouchDecision decision =
+        s_screensaver_touch_state.consume(
+            frame, m == SCREENSAVER || m == SCREENBLANK);
+    if (decision.wake_requested) {
+        config.screensaverTicks = SCREENSAVERSTARTUPDELAY;
+        config.screensaverPlayingTicks = SCREENSAVERSTARTUPDELAY;
+        display.putRequest(NEWMODE, static_cast<int>(PLAYER));
     }
-    const bool new_press = !s_finger_down;
-    const bool moved = s_finger_down && (x != s_last_x || y != s_last_y);
-    s_finger_down = true;
-    s_last_x = x;
-    s_last_y = y;
-    if (s_wake_sent_this_stroke) {
-        return;
-    }
-    if (!new_press && !moved) {
-        return;
-    }
-    config.screensaverTicks = SCREENSAVERSTARTUPDELAY;
-    config.screensaverPlayingTicks = SCREENSAVERSTARTUPDELAY;
-    display.putRequest(NEWMODE, static_cast<int>(PLAYER));
-    s_wake_sent_this_stroke = true;
-    s_suppress_lvgl_pointer_until_release = true;
+    return decision;
 }
 #endif
 
-#if (TS_MODEL!=TS_MODEL_UNDEFINED) && YORADIO_LVGL_TOUCH_DEBUG
-#include <Arduino.h>
-// Throttled trace: raw GT911 vs state fed to LVGL (incl. screensaver wake suppress).
-// Урезанный лог: сырой тач и то, что реально уходит в LVGL (в т.ч. suppress после saver wake).
-static void lv_touch_debug_on_feed(bool raw_down, uint16_t x, uint16_t y, lv_indev_state_t fed) {
+#if TS_MODEL==TS_MODEL_GT911
+static const char* touch_status_name(yoradio::TouchSampleStatus status) {
+    switch (status) {
+        case yoradio::TouchSampleStatus::Valid: return "Valid";
+        case yoradio::TouchSampleStatus::NoData: return "NoData";
+        case yoradio::TouchSampleStatus::Error: return "Error";
+        case yoradio::TouchSampleStatus::Unavailable: return "Unavailable";
+    }
+    return "Unknown";
+}
+
+// Permanent Debug Touch lifecycle: the existing WebUI flag owns compact
+// DOWN/MOVE/UP and fault-transition tracing. OFF exits immediately; MOVE is
+// capped at 10 Hz. Coordinates are exactly those fed to LVGL.
+static void lv_touch_debug_on_feed(const lvgl_ui::LvglTouchFrame& frame,
+                                   lv_indev_state_t fed,
+                                   const lv_point_t& fed_point) {
+    static bool s_debug_active;
     static bool s_was_down;
     static uint16_t s_lx;
     static uint16_t s_ly;
+    static yoradio::TouchSampleStatus s_last_status =
+        yoradio::TouchSampleStatus::Unavailable;
     static uint32_t s_last_move_ms;
-    static bool s_suppress_msg;
-    const uint32_t now = millis();
-    const bool fed_down = (fed == LV_INDEV_STATE_PRESSED);
-    if (!raw_down) {
-        if (s_was_down) {
-            Serial.printf("[touch] UP fed=%s\n", fed_down ? "PR" : "REL");
+
+    if (!config.store.dbgtouch) {
+        if (s_debug_active) {
+            s_debug_active = false;
+            s_was_down = false;
+            s_last_status = yoradio::TouchSampleStatus::Unavailable;
+            s_last_move_ms = 0;
         }
-        s_was_down = false;
-        s_suppress_msg = false;
         return;
     }
-    if (s_suppress_lvgl_pointer_until_release && !s_suppress_msg) {
-        Serial.printf("[touch] suppress: LVGL fed=REL while raw DOWN xy=%u,%u\n", x, y);
-        s_suppress_msg = true;
+    s_debug_active = true;
+
+    const uint32_t now = millis();
+    const bool source_down = frame.source_status == yoradio::TouchSampleStatus::Valid &&
+                             frame.has_point;
+    const bool fed_down = (fed == LV_INDEV_STATE_PRESSED);
+    const bool moved = source_down && s_was_down &&
+                       (frame.x != s_lx || frame.y != s_ly);
+    const bool status_changed = frame.source_status != s_last_status;
+
+    const char* event = nullptr;
+    if (frame.source_status == yoradio::TouchSampleStatus::Error &&
+        status_changed) {
+        event = "ERROR";
+    } else if (frame.source_status == yoradio::TouchSampleStatus::Unavailable &&
+               status_changed) {
+        event = "UNAVAILABLE";
+    } else if (source_down && !s_was_down) {
+        event = "DOWN";
+    } else if (!source_down && s_was_down) {
+        event = "UP";
+    } else if (source_down && moved && (now - s_last_move_ms) >= 100u) {
+        event = "MOVE";
     }
-    if (!s_was_down) {
-        Serial.printf("[touch] DOWN xy=%u,%u fed=%s\n", x, y, fed_down ? "PR" : "REL");
+
+    if (event) {
+        Serial.printf("[TOUCH] %s xy=%ld,%ld tp=%s lv=%s\n",
+                      event,
+                      static_cast<long>(fed_point.x),
+                      static_cast<long>(fed_point.y),
+                      touch_status_name(frame.source_status),
+                      fed_down ? "PRESSED" : "RELEASED");
+        if (source_down) {
+            s_last_move_ms = now;
+        }
+    }
+
+    if (source_down) {
         s_was_down = true;
-        s_last_move_ms = now;
-        s_lx = x;
-        s_ly = y;
-        return;
+        s_lx = frame.x;
+        s_ly = frame.y;
+    } else {
+        s_was_down = false;
     }
-    const int dx = static_cast<int>(x) - static_cast<int>(s_lx);
-    const int dy = static_cast<int>(y) - static_cast<int>(s_ly);
-    const uint32_t dist2 = static_cast<uint32_t>(dx * dx + dy * dy);
-    if ((now - s_last_move_ms) >= 80u || dist2 >= 400u) {
-        Serial.printf("[touch] MOVE xy=%u,%u d=%d,%d fed=%s\n", x, y, dx, dy, fed_down ? "PR" : "REL");
-        s_last_move_ms = now;
-        s_lx = x;
-        s_ly = y;
-    }
+    s_last_status = frame.source_status;
 }
 #endif
 
@@ -113,47 +146,29 @@ static void lv_touch_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
     (void)indev;
 #if (TS_MODEL!=TS_MODEL_UNDEFINED)
     static bool s_prev_touch_down = false;
-    uint16_t x = 0;
-    uint16_t y = 0;
-    if (touchscreen.readPointerForLvgl(&x, &y)) {
-        // Mapping (swap / clip / invert) is applied inside readPointerForLvgl from
-        // kYoradioTouchGeometryCurrent. Do not re-invert here.
-        // Mapping (swap / clip / invert) уже применён в readPointerForLvgl
-        // из kYoradioTouchGeometryCurrent. Здесь повторно не инвертируем.
-        touch_wake_saver_or_blank_if_needed(x, y, true);
-        data->point.x = static_cast<lv_coord_t>(x);
-        data->point.y = static_cast<lv_coord_t>(y);
-        if (s_suppress_lvgl_pointer_until_release) {
-            data->state = LV_INDEV_STATE_RELEASED;
-        } else {
-            data->state = LV_INDEV_STATE_PRESSED;
+    const lvgl_ui::LvglTouchFrame frame = s_touch_adapter.read();
+    const lvgl_ui::ScreensaverTouchDecision wake =
+        apply_screensaver_wake_policy(frame);
+
+    // TouchPort already returned logical display-space coordinates. LVGL
+    // preloads data->point with its last raw point; point-less RELEASED frames
+    // deliberately preserve it for release handlers.
+    lvgl_ui::applyTouchFrameToIndevData(frame, wake.feed_pressed, *data);
+
+    // Track exactly what is fed to LVGL, after fault rearm and wake suppression.
+    const bool touch_down = (data->state == LV_INDEV_STATE_PRESSED);
+    s_touch_is_down = touch_down;
+    if (touch_down) {
+        s_touch_last_x = static_cast<int16_t>(data->point.x);
+        s_touch_last_y = static_cast<int16_t>(data->point.y);
+        if (!s_prev_touch_down) {
+            autodim_notify_activity("touch");
         }
-        // Track LVGL-fed state (after suppress) for indev-level swipe polling.
-        // Фиксируем реально переданное состояние (после suppress) для polling.
-        // Auto Dim: activity only on RELEASED→PRESSED edge, not every poll frame.
-        // Auto Dim: активность только на фронте нажатия, не на каждом poll.
-        const bool touch_down = (data->state == LV_INDEV_STATE_PRESSED);
-        s_touch_is_down = touch_down;
-        if (touch_down) {
-            s_touch_last_x = static_cast<int16_t>(data->point.x);
-            s_touch_last_y = static_cast<int16_t>(data->point.y);
-            if (!s_prev_touch_down) {
-                autodim_notify_activity("touch");
-            }
-        }
-        s_prev_touch_down = touch_down;
-#if YORADIO_LVGL_TOUCH_DEBUG && (TS_MODEL!=TS_MODEL_UNDEFINED)
-        lv_touch_debug_on_feed(true, x, y, data->state);
-#endif
-    } else {
-        touch_wake_saver_or_blank_if_needed(0, 0, false);
-        data->state = LV_INDEV_STATE_RELEASED;
-        s_touch_is_down = false;
-        s_prev_touch_down = false;
-#if YORADIO_LVGL_TOUCH_DEBUG && (TS_MODEL!=TS_MODEL_UNDEFINED)
-        lv_touch_debug_on_feed(false, 0, 0, data->state);
-#endif
     }
+    s_prev_touch_down = touch_down;
+#if TS_MODEL==TS_MODEL_GT911
+    lv_touch_debug_on_feed(frame, data->state, data->point);
+#endif
 #else
     data->state = LV_INDEV_STATE_RELEASED;
 #endif

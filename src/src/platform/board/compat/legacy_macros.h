@@ -127,37 +127,6 @@
 #  error "YoRadio Board Contract: do not define TS_RST in myoptions.h. Use TOUCH_RST under YORADIO_CUSTOM_WIRING=1."
 #endif
 
-// ---------------------------------------------------------------------------
-// Section 2 — the 4 bridged touch GPIO (S02-4, retained until S05)
-// Секция 2 — 4 GPIO-алиаса тача (S02-4, до S05)
-// ---------------------------------------------------------------------------
-// Defining these before options.h's `#ifndef TS_*` block makes the generic
-// fallbacks (33/32/21/25) inert for this board. The fallbacks stay for boards
-// this bridge does not cover. TS_INT / TS_RST carry kPinNotConnected (255);
-// TAMC_GT911.cpp compares that number at runtime, not in #if.
-// Эти определения стоят раньше `#ifndef TS_*` в options.h, поэтому запасные
-// 33/32/21/25 для этой платы не срабатывают. TS_INT / TS_RST несут сентинел 255;
-// TAMC_GT911.cpp сравнивает его в рантайме, не в #if.
-#define TS_SDA        (yoradio::kWiring.touch.i2c_sda_gpio)  // SDA
-#define TS_SCL        (yoradio::kWiring.touch.i2c_scl_gpio)  // SCL
-#define TS_INT        (yoradio::kWiring.touch.int_gpio)      // INT
-#define TS_RST        (yoradio::kWiring.touch.reset_gpio)    // RST
-
-// ---------------------------------------------------------------------------
-// Section 3 — touch completeness self-check (preprocessor level)
-// Секция 3 — проверка полноты touch-алиасов (уровень препроцессора)
-// ---------------------------------------------------------------------------
-// The same for the 4 touch names. Kept as its own check so the error message points
-// at one domain: a missing TS_* here would otherwise be masked by the generic
-// `#ifndef TS_*` fallbacks further down src/src/core/options.h, which would quietly
-// substitute a different board's pins instead of failing.
-// То же для 4 имён тача. Отдельная проверка: пропавшее TS_* иначе было бы
-// замаскировано generic-fallback'ами в options.h, которые тихо подставили бы пины
-// другой платы вместо падения сборки.
-#if !defined(TS_SDA) || !defined(TS_SCL) || !defined(TS_INT) || !defined(TS_RST)
-#  error "YoRadio Board Contract: the legacy touch bridge did not define all 4 TS_* names. A profile literal is missing or misspelled in src/src/platform/board/compat/legacy_macros.h."
-#endif
-
 #endif  // YORADIO_BOARD == YORADIO_BOARD_4848S040
 
 #endif  // YORADIO_PLATFORM_BOARD_COMPAT_LEGACY_MACROS_H

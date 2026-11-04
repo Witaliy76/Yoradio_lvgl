@@ -193,8 +193,8 @@ struct BoardProfile {
 // ---------------------------------------------------------------------------
 // BoardDefaults — tested YoRadio recommendations for one board.
 // NOT physical truth and NOT a restriction: a value here does not ban a
-// different user setting in myoptions.h. Touch and UI policy are still absent
-// (S05/S06). Display host policy is DisplayDefaults below.
+// different user setting in myoptions.h. UI policy is still absent (S06).
+// Touch servicing and display host recommendations are the defaults below.
 //
 // Three different layers, not one switch:
 //   BoardDefaults.display — the tested recommendation.
@@ -209,8 +209,8 @@ struct BoardProfile {
 // It is not a second knob in this struct.
 // BoardDefaults — проверенные рекомендации YoRadio для одной платы.
 // Это НЕ физическая правда и НЕ запрет на другую настройку в myoptions.h.
-// Политика тача и UI всё ещё отсутствует (S05/S06). Политика хоста дисплея —
-// DisplayDefaults ниже.
+// Политика UI всё ещё отсутствует (S06). Рекомендации обслуживания тача и
+// хоста дисплея находятся ниже.
 //
 // Три разных слоя: рекомендация, пользовательский override, ограничение backend.
 // S04-2 только записывает рекомендацию дисплея. Прошивка kActiveBoardDefaults
@@ -236,6 +236,17 @@ struct PowerDefaults {
     // Рекомендуемый источник пробуждения. Полностью переопределяем пользователем.
     uint8_t wake_gpio;
     bool    wake_active_low;
+};
+
+// Touch servicing recommendation only. Controller identity, address and pins
+// remain physical/effective TouchWiring; geometry remains touch/display contract.
+// Только рекомендация обслуживания тача. Controller/address/pins остаются в
+// TouchWiring, geometry — в touch/display contract.
+enum class TouchServiceMode : uint8_t { Polling = 0, Interrupt = 1 };
+
+struct TouchDefaults {
+    TouchServiceMode service_mode;
+    uint32_t         i2c_clock_hz;
 };
 
 // Host servicing recommendation. Panel geometry stays in PanelMode / BoardProfile.
@@ -274,9 +285,10 @@ struct DisplayDefaults {
 };
 
 struct BoardDefaults {
-    AudioDefaults  audio;
-    PowerDefaults  power;
+    AudioDefaults   audio;
+    PowerDefaults   power;
     DisplayDefaults display;
+    TouchDefaults   touch;
 };
 
 }  // namespace yoradio

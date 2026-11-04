@@ -138,15 +138,6 @@ static_assert(kActiveBoard.touch.int_gpio   == kPinNotConnected, "factory touch 
 static_assert(kActiveBoard.touch.reset_gpio == kPinNotConnected, "factory touch RST is not connected");
 static_assert(kPinNotConnected == 255, "the not-connected sentinel stays 255");
 
-// Temporary touch aliases follow effective kWiring until S05.
-// Временные touch-алиасы следуют итоговому kWiring до S05.
-static_assert(TS_SDA == kWiring.touch.i2c_sda_gpio, "TS_SDA must follow kWiring");
-static_assert(TS_SCL == kWiring.touch.i2c_scl_gpio, "TS_SCL must follow kWiring");
-static_assert(TS_INT == kWiring.touch.int_gpio,     "TS_INT must follow kWiring");
-static_assert(TS_RST == kWiring.touch.reset_gpio,   "TS_RST must follow kWiring");
-static_assert(TS_SDA != 33 && TS_SCL != 32 && TS_INT != 21 && TS_RST != 25,
-              "TS_* fallback from options.h leaked");
-
 #if !YORADIO_CUSTOM_WIRING
 // Factory mode: effective wiring is identical to the accepted baseline.
 // Штатный режим: итоговая разводка совпадает с принятым baseline.
@@ -174,10 +165,12 @@ static_assert(kWiring.display.cmd_cs_gpio    == 39, "S02-5 command CS is GPIO39"
 static_assert(kWiring.display.cmd_sck_gpio   == 48, "S02-5 command SCK is GPIO48");
 static_assert(kWiring.display.cmd_sda_gpio   == 47, "S02-5 command SDA is GPIO47");
 static_assert(kWiring.display.backlight_gpio == 38, "S02-5 backlight is GPIO38");
-static_assert(kWiring.touch.i2c_sda_gpio == 19 && TS_SDA == 19, "S02-5 touch SDA is GPIO19");
-static_assert(kWiring.touch.i2c_scl_gpio == 45 && TS_SCL == 45, "S02-5 touch SCL is GPIO45");
-static_assert(kWiring.touch.int_gpio   == kPinNotConnected && TS_INT == kPinNotConnected, "S02-5 touch INT is not connected");
-static_assert(kWiring.touch.reset_gpio == kPinNotConnected && TS_RST == kPinNotConnected, "S02-5 touch RST is not connected");
+static_assert(kWiring.touch.i2c_sda_gpio == 19, "S02-5 touch SDA is GPIO19");
+static_assert(kWiring.touch.i2c_scl_gpio == 45, "S02-5 touch SCL is GPIO45");
+static_assert(kWiring.touch.int_gpio == kPinNotConnected,
+              "S02-5 touch INT is not connected");
+static_assert(kWiring.touch.reset_gpio == kPinNotConnected,
+              "S02-5 touch RST is not connected");
 #endif  // !YORADIO_CUSTOM_WIRING
 
 static_assert(kActiveBoard.display.native_width  == 480, "4848S040 panel is 480 wide");

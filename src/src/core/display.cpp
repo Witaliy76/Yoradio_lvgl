@@ -72,7 +72,6 @@ bool formatLocalizedTextS(char* destination, size_t capacity,
 
 }  // namespace
 
-#ifndef DUMMYDISPLAY
 //============================================================================================================================
 
 
@@ -742,7 +741,3 @@ size_t Display::diagSnapshot(char* out, size_t len) const {
 }
 
 //============================================================================================================================
-#else // DUMMYDISPLAY — DSP_DUMMY headless path removed with Nextion (Block 8-E15)
-//============================================================================================================================
-#error "DSP_DUMMY / DUMMYDISPLAY is unsupported in this LVGL RGB fork after Block 8-E15 Nextion removal"
-#endif // DUMMYDISPLAY

@@ -6,7 +6,9 @@ Author: Witaliy76 - https://github.com/Witaliy76
 Экраны и виджеты LVGL живут в [`src/src/lvgl_ui/`](../lvgl_ui/README.md) и не включают заголовки драйверов.
 Здесь лежит описание железа, а не вёрстка, темы и страницы.
 
-Сейчас здесь Board Contract и, с S04-1, каталог `display/` с типами рецепта панели. Это данные, не драйвер: init, scanout и таблица Type9 остаются в `src/src/displays/`. Каталогов Touch, Audio, Storage и Controls в этом дереве нет.
+Сейчас здесь Board Contract, каталог `display/` с типами рецепта панели и каталог `touch/` с resolved touch policy, официальным `esp_lcd_touch_gt911` backend и LVGL-neutral `TouchPort`. `TouchScreen` реализует порт поверх official backend. Init, scanout и таблица Type9 остаются в `src/src/displays/`. Каталогов Audio, Storage и Controls в этом дереве нет.
+
+Единственный production board profile — 4848S040 с обязательным ST7701/LVGL display path. Display-less profile или PlatformIO environment отсутствует; устаревший `DUMMYDISPLAY` fallback удалён в S05-3C-FIX1.
 
 ## Что есть сейчас
 
@@ -17,6 +19,10 @@ platform/
 │   ├── panel_mode.h
 │   ├── panel_st7701_rgb565_480.h
 │   └── resolved_display_config.h
+├── touch/          resolved policy + LVGL-neutral primary-pointer contract
+│   ├── gt911_backend.h/.cpp
+│   ├── resolved_touch_config.h
+│   └── touch_port.h
 └── board/          Board Contract: выбор платы, заводской профиль, итоговая разводка
     ├── README.md
     ├── board_id.h
@@ -37,7 +43,7 @@ Display Contract сейчас связывает данные панели, пл
 | Направление | Когда | Где факты живут сейчас |
 |---|---|---|
 | Display Contract | S04, код готов; аппаратный Gate B впереди | `PanelMode` хранит controller, 480×480 RGB565, timing и идентичность Type9. `BoardProfile` и `kWiring` задают GPIO. `BoardDefaults.display` хранит проверенную host-политику: LVGL 160 строк, PSRAM, PCLK 6/10/6 МГц, bounce 0. `ResolvedDisplayConfig` собирает их для backend и DisplayPort; LVGL берёт высоту partial buffer из BoardDefaults. Байты Type9 и scanout остаются в драйвере. |
-| Touch Contract | S05 | GT911 в `src/src/GT911_Touchscreen/`, геометрия в `src/src/core/touch_geometry.h`. |
+| Touch Contract | S05 ACTIVE; S05-3C legacy cleanup complete | `Gt911Backend` переиспользует Arduino Wire bus через typed new-IDF handle; `ResolvedTouchConfig` передаёт official mirror flags для Flip. `TouchScreen` реализует только LVGL-neutral `TouchPort`; жесты и scrolling принадлежат LVGL adapter/UI path. |
 | UI Profile | S06 | Профили экрана в `src/src/lvgl_ui/profiles/`. |
 | Audio, Storage, Controls | позже | I2S, SD, IR, кнопки и wake остаются в `src/myoptions.h` и соответствующих драйверах. |
 
