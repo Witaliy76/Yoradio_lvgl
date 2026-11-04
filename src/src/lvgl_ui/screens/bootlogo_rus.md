@@ -84,7 +84,7 @@ Author: Witaliy76 - https://github.com/Witaliy76
 
 **Структура раскладки:** один центрированный flex-контейнер-колонка: `лого → спейсер → статус → спейсер → бар`.
 
-**Шрифт статуса:** `LV_ACTIVE_PROFILE.font_small` — в профиле дисплея `../profiles/`.
+**Шрифт статуса:** `FontProvider::text(kResolvedUiMetrics.factory.font_header_px)`; заводской запрос Square480 — 14 px в [`ui_profile_square480.h`](../profiles/ui_profile_square480.h).
 
 **Внешний вид дорожки/бегунка:** `apply_track_style()` / `apply_shuttle_style()` в `scr_boot.cpp`.
 

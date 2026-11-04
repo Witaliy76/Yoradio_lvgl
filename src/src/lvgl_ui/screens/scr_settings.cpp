@@ -29,7 +29,7 @@
 #include "../fonts/settings_glyph_utf8.h"
 #include "../lv_page_chain.h"
 #include "../lv_text_scroll.h"
-#include "../profiles/lv_profile_select.h"
+#include "../profiles/resolved_ui_metrics.h"
 #include "../theme/lv_theme_yoradio.h"
 #include "../widgets/wgt_footer_pill.h"
 #include "lvgl_ui.h"
@@ -462,7 +462,7 @@ static lv_obj_t* add_row_label(
     if (!lbl) return nullptr;
     lv_label_set_text(lbl, text);
     lv_label_set_long_mode(lbl, LV_LABEL_LONG_CLIP);
-    set_font_slot(lbl, FontProvider::text(LV_ACTIVE_PROFILE.font_normal_px));
+    set_font_slot(lbl, FontProvider::text(kResolvedUiMetrics.factory.font_normal_px));
     lv_obj_set_style_text_color(lbl, secondary ? pal.text_meta : pal.text_primary, LV_PART_MAIN);
     if (flex_grow) {
         lv_obj_set_flex_grow(lbl, 1);
@@ -475,7 +475,7 @@ static lv_obj_t* add_row_value(lv_obj_t* row, const char* text, const YoRadioPal
     if (!val) return nullptr;
     lv_label_set_text(val, text);
     lv_label_set_long_mode(val, LV_LABEL_LONG_CLIP);
-    set_font_slot(val, FontProvider::text(LV_ACTIVE_PROFILE.font_header_px));
+    set_font_slot(val, FontProvider::text(kResolvedUiMetrics.factory.font_header_px));
     lv_obj_set_style_text_color(val, pal.text_meta, LV_PART_MAIN);
     lv_obj_set_style_text_align(val, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
     return val;
@@ -589,7 +589,7 @@ static void create_footer(
     out_lbl_footer = lv_label_create(out_footer);
     if (out_lbl_footer) {
         lv_label_set_text(out_lbl_footer, kStrFooterReturn);
-        set_font_slot(out_lbl_footer, FontProvider::text(LV_ACTIVE_PROFILE.font_normal_px));
+        set_font_slot(out_lbl_footer, FontProvider::text(kResolvedUiMetrics.factory.font_normal_px));
         lv_obj_set_style_text_color(out_lbl_footer, pal.text_secondary, LV_PART_MAIN);
         lv_obj_set_style_text_align(out_lbl_footer, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
         wgt_footer_pill::make_child_passive(out_lbl_footer);
@@ -1280,7 +1280,8 @@ void LvglSettingsPage::build_scrolling_detail(LvglSettingsPage& self, const YoRa
             if (self._lbl_scroll_preview) {
                 lv_label_set_text(self._lbl_scroll_preview, kStrScrollingPreviewText);
                 lv_obj_set_width(self._lbl_scroll_preview, LV_PCT(100));
-                set_font_slot(self._lbl_scroll_preview, FontProvider::text(LV_ACTIVE_PROFILE.font_normal_px));
+                set_font_slot(self._lbl_scroll_preview,
+                              FontProvider::text(kResolvedUiMetrics.factory.font_normal_px));
                 lv_obj_set_style_text_color(self._lbl_scroll_preview, pal.text_primary, LV_PART_MAIN);
                 lv_obj_set_style_text_align(self._lbl_scroll_preview, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
                 lv_obj_clear_flag(self._lbl_scroll_preview, LV_OBJ_FLAG_GESTURE_BUBBLE);
@@ -1384,7 +1385,8 @@ void LvglSettingsPage::build_sleep_timer_detail(LvglSettingsPage& self, const Yo
             self._timer_tab_labels[i] = lv_label_create(button);
             if (self._timer_tab_labels[i]) {
                 lv_label_set_text(self._timer_tab_labels[i], tab_text[i]);
-                set_font_slot(self._timer_tab_labels[i], FontProvider::text(LV_ACTIVE_PROFILE.font_normal_px));
+                set_font_slot(self._timer_tab_labels[i],
+                              FontProvider::text(kResolvedUiMetrics.factory.font_normal_px));
                 lv_obj_center(self._timer_tab_labels[i]);
                 lv_obj_clear_flag(self._timer_tab_labels[i], LV_OBJ_FLAG_CLICKABLE);
             }
@@ -1421,7 +1423,7 @@ void LvglSettingsPage::build_sleep_timer_detail(LvglSettingsPage& self, const Yo
             self._timer_event_titles[event_index] = lv_label_create(event_header);
             if (self._timer_event_titles[event_index]) {
                 set_font_slot(self._timer_event_titles[event_index],
-                              FontProvider::text(LV_ACTIVE_PROFILE.font_small_px));
+                              FontProvider::text(kResolvedUiMetrics.factory.font_small_px));
                 lv_obj_set_style_text_color(self._timer_event_titles[event_index],
                                             pal.text_primary, LV_PART_MAIN);
                 lv_obj_set_flex_grow(self._timer_event_titles[event_index], 1);
@@ -1453,7 +1455,7 @@ void LvglSettingsPage::build_sleep_timer_detail(LvglSettingsPage& self, const Yo
                 if (self._timer_switch_labels[event_index]) {
                     lv_obj_set_width(self._timer_switch_labels[event_index], 28);
                     set_font_slot(self._timer_switch_labels[event_index],
-                                  FontProvider::text(LV_ACTIVE_PROFILE.font_small_px));
+                                  FontProvider::text(kResolvedUiMetrics.factory.font_small_px));
                     lv_obj_set_style_text_align(self._timer_switch_labels[event_index],
                                                 LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
                     lv_obj_clear_flag(self._timer_switch_labels[event_index], LV_OBJ_FLAG_CLICKABLE);
@@ -1492,7 +1494,7 @@ void LvglSettingsPage::build_sleep_timer_detail(LvglSettingsPage& self, const Yo
                 lv_label_set_text(self._timer_captions[field_index],
                                   part == 0 ? kStrHours : kStrMinutes);
                 set_font_slot(self._timer_captions[field_index],
-                              FontProvider::text(LV_ACTIVE_PROFILE.font_small_px));
+                              FontProvider::text(kResolvedUiMetrics.factory.font_small_px));
                 lv_obj_set_style_text_color(self._timer_captions[field_index],
                                             pal.text_secondary, LV_PART_MAIN);
                 lv_obj_set_style_text_align(self._timer_captions[field_index],
@@ -1552,7 +1554,7 @@ void LvglSettingsPage::build_sleep_timer_detail(LvglSettingsPage& self, const Yo
             lv_obj_set_height(self._timer_at_labels[event_index], 16);
             lv_obj_set_style_translate_y(self._timer_at_labels[event_index], 6, LV_PART_MAIN);
             set_font_slot(self._timer_at_labels[event_index],
-                          FontProvider::text(LV_ACTIVE_PROFILE.font_small_px));
+                          FontProvider::text(kResolvedUiMetrics.factory.font_small_px));
             lv_obj_set_style_text_color(self._timer_at_labels[event_index],
                                         pal.text_meta, LV_PART_MAIN);
             lv_obj_set_style_text_align(self._timer_at_labels[event_index],
@@ -1567,7 +1569,8 @@ void LvglSettingsPage::build_sleep_timer_detail(LvglSettingsPage& self, const Yo
         lv_obj_set_height(self._lbl_timer_state, 18);
         lv_label_set_long_mode(self._lbl_timer_state, LV_LABEL_LONG_CLIP);
         lv_obj_set_style_text_align(self._lbl_timer_state, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-        set_font_slot(self._lbl_timer_state, FontProvider::text(LV_ACTIVE_PROFILE.font_small_px));
+        set_font_slot(self._lbl_timer_state,
+                      FontProvider::text(kResolvedUiMetrics.factory.font_small_px));
     }
 
     lv_obj_t* buttons = lv_obj_create(self._cont_sleep_timer_content);
@@ -1592,7 +1595,7 @@ void LvglSettingsPage::build_sleep_timer_detail(LvglSettingsPage& self, const Yo
             self._lbl_timer_primary = lv_label_create(self._btn_timer_primary);
             if (self._lbl_timer_primary) {
                 set_font_slot(self._lbl_timer_primary,
-                              FontProvider::text(LV_ACTIVE_PROFILE.font_normal_px));
+                              FontProvider::text(kResolvedUiMetrics.factory.font_normal_px));
                 lv_obj_center(self._lbl_timer_primary);
                 lv_obj_clear_flag(self._lbl_timer_primary, LV_OBJ_FLAG_CLICKABLE);
             }
@@ -1610,7 +1613,7 @@ void LvglSettingsPage::build_sleep_timer_detail(LvglSettingsPage& self, const Yo
             if (self._lbl_deep_sleep_now) {
                 lv_label_set_text(self._lbl_deep_sleep_now, kStrEnterDeepSleepNow);
                 set_font_slot(self._lbl_deep_sleep_now,
-                              FontProvider::text(LV_ACTIVE_PROFILE.font_normal_px));
+                              FontProvider::text(kResolvedUiMetrics.factory.font_normal_px));
                 lv_obj_center(self._lbl_deep_sleep_now);
                 lv_obj_clear_flag(self._lbl_deep_sleep_now, LV_OBJ_FLAG_CLICKABLE);
             }
@@ -1623,7 +1626,8 @@ void LvglSettingsPage::build_sleep_timer_detail(LvglSettingsPage& self, const Yo
         lv_obj_set_height(self._lbl_timer_hint, 14);
         lv_label_set_text(self._lbl_timer_hint, kStrHoldTimerButtons);
         lv_obj_set_style_text_align(self._lbl_timer_hint, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-        set_font_slot(self._lbl_timer_hint, FontProvider::text(LV_ACTIVE_PROFILE.font_small_px));
+        set_font_slot(self._lbl_timer_hint,
+                      FontProvider::text(kResolvedUiMetrics.factory.font_small_px));
     }
 
     self._loadTimerTabValues(true);
@@ -1904,7 +1908,8 @@ void LvglSettingsPage::create() {
 
     lv_obj_set_style_bg_color(_screen, pal.device_background, LV_PART_MAIN);
     lv_obj_set_flex_flow(_screen, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_all(_screen, LV_ACTIVE_PROFILE.frame_padding, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(
+        _screen, kResolvedUiMetrics.factory.frame_padding, LV_PART_MAIN);
     lv_obj_set_style_pad_row(_screen, kRootRowGap, LV_PART_MAIN);
     lv_obj_clear_flag(_screen, LV_OBJ_FLAG_SCROLLABLE);
 

@@ -30,7 +30,7 @@ After any of the following, refresh the ASCII tree, Mermaid diagram, and relevan
 
 `_screen` is a flex **COLUMN** (top → bottom).
 
-- `pad_all = LV_ACTIVE_PROFILE.frame_padding`
+- `pad_all = kResolvedUiMetrics.factory.frame_padding`
 - `pad_row = kRootRowGap` (6 px)
 - `bg_color = pal.device_background`
 - not scrollable
@@ -155,7 +155,7 @@ section (flex ROW, pad_column=8)
     └── KV rows via add_kv_row(...)
 ```
 
-Rail width and left inset depend on `LV_ACTIVE_PROFILE.width` vs `kCompactWidthMax` (360 px). The rail itself is not stored as a class member; theme recoloring uses the tree walk.
+Rail width and left inset depend on `kResolvedUiMetrics.viewport_width` vs `kCompactWidthMax` (360 px). The rail itself is not stored as a class member; theme recoloring uses the tree walk.
 
 ---
 

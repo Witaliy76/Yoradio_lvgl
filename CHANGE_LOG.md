@@ -2,6 +2,11 @@
 
 Intermediate releases inside a major Beta. Major milestones stay in `README.md`.
 
+## 0.9.434m-r2-lvgl-beta.3.07 — 2026-11-04
+
+- Added explicit Square480 UI profile selection in BoardDefaults and separated physical display geometry from factory UI metrics.
+- Migrated screen, Main JPEG background and WebUI geometry consumers to ResolvedUiMetrics and retired the old LVGL profile bridge.
+
 ## 0.9.434m-r2-lvgl-beta.3.06 — 2026-11-04
 
 - Migrated GT911 touch to the official Espressif driver with TouchPort and LVGL adapter.

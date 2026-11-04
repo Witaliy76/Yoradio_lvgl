@@ -84,7 +84,7 @@ After edits: rebuild and verify on hardware.
 
 **Layout structure:** a single centered flex-column container: `logo → spacer → status → spacer → bar`.
 
-**Status font:** `LV_ACTIVE_PROFILE.font_small` — edit the active profile under `../profiles/` (e.g. `lv_profile_4848S040.h`).
+**Status font:** `FontProvider::text(kResolvedUiMetrics.factory.font_header_px)`; the Square480 factory request is 14 px in [`ui_profile_square480.h`](../profiles/ui_profile_square480.h).
 
 **Track / shuttle look:** `apply_track_style()` / `apply_shuttle_style()` in `scr_boot.cpp`.
 

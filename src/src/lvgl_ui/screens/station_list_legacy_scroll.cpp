@@ -22,7 +22,7 @@
 #include "../fonts/lv_fonts.h"
 #include "../font_provider.h"
 #include "../../i18n/i18n.h"
-#include "../profiles/lv_profile_select.h"
+#include "../profiles/resolved_ui_metrics.h"
 #include "../theme/lv_theme_yoradio.h"
 
 namespace lvgl_ui {
@@ -281,7 +281,8 @@ static void clampFocusForTotal(Instance& instance, uint16_t tot) {
 static void styleFocusRowOverlays(Instance& instance, const YoRadioPalette& pal) {
     if (instance.focus_row_bg) {
         lv_obj_set_width(instance.focus_row_bg,
-            static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.width - (LV_ACTIVE_PROFILE.frame_padding * 2u)));
+            static_cast<lv_coord_t>(
+                kResolvedUiMetrics.viewport_width - (kResolvedUiMetrics.factory.frame_padding * 2u)));
         lv_obj_set_height(instance.focus_row_bg, kRowOverlayHeight);
         lv_obj_set_style_bg_color(instance.focus_row_bg, pal.list_row_selected_bg, LV_PART_MAIN);
         lv_obj_set_style_bg_opa(instance.focus_row_bg, kFocusBgOpa, LV_PART_MAIN);
@@ -688,7 +689,7 @@ void populate(Instance& instance) {
         return;
     }
 
-    const size_t name_limit = (LV_ACTIVE_PROFILE.width >= kWideProfileMinWidth)
+    const size_t name_limit = (kResolvedUiMetrics.viewport_width >= kWideProfileMinWidth)
                               ? kStationNameLimitWide : kStationNameLimitCompact;
     if (!station_list_adapter::station_list_text(instance.list_text, instance.list_text_cap, name_limit)) {
         copy_complete(instance.list_text, instance.list_text_cap,

@@ -16,7 +16,7 @@
 #include "../font_provider.h"
 #include "../lv_page_chain.h"
 #include "../lvgl_ui.h"
-#include "../profiles/lv_profile_select.h"
+#include "../profiles/resolved_ui_metrics.h"
 #include "../theme/lv_theme_yoradio.h"
 #include "../weather_owm_glyph.h"
 #include "../wifi_signal_map.h"
@@ -195,7 +195,8 @@ bool create(lv_obj_t* parent, Instance& out) {
         // видимые glyph/text и геометрия status/divider остаются на прежнем месте.
         lv_obj_add_flag(out.cont_weather, LV_OBJ_FLAG_FLOATING);
         lv_obj_set_size(out.cont_weather, kWeatherHitWidth, kWeatherHitHeight);
-        const lv_coord_t frame_pad = static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.frame_padding);
+        const lv_coord_t frame_pad =
+            static_cast<lv_coord_t>(kResolvedUiMetrics.factory.frame_padding);
         lv_obj_align(
             out.cont_weather,
             LV_ALIGN_TOP_RIGHT,

@@ -10,15 +10,25 @@ display/touch wiring. The current production board is ESP32-S3 4848S040.
 | Value | Meaning |
 |---|---|
 | BoardProfile | Immutable factory facts: identity, build requirements, display/touch wiring and hardware presence |
-| BoardDefaults | Tested YoRadio recommendations: external-I2S pins, wake, display host policy and touch servicing |
+| BoardDefaults | Tested recommendations and explicit UI policy: external-I2S pins, wake, display host policy, touch servicing and `ui.profile` |
 | kActiveBoard | Selected factory BoardProfile |
 | kWiring | Effective wiring: factory profile with only enabled DISP_* / TOUCH_* overrides applied |
 | kActiveBoardDefaults | Defaults for the selected profile |
+
+`BoardDefaults.ui.profile` is application UI policy consumed by
+[ResolvedUiMetrics](../../lvgl_ui/README.md#ui-contract--ui-контракт); panel
+geometry remains in the Display Contract.
 
 BoardProfile is not changed by user defines. BoardDefaults is not a hardware
 truth or a complete runtime configuration. Display uses ResolvedDisplayConfig;
 touch uses ResolvedTouchConfig. External I2S and wake remain macros because
 their consumers require preprocessor values.
+
+For a one-off rewiring of the same supported ST7701/GT911 board, Custom Wiring
+is sufficient for the exposed `DISP_*`/`TOUCH_*` GPIO overrides. A distinct
+factory board variant that needs its own identity or defaults needs a new
+BoardProfile and validation; new controllers or resolutions additionally need
+their own supported contracts/backends. External I2S pins remain user macros.
 
 ### Select and configure an existing board
 
@@ -103,15 +113,25 @@ Board Contract — compile-time источник фактов выбранной
 | Значение | Смысл |
 |---|---|
 | BoardProfile | Неизменяемые заводские факты: identity, build requirements, display/touch wiring, наличие hardware |
-| BoardDefaults | Проверенные рекомендации YoRadio: external-I2S pins, wake, display host policy, touch servicing |
+| BoardDefaults | Проверенные рекомендации и явная UI-policy: external-I2S pins, wake, display host policy, touch servicing и `ui.profile` |
 | kActiveBoard | Выбранный заводской BoardProfile |
 | kWiring | Effective wiring: factory profile с наложенными только включёнными DISP_* / TOUCH_* override |
 | kActiveBoardDefaults | Defaults выбранного profile |
+
+`BoardDefaults.ui.profile` — UI-policy приложения для
+[ResolvedUiMetrics](../../lvgl_ui/README.md#ui-contract--ui-контракт); геометрия
+панели остаётся в Display Contract.
 
 BoardProfile не меняется user defines. BoardDefaults не является hardware truth
 или полной runtime configuration. Display использует ResolvedDisplayConfig;
 touch — ResolvedTouchConfig. External I2S и wake остаются macros, потому что их
 consumers требуют preprocessor values.
+
+Для разового переподключения той же поддерживаемой платы ST7701/GT911 достаточно
+Custom Wiring для доступных GPIO `DISP_*`/`TOUCH_*`. Отдельному заводскому
+варианту платы со своей identity или defaults нужны новый BoardProfile и его
+валидация; новые контроллеры или разрешения дополнительно требуют поддержанных
+контрактов/backend. Пины внешнего I2S остаются пользовательскими macros.
 
 ### Выбор и настройка существующей платы
 

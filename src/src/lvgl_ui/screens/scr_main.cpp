@@ -35,7 +35,7 @@
 #include <cstring>
 #include "../fonts/lv_fonts.h"
 #include "../font_provider.h"
-#include "../profiles/lv_profile_select.h"
+#include "../profiles/resolved_ui_metrics.h"
 #include "../theme/lv_theme_yoradio.h"
 #include "../main_bg_jpeg.h"
 #include "../control_glyph_utf8.h"
@@ -95,10 +95,11 @@ constexpr lv_opa_t k_cb_border_opa_light = LV_OPA_70; // warm beige edge reads o
 // Разделитель: • из шрифта; средняя точка U+00B7 в подмножестве шрифта нет.
 static constexpr char k_meta_field_sep[] = " \xE2\x80\xA2 ";
 
-// Left Art v1: square slot size — local tuning constant (not in display profile yet; Stage 6.1E-visual).
-// Размер art_slot — локальная константа настройки, пока не в display profile.
-static constexpr lv_coord_t k_art_slot_size = 120; // px, baseline for 480×480
-static constexpr lv_coord_t k_art_slot_gap  = 12;  // gap between art_slot and cont_text / зазор между слотом и текстом
+// Art presentation dimensions come from the selected UI factory metrics.
+// Размеры отображения арта берутся из заводских метрик UI-профиля.
+static constexpr lv_coord_t k_art_slot_width = kResolvedUiMetrics.factory.main_station_art_slot_width;
+static constexpr lv_coord_t k_art_slot_height = kResolvedUiMetrics.factory.main_station_art_slot_height;
+static constexpr lv_coord_t k_art_slot_gap = kResolvedUiMetrics.factory.main_station_art_gap;
 // Art slot frame: matches control_band border (same hue); radius clips the image corners.
 // Рамка art_slot: тот же цвет, что у control_band border; radius обрезает углы картинки.
 static constexpr lv_coord_t k_art_frame_radius = 12; // squircle; tune alongside cont_mid composition
@@ -749,7 +750,7 @@ void LvglMainScreen::create_mid_block(LvglMainScreen& self, const YoRadioPalette
 
         // 6.1E-visual: horizontal row — art_slot (left, dynamic-collapse) + cont_text (right, flex_grow=1).
         // Mode A (no asset): art_slot HIDDEN → LVGL v8 flex skips it → cont_text fills full row width (no reserved hole).
-        // Mode B (asset present): art_slot visible (k_art_slot_size sq) → cont_text takes remaining width.
+        // Mode B (asset present): art_slot visible at factory size → cont_text takes remaining width.
         // Горизонтальный ряд: art_slot (collapse) + cont_text (flex_grow). Mode A: арт скрыт, текст на всю ширину.
         lv_obj_t* cont_mid_row = lv_obj_create(cont_mid);
         if (cont_mid_row) {
@@ -775,7 +776,7 @@ void LvglMainScreen::create_mid_block(LvglMainScreen& self, const YoRadioPalette
                 // Default lv_obj + theme "card" can add border/shadow/pad — looks like a frame; rounded parent + img can leak light pixels on corners in RGB565.
                 // Сбрасываем стили: без рамки темы, без clip по radius (иначе по углам «точки»/просветы).
                 lv_obj_remove_style_all(self._art_slot);
-                lv_obj_set_size(self._art_slot, k_art_slot_size, k_art_slot_size);
+                lv_obj_set_size(self._art_slot, k_art_slot_width, k_art_slot_height);
                 lv_obj_set_style_shadow_width(self._art_slot, 0, LV_PART_MAIN);
                 lv_obj_set_style_outline_width(self._art_slot, 0, LV_PART_MAIN);
                 // Frame: reuses control_band border token (6.6R-GA: pal.main_chrome_border).
@@ -806,8 +807,9 @@ void LvglMainScreen::create_mid_block(LvglMainScreen& self, const YoRadioPalette
                     // Explicit pixel size = content area; LV_SIZE_CONTENT would be 120px (image) vs 116px (area)
                     // → overflows 2px top/bottom, covers top/bottom border. Fixed: size = slot − 2×border.
                     // LV_SIZE_CONTENT = 120px > content area 116px → верх/низ рамки перекрыты. Фикс: явный размер.
-                    const lv_coord_t art_img_size = k_art_slot_size - 2 * k_art_frame_border_w;
-                    lv_obj_set_size(self._art_img, art_img_size, art_img_size);
+                    const lv_coord_t art_img_width = k_art_slot_width - 2 * k_art_frame_border_w;
+                    const lv_coord_t art_img_height = k_art_slot_height - 2 * k_art_frame_border_w;
+                    lv_obj_set_size(self._art_img, art_img_width, art_img_height);
                     lv_obj_set_style_bg_opa(self._art_img, LV_OPA_TRANSP, LV_PART_MAIN);
                     lv_obj_set_style_border_width(self._art_img, 0, LV_PART_MAIN);
                     lv_obj_set_style_pad_all(self._art_img, 0, LV_PART_MAIN);
@@ -894,9 +896,8 @@ void LvglMainScreen::create_mid_block(LvglMainScreen& self, const YoRadioPalette
                 if (self._lbl_station_name) {
                     lv_label_set_text(self._lbl_station_name, "---");
                     lv_obj_set_width(self._lbl_station_name, LV_PCT(100));
-                    // Main font experiment: 32 px anchor (direct font ref, not profile slot).
-                    // Эксперимент: якорь 32 px.
-                    main_set_font(self._lbl_station_name, FontProvider::text(32));
+                    main_set_font(self._lbl_station_name,
+                                  FontProvider::text(kResolvedUiMetrics.factory.main_station_font_px));
                     lv_obj_set_style_text_color(self._lbl_station_name, pal.station_name_text, LV_PART_MAIN);
                 }
 
@@ -904,9 +905,8 @@ void LvglMainScreen::create_mid_block(LvglMainScreen& self, const YoRadioPalette
                 if (self._lbl_track) {
                     lv_label_set_text(self._lbl_track, " ");
                     lv_obj_set_width(self._lbl_track, LV_PCT(100));
-                    // Second tier: 22 px.
-                    // Второй уровень: 22 px.
-                    main_set_font(self._lbl_track, FontProvider::text(22));
+                    main_set_font(self._lbl_track,
+                                  FontProvider::text(kResolvedUiMetrics.factory.main_track_font_px));
                     lv_obj_set_style_text_color(self._lbl_track, pal.track_text, LV_PART_MAIN);
                     lv_obj_set_style_pad_top(self._lbl_track, k_main_track_pad_top, LV_PART_MAIN);
                     lv_obj_add_flag(self._lbl_track, LV_OBJ_FLAG_HIDDEN);
@@ -916,9 +916,8 @@ void LvglMainScreen::create_mid_block(LvglMainScreen& self, const YoRadioPalette
                 if (self._lbl_artist) {
                     lv_label_set_text(self._lbl_artist, " ");
                     lv_obj_set_width(self._lbl_artist, LV_PCT(100));
-                    // Third tier: 18 px (experiment ladder).
-                    // Третий уровень: 18 px.
-                    main_set_font(self._lbl_artist, FontProvider::text(18));
+                    main_set_font(self._lbl_artist,
+                                  FontProvider::text(kResolvedUiMetrics.factory.main_artist_font_px));
                     lv_obj_set_style_text_color(self._lbl_artist, pal.artist_text, LV_PART_MAIN);
                     lv_obj_add_flag(self._lbl_artist, LV_OBJ_FLAG_HIDDEN);
                 }
@@ -1012,7 +1011,7 @@ void LvglMainScreen::create_visual_rail(LvglMainScreen& self, const YoRadioPalet
 // status_divider: нужен для расчёта симметрии (inset_top = top_div.y1 - scr.y1).
 void LvglMainScreen::create_bottom_zone(LvglMainScreen& self, const YoRadioPalette& pal, lv_obj_t* status_divider) {
     // Width used for font/pad selection in bottom zone.
-    const uint16_t W = LV_ACTIVE_PROFILE.width;
+    const uint16_t W = kResolvedUiMetrics.viewport_width;
 
     // Invisible flex row: height set after layout so heapbar bottom matches screen bottom inset (divider symmetry).
     // Невидимая строка flex: высота задаётся после layout — симметрия divider'ов (LVGL 8 без margin на объекте).
@@ -1384,7 +1383,7 @@ void LvglMainScreen::create_bottom_zone(LvglMainScreen& self, const YoRadioPalet
             self._lbl_volume = lv_label_create(col_vol);
             if (self._lbl_volume) {
                 lv_label_set_text(self._lbl_volume, "Vol: --");
-                main_set_font(self._lbl_volume, FontProvider::text(LV_ACTIVE_PROFILE.font_small_px));
+                main_set_font(self._lbl_volume, FontProvider::text(kResolvedUiMetrics.factory.font_small_px));
                 lv_obj_set_style_text_color(self._lbl_volume, pal.text_secondary, LV_PART_MAIN);
             }
 
@@ -1445,7 +1444,7 @@ void LvglMainScreen::create_bottom_zone(LvglMainScreen& self, const YoRadioPalet
             self._lbl_vol_popup = lv_label_create(self._screen);
             if (self._lbl_vol_popup && self._bar_volume) {
                 lv_label_set_text(self._lbl_vol_popup, "");
-                main_set_font(self._lbl_vol_popup, FontProvider::text(LV_ACTIVE_PROFILE.font_small_px));
+                main_set_font(self._lbl_vol_popup, FontProvider::text(kResolvedUiMetrics.factory.font_small_px));
                 lv_obj_set_style_text_color(self._lbl_vol_popup, pal.text_primary, LV_PART_MAIN);
                 lv_obj_set_style_bg_color(self._lbl_vol_popup, pal.panel_background, LV_PART_MAIN);
                 lv_obj_set_style_bg_opa(self._lbl_vol_popup, LV_OPA_80, LV_PART_MAIN);
@@ -1725,9 +1724,9 @@ void LvglMainScreen::_syncBgImgLayout() {
     // B1 restored size after lv_img_set_src but align(0,0) still inset ~frame_padding px — compensate here.
     // Полноэкранный фон: pad на _screen сдвигает content area; отрицательный offset = физический (0,0).
     if (!_screen) return;
-    const lv_coord_t W = static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.width);
-    const lv_coord_t H = static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.height);
-    const lv_coord_t frame_pad = static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.frame_padding);
+    const lv_coord_t W = static_cast<lv_coord_t>(kResolvedUiMetrics.viewport_width);
+    const lv_coord_t H = static_cast<lv_coord_t>(kResolvedUiMetrics.viewport_height);
+    const lv_coord_t frame_pad = static_cast<lv_coord_t>(kResolvedUiMetrics.factory.frame_padding);
     if (_bg_img) {
         lv_obj_set_size(_bg_img, W, H);
         lv_obj_set_pos(_bg_img, -frame_pad, -frame_pad);
@@ -1743,9 +1742,9 @@ void LvglMainScreen::create() {
 
     // Root screen: dimensions + flex column + uniform frame padding.
     // Корневой экран: размеры + flex-колонка + рамка со всех сторон.
-    const uint16_t W = LV_ACTIVE_PROFILE.width;
-    const uint16_t H = LV_ACTIVE_PROFILE.height;
-    const int32_t pad = static_cast<int32_t>(LV_ACTIVE_PROFILE.frame_padding);
+    const uint16_t W = kResolvedUiMetrics.viewport_width;
+    const uint16_t H = kResolvedUiMetrics.viewport_height;
+    const int32_t pad = static_cast<int32_t>(kResolvedUiMetrics.factory.frame_padding);
 
     _screen = lv_obj_create(nullptr);
     if (!_screen) return;

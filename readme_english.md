@@ -9,7 +9,7 @@ Besides the on-device UI there is a Web UI for playback, stations, behavior sett
 The project is based on [e2002/yoradio](https://github.com/e2002/yoradio); the current repository is [Yoradio_lvgl](https://github.com/Witaliy76/Yoradio_lvgl).
 
 > **Stable version on `main`:** `0.9.434m-r2-lvgl-beta.3.01`
-> **`night_build` sources:** `0.9.434m-r2-lvgl-beta.3.06` (`YOVERSION`; this is not a GitHub Release)
+> **`night_build` sources:** `0.9.434m-r2-lvgl-beta.3.07` (`YOVERSION`; this is not a GitHub Release)
 > **Ready packages in `build_bin/`:** historical beta.3 line packages, not a build of the current sources
 > **Validated board:** ESP32-4848S040
 

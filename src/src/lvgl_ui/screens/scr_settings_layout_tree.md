@@ -7,7 +7,7 @@ remains one fixed `PageChain` page; Display, Music Rail, Scrolling, and TIMERS a
 
 ## Root and Main
 
-`_screen` is a non-scrollable flex column with `LV_ACTIVE_PROFILE.frame_padding`, a 6 px row gap,
+`_screen` is a non-scrollable flex column with `kResolvedUiMetrics.factory.frame_padding`, a 6 px row gap,
 and `pal.device_background`.
 
 ```text

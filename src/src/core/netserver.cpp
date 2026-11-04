@@ -19,7 +19,7 @@
 #include <Update.h>
 #include <ESPmDNS.h>
 #include <ArduinoJson.h>
-#include "../lvgl_ui/profiles/lv_profile_select.h"
+#include "../lvgl_ui/profiles/resolved_ui_metrics.h"
 #include "../lvgl_ui/theme/lv_theme_yoradio.h"
 #include "../lvgl_ui/main_bg_jpeg.h"
 #include "../lvgl_ui/font_provider.h"
@@ -2569,8 +2569,8 @@ void handleBgStatusHttp(AsyncWebServerRequest* request) {
     bgSz[i] = f.size();
     f.close();
   }
-  const uint32_t dw = LV_ACTIVE_PROFILE.width;
-  const uint32_t dh = LV_ACTIVE_PROFILE.height;
+  const uint32_t dw = lvgl_ui::kResolvedUiMetrics.viewport_width;
+  const uint32_t dh = lvgl_ui::kResolvedUiMetrics.viewport_height;
   const char* active_theme = "dark";
   switch (lvgl_ui::yoradio_theme_active_preset()) {
     case lvgl_ui::ThemePreset::Light:

@@ -20,7 +20,7 @@
 #include <math.h>
 #include <new>
 
-#include "../profiles/lv_profile_select.h"
+#include "../profiles/resolved_ui_metrics.h"
 #include "../theme/lv_theme_yoradio.h"
 #include "../../core/display.h"
 #include "../../core/config.h"
@@ -782,8 +782,8 @@ void create(lv_obj_t* parent, Instance& out) {
     lv_coord_t w = lv_obj_get_content_width(parent);
     lv_coord_t h = lv_obj_get_content_height(parent);
     if (w <= 0) {
-        w = static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.width)
-            - 2 * static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.frame_padding);
+        w = static_cast<lv_coord_t>(kResolvedUiMetrics.viewport_width)
+            - 2 * static_cast<lv_coord_t>(kResolvedUiMetrics.factory.frame_padding);
     }
     if (h <= 0) h = 36;
     out.rail_w   = w;

@@ -120,6 +120,9 @@ inline constexpr BoardDefaults kBoardDefaults_Esp32S3_4848S040 = {
         .service_mode = TouchServiceMode::Polling,
         .i2c_clock_hz = YORADIO_BD_4848_TOUCH_I2C_HZ,
     },
+    .ui = {
+        .profile = UiProfile::Square480,
+    },
 };
 
 // These checks describe this defaults object. They do not read myoptions.h
@@ -159,6 +162,8 @@ static_assert(kBoardDefaults_Esp32S3_4848S040.touch.service_mode ==
               "touch default is polling");
 static_assert(kBoardDefaults_Esp32S3_4848S040.touch.i2c_clock_hz == 100000u,
               "touch default I2C clock is 100 kHz");
+static_assert(kBoardDefaults_Esp32S3_4848S040.ui.profile == UiProfile::Square480,
+              "4848S040 must explicitly select the Square480 UI profile");
 
 static_assert(YORADIO_BD_4848_I2S_DOUT == 40, "audio dout recommendation unchanged");
 static_assert(YORADIO_BD_4848_I2S_BCLK == 1, "audio bclk recommendation unchanged");

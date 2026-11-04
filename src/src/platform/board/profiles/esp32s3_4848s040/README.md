@@ -6,6 +6,10 @@ This is the only production BoardProfile. Select it in src/myoptions.h with
 YORADIO_BOARD_4848S040. Factory facts live in board_profile.h; tested
 recommendations live in board_defaults.h.
 
+`BoardDefaults.ui.profile` explicitly selects `UiProfile::Square480`. The
+[UI contract](../../../../lvgl_ui/README.md#ui-contract--ui-контракт) explains
+how this differs from physical panel geometry.
+
 | Hardware | Current contract |
 |---|---|
 | SoC / memory | ESP32-S3, 16 MB flash minimum, octal PSRAM required |
@@ -56,6 +60,10 @@ and [Touch Contract](../../../touch/README.md).
 Это единственный production BoardProfile. Выбирайте его в src/myoptions.h через
 YORADIO_BOARD_4848S040. Factory facts находятся в board_profile.h; tested
 recommendations — в board_defaults.h.
+
+`BoardDefaults.ui.profile` явно выбирает `UiProfile::Square480`.
+[UI-контракт](../../../../lvgl_ui/README.md#ui-contract--ui-контракт) объясняет
+отличие этого выбора от физической геометрии панели.
 
 | Hardware | Текущий контракт |
 |---|---|

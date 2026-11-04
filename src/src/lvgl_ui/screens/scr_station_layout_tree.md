@@ -40,7 +40,7 @@ Define in `src/myoptions.h` (pulled via `options.h` → `station_list_renderer_s
 ## Root order (chrome — both renderers)
 
 `_screen` flex **COLUMN** (top → bottom):
-- `pad_all = LV_ACTIVE_PROFILE.frame_padding`
+- `pad_all = kResolvedUiMetrics.factory.frame_padding`
 - `pad_row = kRootRowGap` (8 px)
 - not scrollable
 

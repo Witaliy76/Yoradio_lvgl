@@ -7,7 +7,7 @@
 #include "lv_touch_indev.h"
 #include "lv_ui_events.h"
 #include "font_provider.h"
-#include "profiles/lv_profile_select.h"
+#include "profiles/resolved_ui_metrics.h"
 #include "theme/lv_theme_yoradio.h"
 #include "lv_fs_littlefs.h"
 
@@ -426,7 +426,8 @@ static void repositionBuiltinLvglPerfMonitorOnce() {
 
         lv_display_t* d = s_disp ? s_disp : lv_display_get_default();
         const int32_t w =
-            d ? static_cast<int32_t>(lv_display_get_horizontal_resolution(d)) : static_cast<int32_t>(LV_ACTIVE_PROFILE.width);
+            d ? static_cast<int32_t>(lv_display_get_horizontal_resolution(d))
+              : static_cast<int32_t>(kResolvedUiMetrics.viewport_width);
         // wgt_status_line centers the clock in the screen's middle third (status line = 3 equal flex
         // columns), so the clock's right edge sits well left of screen-center + 40. Anchor there and
         // grow to a right margin, so the box is "right of the clock" and never clips regardless of

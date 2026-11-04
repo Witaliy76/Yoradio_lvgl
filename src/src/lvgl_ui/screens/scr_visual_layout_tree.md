@@ -49,7 +49,7 @@ Z-order bottom → top (after `lv_obj_move_foreground` calls in `create()`):
 
 ## Order on `_screen`
 
-`_screen` is a flex **COLUMN** (top → bottom). `pad_all = LV_ACTIVE_PROFILE.frame_padding`, `pad_row = 4`.
+`_screen` is a flex **COLUMN** (top → bottom). `pad_all = kResolvedUiMetrics.factory.frame_padding`, `pad_row = 4`.
 
 **Creation order (load-bearing — do not reorder):**
 

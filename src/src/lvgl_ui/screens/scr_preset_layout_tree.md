@@ -152,7 +152,7 @@ Footer long press: no save action (only `LV_EVENT_CLICKED` registered).
 | `kFontSlotNumber` | M16 |
 | `kFontStationName` | M22 |
 | `kFontFooter` | M14 |
-| `preset_station_number_font()` | `LV_ACTIVE_PROFILE.font_normal` (nullable-checked) |
+| `preset_station_number_font()` | `FontProvider::text(kResolvedUiMetrics.factory.font_normal_px)` (nullable-checked) |
 
 ---
 

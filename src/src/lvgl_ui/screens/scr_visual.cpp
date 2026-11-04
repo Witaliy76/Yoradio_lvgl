@@ -30,7 +30,7 @@
 #include "../../core/ppm_pcm_level.h"
 #include "../fonts/lv_fonts.h"
 #include "../font_provider.h"
-#include "../profiles/lv_profile_select.h"
+#include "../profiles/resolved_ui_metrics.h"
 #include "../theme/lv_theme_yoradio.h"
 #include "../widgets/wgt_status_line.h"
 #include "../lv_img_disk_header.h"
@@ -354,8 +354,8 @@ void LvglVisualPage::create_status_chrome(LvglVisualPage& self, const YoRadioPal
 void LvglVisualPage::create_metadata_layer(LvglVisualPage& self, const YoRadioPalette& pal) {
     if (!self._screen) return;
 
-    const uint16_t W = LV_ACTIVE_PROFILE.width;
-    const uint16_t H = LV_ACTIVE_PROFILE.height;
+    const uint16_t W = kResolvedUiMetrics.viewport_width;
+    const uint16_t H = kResolvedUiMetrics.viewport_height;
 
     self._metadata_layer = lv_obj_create(self._screen);
     if (!self._metadata_layer) return;
@@ -428,8 +428,8 @@ void LvglVisualPage::create_metadata_layer(LvglVisualPage& self, const YoRadioPa
 void LvglVisualPage::create_background(LvglVisualPage& self) {
     if (!self._screen) return;
 
-    const uint16_t W = LV_ACTIVE_PROFILE.width;
-    const uint16_t H = LV_ACTIVE_PROFILE.height;
+    const uint16_t W = kResolvedUiMetrics.viewport_width;
+    const uint16_t H = kResolvedUiMetrics.viewport_height;
 
     self._bg_img = lv_img_create(self._screen);
     if (!self._bg_img) return;
@@ -445,8 +445,8 @@ void LvglVisualPage::create_overlay_layer(LvglVisualPage& self) {
     if (!self._screen) return;
     if (!kBeocordVuAssetPack.segment_mask) return;
 
-    const lv_coord_t W = static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.width);
-    const lv_coord_t H = static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.height);
+    const lv_coord_t W = static_cast<lv_coord_t>(kResolvedUiMetrics.viewport_width);
+    const lv_coord_t H = static_cast<lv_coord_t>(kResolvedUiMetrics.viewport_height);
 
     self._overlay_layer = lv_obj_create(self._screen);
     if (!self._overlay_layer) return;
@@ -662,9 +662,9 @@ void LvglVisualPage::_applyBackgroundImage() {
 void LvglVisualPage::_syncBackgroundLayout() {
     if (!_screen || !_bg_img) return;
 
-    const lv_coord_t W = static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.width);
-    const lv_coord_t H = static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.height);
-    const lv_coord_t frame_pad = static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.frame_padding);
+    const lv_coord_t W = static_cast<lv_coord_t>(kResolvedUiMetrics.viewport_width);
+    const lv_coord_t H = static_cast<lv_coord_t>(kResolvedUiMetrics.viewport_height);
+    const lv_coord_t frame_pad = static_cast<lv_coord_t>(kResolvedUiMetrics.factory.frame_padding);
 
     lv_obj_set_size(_bg_img, W, H);
     lv_obj_set_pos(_bg_img, -frame_pad, -frame_pad);
@@ -673,9 +673,9 @@ void LvglVisualPage::_syncBackgroundLayout() {
 void LvglVisualPage::_syncOverlayLayout() {
     if (!_screen || !_overlay_layer) return;
 
-    const lv_coord_t W = static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.width);
-    const lv_coord_t H = static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.height);
-    const lv_coord_t frame_pad = static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.frame_padding);
+    const lv_coord_t W = static_cast<lv_coord_t>(kResolvedUiMetrics.viewport_width);
+    const lv_coord_t H = static_cast<lv_coord_t>(kResolvedUiMetrics.viewport_height);
+    const lv_coord_t frame_pad = static_cast<lv_coord_t>(kResolvedUiMetrics.factory.frame_padding);
 
     lv_obj_set_size(_overlay_layer, W, H);
     lv_obj_set_pos(_overlay_layer, -frame_pad, -frame_pad);
@@ -774,9 +774,9 @@ ScreenType LvglVisualPage::screenType() const {
 void LvglVisualPage::create() {
     if (_screen) return;
 
-    const uint16_t W = LV_ACTIVE_PROFILE.width;
-    const uint16_t H = LV_ACTIVE_PROFILE.height;
-    const int32_t pad = static_cast<int32_t>(LV_ACTIVE_PROFILE.frame_padding);
+    const uint16_t W = kResolvedUiMetrics.viewport_width;
+    const uint16_t H = kResolvedUiMetrics.viewport_height;
+    const int32_t pad = static_cast<int32_t>(kResolvedUiMetrics.factory.frame_padding);
 
     _screen = lv_obj_create(nullptr);
     if (!_screen) return;

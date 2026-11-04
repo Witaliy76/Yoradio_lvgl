@@ -31,6 +31,8 @@ BoardDefaults records recommendations. Its display host policy and touch
 service are read; its audio and wake pins are not a replacement for
 `I2S_*` and `WAKE_PIN` in myoptions.h. The production profile is
 [ESP32-S3 4848S040](esp32s3_4848s040/README.md).
+Each board defaults file must explicitly select a compatible `ui.profile`;
+see the [UI contract](../../../lvgl_ui/README.md#ui-contract--ui-контракт).
 
 ### Scope limits
 
@@ -74,6 +76,8 @@ G0..G5, R0..R4. Отсутствующие hardware lines используют k
 обслуживание тача читаются; пины audio и wake не заменяют `I2S_*` и `WAKE_PIN`
 в myoptions.h. Production profile:
 [ESP32-S3 4848S040](esp32s3_4848s040/README.md).
+В defaults платы явно выберите совместимый `ui.profile`; см.
+[UI-контракт](../../../lvgl_ui/README.md#ui-contract--ui-контракт).
 
 ### Ограничения scope
 

@@ -5,8 +5,8 @@
  * Boot image: RGB565 in lvgl_ui/assets (see bootlogo.md §3 — asset, dimensions, descriptor).
  * Битмап boot: RGB565 в lvgl_ui/assets; замена — bootlogo.md §3 / bootlogo_rus.md §3.
  *
- * Column block: LV_ALIGN_CENTER on screen + kRootLiftY; profile = LV_ACTIVE_PROFILE.
- * Колонка: центр экрана + вертикальный сдвиг kRootLiftY; профиль — LV_ACTIVE_PROFILE.
+ * Column block: LV_ALIGN_CENTER on screen + kRootLiftY; metrics = ResolvedUiMetrics.
+ * Колонка: центр экрана + вертикальный сдвиг kRootLiftY; метрики — ResolvedUiMetrics.
  *
  * Layout policy: bootlogo.md (EN) / bootlogo_rus.md (RU).
  * Политика раскладки: bootlogo.md (EN) / bootlogo_rus.md (RU).
@@ -20,7 +20,7 @@
 #include "lvgl.h"
 #include "Arduino.h"
 #include <cstring>
-#include "../profiles/lv_profile_select.h"
+#include "../profiles/resolved_ui_metrics.h"
 #include "../font_provider.h"
 #include "../assets/bootlogo_assets.h"
 #include "../../i18n/i18n.h"
@@ -36,7 +36,7 @@ namespace {
 // ─────────────────────────────────────────────────────────────────────────────
 
 static const lv_font_t* boot_status_font() {
-    return FontProvider::text(LV_ACTIVE_PROFILE.font_header_px);
+    return FontProvider::text(kResolvedUiMetrics.factory.font_header_px);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -88,8 +88,8 @@ static const lv_img_dsc_t s_boot_logo_dsc_small = {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Layout constants / Константы раскладки
-// All values use LV_ACTIVE_PROFILE (width, height, frame_padding).
-// Все значения используют LV_ACTIVE_PROFILE.
+// Profile-owned values use ResolvedUiMetrics (viewport, frame padding).
+// Профильные значения берутся из ResolvedUiMetrics (viewport, frame padding).
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Center column layout: one root flex container in the middle.
@@ -385,7 +385,7 @@ void LvglBootScreen::startIndeterminateAnim() {
     lv_anim_del(this, shuttleAnimExec);
 
     int32_t bar_w = 0, shuttle_w = 0, x_max = 0;
-    boot_bar_geometry(LV_ACTIVE_PROFILE.width, &bar_w, &shuttle_w, &x_max);
+    boot_bar_geometry(kResolvedUiMetrics.viewport_width, &bar_w, &shuttle_w, &x_max);
 
     lv_anim_t a;
     lv_anim_init(&a);
@@ -421,8 +421,9 @@ void LvglBootScreen::create() {
         }
     }
 
-    const uint16_t width         = LV_ACTIVE_PROFILE.width;
-    const int32_t  frame_padding = static_cast<int32_t>(LV_ACTIVE_PROFILE.frame_padding);
+    const uint16_t width         = kResolvedUiMetrics.viewport_width;
+    const int32_t  frame_padding =
+        static_cast<int32_t>(kResolvedUiMetrics.factory.frame_padding);
 
     _screen = lv_obj_create(nullptr);
     if (!_screen) return;

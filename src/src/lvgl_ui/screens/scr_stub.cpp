@@ -11,7 +11,7 @@
 
 #include "lvgl.h"
 #include "lvgl_ui.h"
-#include "../profiles/lv_profile_select.h"
+#include "../profiles/resolved_ui_metrics.h"
 #include "../font_provider.h"
 #include "../theme/lv_theme_yoradio.h"
 
@@ -38,7 +38,7 @@ void LvglStubPage::create() {
         lv_label_set_text(_lbl, _titleUtf8);
         lv_obj_set_style_text_color(_lbl, pal.text_primary, LV_PART_MAIN);
         lv_obj_set_style_text_font(
-            _lbl, FontProvider::text(LV_ACTIVE_PROFILE.font_large_px), LV_PART_MAIN);
+            _lbl, FontProvider::text(kResolvedUiMetrics.factory.font_large_px), LV_PART_MAIN);
         lv_obj_center(_lbl);
     }
 

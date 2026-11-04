@@ -31,7 +31,7 @@ _screen  (fixed dark bg; not scrollable)
 └── _root  (flex COLUMN; center align; pad=0; pad_row=0; LV_ALIGN_CENTER offset kRootLiftY)
     ├── _img_logo                  logo bitmap (small or medium)
     ├── spacer_logo_status         transparent; h=kGapLogoToStatus (24 px)
-    ├── _lbl_status                "Starting..."; LONG_DOT; fixed color kBootFixedStatusText
+    ├── _lbl_status                localized BootStarting; LONG_DOT; fixed color kBootFixedStatusText
     ├── spacer_status_bar          transparent; h=kGapStatusToBar (38 px)
     └── _prog_track                indeterminate bar track; layout=0 (no flex)
         ├── _prog_glow             halo layer; IGNORE_LAYOUT; same x as shuttle
@@ -100,7 +100,7 @@ Both descriptors are compile-time constants in `scr_boot.cpp`. No runtime scalin
 - `_status_text[128]` is a member of `LvglBootScreen` — owned by the screen instance.
 - `lv_label_set_text_static(_lbl_status, _status_text)` — LVGL stores only the pointer, no copy.
 - Buffer must stay alive while `_lbl_status` exists.
-- Initialized to `kStrStarting` (`"Starting..."`) on `create()` via `strncpy`.
+- Initialized from `i18n::text(i18n::TextId::BootStarting)` on `create()` via `strncpy`.
 - Updated via `setStatusUtf8()` with deduplication (`strcmp`) to avoid redundant redraws.
 - `LV_LABEL_LONG_DOT` prevents circular scrolling (stable status, lower relayout pressure).
 
@@ -241,7 +241,7 @@ Shared-helper extraction for Boot-specific code is not warranted until a second 
 
 ## Notes / Заметки
 
-- `BOOTREF-A`: structural refactor — UI string kStrStarting, `boot_status_font()` helper, named visual/animation constants, private static builders, `_nullHandles()`, `create_transparent_spacer()`, layout tree documentation. No behavioral changes.
+- `BOOTREF-A`: structural refactor — then-local UI string `kStrStarting`, `boot_status_font()` helper, named visual/animation constants, private static builders, `_nullHandles()`, `create_transparent_spacer()`, layout tree documentation. The current string comes from `i18n::TextId::BootStarting`. No behavioral changes in the refactor.
 - 9 object creation call sites verified.
 - `_status_text` is member-owned; spacers are not stored as members.
 - `liveReapplyTheme()` not implemented — Boot is theme-isolated by design.

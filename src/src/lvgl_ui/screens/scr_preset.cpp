@@ -25,7 +25,7 @@
 #include "../fonts/lv_fonts.h"
 #include "../font_provider.h"
 #include "../lvgl_ui.h"
-#include "../profiles/lv_profile_select.h"
+#include "../profiles/resolved_ui_metrics.h"
 #include "../theme/lv_theme_yoradio.h"
 #include "../widgets/wgt_footer_pill.h"
 
@@ -65,7 +65,7 @@ static const lv_font_t* font_station_name() { return FontProvider::text(22); }
 static const lv_font_t* font_footer() { return FontProvider::text(14); }
 
 static const lv_font_t* preset_station_number_font() {
-    return FontProvider::text(LV_ACTIVE_PROFILE.font_normal_px);
+    return FontProvider::text(kResolvedUiMetrics.factory.font_normal_px);
 }
 
 // ── Timing constants / Тайминги ───────────────────────────────────────────────
@@ -307,7 +307,8 @@ void LvglPresetScreen::create() {
     if (!_screen) return;
 
     const YoRadioPalette& pal = yoradio_palette();
-    const lv_coord_t scr_pad  = static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.frame_padding);
+    const lv_coord_t scr_pad  =
+        static_cast<lv_coord_t>(kResolvedUiMetrics.factory.frame_padding);
 
     lv_obj_set_style_bg_color(_screen, pal.device_background, LV_PART_MAIN);
     lv_obj_set_style_pad_all(_screen, scr_pad, LV_PART_MAIN);

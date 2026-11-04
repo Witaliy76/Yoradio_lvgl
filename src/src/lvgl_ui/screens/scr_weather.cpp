@@ -6,7 +6,7 @@
  * - DspTask-only lv_* via Display::loop → lvgl_ui::taskHandler / refreshWeatherScreen().
  * - Data: weatherGetStateSnapshot() ONLY (W1 double-buffer seqlock). No network from UI.
  *   FU4.2.25: footer tap returns to Main via PageChain (deferred); refresh is automatic only.
- * - Layout: LV_ACTIVE_PROFILE + yoradio_palette() only; reuse OWM glyph map + weather icon fonts.
+ * - Layout: ResolvedUiMetrics + yoradio_palette() only; reuse OWM glyph map + weather icon fonts.
  *
  * Accepted W2 narrowing (no WeatherState change):
  *   - WeatherState.current is filled from the forecast (W1), so "current valid" == "forecast valid".
@@ -40,7 +40,7 @@
 
 #include "../fonts/lv_fonts.h"
 #include "../font_provider.h"
-#include "../profiles/lv_profile_select.h"
+#include "../profiles/resolved_ui_metrics.h"
 #include "../theme/lv_theme_yoradio.h"
 #include "../weather_owm_glyph.h"
 #include "lvgl_ui.h"
@@ -940,7 +940,8 @@ void LvglWeatherPage::create_chrome(LvglWeatherPage& self, const YoRadioPalette&
 
     wx_flat_screen_root_on_create(self._screen, pal);
     lv_obj_set_flex_flow(self._screen, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_all(self._screen, LV_ACTIVE_PROFILE.frame_padding, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(
+        self._screen, kResolvedUiMetrics.factory.frame_padding, LV_PART_MAIN);
     lv_obj_set_style_pad_row(self._screen, 6, LV_PART_MAIN);
 
     if (!wgt_status_line::create(self._screen, self._status_line)) {

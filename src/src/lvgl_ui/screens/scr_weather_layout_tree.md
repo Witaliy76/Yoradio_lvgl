@@ -25,7 +25,7 @@ After any of the following, refresh the ASCII tree, the Mermaid block, and the d
 
 ## Order on `_screen`
 
-`_screen` is a flex **column** (top → bottom). `pad_all = LV_ACTIVE_PROFILE.frame_padding`, `pad_row = 6`.
+`_screen` is a flex **column** (top → bottom). `pad_all = kResolvedUiMetrics.factory.frame_padding`, `pad_row = 6`.
 
 1. `_status_line.root` — `wgt_status_line` (clock / Wi-Fi / weather glance; see `../widgets/wgt_status_line.cpp`)
 2. `<thin divider>` — 1 px `add_thin_divider()` line (local, non-member)

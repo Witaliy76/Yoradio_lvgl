@@ -19,7 +19,7 @@
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 
-#include "profiles/lv_profile_select.h"
+#include "profiles/resolved_ui_metrics.h"
 #include "src/libs/tjpgd/tjpgd.h"
 #include "theme/lv_theme_yoradio.h"
 
@@ -489,8 +489,8 @@ bool mainBgCacheGet(const char* fs_path, lv_img_dsc_t& out_dsc) {
 bool mainBgCachePreloadActive() {
     const uint8_t slot = static_cast<uint8_t>(yoradio_theme_active_preset());
     const char* path = mainBgResolvedJpegPathForSlot(slot);
-    const uint16_t dst_w = LV_ACTIVE_PROFILE.width;
-    const uint16_t dst_h = LV_ACTIVE_PROFILE.height;
+    const uint16_t dst_w = kResolvedUiMetrics.viewport_width;
+    const uint16_t dst_h = kResolvedUiMetrics.viewport_height;
     const uint16_t fill  = lv_color_to_u16(yoradio_palette().device_background);
 
     uint8_t* buf = nullptr;
@@ -513,8 +513,8 @@ void mainBgCacheRequestAsync(const char* fs_path) {
     s_ensure_worker();
     if (!s_worker) return;
 
-    const uint16_t dst_w = LV_ACTIVE_PROFILE.width;
-    const uint16_t dst_h = LV_ACTIVE_PROFILE.height;
+    const uint16_t dst_w = kResolvedUiMetrics.viewport_width;
+    const uint16_t dst_h = kResolvedUiMetrics.viewport_height;
     const uint16_t fill  = lv_color_to_u16(yoradio_palette().device_background);
 
     portENTER_CRITICAL(&s_mux);

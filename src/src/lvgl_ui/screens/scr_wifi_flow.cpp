@@ -31,7 +31,7 @@
 #include "../font_provider.h"
 #include "../wifi_flow_glyph_utf8.h"
 #include "../lvgl_ui.h"
-#include "../profiles/lv_profile_select.h"
+#include "../profiles/resolved_ui_metrics.h"
 #include "../theme/lv_theme_yoradio.h"
 
 #include <WiFi.h>
@@ -181,7 +181,8 @@ void style_service_panel(lv_obj_t* panel, const YoRadioPalette& pal) {
     lv_obj_set_style_border_width(panel, kPanelBorderWidth, LV_PART_MAIN);
     // Smaller radius reduces rounded-rect mask pressure / малый радиус снижает нагрузку lv_draw_mask.
     lv_obj_set_style_radius(panel, kPanelRadius, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(panel, static_cast<int32_t>(LV_ACTIVE_PROFILE.frame_padding), LV_PART_MAIN);
+    lv_obj_set_style_pad_all(
+        panel, static_cast<int32_t>(kResolvedUiMetrics.factory.frame_padding), LV_PART_MAIN);
 }
 
 void wifi_set_font(lv_obj_t* obj, const void* font_slot) {
@@ -197,20 +198,20 @@ void wifi_set_font(lv_obj_t* obj, const void* font_slot) {
 
 // Title: M18 on narrow (≤320), M20 on wide / Заголовок
 const void* wifi_title_font_slot() {
-    return (LV_ACTIVE_PROFILE.width <= kCompactProfileMaxWidth)
+    return (kResolvedUiMetrics.viewport_width <= kCompactProfileMaxWidth)
                ? static_cast<const void*>(FontProvider::text(18))
                : static_cast<const void*>(FontProvider::text(20));
 }
 
 // Body: profile font_normal; fallback M16 / Текст тела
 const void* wifi_body_font_slot() {
-    return FontProvider::text(LV_ACTIVE_PROFILE.font_normal_px);
+    return FontProvider::text(kResolvedUiMetrics.factory.font_normal_px);
 }
 
 // Status/help lines: M14 on narrow, M16 on wide — service-flow readability.
 // Статус: M14 на узких, M16 на широких — читаемость строк статуса.
 const void* wifi_status_font_slot() {
-    if (LV_ACTIVE_PROFILE.width <= kCompactProfileMaxWidth) {
+    if (kResolvedUiMetrics.viewport_width <= kCompactProfileMaxWidth) {
         return FontProvider::text(14);
     }
     return FontProvider::text(16);
@@ -218,7 +219,7 @@ const void* wifi_status_font_slot() {
 
 // List rows: body font on narrow, M18 on wide / Строки списка
 const void* wifi_list_row_font_slot() {
-    if (LV_ACTIVE_PROFILE.width <= kCompactProfileMaxWidth) {
+    if (kResolvedUiMetrics.viewport_width <= kCompactProfileMaxWidth) {
         return wifi_body_font_slot();
     }
     return FontProvider::text(18);
@@ -228,7 +229,7 @@ const void* wifi_list_row_font_slot() {
 // Не использовать Montserrat на _kbd — ломает LVGL symbol glyphs.
 static const lv_font_t* wifi_header_icon_font() {
     return FontProvider::icon(
-        (LV_ACTIVE_PROFILE.width <= kCompactProfileMaxWidth) ? 24 : 36);
+        (kResolvedUiMetrics.viewport_width <= kCompactProfileMaxWidth) ? 24 : 36);
 }
 
 static lv_obj_t* wifi_create_header_row(lv_obj_t* parent) {
@@ -306,9 +307,9 @@ static void wifi_flow_style_drop() {
 static void wifi_flow_style_ensure(const YoRadioPalette& pal) {
     if (s_wf_flow_styles_ready) return;
 
-    const lv_coord_t btn_mh = (LV_ACTIVE_PROFILE.width <= kCompactProfileMaxWidth)
+    const lv_coord_t btn_mh = (kResolvedUiMetrics.viewport_width <= kCompactProfileMaxWidth)
                               ? kButtonMinHeightSmall : kButtonMinHeightLarge;
-    const lv_coord_t lr_mh  = (LV_ACTIVE_PROFILE.width <= kCompactProfileMaxWidth)
+    const lv_coord_t lr_mh  = (kResolvedUiMetrics.viewport_width <= kCompactProfileMaxWidth)
                               ? kListRowMinHeightSmall : kListRowMinHeightLarge;
     const lv_font_t* body   = static_cast<const lv_font_t*>(wifi_body_font_slot());
     const lv_font_t* lr_f   = static_cast<const lv_font_t*>(wifi_list_row_font_slot());
@@ -1869,7 +1870,7 @@ void LvglWifiFlowScreen::create_password_panel(LvglWifiFlowScreen& self, const Y
         lv_obj_set_width(self._ta_password, LV_PCT(100));
     }
     lv_obj_set_style_min_height(self._ta_password,
-        (LV_ACTIVE_PROFILE.width <= kCompactProfileMaxWidth)
+        (kResolvedUiMetrics.viewport_width <= kCompactProfileMaxWidth)
             ? kTextAreaMinHeightSmall : kTextAreaMinHeightLarge, LV_PART_MAIN);
     lv_textarea_set_one_line(self._ta_password, true);
     lv_textarea_set_max_length(self._ta_password, kPasswordMaxInputChars);
@@ -1885,7 +1886,7 @@ void LvglWifiFlowScreen::create_password_panel(LvglWifiFlowScreen& self, const Y
     // FU1: кнопка-глаз - symbol-глифы LVGL требуют встроенный Montserrat; в subset Tabler
     // (34 codepoints) нет eye / eye-off. Та же причина, что и для подписей клавиш _kbd.
     if (row_pass_input) {
-        const lv_coord_t eye_side = (LV_ACTIVE_PROFILE.width <= kCompactProfileMaxWidth)
+        const lv_coord_t eye_side = (kResolvedUiMetrics.viewport_width <= kCompactProfileMaxWidth)
                                         ? kButtonMinHeightSmall : kButtonMinHeightLarge;
         self._btn_pass_eye = lv_btn_create(row_pass_input);
         if (self._btn_pass_eye) {
@@ -1939,7 +1940,7 @@ void LvglWifiFlowScreen::create_password_panel(LvglWifiFlowScreen& self, const Y
         lv_obj_set_width(self._kbd, LV_PCT(100));
         lv_obj_set_flex_grow(self._kbd, 1);
         lv_obj_set_style_min_height(self._kbd,
-            (LV_ACTIVE_PROFILE.width <= kCompactProfileMaxWidth)
+            (kResolvedUiMetrics.viewport_width <= kCompactProfileMaxWidth)
                 ? kKeyboardMinHeightSmall : kKeyboardMinHeightLarge, LV_PART_MAIN);
         lv_keyboard_set_mode(self._kbd, LV_KEYBOARD_MODE_TEXT_LOWER);
         // Keyboard is initially detached; it is bound to _ta_password in open_password_entry().
@@ -2087,7 +2088,8 @@ void LvglWifiFlowScreen::create() {
     if (_screen) return;
 
     const YoRadioPalette& pal = yoradio_palette_service();
-    const int32_t         pad = static_cast<int32_t>(LV_ACTIVE_PROFILE.frame_padding);
+    const int32_t         pad =
+        static_cast<int32_t>(kResolvedUiMetrics.factory.frame_padding);
 
     // Phase 1: root screen allocation / корень экрана.
     _screen = lv_obj_create(nullptr);

@@ -38,6 +38,8 @@
 
 #ifdef __cplusplus
 
+#include "../../ui/ui_profile_id.h"
+
 namespace yoradio {
 
 constexpr uint8_t kPinNotConnected = YORADIO_BP_PIN_NOT_CONNECTED;
@@ -255,6 +257,14 @@ struct TouchDefaults {
     uint32_t         i2c_clock_hz;
 };
 
+// Explicit application UI policy. This is not panel geometry and does not make
+// a BoardProfile responsible for screen layout or an auto-selected resolution.
+// Явная UI-policy приложения. Это не геометрия панели и не переносит в
+// BoardProfile ответственность за layout или автоматический выбор разрешения.
+struct UiDefaults {
+    UiProfile profile;
+};
+
 // Host servicing recommendation. Panel geometry stays in PanelMode / BoardProfile.
 // Рекомендация обслуживания хоста. Геометрия панели остаётся в PanelMode / BoardProfile.
 enum class DisplayRenderMode : uint8_t { Partial = 0, Direct = 1, Full = 2 };
@@ -295,6 +305,7 @@ struct BoardDefaults {
     PowerDefaults   power;
     DisplayDefaults display;
     TouchDefaults   touch;
+    UiDefaults      ui;
 };
 
 }  // namespace yoradio

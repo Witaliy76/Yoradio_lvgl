@@ -21,7 +21,7 @@
 #include "../fonts/lv_fonts.h"
 #include "../font_provider.h"
 #include "../../i18n/i18n.h"
-#include "../profiles/lv_profile_select.h"
+#include "../profiles/resolved_ui_metrics.h"
 #include "../theme/lv_theme_yoradio.h"
 
 namespace lvgl_ui {
@@ -133,7 +133,7 @@ static void make_child_passive(lv_obj_t* obj) {
 }
 
 static size_t name_limit_for_profile() {
-    return (LV_ACTIVE_PROFILE.width >= kWideProfileMinWidth)
+    return (kResolvedUiMetrics.viewport_width >= kWideProfileMinWidth)
                ? kStationNameLimitWide
                : kStationNameLimitCompact;
 }
@@ -398,7 +398,8 @@ static void ensureOverlays(Instance& instance) {
 static void styleFocusRowOverlays(Instance& instance, const YoRadioPalette& pal) {
     if (instance.focus_row_bg) {
         lv_obj_set_width(instance.focus_row_bg,
-            static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.width - (LV_ACTIVE_PROFILE.frame_padding * 2u)));
+            static_cast<lv_coord_t>(
+                kResolvedUiMetrics.viewport_width - (kResolvedUiMetrics.factory.frame_padding * 2u)));
         lv_obj_set_height(instance.focus_row_bg, row_overlay_height());
         lv_obj_set_style_bg_color(instance.focus_row_bg, pal.list_row_selected_bg, LV_PART_MAIN);
         lv_obj_set_style_bg_opa(instance.focus_row_bg, kFocusBgOpa, LV_PART_MAIN);

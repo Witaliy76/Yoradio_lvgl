@@ -28,6 +28,7 @@ src/myoptions.h
 | Legacy-name migration errors | [board/compat/README.md](board/compat/README.md) | Why `ST7701_*` and `TS_*` names must not return |
 | Display Contract | [display/README.md](display/README.md) | Panel recipe, effective display configuration and DisplayPort |
 | Touch Contract | [touch/README.md](touch/README.md) | GT911, TouchPort and LVGL input path |
+| UI Contract | [LVGL UI contract](../lvgl_ui/README.md#ui-contract--ui-контракт) | Explicit `BoardDefaults.ui.profile`, resolved viewport and UI metrics |
 
 ### Layers
 
@@ -36,7 +37,7 @@ src/myoptions.h
 | `BoardProfile` / `kActiveBoard` | Factory facts of the selected board | Not changed by `myoptions.h` |
 | Custom Wiring | `DISP_*` / `TOUCH_*` in `src/myoptions.h` when `YORADIO_CUSTOM_WIRING` is 1 | Only the lines you actually define |
 | `kWiring` | Factory profile plus those overrides | Display and GT911 GPIO |
-| `BoardDefaults` | Tested recommendations | Display host policy and touch poll / I2C clock. `audio` and `power` pins are not applied |
+| `BoardDefaults` | Tested recommendations and explicit UI policy | Display host policy, touch poll / I2C clock and `ui.profile` are read. `audio` and `power` pins are not applied |
 | Resolved display / touch config | Compile-time view for the backends | ST7701 480×480 recipe stays in PanelMode. Bounce, flash guard and boot orientation come from `myoptions.h` |
 
 `I2S_DOUT`, `I2S_BCLK`, `I2S_LRC` and `WAKE_PIN` stay macros in `src/myoptions.h`.
@@ -79,7 +80,7 @@ the wake pin.
 
 Only ESP32-S3 4848S040 with ST7701 RGB565 480x480 and GT911 is production
 supported today. The `night_build` sources currently report
-`0.9.434m-r2-lvgl-beta.3.06` in `YOVERSION`. That string is not a GitHub
+`0.9.434m-r2-lvgl-beta.3.07` in `YOVERSION`. That string is not a GitHub
 Release. This documentation does not claim plug-and-play support for other
 boards.
 
@@ -109,6 +110,7 @@ src/myoptions.h
 | Ошибки миграции старых имён | [board/compat/README.md](board/compat/README.md) | Почему имена `ST7701_*` и `TS_*` не возвращаются |
 | Display Contract | [display/README.md](display/README.md) | Рецепт панели, effective display config и DisplayPort |
 | Touch Contract | [touch/README.md](touch/README.md) | GT911, TouchPort и путь ввода LVGL |
+| UI Contract | [UI-контракт LVGL](../lvgl_ui/README.md#ui-contract--ui-контракт) | Явный `BoardDefaults.ui.profile`, viewport и UI-метрики |
 
 ### Слои
 
@@ -117,7 +119,7 @@ src/myoptions.h
 | `BoardProfile` / `kActiveBoard` | Заводские факты выбранной платы | `myoptions.h` их не меняет |
 | Custom Wiring | `DISP_*` / `TOUCH_*` в `src/myoptions.h` при `YORADIO_CUSTOM_WIRING` 1 | Только реально заданные строки |
 | `kWiring` | Заводской профиль плюс эти override | GPIO дисплея и GT911 |
-| `BoardDefaults` | Проверенные рекомендации | Политика хоста дисплея и опрос / частота I2C тача. Пины `audio` и `power` не применяются |
+| `BoardDefaults` | Проверенные рекомендации и явная UI-policy | Читаются политика хоста дисплея, опрос / частота I2C тача и `ui.profile`. Пины `audio` и `power` не применяются |
 | Resolved display / touch config | Compile-time вид для backend | Рецепт ST7701 480×480 остаётся в PanelMode. Bounce, flash guard и boot orientation берутся из `myoptions.h` |
 
 `I2S_DOUT`, `I2S_BCLK`, `I2S_LRC` и `WAKE_PIN` остаются макросами в
@@ -160,5 +162,5 @@ src/myoptions.h
 
 Сейчас production поддерживает только ESP32-S3 4848S040 со ST7701 RGB565
 480x480 и GT911. Исходники `night_build` сейчас сообщают
-`0.9.434m-r2-lvgl-beta.3.06` в `YOVERSION`. Эта строка не является GitHub
+`0.9.434m-r2-lvgl-beta.3.07` в `YOVERSION`. Эта строка не является GitHub
 Release. Документ не заявляет plug-and-play поддержку других плат.

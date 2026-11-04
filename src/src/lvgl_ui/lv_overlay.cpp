@@ -8,7 +8,7 @@
 
 #include "lvgl.h"
 #include <cstring>
-#include "profiles/lv_profile_select.h"
+#include "profiles/resolved_ui_metrics.h"
 #include "theme/lv_theme_yoradio.h"
 #include "../i18n/i18n.h"
 
@@ -24,7 +24,7 @@ lv_obj_t* s_update_root     = nullptr;
 static void apply_overlay_title_font(lv_obj_t* lbl) {
     if (!lbl) return;
     lv_obj_set_style_text_font(
-        lbl, FontProvider::text(LV_ACTIVE_PROFILE.font_large_px), LV_PART_MAIN);
+        lbl, FontProvider::text(kResolvedUiMetrics.factory.font_large_px), LV_PART_MAIN);
 }
 
 static void destroy_if_present(lv_obj_t** p) {
@@ -105,7 +105,7 @@ void overlayShowLost() {
             lv_obj_set_style_text_color(s_lost_status_lbl, pal.overlay_title_text, LV_PART_MAIN);
             lv_obj_set_style_text_font(
                 s_lost_status_lbl,
-                FontProvider::text(LV_ACTIVE_PROFILE.font_small_px),
+                FontProvider::text(kResolvedUiMetrics.factory.font_small_px),
                 LV_PART_MAIN);
         }
     }

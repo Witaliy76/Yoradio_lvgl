@@ -23,7 +23,7 @@
 #include "../lv_page_chain.h"
 #include "../lvgl_ui.h"
 #include "../widgets/wgt_footer_pill.h"
-#include "../profiles/lv_profile_select.h"
+#include "../profiles/resolved_ui_metrics.h"
 #include "../theme/lv_theme_yoradio.h"
 
 namespace lvgl_ui {
@@ -187,8 +187,8 @@ void LvglStationPage::create_hint_band(LvglStationPage& self, const YoRadioPalet
         lv_obj_set_style_text_align(self._lbl_hint_text, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
         lv_label_set_long_mode(self._lbl_hint_text, LV_LABEL_LONG_CLIP);
         const lv_coord_t max_w = static_cast<lv_coord_t>(
-            LV_ACTIVE_PROFILE.width
-            - 2u * static_cast<uint32_t>(LV_ACTIVE_PROFILE.frame_padding)
+            kResolvedUiMetrics.viewport_width
+            - 2u * static_cast<uint32_t>(kResolvedUiMetrics.factory.frame_padding)
             - 32u - 20u - 30u);
         if (max_w > kHintMinTextWidth) {
             lv_obj_set_width(self._lbl_hint_text, max_w);
@@ -207,7 +207,8 @@ void LvglStationPage::create() {
 
     lv_obj_set_style_bg_color(_screen, pal.device_background, LV_PART_MAIN);
     lv_obj_set_flex_flow(_screen, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_all(_screen, LV_ACTIVE_PROFILE.frame_padding, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(
+        _screen, kResolvedUiMetrics.factory.frame_padding, LV_PART_MAIN);
     lv_obj_set_style_pad_row(_screen, kRootRowGap, LV_PART_MAIN);
     lv_obj_clear_flag(_screen, LV_OBJ_FLAG_SCROLLABLE);
 

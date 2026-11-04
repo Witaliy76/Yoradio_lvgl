@@ -15,7 +15,6 @@
 #include "assets/ssclk_production_asset_pack.h"
 #include "lvgl.h"
 #include "lv_img_disk_header.h"
-#include "profiles/lv_profile_select.h"
 #include "theme/lv_theme_yoradio.h"
 #include "../core/network.h"
 

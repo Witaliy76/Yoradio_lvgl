@@ -7,8 +7,8 @@
  * Раскладка: flex-column root со status chrome, заголовком INFO и content из
  * четырёх секций с разделителями 1 px.
  *
- * All colors via LV_ACTIVE_PROFILE + yoradio_palette() — no hardcoded values.
- * Все цвета только через profile + palette — значения не зашиты.
+ * Colors via yoradio_palette(); profile-owned metrics via ResolvedUiMetrics.
+ * Цвета через palette; профильные метрики через ResolvedUiMetrics.
  *
  * update() runs at nominally 1 Hz (throttled in display.cpp); Wi-Fi RSSI/channel
  * are sampled at most once every kWifiSamplePeriodMs (3 s).
@@ -31,7 +31,7 @@
 #include "../fonts/lv_fonts.h"
 #include "../lv_text_scroll.h"
 #include "../font_provider.h"
-#include "../profiles/lv_profile_select.h"
+#include "../profiles/resolved_ui_metrics.h"
 #include "../theme/lv_theme_yoradio.h"
 #include "lvgl_ui.h"
 #include "../../core/config.h"
@@ -258,7 +258,7 @@ static void add_kv_row(
     if (k) {
         lv_label_set_text(k, key);
         lv_label_set_long_mode(k, LV_LABEL_LONG_WRAP);
-        info_set_font(k, FontProvider::text(LV_ACTIVE_PROFILE.font_normal_px));
+        info_set_font(k, FontProvider::text(kResolvedUiMetrics.factory.font_normal_px));
         lv_obj_set_style_text_color(k, pal.text_secondary, LV_PART_MAIN);
         lv_obj_set_style_text_align(k, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
         lv_obj_set_width(k, LV_PCT(kKvKeyWidthPct));
@@ -289,7 +289,7 @@ static void add_kv_row(
 
     if (v) {
         lv_label_set_text(v, initial);
-        info_set_font(v, FontProvider::text(LV_ACTIVE_PROFILE.font_normal_px));
+        info_set_font(v, FontProvider::text(kResolvedUiMetrics.factory.font_normal_px));
         lv_obj_set_style_text_color(v, pal.text_primary, LV_PART_MAIN);
         lv_obj_set_style_text_align(v, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
         // FU6-A: the bounded-slot variant is the auto-scrolling one; the shared helper owns its
@@ -332,7 +332,7 @@ static lv_obj_t* add_section_rail_block(
     // Narrower rail on wide displays gives more room for KV data.
     // Slightly wider on compact (≤ kCompactWidthMax) so icon + title can breathe.
     // Узкий rail на широких дисплеях → больше места под KV.
-    const uint32_t W = LV_ACTIVE_PROFILE.width;
+    const uint32_t W = kResolvedUiMetrics.viewport_width;
     const lv_coord_t rail_w =
         (W <= kCompactWidthMax) ? LV_PCT(kRailWidthCompactPct) : LV_PCT(kRailWidthWidePct);
     lv_obj_set_width(rail, rail_w);
@@ -360,7 +360,7 @@ static lv_obj_t* add_section_rail_block(
     if (lbl_sec) {
         lv_label_set_text(lbl_sec, section_title_en);
         lv_label_set_long_mode(lbl_sec, LV_LABEL_LONG_WRAP);
-        info_set_font(lbl_sec, FontProvider::text(LV_ACTIVE_PROFILE.font_normal_px));
+        info_set_font(lbl_sec, FontProvider::text(kResolvedUiMetrics.factory.font_normal_px));
         lv_obj_set_style_text_color(lbl_sec, pal.text_secondary, LV_PART_MAIN);
         lv_obj_set_style_text_align(lbl_sec, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
         lv_obj_set_width(lbl_sec, LV_PCT(100));
@@ -474,8 +474,8 @@ static void info_format_display_product_line(char* buf, size_t cap) {
     if (!buf || cap == 0u) {
         return;
     }
-    const unsigned rw = static_cast<unsigned>(LV_ACTIVE_PROFILE.width);
-    const unsigned rh = static_cast<unsigned>(LV_ACTIVE_PROFILE.height);
+    const unsigned rw = static_cast<unsigned>(kResolvedUiMetrics.viewport_width);
+    const unsigned rh = static_cast<unsigned>(kResolvedUiMetrics.viewport_height);
 #if DSP_MODEL == DSP_ST7701
     snprintf(buf, cap, "ST7701 %ux%u", rw, rh);
 #else
@@ -543,7 +543,7 @@ void LvglInfoPage::create_content(LvglInfoPage& self, const YoRadioPalette& pal)
     // Bottom padding = frame_padding so the lower divider aligns with the screen edge inset.
     // Нижний padding = frame_padding: нижний разделитель выравнивается с отступом экрана.
     lv_obj_set_style_pad_bottom(content,
-        static_cast<lv_coord_t>(LV_ACTIVE_PROFILE.frame_padding), LV_PART_MAIN);
+        static_cast<lv_coord_t>(kResolvedUiMetrics.factory.frame_padding), LV_PART_MAIN);
 
     lv_obj_t* dc_net = add_section_rail_block(content, kStrSectionNetwork, kIconNetwork, pal);
     if (dc_net) {
@@ -615,7 +615,8 @@ void LvglInfoPage::create() {
 
     lv_obj_set_style_bg_color(_screen, pal.device_background, LV_PART_MAIN);
     lv_obj_set_flex_flow(_screen, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_all(_screen, LV_ACTIVE_PROFILE.frame_padding, LV_PART_MAIN);
+    lv_obj_set_style_pad_all(
+        _screen, kResolvedUiMetrics.factory.frame_padding, LV_PART_MAIN);
     lv_obj_set_style_pad_row(_screen, kRootRowGap, LV_PART_MAIN);
     lv_obj_clear_flag(_screen, LV_OBJ_FLAG_SCROLLABLE);
 
