@@ -66,6 +66,22 @@ constexpr lv_opa_t k_ctrl_pressed_opa_utility = static_cast<lv_opa_t>(36); // ~1
 // Этап 6.6R-GB1: на Light нажатие почти невидимо — больше opacity для Light; Dark без изменений.
 constexpr lv_opa_t k_ctrl_pressed_opa_transport_light = LV_OPA_60;
 constexpr lv_opa_t k_ctrl_pressed_opa_utility_light = LV_OPA_50;
+// S05-UI-FIX1: Custom uses a dark-on-dark pressed token; Dark opacity made it almost disappear.
+// Custom использует тёмный pressed-токен на тёмной полке; opacity от Dark почти скрывал отклик.
+constexpr lv_opa_t k_ctrl_pressed_opa_transport_custom = LV_OPA_80;
+constexpr lv_opa_t k_ctrl_pressed_opa_utility_custom = LV_OPA_60;
+
+constexpr lv_opa_t main_control_pressed_opa(ThemePreset preset, bool utility) {
+    switch (preset) {
+        case ThemePreset::Light:
+            return utility ? k_ctrl_pressed_opa_utility_light : k_ctrl_pressed_opa_transport_light;
+        case ThemePreset::Custom:
+            return utility ? k_ctrl_pressed_opa_utility_custom : k_ctrl_pressed_opa_transport_custom;
+        case ThemePreset::Dark:
+        default:
+            return utility ? k_ctrl_pressed_opa_utility : k_ctrl_pressed_opa_transport;
+    }
+}
 
 // Stage 6.6R-GB1 + Slice 1 A/B: named LVGL opa steps (0–255). Same constant in create() and liveReapplyTheme().
 // Light test: LV_OPA_50 (was 90, then 70). Dark/Custom stay LV_OPA_50. / Тест Light: 50; Dark/Custom без изменений.
@@ -1034,11 +1050,10 @@ void LvglMainScreen::create_bottom_zone(LvglMainScreen& self, const YoRadioPalet
 
         // 6.6R-GB1: theme-aware pressed opacity (Light needs stronger feedback on ivory shelf).
         // 6.6R-GB1: прозрачность нажатия зависит от темы (Light заметнее на ивори-полке).
-        const bool cb_light = (yoradio_theme_active_preset() == ThemePreset::Light);
-        const lv_opa_t pressed_opa_transport =
-            cb_light ? k_ctrl_pressed_opa_transport_light : k_ctrl_pressed_opa_transport;
-        const lv_opa_t pressed_opa_utility =
-            cb_light ? k_ctrl_pressed_opa_utility_light : k_ctrl_pressed_opa_utility;
+        const ThemePreset cb_preset = yoradio_theme_active_preset();
+        const bool cb_light = (cb_preset == ThemePreset::Light);
+        const lv_opa_t pressed_opa_transport = main_control_pressed_opa(cb_preset, false);
+        const lv_opa_t pressed_opa_utility = main_control_pressed_opa(cb_preset, true);
 
         // Control band: list (left inset = pad_hor) | transport (grow, centered) | settings (right inset = pad_hor).
         // Symmetric slot widths keep the triad centered; list/settings no longer share one utility cluster.
@@ -1149,6 +1164,10 @@ void LvglMainScreen::create_bottom_zone(LvglMainScreen& self, const YoRadioPalet
             // Левый слот: только list; отступ от края полки = pad_hor, зеркально settings справа.
             lv_obj_t* utility_left = lv_obj_create(control_band);
             if (utility_left) {
+                // S05-UI-FIX2: lv_obj defaults to LV_DPI_DEF (130 px). Use the button's content width so
+                // the symmetric utility slots do not starve the centered 202 px transport triad.
+                // У lv_obj ширина по умолчанию 130 px; слот должен занимать ширину своей кнопки.
+                lv_obj_set_width(utility_left, LV_SIZE_CONTENT);
                 lv_obj_set_height(utility_left, LV_SIZE_CONTENT);
                 lv_obj_set_flex_flow(utility_left, LV_FLEX_FLOW_ROW);
                 lv_obj_set_flex_align(
@@ -1188,9 +1207,9 @@ void LvglMainScreen::create_bottom_zone(LvglMainScreen& self, const YoRadioPalet
                     LV_FLEX_ALIGN_CENTER);
                 lv_obj_set_flex_grow(transport_group, 1);
                 lv_obj_set_style_pad_column(transport_group, 11, LV_PART_MAIN);
-                // Inset triad from group bounds so rounded pressed pill is not clipped by default overflow mask.
-                // Отступ слева/справа — иначе крайние кнопки визуально «срезаются» у краёв группы.
-                lv_obj_set_style_pad_hor(transport_group, 4, LV_PART_MAIN);
+                // S05-UI-FIX2: utility slots now use content width, so the triad fits without a clipping workaround.
+                // Utility-слоты имеют ширину контента; компенсирующий inset больше не нужен.
+                lv_obj_set_style_pad_hor(transport_group, 0, LV_PART_MAIN);
                 lv_obj_set_style_pad_ver(transport_group, 0, LV_PART_MAIN);
                 lv_obj_set_style_bg_opa(transport_group, LV_OPA_TRANSP, LV_PART_MAIN);
                 lv_obj_set_style_border_width(transport_group, 0, LV_PART_MAIN);
@@ -1243,6 +1262,9 @@ void LvglMainScreen::create_bottom_zone(LvglMainScreen& self, const YoRadioPalet
             // Правый слот: только settings; зеркально list слева (общий pad_hor полки).
             lv_obj_t* utility_right = lv_obj_create(control_band);
             if (utility_right) {
+                // Keep this symmetric with utility_left; equalization below remains the final guard.
+                // Симметрично utility_left; финальное выравнивание ширин остаётся ниже.
+                lv_obj_set_width(utility_right, LV_SIZE_CONTENT);
                 lv_obj_set_height(utility_right, LV_SIZE_CONTENT);
                 lv_obj_set_flex_flow(utility_right, LV_FLEX_FLOW_ROW);
                 lv_obj_set_flex_align(
@@ -2193,10 +2215,8 @@ void LvglMainScreen::liveReapplyTheme() {
     // Control icon buttons: fg + pressed bg/opa were set in create() only — reapply for theme switch.
     // 6.6R-GB1: pressed opa is theme-aware (Light stronger) so feedback stays visible after switch.
     // Иконки полки: цвет/pressed-фон/прозрачность задавались в create(); обновляем при смене темы.
-    const lv_opa_t re_pressed_transport =
-        lightScheme ? k_ctrl_pressed_opa_transport_light : k_ctrl_pressed_opa_transport;
-    const lv_opa_t re_pressed_utility =
-        lightScheme ? k_ctrl_pressed_opa_utility_light : k_ctrl_pressed_opa_utility;
+    const lv_opa_t re_pressed_transport = main_control_pressed_opa(preset, false);
+    const lv_opa_t re_pressed_utility = main_control_pressed_opa(preset, true);
     main_reapply_control_icon_btn(_ctrl_btn_list,     pal.text_secondary, pal.main_chrome_pressed_bg, re_pressed_utility);
     main_reapply_control_icon_btn(_ctrl_btn_prev,     pal.text_primary,   pal.main_chrome_pressed_bg, re_pressed_transport);
     main_reapply_control_icon_btn(_ctrl_btn_play,     pal.text_primary,   pal.main_chrome_pressed_bg, re_pressed_transport);
