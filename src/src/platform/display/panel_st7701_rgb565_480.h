@@ -1,17 +1,17 @@
 // One panel recipe: the ST7701 RGB565 480×480 path this firmware already runs (S04-1).
 // Один рецепт панели: путь ST7701 RGB565 480×480, который прошивка уже исполняет (S04-1).
 // Ownership: platform/display. Data only. The backend still owns init and scanout.
-// Владелец: platform/display. Только данные. Init и scanout по-прежнему у backend.
+// Владелец: platform/display. Только данные. Инициализация и вывод остаются у драйвера.
 //
 // This header does not include st7701_type9_ops.h. That array is static constexpr,
 // so every includer would get its own copy. The only production includer remains
-// esp_lcd_st7701_backend.cpp, which replays the bytes. S04-3 connects the two by
+// esp_lcd_st7701_backend.cpp, which replays the bytes. It connects the two by
 // comparing InitRecipeId counts with kType9GfxEncodedBytes / kType9GfxHighLevelOps
 // inside that backend TU. The existing replay remains the only interpreter.
 // Этот заголовок не включает st7701_type9_ops.h. Массив там static constexpr,
-// и каждый includer получил бы свою копию. Единственный production-includer —
+// и каждый включающий его файл получил бы свою копию. В рабочем коде его включает только
 // esp_lcd_st7701_backend.cpp. Счётчики InitRecipeId сверяются с константами
-// массива внутри backend TU; существующий replay остаётся единственным интерпретатором.
+// массива внутри единицы трансляции драйвера; команды выполняет прежний интерпретатор.
 //
 // LVGL may read native_width, native_height, and pixel_format from this descriptor.
 // It must not include the Type9 header or any esp_lcd header to do that.

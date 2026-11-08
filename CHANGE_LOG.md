@@ -2,6 +2,12 @@
 
 Intermediate releases inside a major Beta. Major milestones stay in `README.md`.
 
+## 0.9.434m-r2-lvgl-beta.3.08 — 2026-11-08
+
+- Validate display, touch and I2S GPIO values before narrowing, rejecting invalid/reserved pins and conflicting claims.
+- Distinguish confirmed GT911 release from missing reports; preserve touch state across report gaps and block false presses after errors.
+- Apply Flip Touch on DspTask between polls, deferring orientation changes while a contact is held or release remains uncertain.
+
 ## 0.9.434m-r2-lvgl-beta.3.07 — 2026-11-04
 
 - Added explicit Square480 UI profile selection in BoardDefaults and separated physical display geometry from factory UI metrics.

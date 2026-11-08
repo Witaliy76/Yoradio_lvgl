@@ -1,5 +1,5 @@
 // ResolvedDisplayConfig — one compile-time view of the selected display (S04-3A).
-// ResolvedDisplayConfig — единый compile-time вид выбранного дисплея (S04-3A).
+// ResolvedDisplayConfig — итоговая конфигурация выбранного дисплея при сборке (S04-3A).
 //
 // Four sources keep four different meanings:
 //   panel       — physical ST7701 recipe: geometry, RGB565 timing and init identity;
@@ -14,7 +14,7 @@
 // kWiring.display; frequencies come from kActiveBoardDefaults.display. Type9 stays
 // in the backend because that translation unit owns the byte stream and its replay.
 // Это композиция данных, а не драйвер. Реальные GPIO приходят из kWiring.display,
-// частоты — из kActiveBoardDefaults.display. Type9 остаётся в backend-владельце.
+// частоты — из kActiveBoardDefaults.display. Команды Type9 остаются в драйвере.
 #ifndef YORADIO_PLATFORM_DISPLAY_RESOLVED_DISPLAY_CONFIG_H
 #define YORADIO_PLATFORM_DISPLAY_RESOLVED_DISPLAY_CONFIG_H
 
@@ -71,7 +71,7 @@ namespace detail {
 
 // These fallbacks preserve the existing build-choice defaults; they do not
 // define macros and therefore cannot leak a second settings source.
-// Эти fallback сохраняют действующие defaults, но не определяют новые макросы.
+// Эти запасные значения сохраняют действующие умолчания, не определяя новых макросов.
 constexpr bool userBounce10Enabled() {
 #if defined(YORADIO_RGB_BOUNCE10)
     return YORADIO_RGB_BOUNCE10 != 0;
@@ -163,7 +163,8 @@ static_assert(kResolvedDisplayConfig.panel.timing.hsync.source_polarity == 1 &&
 
 // Recommendation checks describe TEST1's proven topology. They intentionally do
 // not compare user choices against the recommendation or reject supported overrides.
-// Проверки рекомендации описывают TEST1 и намеренно не запрещают overrides пользователя.
+// Проверки рекомендаций описывают проверенную топологию TEST1 и не запрещают
+// поддерживаемые пользовательские настройки.
 static_assert(kResolvedDisplayConfig.recommended.render_mode == DisplayRenderMode::Partial &&
                   kResolvedDisplayConfig.recommended.partial_draw_lines == 160,
               "ResolvedDisplayConfig: tested board default is PARTIAL rendering at 160 lines; check board_defaults.h.");

@@ -1,17 +1,18 @@
 // PanelMode — panel-intrinsic recipe types (S04-1). Data only.
-// Типы PanelMode — внутренний рецепт панели (S04-1). Только данные.
+// Типы PanelMode — собственные параметры панели (S04-1). Только данные.
 // Ownership: platform/display. No GPIO, BoardId, LVGL, touch, backlight,
 // framebuffer allocation, PCLK policy, or flash guard.
 // Владелец: platform/display. Без GPIO, BoardId, LVGL, тача, подсветки,
-// выделения framebuffer, политики PCLK и flash guard.
+// выделения кадрового буфера, политики PCLK и защиты записи flash.
 // Depends only on <stdint.h>, so a later LVGL include stays free of esp_lcd.
-// Зависит только от <stdint.h>, поэтому будущее включение из LVGL не тянет esp_lcd.
+// Зависит только от <stdint.h>, поэтому включение из кода LVGL не требует esp_lcd.
 //
 // These names live in yoradio::panel so they do not redefine yoradio::PanelController
 // and yoradio::DisplayTransport from board_contract.h. The numeric values match
-// those enums (Unknown = 0, St7701 = 1, Rgb565Parallel16 = 1). S04-3 compares them.
-// Имена в yoradio::panel, чтобы не переопределить enum из board_contract.h.
-// Числа совпадают. Сравнение делает S04-3.
+// those enums (Unknown = 0, St7701 = 1, Rgb565Parallel16 = 1), but
+// ResolvedDisplayConfig compares their meanings explicitly, not their numbers.
+// Имена находятся в yoradio::panel и не переопределяют перечисления board_contract.h.
+// Числа совпадают, но ResolvedDisplayConfig явно сопоставляет смысл значений.
 #ifndef YORADIO_PLATFORM_DISPLAY_PANEL_MODE_H
 #define YORADIO_PLATFORM_DISPLAY_PANEL_MODE_H
 
@@ -30,10 +31,10 @@ enum class Interface : uint8_t {
     Rgb565Parallel16  = 1,
 };
 
-// Rgb565 = 0 matches the meaning of DisplayPort::PixelFormat::Rgb565.
+// Rgb565 = 0 matches the meaning of ::PixelFormat::Rgb565 used by DisplayPort.
 // The types are still distinct; do not cast between them.
-// Rgb565 = 0 по смыслу совпадает с DisplayPort::PixelFormat::Rgb565.
-// Типы разные; кастовать между ними нельзя.
+// Rgb565 = 0 по смыслу совпадает с ::PixelFormat::Rgb565, используемым DisplayPort.
+// Типы разные; преобразовывать один в другой нельзя.
 enum class PixelFormat : uint8_t {
     Rgb565 = 0,
 };
@@ -50,7 +51,7 @@ constexpr uint8_t espLcdIdleLowFromSourcePolarity(uint8_t source_polarity) {
 }
 
 // One sync edge: the source polarity and the esp_lcd flag it maps to.
-// Одно ребро синхронизации: исходная полярность и флаг esp_lcd, в который она переводится.
+// Полярность сигнала синхронизации и соответствующий ей флаг esp_lcd.
 struct SyncPolarity {
     uint8_t source_polarity;
     uint8_t esp_lcd_idle_low;
@@ -72,8 +73,8 @@ struct Timing {
 
 // Identity of a checked vendor init stream. Not the stream, and not a pointer to it.
 // The encoded bytes stay in the backend translation unit that already replays them.
-// Идентичность проверенного vendor-потока. Не сам поток и не указатель на него.
-// Закодированные байты остаются в той единице трансляции backend, которая их и проигрывает.
+// Описание проверенной последовательности команд производителя, без самих байтов.
+// Байты остаются в единице трансляции драйвера, которая выполняет эти команды.
 struct InitRecipeId {
     const char* name;
     const char* provenance;

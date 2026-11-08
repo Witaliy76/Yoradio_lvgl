@@ -9,9 +9,14 @@ Besides the on-device UI there is a Web UI for playback, stations, behavior sett
 The project is based on [e2002/yoradio](https://github.com/e2002/yoradio); the current repository is [Yoradio_lvgl](https://github.com/Witaliy76/Yoradio_lvgl).
 
 > **Stable version on `main`:** `0.9.434m-r2-lvgl-beta.3.01`
-> **`night_build` sources:** `0.9.434m-r2-lvgl-beta.3.07` (`YOVERSION`; this is not a GitHub Release)
+> **`night_build` sources:** `0.9.434m-r2-lvgl-beta.3.08` (`YOVERSION`; this is not a GitHub Release)
 > **Ready packages in `build_bin/`:** historical beta.3 line packages, not a build of the current sources
 > **Validated board:** ESP32-4848S040
+
+**Open observation `WEBUI-STALL`:** serving HTTP static files sometimes takes
+several seconds, including in STOP. Audio-buffer depletion and one transition
+to STOP were observed during PLAY. The cause and any connection to S06 remain
+unproven; investigation is deferred and no fix is claimed.
 
 ![YoRadio LVGL — musical internet radio](readme/english/device-front.jpg)
 

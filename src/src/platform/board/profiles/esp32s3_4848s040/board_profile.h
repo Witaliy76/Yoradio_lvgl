@@ -31,7 +31,8 @@
 
 // N16R8 module: 16 MB flash, 8 MB octal PSRAM. The production partition table
 // partition_16MB_ota_largefs.csv does not fit a smaller part.
-// Модуль N16R8: 16 МБ flash, 8 МБ octal PSRAM. Боевая таблица разделов меньше не влезает.
+// Модуль N16R8: 16 МБ flash, 8 МБ восьмилинейной PSRAM. Таблица разделов
+// partition_16MB_ota_largefs.csv не помещается во flash меньшего размера.
 #define YORADIO_BP_4848S040_MIN_FLASH_BYTES  (16u * 1024u * 1024u)
 
 // Non-GPIO facts still named here. The 28 migrated GPIO are not: their only
@@ -121,7 +122,7 @@ inline constexpr BoardProfile kBoardProfile_Esp32S3_4848S040 = {
         // Neither INT nor RST is routed, so the official driver polls. The
         // contract sentinel is converted to GPIO_NUM_NC at the backend boundary.
         // Ни INT, ни RST не разведены, официальный драйвер работает опросом.
-        // Сентинел контракта преобразуется в GPIO_NUM_NC на границе backend.
+        // Значение «не подключено» преобразуется в GPIO_NUM_NC на границе драйвера.
         .int_gpio     = kPinNotConnected,  // INT
         .reset_gpio   = kPinNotConnected,  // RST
         .i2c_address  = YORADIO_BP_4848_TOUCH_ADDR,
@@ -135,7 +136,7 @@ inline constexpr BoardProfile kBoardProfile_Esp32S3_4848S040 = {
         // because none is confirmed by source or board documentation.
         // Встроенный моно-тракт физически есть, но включается только аппаратными
         // перемычками, поэтому программно его выбрать нельзя. Модель чипа,
-        // control-пин и прочая схема здесь не заявляются — они не подтверждены.
+        // управляющий пин и прочая схема здесь не заявляются — они не подтверждены.
         .onboard_output_present             = true,
         .onboard_output_requires_hw_rework  = true,
         .onboard_output_is_mono             = true,
@@ -151,7 +152,7 @@ inline constexpr BoardProfile kBoardProfile_Esp32S3_4848S040 = {
 
     .usb = {
         // The SoC has native USB; the pin numbers are an ESP32-S3 fact.
-        // У SoC есть native USB; номера пинов — факт ESP32-S3.
+        // У SoC есть встроенный USB; номера пинов заданы самим ESP32-S3.
         .soc_has_native_usb    = true,
         .soc_native_usb_dm_gpio = YORADIO_BP_4848_USB_DM_GPIO,
         .soc_native_usb_dp_gpio = YORADIO_BP_4848_USB_DP_GPIO,

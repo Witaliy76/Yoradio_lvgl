@@ -2,32 +2,32 @@
 // Проверенные рекомендации YoRadio для ESP32-S3 4848S040.
 // Ownership: platform/board.
 //
-// THIS FILE IS NOT PHYSICAL TRUTH AND NOT A RESTRICTION.
-// Every value here is a recommendation the user may override in myoptions.h.
-// Nothing in it may be read as a hardware constraint, and no compile-time check
-// may reject a build merely because a user chose different values.
+// BoardProfile holds physical facts. This file supplies tested host/touch policy,
+// audio/wake recommendations and explicit UI profile selection. Only supported
+// build choices have myoptions.h overrides; backend compatibility checks remain.
 // Display consumers read kActiveBoardDefaults.display: the resolved contract
 // supplies backend/DisplayPort policy, and LVGL reads partial_draw_lines directly.
 // Touch service mode and I2C clock are read through ResolvedTouchConfig.
 // Live I2S_DOUT / I2S_BCLK / I2S_LRC and WAKE_PIN stay in myoptions.h, because
 // Audio.h and the wake-range check use them inside #if. AudioDefaults and
 // PowerDefaults in this file are not applied.
-// Display-потребители читают kActiveBoardDefaults.display: resolved-контракт
-// передаёт политику backend/DisplayPort, LVGL берёт partial_draw_lines напрямую.
+// Код дисплея читает kActiveBoardDefaults.display: ResolvedDisplayConfig
+// передаёт политику драйверу/DisplayPort, LVGL берёт partial_draw_lines напрямую.
 // Режим опроса тача и частота I2C читаются через ResolvedTouchConfig.
-// Живые I2S и WAKE_PIN остаются в myoptions.h. AudioDefaults и PowerDefaults
+// Действующие пины I2S и WAKE_PIN остаются в myoptions.h. AudioDefaults и PowerDefaults
 // из этого файла не применяются.
-// ЭТО НЕ ФИЗИЧЕСКАЯ ПРАВДА И НЕ ЗАПРЕТ.
-// Любое значение здесь — рекомендация, переопределяемая в myoptions.h. Ни одна
-// compile-time проверка не вправе отвергнуть сборку только из-за другого выбора.
+// Физические факты хранятся в BoardProfile. Здесь — проверенная политика дисплея
+// и тача, рекомендации I2S/пробуждения и явный выбор UI-профиля. Через myoptions.h
+// меняются только поддерживаемые настройки; проверки совместимости сохраняются.
 //
 // The display numbers below are the tested 4848S040 host policy. They are
 // not proof of other combinations. Touch orientation uses official
-// esp_lcd_touch flags; no calibration is stored here. Another UI layout
-// is not selected from this file.
+// esp_lcd_touch flags; no calibration is stored here. ui.profile selects Square480
+// factory metrics; physical display geometry remains in the display contract.
 // Числа дисплея ниже — проверенная политика хоста 4848S040. Они не доказывают
 // другие сочетания. Ориентация тача передаётся штатными флагами esp_lcd_touch;
-// calibration здесь нет. Другая раскладка UI из этого файла не выбирается.
+// калибровки здесь нет. ui.profile выбирает заводские метрики Square480,
+// а физический размер экрана остаётся в контракте дисплея.
 #ifndef YORADIO_PLATFORM_BOARD_DEFAULTS_ESP32S3_4848S040_H
 #define YORADIO_PLATFORM_BOARD_DEFAULTS_ESP32S3_4848S040_H
 
@@ -43,7 +43,7 @@
 // normally used with. These are WIRES, not board traces, so they are a default
 // and never immutable BoardProfile wiring.
 // Рекомендуемые пины внешнего I2S ЦАП: разводка заднего разъёма. Это ПРОВОДА,
-// а не дорожки платы, поэтому это умолчание, а не immutable-разводка профиля.
+// а не дорожки платы, поэтому это рекомендация, а не заводская разводка профиля.
 #define YORADIO_BD_4848_I2S_DOUT     40
 #define YORADIO_BD_4848_I2S_BCLK      1
 #define YORADIO_BD_4848_I2S_LRCK      2
@@ -53,10 +53,10 @@
 // Рекомендуемый источник пробуждения: штатная кнопка BOOT на GPIO0, активный ноль.
 #define YORADIO_BD_4848_WAKE_GPIO     0
 
-// Tested display host policy for this board (S01 path). Recommendation only.
+// Tested display host policy for this board (S01 path), checked by static_assert.
 // Native 480×480 stays in PanelMode / BoardProfile and is not repeated here.
 // Restart-in-VSYNC is a build-family sdkconfig switch, not one of these macros.
-// Проверенная политика хоста дисплея (путь S01). Только рекомендация.
+// Проверенная политика дисплея (путь S01), совместимость проверяется static_assert.
 // Родные 480×480 остаются в PanelMode / BoardProfile и здесь не повторяются.
 // Restart-in-VSYNC — переключатель sdkconfig семейства сборки, не эти макросы.
 #define YORADIO_BD_4848_DRAW_BUFFERS            1
@@ -69,8 +69,8 @@
 
 // Tested GT911 servicing policy. Controller/address/pins are BoardProfile facts;
 // Flip Touch is persisted user correction and is deliberately absent here.
-// Проверенная политика обслуживания GT911. Controller/address/pins принадлежат
-// BoardProfile, Flip Touch — persisted user correction и здесь отсутствует.
+// Проверенная политика обслуживания GT911. Контроллер, адрес и пины принадлежат
+// BoardProfile, Flip Touch — сохраняемая пользовательская коррекция, её здесь нет.
 #define YORADIO_BD_4848_TOUCH_I2C_HZ             100000u
 
 // ---------------------------------------------------------------------------
@@ -128,7 +128,7 @@ inline constexpr BoardDefaults kBoardDefaults_Esp32S3_4848S040 = {
 // These checks describe this defaults object. They do not read myoptions.h
 // and do not reject YORADIO_RGB_BOUNCE10 or any other user override.
 // Проверки описывают этот объект рекомендаций. Они не читают myoptions.h
-// и не отвергают YORADIO_RGB_BOUNCE10 или другой пользовательский override.
+// и не отвергают YORADIO_RGB_BOUNCE10 или другую поддерживаемую настройку.
 static_assert(kBoardDefaults_Esp32S3_4848S040.display.render_mode == DisplayRenderMode::Partial,
               "display default is partial rendering");
 static_assert(kBoardDefaults_Esp32S3_4848S040.display.draw_buffer_count == 1,

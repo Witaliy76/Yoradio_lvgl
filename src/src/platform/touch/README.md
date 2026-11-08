@@ -21,8 +21,9 @@ The production touch path for 4848S040 is deliberately short:
 | BoardDefaults.touch | Polling recommendation and 100 kHz I2C policy | Physical pins or address |
 | ResolvedTouchConfig | Wiring, display-derived logical geometry, Flip orientation | Vendor handles or UI policy |
 | Gt911Backend | Official panel-I/O and GT911 handles, read transaction, range-safety clamp | I2C controller, smoothing, debounce, gestures |
-| TouchPort | LVGL-neutral Valid, NoData, Error, Unavailable sample contract | LVGL objects or screensaver logic |
-| TouchScreen | Production TouchPort owner and persisted Flip update | A second transform |
+| Gt911ReportIo | Observes the vendor driver's existing synchronous status/acknowledgement transactions | Extra I2C transactions or ownership of the underlying transport |
+| TouchPort | LVGL-neutral Valid, Released, NoData, Error, Unavailable sample contract | LVGL objects or screensaver logic |
+| TouchScreen | Production TouchPort owner, latest Flip request and safe application on DspTask | Persistence writes or a second transform |
 | LVGL adapter | Fault rearm, release feed and screensaver wake-only policy | GT911 registers or wiring |
 
 Wire.begin() initializes the existing Arduino I2C bus. Gt911Backend obtains its
@@ -59,9 +60,30 @@ Flip Touch is persisted user state: OFF is native orientation; ON uses official
 GT911 mirror_x and mirror_y (no software 180-degree replica). The backend keeps
 only a range clamp before official mirror/swap processing.
 
-NoData proves physical release. Error or Unavailable releases LVGL and requires
-a subsequent NoData before a new press is accepted; this prevents a held/cached
-point from becoming a false post-fault press. For a point-less LVGL RELEASED
+WebUI persists Flip Touch and publishes its explicit value through an atomic
+latest-request slot. DspTask initializes the backend from the boot snapshot and
+applies pending orientation before LVGL timer polling. A held contact or fault
+uncertainty defers the change until a confirmed Released; NoData cannot unlock it.
+The complete vendor flag update finishes before the next coordinate read.
+
+| TouchSampleStatus | Meaning |
+|---|---|
+| `Valid` | Fresh, trustworthy pressed point in logical display coordinates |
+| `Released` | Fresh ready zero-touch report, successfully consumed by the driver |
+| `NoData` | No fresh touch report; physical release remains unconfirmed |
+| `Error` | Failed or untrustworthy read; cached coordinates cannot establish a new press |
+| `Unavailable` | Backend is not ready; physical release remains unconfirmed |
+
+Released confirms physical release according to the controller report: the backend
+observed ready with zero contacts and a successful write of zero to status register
+`0x814E` in the official driver's own transactions. This report acknowledgement
+is distinct from an I2C bus-level ACK. `Gt911ReportIo` forwards those transactions
+and records their outcome; it borrows the transport owned by Gt911Backend and
+adds no I2C reads or writes. NoData means no fresh touch report (including
+key-only reports), so it preserves the last trustworthy pointer state and cannot
+clear fault rearm or wake suppression. Error or Unavailable releases LVGL and
+requires a subsequent Released before a new press is accepted; this prevents a
+held/cached point from becoming a false post-fault press. For a point-less LVGL RELEASED
 frame, the adapter leaves LVGL's preloaded last point intact; it never injects
 (0,0).
 
@@ -91,7 +113,7 @@ is implementation work, not a profile-only change.
 
 ## Русский
 
-Production-путь тача 4848S040 намеренно короткий:
+Рабочий путь тача 4848S040 намеренно короткий:
 
     BoardProfile + Custom Wiring
       -> kWiring.touch + BoardDefaults.touch
@@ -105,19 +127,20 @@ Production-путь тача 4848S040 намеренно короткий:
 
 | Компонент | Чем владеет / что делает | Чем не владеет |
 |---|---|---|
-| board_profile.h | Заводской controller GT911, GPIO и адрес I2C | Геометрией display, жестами, calibration |
-| kWiring.touch | Effective GPIO после Custom Wiring | Второй таблицей контроллера |
-| BoardDefaults.touch | Рекомендацией polling и политикой I2C 100 кГц | Физическими пинами и адресом |
-| ResolvedTouchConfig | Разводкой, display-derived logical geometry, Flip orientation | Vendor handles и UI policy |
-| Gt911Backend | Official panel-I/O/GT911 handles, read transaction, range-safety clamp | I2C controller, smoothing, debounce, gestures |
-| TouchPort | LVGL-neutral контракт samples Valid, NoData, Error, Unavailable | LVGL objects и screensaver logic |
-| TouchScreen | Production-владельцем TouchPort и persisted Flip update | Вторым transform |
-| LVGL adapter | Fault rearm, release feed, screensaver wake-only policy | GT911 registers и wiring |
+| board_profile.h | Заводскими данными GT911: контроллер, GPIO и адрес I2C | Геометрией дисплея, жестами, калибровкой |
+| kWiring.touch | Итоговыми GPIO после Custom Wiring | Второй таблицей контроллера |
+| BoardDefaults.touch | Рекомендацией опроса и частотой I2C 100 кГц | Физическими пинами и адресом |
+| ResolvedTouchConfig | Разводкой, геометрией из контракта дисплея и ориентацией Flip | Дескрипторами драйвера и политикой UI |
+| Gt911Backend | Дескрипторами официального драйвера GT911 и panel IO, чтением отчёта, ограничением диапазона координат | Контроллером I2C, сглаживанием, подавлением дребезга, жестами |
+| Gt911ReportIo | Наблюдением за существующими синхронными транзакциями чтения и подтверждения отчёта | Дополнительными транзакциями I2C или временем жизни транспорта |
+| TouchPort | Независимым от LVGL контрактом отчётов Valid, Released, NoData, Error, Unavailable | Объектами LVGL и логикой заставки |
+| TouchScreen | Реализацией TouchPort, последним запросом Flip и его безопасным применением в DspTask | Записью настроек или вторым преобразованием координат |
+| Адаптер LVGL | Допуском новых нажатий после ошибки, передачей отпускания и пробуждением без нажатия | Регистрами GT911 и разводкой |
 
-Wire.begin() инициализирует существующую Arduino I2C шину. Gt911Backend
-получает её typed handle и владеет только panel-I/O/touch handles; end() не
-вызывает Wire.end(). Ошибка I2C возвращает Error и после неудачной транзакции
-не читает cached point.
+Wire.begin() инициализирует существующую шину I2C Arduino. Gt911Backend
+получает её типизированный дескриптор и владеет только дескрипторами panel IO
+и тача; end() не вызывает Wire.end(). Ошибка I2C возвращает Error; после
+неудачной транзакции сохранённая точка не читается из кеша.
 
 ### Настройка GPIO GT911
 
@@ -132,47 +155,71 @@ Wire.begin() инициализирует существующую Arduino I2C �
 Раскомментируйте только изменённые строки. Числа 19 и 45 выше — заводские пины
 4848S040: так неизменённая строка может остаться закомментированной. Меняйте
 число только после проверки этого GPIO по своей схеме. TOUCH_INT и TOUCH_RST
-могут быть 255 (kPinNotConnected). Поддерживаемый путь — polling:
+могут быть 255 (kPinNotConnected). Поддерживаемый путь — периодический опрос:
 `Gt911Backend` принимает только `TouchServiceMode::Polling`, поэтому реальный
 `TOUCH_INT` не включает режим прерывания. TOUCH_SDA и TOUCH_SCL обязательны.
-Compile-time validator проверяет effective GPIO. Не определяйте TS_SDA,
-TS_SCL, TS_INT, TS_RST: compatibility guards останавливают сборку. Адрес I2C
-(0x5D на 4848S040) — поле BoardProfile, у Custom Wiring нет override. Serial
+Валидатор проверяет итоговые GPIO при сборке. Не определяйте TS_SDA,
+TS_SCL, TS_INT, TS_RST: защита от старых имён останавливает сборку. Адрес I2C
+(0x5D на 4848S040) — поле BoardProfile, Custom Wiring его не переопределяет. Serial
 `bootInfo` печатает `wiring: custom`, когда флаг включён. SDA/SCL он не
 печатает.
 
-### Поведение runtime
+### Поведение во время работы
 
-ResolvedTouchConfig использует logical geometry 480x480 из display contract.
-Flip Touch — persisted user state: OFF — native orientation; ON использует
-штатные GT911 mirror_x и mirror_y (без software replica 180 градусов). Backend
-оставляет только range clamp до official mirror/swap processing.
+ResolvedTouchConfig использует логическую геометрию 480x480 из контракта дисплея.
+Flip Touch — сохраняемая пользовательская настройка: OFF — исходная ориентация;
+ON использует штатные флаги mirror_x и mirror_y драйвера GT911. Дополнительного
+программного поворота на 180 градусов нет. Перед штатным mirror/swap драйвер
+YoRadio только ограничивает диапазон координат.
 
-NoData доказывает физический release. Error или Unavailable освобождает LVGL и
-требует следующего NoData до принятия нового press; это не даёт held/cached
-point стать ложным нажатием после fault. Для point-less LVGL frame RELEASED
-adapter оставляет preloaded last point LVGL; (0,0) не подставляется.
+WebUI сохраняет Flip Touch и публикует явное значение через атомарную переменную
+последнего запроса. DspTask инициализирует драйвер из начального значения при
+запуске и применяет запросы между опросами, до обработки таймеров LVGL.
+Удержание пальца или неопределённость после ошибки откладывают смену до
+подтверждённого Released; NoData не снимает блокировку. Все флаги ориентации
+обновляются до следующего чтения координат.
 
-Первое касание screensaver/blank будит экран, но не передаётся как press
-виджету. Следующий stroke обычный. WebUI Debug Touch постоянен и управляется
-config.store.dbgtouch; OFF не даёт подробного trace, MOVE ограничен примерно
-10 сообщениями в секунду.
+| TouchSampleStatus | Значение |
+|---|---|
+| `Valid` | Свежая достоверная точка нажатия в логических координатах экрана |
+| `Released` | Свежий готовый отчёт с нулём касаний, успешно обработанный драйвером |
+| `NoData` | Свежего отчёта о касании нет; физическое отпускание не подтверждено |
+| `Error` | Ошибка или недостоверное чтение; точка из кеша не подтверждает новое нажатие |
+| `Unavailable` | Драйвер не готов; физическое отпускание не подтверждено |
 
-### Добавление другого controller
+Released подтверждает физическое отпускание по отчёту контроллера: получен
+свежий отчёт с ready и нулём касаний, а драйвер успешно записал ноль в регистр
+статуса `0x814E`. Это подтверждение обработки отчёта, а не бит ACK шины I2C.
+`Gt911ReportIo` передаёт существующие транзакции и запоминает их результат;
+он заимствует транспорт у Gt911Backend и не добавляет чтений или записей I2C.
+NoData означает отсутствие свежего отчёта о касании (включая отчёты только
+о кнопках). Он сохраняет последнее достоверное состояние указателя, но не
+снимает блокировку после ошибки или подавление нажатия при пробуждении.
+Error или Unavailable передаёт отпускание в LVGL; новое нажатие допускается
+только после Released. Так удерживаемая или сохранённая точка не становится
+ложным нажатием после ошибки. При передаче RELEASED без точки адаптер сохраняет
+последнюю точку, предварительно установленную LVGL, и не подставляет (0,0).
 
-Добавьте небольшой backend с семантикой TouchPort, затем подключите его в
-TouchScreen/controller selection без изменения LVGL adapter и UI. Он обязан
-отдавать logical display-space coordinates, отличать hardware error от release,
-сохранять release-before-rearm и иметь device tests. Это реализация, не простая
-замена профиля.
+Первое касание при заставке или погашенном экране будит устройство, но не
+передаётся виджету как нажатие. Следующее касание обрабатывается обычно.
+Debug Touch в WebUI управляется config.store.dbgtouch; OFF отключает подробную
+трассировку, сообщения MOVE ограничены примерно 10 сообщениями в секунду.
+
+### Добавление другого контроллера
+
+Добавьте небольшой драйвер с семантикой TouchPort и подключите его в TouchScreen
+при выборе контроллера, сохранив адаптер LVGL и UI. Он должен отдавать логические
+координаты экрана, отличать аппаратную ошибку от отпускания и допускать новое
+нажатие после ошибки только после подтверждённого отпускания. Требуется
+проверка на устройстве. Это изменение реализации, а не только замена профиля.
 
 ### Текущие ограничения
 
-- Raw range controller пока связан с logical dimensions панели.
-- Rotation 90/270 требует явного расширения контракта.
+- Исходный диапазон координат контроллера пока связан с логическими размерами панели.
+- Поворот на 90/270 градусов требует явного расширения контракта.
 - Реализован только GT911.
 - Custom Wiring не переопределяет адрес I2C. Новый BoardProfile может задать
-  `touch.i2c_address`; backend GT911 читает это поле.
-- Назначение `TOUCH_INT` не выключает polling.
-- Изменение GPIO/geometry и новый controller требуют hardware validation; host
-  checks не доказывают новую плату.
+  `touch.i2c_address`; драйвер GT911 читает это поле.
+- Назначение `TOUCH_INT` не выключает периодический опрос.
+- Изменение GPIO/геометрии и новый контроллер требуют проверки на устройстве;
+  проверки на компьютере не подтверждают работоспособность новой платы.

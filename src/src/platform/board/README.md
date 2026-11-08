@@ -47,11 +47,12 @@ only changed DISP_* or TOUCH_* entries. Unnamed lines stay factory values:
     #define YORADIO_CUSTOM_WIRING 1
     #define TOUCH_SDA 19
 
-The validator rejects a GPIO used twice among display, touch and
-`I2S_DOUT` / `I2S_BCLK` / `I2S_LRC`; ESP32-S3 numbers 22–37 and numbers above
-48 on `DISP_*` and `TOUCH_*` only; a required display or touch line set to
-255; and a `DISP_*` or `TOUCH_*` override while the flag is off. It does not
-range-check the three I2S macros. It does not check `MUTE_PIN`, `WAKE_PIN`,
+Original `DISP_*`/`TOUCH_*` override values and active I2S values are range-checked
+before conversion to `uint8_t`. The validator rejects a GPIO used twice among display, touch and
+`I2S_DOUT` / `I2S_BCLK` / `I2S_LRC`; ESP32-S3 numbers 22–37, negative and
+out-of-range values on `DISP_*`, `TOUCH_*` and active I2S macros; a required
+display or touch line set to 255; and a `DISP_*` or `TOUCH_*` override while
+the flag is off. It does not check `MUTE_PIN`, `WAKE_PIN`,
 IR or SD against the display. It cannot prove a physical wire or that a pin
 is free.
 
@@ -62,8 +63,13 @@ BoardProfile, Custom Wiring, or `BoardDefaults.audio`: the audio and wake
 fields there are recommendations and are not applied. The 4848S040 rear
 connector uses DOUT 40, BCLK 1 and LRC 2. Those three signals are ESP32
 outputs in I2S master mode: DOUT to the DAC DIN/DATA pin, BCLK to BCK, LRC to
-LRCK/WS. No MCLK pin is driven. The validator checks collisions with effective
-display/touch pins only. Serial `bootInfo` prints the compiled `i2s-dout`,
+LRCK/WS. No MCLK pin is driven. The validator checks the original I2S values,
+reserved GPIO and collisions with effective display/touch and other I2S pins.
+Each explicit 255 keeps its existing no-claim meaning. DOUT=255 disables the
+external I2S path; the current player still requires an audio backend. With
+active DOUT, BCLK/LRC=255 is passed to the driver as 255, not I2S_GPIO_UNUSED;
+acceptance by the GPIO contract does not prove a working audio configuration.
+Serial `bootInfo` prints the compiled `i2s-dout`,
 `i2s-bclk` and `i2s-lrc` values. That log does not prove the I2S driver
 accepted the pins. Verify the DAC, voltage levels and remaining board
 functions on hardware. Rebuild and flash your own firmware; `build_bin/`
@@ -105,33 +111,33 @@ policy choice, not a GPIO alias. See [compat README](compat/README.md).
 
 ## Русский
 
-Board Contract — compile-time источник фактов выбранной платы и effective
-разводки display/touch. Текущая production-плата — ESP32-S3 4848S040.
+Board Contract — источник фактов выбранной платы и итоговой разводки дисплея/тача,
+проверяемых при сборке. Текущая поддерживаемая плата — ESP32-S3 4848S040.
 
 ### Основная модель
 
 | Значение | Смысл |
 |---|---|
-| BoardProfile | Неизменяемые заводские факты: identity, build requirements, display/touch wiring, наличие hardware |
-| BoardDefaults | Проверенные рекомендации и явная UI-policy: external-I2S pins, wake, display host policy, touch servicing и `ui.profile` |
+| BoardProfile | Неизменяемые заводские факты: идентичность платы, требования к сборке, разводка дисплея/тача, наличие оборудования |
+| BoardDefaults | Проверенные рекомендации и явный выбор UI: внешний I2S, пробуждение, политика дисплея, обслуживание тача и `ui.profile` |
 | kActiveBoard | Выбранный заводской BoardProfile |
-| kWiring | Effective wiring: factory profile с наложенными только включёнными DISP_* / TOUCH_* override |
-| kActiveBoardDefaults | Defaults выбранного profile |
+| kWiring | Итоговая разводка: заводской профиль с применёнными изменениями DISP_* / TOUCH_* |
+| kActiveBoardDefaults | Настройки выбранного профиля |
 
-`BoardDefaults.ui.profile` — UI-policy приложения для
+`BoardDefaults.ui.profile` — выбор UI-профиля приложения для
 [ResolvedUiMetrics](../../lvgl_ui/README.md#ui-contract--ui-контракт); геометрия
 панели остаётся в Display Contract.
 
-BoardProfile не меняется user defines. BoardDefaults не является hardware truth
-или полной runtime configuration. Display использует ResolvedDisplayConfig;
-touch — ResolvedTouchConfig. External I2S и wake остаются macros, потому что их
-consumers требуют preprocessor values.
+Пользовательские макросы не меняют BoardProfile. BoardDefaults не описывает
+физические факты и не является полной конфигурацией работающего устройства.
+Дисплей использует ResolvedDisplayConfig, тач — ResolvedTouchConfig. Внешний I2S
+и пробуждение остаются макросами: использующий их код требует значений препроцессора.
 
 Для разового переподключения той же поддерживаемой платы ST7701/GT911 достаточно
 Custom Wiring для доступных GPIO `DISP_*`/`TOUCH_*`. Отдельному заводскому
-варианту платы со своей identity или defaults нужны новый BoardProfile и его
+варианту платы со своим идентификатором или настройками нужны новый BoardProfile и его
 валидация; новые контроллеры или разрешения дополнительно требуют поддержанных
-контрактов/backend. Пины внешнего I2S остаются пользовательскими macros.
+контрактов и драйверов. Пины внешнего I2S остаются пользовательскими макросами.
 
 ### Выбор и настройка существующей платы
 
@@ -140,23 +146,24 @@ Custom Wiring для доступных GPIO `DISP_*`/`TOUCH_*`. Отдельн�
     #define YORADIO_BOARD YORADIO_BOARD_4848S040
     #define YORADIO_CUSTOM_WIRING 0
 
-PlatformIO environment (например, 4848S040) выбирает build-family properties:
-SoC, flash, PSRAM, partitions; он не выбирает BoardProfile. board_validate.h
-проверяет, что profile соответствует этой сборке.
+Окружение PlatformIO (например, 4848S040) задаёт параметры сборки: SoC, flash,
+PSRAM и таблицу разделов; оно не выбирает BoardProfile. board_validate.h
+проверяет, что профиль соответствует этой сборке.
 
-Для физически переподключённого display или GT911 установите Custom Wiring в 1
+Для физически переподключённого дисплея или GT911 установите Custom Wiring в 1
 и раскомментируйте только изменённые DISP_* или TOUCH_* строки. Неназванные
 линии сохраняют заводские значения:
 
     #define YORADIO_CUSTOM_WIRING 1
     #define TOUCH_SDA 19
 
-Validator отвергает GPIO, занятый дважды среди дисплея, тача и
-`I2S_DOUT` / `I2S_BCLK` / `I2S_LRC`; номера ESP32-S3 22–37 и номера больше 48
-только у `DISP_*` и `TOUCH_*`; обязательную линию дисплея или тача со
-значением 255; override `DISP_*` или `TOUCH_*` при выключенном flag. Диапазон
-трёх макросов I2S он не проверяет. `MUTE_PIN`, `WAKE_PIN`, IR и SD с дисплеем
-он не сверяет. Физический провод и свободу пина он не доказывает.
+Исходные значения `DISP_*`/`TOUCH_*` и активных I2S-макросов проверяются до
+преобразования в `uint8_t`. Валидатор отвергает GPIO, занятый дважды среди дисплея, тача и
+`I2S_DOUT` / `I2S_BCLK` / `I2S_LRC`; номера ESP32-S3 22–37, отрицательные и
+выходящие за диапазон значения `DISP_*`, `TOUCH_*` и активных I2S-макросов;
+обязательную линию дисплея или тача со значением 255; override `DISP_*` или
+`TOUCH_*` при выключенном флаге. `MUTE_PIN`, `WAKE_PIN`, IR и SD с дисплеем
+он не сверяет. Корректность физической разводки и свободу непроверяемых пинов он не доказывает.
 
 ### Внешний I2S ЦАП
 
@@ -164,42 +171,48 @@ Validator отвергает GPIO, занятый дважды среди дис
 BoardProfile, Custom Wiring и `BoardDefaults.audio`: поля audio и wake там —
 рекомендации, и прошивка их не применяет. Задний разъём 4848S040: DOUT 40,
 BCLK 1, LRC 2. Эти три сигнала — выходы ESP32 в режиме I2S master: DOUT на
-DIN/DATA ЦАП, BCLK на BCK, LRC на LRCK/WS. Пин MCLK не выводится. Validator
-проверяет только пересечение с effective display/touch pins. Serial `bootInfo`
+DIN/DATA ЦАП, BCLK на BCK, LRC на LRCK/WS. Пин MCLK не выводится. Валидатор
+проверяет исходные I2S-значения, зарезервированные GPIO и конфликты с итоговой
+разводкой дисплея/тача и другими I2S-пинами. Явный 255 исключает сигнал из
+списка занятых GPIO. DOUT=255 отключает внешний I2S-тракт; текущему плееру всё
+ещё нужен звуковой драйвер.
+При активном DOUT значение BCLK/LRC=255 передаётся драйверу как 255, а не
+I2S_GPIO_UNUSED; принятие GPIO-контрактом не доказывает работоспособность звукового тракта.
+Serial `bootInfo`
 печатает собранные значения `i2s-dout`, `i2s-bclk`, `i2s-lrc`. Этот лог не
 доказывает, что драйвер I2S принял пины. ЦАП, уровни напряжения и остальные
-функции платы проверяйте на hardware. Нужна своя сборка и прошивка; пакеты
+функции платы проверяйте на устройстве. Нужна своя сборка и прошивка; пакеты
 `build_bin/` правки `myoptions.h` не содержат.
 
 ### GT911 и GPIO дисплея
 
 GPIO дисплея и GT911 задаются `DISP_*` и `TOUCH_*` через Custom Wiring. См.
 [Touch Contract](../touch/README.md). Имена `TS_*` и `ST7701_*` — ошибки
-миграции. Profile владеет адресом GT911 (`0x5D` на 4848S040); Custom Wiring
-его не меняет. Timing и геометрия 480×480 остаются в PanelMode. Строки
-`DISP_*` для RESX нет, backend требует, чтобы сброс панели оставался
+миграции. Профиль задаёт адрес GT911 (`0x5D` на 4848S040); Custom Wiring
+его не меняет. Тайминги и геометрия 480×480 остаются в PanelMode. Строки
+`DISP_*` для RESX нет, драйвер требует, чтобы сброс панели оставался
 неподключённым. `TOUCH_INT` не выбирает режим прерывания. Serial показывает
 `wiring: custom` и `backlight-gpio`, не полную карту RGB или SDA/SCL.
 
 ### Добавление платы
 
-Добавление платы — programming work:
+Добавление платы требует изменения кода:
 
 1. Выделите стабильный BoardId в board_id.h.
 2. Добавьте profiles/<board>/board_profile.h и board_defaults.h.
 3. Добавьте ветку выбора в board_select.h.
-4. Расширьте board_validate.h и добавьте реальный PlatformIO build environment,
+4. Расширьте board_validate.h и добавьте отдельное окружение PlatformIO,
    если отличается семейство SoC/flash/PSRAM.
-5. Добавьте/квалифицируйте matching display/touch implementations, затем
-   проведите hardware validation.
+5. Подключите и проверьте соответствующие драйверы дисплея/тача, затем
+   проведите проверку на устройстве.
 
-Те же ST7701 RGB565 480×480 и GT911 остаются на текущих backend.
-BoardProfile сам по себе не добавляет новую panel, resolution или controller.
+Те же ST7701 RGB565 480×480 и GT911 используют текущие драйверы.
+BoardProfile сам по себе не добавляет новую панель, разрешение или контроллер.
 Текущие проверки диапазона GPIO и дубликатов находятся внутри ветки 4848S040.
 См. [profiles README](profiles/README.md) и [display README](../display/README.md).
 
 ### Совместимость
 
-Старые wiring names ST7701_* и TS_* намеренно отвергаются
-compat/legacy_macros.h. ST7701_BOOT_ORIENTATION_180 — допустимый display policy
-choice, не GPIO alias. См. [compat README](compat/README.md).
+Старые имена GPIO ST7701_* и TS_* намеренно отвергаются
+compat/legacy_macros.h. ST7701_BOOT_ORIENTATION_180 — допустимая настройка
+дисплея, а не псевдоним GPIO. См. [описание совместимости](compat/README.md).

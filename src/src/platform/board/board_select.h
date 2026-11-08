@@ -5,7 +5,7 @@
 // chance to set YORADIO_BOARD. It never includes options.h or myoptions.h itself —
 // that back-include is what created the include cycle in earlier plan revisions.
 // Включается ровно один раз из src/src/core/options.h, ПОСЛЕ myoptions.h. Сам он
-// никогда не включает options.h/myoptions.h — именно такой обратный include давал цикл.
+// никогда не включает options.h/myoptions.h: обратное включение создало бы цикл.
 #ifndef YORADIO_PLATFORM_BOARD_SELECT_H
 #define YORADIO_PLATFORM_BOARD_SELECT_H
 
@@ -30,12 +30,12 @@
 #  include "profiles/esp32s3_4848s040/board_defaults.h"
 #  ifdef __cplusplus
 namespace yoradio {
-// Stable aliases every later consumer and the validator read, so that no file outside
+// Stable aliases consumers and the validator read, so that no file outside
 // this header has to know which concrete profile was selected.
-// kActiveBoard is immutable physical truth; kActiveBoardDefaults is overridable policy.
-// Стабильные алиасы для валидатора и будущих потребителей: вне этого файла никто
+// kActiveBoard holds factory facts; kActiveBoardDefaults holds policy and UI selection.
+// Стабильные алиасы для валидатора и потребителей: вне этого файла никто
 // не должен знать, какой конкретный профиль выбран.
-// kActiveBoard — неизменяемая физическая правда; kActiveBoardDefaults — политика.
+// kActiveBoard — заводские факты; kActiveBoardDefaults — политика и выбор UI.
 inline constexpr const BoardProfile&  kActiveBoard         = kBoardProfile_Esp32S3_4848S040;
 inline constexpr const BoardDefaults& kActiveBoardDefaults = kBoardDefaults_Esp32S3_4848S040;
 }  // namespace yoradio
@@ -46,15 +46,15 @@ inline constexpr const BoardDefaults& kActiveBoardDefaults = kBoardDefaults_Esp3
 
 // After kActiveBoard exists: build effective kWiring from the factory profile plus
 // any DISP_*/TOUCH_* overrides named in myoptions.h (S02-6 Custom Wiring).
-// После появления kActiveBoard: собрать итоговый kWiring из завода и опциональных
-// DISP_*/TOUCH_* из myoptions.h (Custom Wiring S02-6).
+// После появления kActiveBoard: собрать итоговый kWiring из заводского профиля
+// и необязательных DISP_*/TOUCH_* из myoptions.h (Custom Wiring).
 #include "board_wiring.h"
 
 #ifdef __cplusplus
 namespace yoradio {
 // Final configuration consumed by drivers. kActiveBoard stays the immutable factory
 // profile; only this value may differ when YORADIO_CUSTOM_WIRING is 1.
-// Итоговая конфигурация для драйверов. kActiveBoard остаётся неизменным заводом;
+// Итоговая конфигурация для драйверов. kActiveBoard остаётся заводским профилем;
 // отличаться при YORADIO_CUSTOM_WIRING=1 может только это значение.
 inline constexpr BoardProfile kWiring = detail::makeWiring(kActiveBoard);
 }  // namespace yoradio

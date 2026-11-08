@@ -23,11 +23,12 @@ struct LvglTouchFrame {
     uint16_t y;
 };
 
-// Error/Unavailable disarm the pointer. Only NoData proves finger absence and
-// re-arms it, so a cached/held point cannot become a new press after a fault.
+// Only Released proves finger absence. NoData keeps the last trustworthy feed;
+// after Error/Unavailable it cannot re-arm a cached/held point.
 class LvglTouchAdapterState {
   public:
-    LvglTouchAdapterState() : rearm_required_(false) {}
+    LvglTouchAdapterState()
+        : rearm_required_(false), pressed_(false), last_x_(0), last_y_(0) {}
 
     LvglTouchFrame consume(const yoradio::TouchSample& sample) {
         LvglTouchFrame frame{
@@ -47,16 +48,29 @@ class LvglTouchAdapterState {
                     frame.y = sample.y;
                     if (!rearm_required_) {
                         frame.feed = LvglPointerFeed::Pressed;
+                        pressed_ = true;
+                        last_x_ = sample.x;
+                        last_y_ = sample.y;
                     }
                 }
                 break;
             case yoradio::TouchSampleStatus::NoData:
+                if (pressed_ && !rearm_required_) {
+                    frame.feed = LvglPointerFeed::Pressed;
+                    frame.has_point = true;
+                    frame.x = last_x_;
+                    frame.y = last_y_;
+                }
+                break;
+            case yoradio::TouchSampleStatus::Released:
                 frame.physical_release = true;
                 rearm_required_ = false;
+                pressed_ = false;
                 break;
             case yoradio::TouchSampleStatus::Error:
             case yoradio::TouchSampleStatus::Unavailable:
                 rearm_required_ = true;
+                pressed_ = false;
                 break;
         }
         return frame;
@@ -66,6 +80,9 @@ class LvglTouchAdapterState {
 
   private:
     bool rearm_required_;
+    bool pressed_;
+    uint16_t last_x_;
+    uint16_t last_y_;
 };
 
 struct ScreensaverTouchDecision {

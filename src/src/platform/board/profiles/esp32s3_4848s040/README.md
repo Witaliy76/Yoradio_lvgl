@@ -36,8 +36,8 @@ how this differs from physical panel geometry.
 | INT | 255 | not connected |
 | RST | 255 | not connected |
 
-255 is kPinNotConnected, not GPIO0. The board uses polling, so INT/RST are
-intentionally absent. Rewire only through TOUCH_* Custom Wiring entries.
+255 is kPinNotConnected, not GPIO0. Factory INT/RST are not routed; the backend
+uses polling. Rewire only through TOUCH_* Custom Wiring entries.
 
 ### Important constraints
 
@@ -57,55 +57,56 @@ and [Touch Contract](../../../touch/README.md).
 
 ## Русский
 
-Это единственный production BoardProfile. Выбирайте его в src/myoptions.h через
-YORADIO_BOARD_4848S040. Factory facts находятся в board_profile.h; tested
-recommendations — в board_defaults.h.
+Это единственный поддерживаемый BoardProfile. Выбирайте его в src/myoptions.h
+через YORADIO_BOARD_4848S040. Заводские факты находятся в board_profile.h;
+проверенные рекомендации — в board_defaults.h.
 
 `BoardDefaults.ui.profile` явно выбирает `UiProfile::Square480`.
 [UI-контракт](../../../../lvgl_ui/README.md#ui-contract--ui-контракт) объясняет
 отличие этого выбора от физической геометрии панели.
 
-| Hardware | Текущий контракт |
+| Оборудование | Текущий контракт |
 |---|---|
-| SoC / memory | ESP32-S3, минимум 16 MB flash, требуется octal PSRAM |
-| Display | ST7701, RGB565 parallel-16, 480x480 |
-| Touch | GT911 по I2C адресу 0x5D; polling, 100 кГц |
-| Panel reset | Не подключён к SoC; Custom Wiring не назначает RESX |
-| Рекомендация внешнего I2S | DOUT 40, BCLK 1, LRC 2. Это выходы ESP32. Живые макросы — `I2S_DOUT`, `I2S_BCLK`, `I2S_LRC` в `src/myoptions.h`. `BoardDefaults.audio` не применяется |
-| Рекомендация пробуждения | GPIO0, active low. Живые макросы — `WAKE_PIN` и `WAKE_LEVEL` |
+| SoC / память | ESP32-S3, минимум 16 МБ flash, требуется восьмилинейная PSRAM |
+| Дисплей | ST7701, 16-битная параллельная шина RGB565, 480x480 |
+| Тач | GT911 по адресу I2C 0x5D; периодический опрос, 100 кГц |
+| Сброс панели | Не подключён к SoC; Custom Wiring не назначает RESX |
+| Рекомендация внешнего I2S | DOUT 40, BCLK 1, LRC 2. Это выходы ESP32. Действующие макросы — `I2S_DOUT`, `I2S_BCLK`, `I2S_LRC` в `src/myoptions.h`. `BoardDefaults.audio` не применяется |
+| Рекомендация пробуждения | GPIO0, активный ноль. Действующие макросы — `WAKE_PIN` и `WAKE_LEVEL` |
 
-### Заводские display GPIO
+### Заводские GPIO дисплея
 
-| Signal | GPIO | Signal | GPIO |
+| Сигнал | GPIO | Сигнал | GPIO |
 |---|---:|---|---:|
 | B0/B1/B2/B3/B4 | 4/5/6/7/15 | G0/G1/G2/G3/G4/G5 | 8/20/3/46/9/10 |
 | R0/R1/R2/R3/R4 | 11/12/13/14/0 | HSYNC/VSYNC/DE/PCLK | 16/17/18/21 |
-| Type9 CS/SCK/SDA | 39/48/47 | Backlight | 38 |
+| Type9 CS/SCK/SDA | 39/48/47 | Подсветка | 38 |
 
-### Заводские touch GPIO
+### Заводские GPIO тача
 
-| Signal | GPIO | Смысл |
+| Сигнал | GPIO | Смысл |
 |---|---:|---|
-| SDA | 19 | I2C data |
-| SCL | 45 | I2C clock |
-| INT | 255 | not connected |
-| RST | 255 | not connected |
+| SDA | 19 | Данные I2C |
+| SCL | 45 | Тактовый сигнал I2C |
+| INT | 255 | Не подключён |
+| RST | 255 | Не подключён |
 
-255 — это kPinNotConnected, не GPIO0. Плата использует polling, поэтому INT/RST
-намеренно отсутствуют. Переподключайте только через TOUCH_* Custom Wiring.
+255 — это kPinNotConnected, не GPIO0. Заводские INT/RST не разведены; драйвер
+использует периодический опрос. Переподключайте только через TOUCH_* Custom Wiring.
 
 ### Важные ограничения
 
-- GPIO0 одновременно RGB R4 и BOOT button/wake default; нажатие BOOT при
-  активном RGB output может повлиять на изображение.
-- GPIO19/20 являются GT911 SDA/RGB G1 и пересекаются с native USB D-/D+
-  соответственно; stock native USB pins не свободны.
-- GPIO47/48 — command bus Type9 панели и пересекаются с непроверенными SD comments.
-- Onboard SD slot — только presence fact; его pin map здесь не validated.
-- Onboard mono audio path требует physical rework R21/R22/R23 и не выбирается
-  software.
+- GPIO0 одновременно используется для RGB R4 и штатной кнопки BOOT, рекомендуемой
+  для пробуждения; нажатие BOOT при активном выводе RGB может повлиять на изображение.
+- GPIO19/20 используются для GT911 SDA/RGB G1 и совпадают с USB D-/D+
+  соответственно; заводская разводка занимает оба пина встроенного USB.
+- GPIO47/48 — шина команд Type9 панели; эти же пины указаны для SD в
+  неподтверждённых комментариях.
+- Для встроенного слота SD зафиксировано только наличие; его разводка здесь не проверена.
+- Встроенный монофонический аудиотракт требует аппаратной перекоммутации
+  R21/R22/R23 и не выбирается программно.
 
-Display policy: один 160-line PSRAM draw buffer, один panel-driver PSRAM
-framebuffer, bounce 0, PCLK 6/10/6 МГц. Это validated evidence 4848S040, не
-переносимый рецепт. См. [Display Contract](../../../display/README.md) и
+Политика дисплея: один буфер отрисовки в PSRAM на 160 строк, один кадровый буфер
+драйвера панели в PSRAM, bounce 0, PCLK 6/10/6 МГц. Эти параметры проверены на
+4848S040 и не гарантируют работу другой панели. См. [Display Contract](../../../display/README.md) и
 [Touch Contract](../../../touch/README.md).

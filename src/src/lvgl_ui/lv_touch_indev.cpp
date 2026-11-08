@@ -65,6 +65,7 @@ static const char* touch_status_name(yoradio::TouchSampleStatus status) {
     switch (status) {
         case yoradio::TouchSampleStatus::Valid: return "Valid";
         case yoradio::TouchSampleStatus::NoData: return "NoData";
+        case yoradio::TouchSampleStatus::Released: return "Released";
         case yoradio::TouchSampleStatus::Error: return "Error";
         case yoradio::TouchSampleStatus::Unavailable: return "Unavailable";
     }
@@ -97,10 +98,12 @@ static void lv_touch_debug_on_feed(const lvgl_ui::LvglTouchFrame& frame,
     s_debug_active = true;
 
     const uint32_t now = millis();
-    const bool source_down = frame.source_status == yoradio::TouchSampleStatus::Valid &&
+    const bool fresh_point = frame.source_status == yoradio::TouchSampleStatus::Valid &&
                              frame.has_point;
+    const bool source_down = fresh_point ||
+        (frame.source_status == yoradio::TouchSampleStatus::NoData && s_was_down);
     const bool fed_down = (fed == LV_INDEV_STATE_PRESSED);
-    const bool moved = source_down && s_was_down &&
+    const bool moved = fresh_point && s_was_down &&
                        (frame.x != s_lx || frame.y != s_ly);
     const bool status_changed = frame.source_status != s_last_status;
 
@@ -131,11 +134,11 @@ static void lv_touch_debug_on_feed(const lvgl_ui::LvglTouchFrame& frame,
         }
     }
 
-    if (source_down) {
+    if (fresh_point) {
         s_was_down = true;
         s_lx = frame.x;
         s_ly = frame.y;
-    } else {
+    } else if (!source_down) {
         s_was_down = false;
     }
     s_last_status = frame.source_status;
@@ -194,6 +197,17 @@ int16_t lvgl_ui::touchIndevY() {
     return s_touch_last_y;
 #else
     return 0;
+#endif
+}
+
+void lvgl_ui::prepareTouchPolling() {
+#if (TS_MODEL!=TS_MODEL_UNDEFINED)
+    static bool initialized = false;
+    if (!initialized) {
+        touchscreen.init();
+        initialized = true;
+    }
+    touchscreen.applyPendingFlip();
 #endif
 }
 

@@ -747,6 +747,7 @@ void lvgl_ui::initDisplayDriver(uint16_t hor_res, uint16_t ver_res) {
 }
 
 void lvgl_ui::taskHandler() {
+    prepareTouchPolling();
     s_page_chain.tick();
     lv_timer_handler();
     // Poll after lv_timer_handler so we read the just-processed indev state.

@@ -1,11 +1,11 @@
 // Reject retired ST7701_* and TS_* GPIO names. They are not aliases.
-// Отвергаем старые GPIO-имена ST7701_* и TS_*. Это не aliases.
+// Отвергаем старые GPIO-имена ST7701_* и TS_*. Это не псевдонимы новых имён.
 // Ownership: platform/board.
 //
 // Display and touch runtime read typed resolved configuration. User GPIO
 // overrides use DISP_*/TOUCH_* in myoptions.h with YORADIO_CUSTOM_WIRING=1.
 // A defined legacy name stops the build with the replacement name.
-// Runtime дисплея и тача читает typed resolved configuration. Пользовательские
+// Код дисплея и тача читает итоговую типизированную конфигурацию. Пользовательские
 // GPIO задаются через DISP_*/TOUCH_* в myoptions.h. Старое имя останавливает
 // сборку и называет замену.
 //
@@ -28,7 +28,7 @@
 
 // ---------------------------------------------------------------------------
 // Section 1 — migration guards for retired display names and touch overrides
-// Секция 1 — подсказки миграции старых display-имён и защиты touch
+// Секция 1 — защита от старых имён GPIO дисплея и тача
 // ---------------------------------------------------------------------------
 // Reject old user definitions explicitly instead of silently ignoring a pin change.
 // Для переназначения используйте DISP_*/TOUCH_* с YORADIO_CUSTOM_WIRING=1.
@@ -106,13 +106,10 @@
 #  error "YoRadio Board Contract: do not define ST7701_BL in myoptions.h. Use DISP_BL under YORADIO_CUSTOM_WIRING=1."
 #endif
 
-// Touch (S02-4). TS_INT / TS_RST are guarded exactly like a wired pin: on this board
-// their value is the "not connected" sentinel, and that absence is itself a fixed
-// physical fact of the board, not a user preference. A user who sets TS_INT expecting
-// interrupt-driven touch would get silently ignored wiring, so it is rejected here.
-// Тач (S02-4). TS_INT / TS_RST защищены так же, как разведённый пин: их значение —
-// сентинел «не подключено», и само это отсутствие — фиксированный физический факт
-// платы, а не пользовательское предпочтение.
+// Reject old touch names even for factory-unconnected INT/RST. Rewiring uses
+// TOUCH_INT/TOUCH_RST under Custom Wiring; assigning INT does not enable interrupts.
+// Старые имена тача запрещены и для неподключённых заводских INT/RST. Для другой
+// разводки служат TOUCH_INT/TOUCH_RST в Custom Wiring; INT не включает прерывания.
 #ifdef TS_SDA
 #  error "YoRadio Board Contract: do not define TS_SDA in myoptions.h. Use TOUCH_SDA under YORADIO_CUSTOM_WIRING=1."
 #endif

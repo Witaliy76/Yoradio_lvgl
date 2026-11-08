@@ -787,7 +787,7 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
       if (strcmp(cmd, "fliptouch") == 0) {
         bool valb = static_cast<bool>(atoi(val));
         config.saveValue(&config.store.fliptouch, valb);
-        flipTS();
+        flipTS(valb);
         return;
       }
       if (strcmp(cmd, "dbgtouch") == 0) {
@@ -1161,6 +1161,7 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
         if (strcmp(val, "controls") == 0) {
           config.saveValue(&config.store.volsteps, (uint8_t)1, false);
           config.saveValue(&config.store.fliptouch, false, false);
+          flipTS(false);
           config.saveValue(&config.store.dbgtouch, false, false);
           config.saveValue(&config.store.skipPlaylistUpDown, false);
           

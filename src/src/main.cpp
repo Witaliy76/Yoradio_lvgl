@@ -38,6 +38,8 @@ void setup() {
   aiSubsystem.init();
   aiSubsystem.onSetup();
   config.init();
+  // Publish the restored snapshot before display.init() starts DspTask/LVGL.
+  flipTS(config.store.fliptouch);
 #ifdef MEM_WATCHDOG_AUTOREBOOT
   memWatchdog.onBoot();
 #endif

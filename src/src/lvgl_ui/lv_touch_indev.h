@@ -4,12 +4,14 @@
 
 #include <stdint.h>
 
-// S05-2B: typed TouchPort adapter; registration/polling remain on DspTask.
-// S05-2B: typed TouchPort adapter; регистрация/опрос остаются на DspTask.
+// Registration is part of pre-task LVGL setup; hardware init/apply and polling
+// run only on DspTask. Регистрация до запуска task; hardware и опрос — DspTask.
 
 namespace lvgl_ui {
 
 void initTouchIndev();
+// DspTask prelude, before lv_timer_handler() can read TouchPort.
+void prepareTouchPolling();
 
 // Stage 6.4C: Touch state getters for indev-polling swipe detection (DspTask only).
 // Reflect the state actually fed to LVGL (after screensaver-wake suppress).

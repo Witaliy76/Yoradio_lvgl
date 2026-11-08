@@ -48,8 +48,9 @@ manual diagnostic/service only.
 - **Supported build choices:** YORADIO_RGB_BOUNCE10, YORADIO_RGB_FLASH_GUARD,
   and ST7701_BOOT_ORIENTATION_180 are resolved build choices. They are not a
   substitute for a validated new panel. `bounce_buffer_px` in BoardDefaults
-  records the tested 0; the value passed to the panel is
-  `YORADIO_RGB_BOUNCE10`.
+  records the tested 0. `YORADIO_RGB_BOUNCE10` is a flag, not a pixel count:
+  `effective_bounce_buffer_px` is 0 when disabled or native width × 10 when
+  enabled, so the current panel receives 480 × 10 = 4800 pixels.
 - **Another resolution/panel:** create a verified PanelMode, ensure matching
   BoardProfile wiring and add/qualify a backend behind DisplayPort. No second
   panel backend is in the tree. LVGL layout for another resolution is not
@@ -70,67 +71,68 @@ or controller.
 
 ## Русский
 
-Display Contract разделяет факты панели, effective board wiring, проверенную
-host policy и границу backend. Поддерживаемый production-путь:
+Display Contract разделяет параметры панели, итоговую разводку платы,
+проверенную политику обслуживания дисплея и интерфейс драйвера. Рабочий путь:
 
     BoardProfile + Custom Wiring -> kWiring.display
     PanelMode (рецепт ST7701 RGB565 480x480)
-    BoardDefaults.display + поддерживаемые user choices
+    BoardDefaults.display + поддерживаемые пользовательские настройки
       -> ResolvedDisplayConfig
       -> DisplayPort
-      -> прямой esp_lcd ST7701 backend
-      -> LVGL flush
+      -> прямой драйвер ST7701 на esp_lcd
+      -> передача обновляемой области LVGL (flush)
 
 ### Ответственность
 
 | Компонент | Ответственность |
 |---|---|
-| panel_mode.h / panel_st7701_rgb565_480.h | Внутренние факты панели: controller, geometry 480x480, RGB565/16-bit interface, timing, идентичность Type9 recipe, quirks |
-| board_profile.h | Заводские display GPIO и совместимые controller/transport facts |
-| kWiring.display | Effective GPIO после Custom Wiring |
-| board_defaults.h | Проверенная host recommendation: partial PSRAM draw buffer 160 строк, один panel-driver PSRAM framebuffer, bounce 0, PCLK 6/10/6 МГц |
-| ResolvedDisplayConfig | Compile-time composition, compatibility assertions и поддерживаемые build choices |
-| DisplayPort | Backend-neutral seam begin, geometry, flush, brightness, sleep/wake и RGB-PCLK |
-| esp_lcd_st7701_backend.cpp | Активный backend: Type9 byte stream, esp_lcd RGB panel, physical framebuffer, scanout |
+| panel_mode.h / panel_st7701_rgb565_480.h | Параметры панели: контроллер, геометрия 480x480, 16-битный RGB565, тайминги, описание последовательности Type9 и особенности панели |
+| board_profile.h | Заводские GPIO дисплея, тип контроллера и интерфейса |
+| kWiring.display | Итоговые GPIO после Custom Wiring |
+| board_defaults.h | Проверенная политика: частичный буфер отрисовки в PSRAM на 160 строк, один кадровый буфер драйвера панели в PSRAM, bounce 0, PCLK 6/10/6 МГц |
+| ResolvedDisplayConfig | Объединение данных при сборке, проверки совместимости и поддерживаемые настройки |
+| DisplayPort | Независимый от драйвера интерфейс: begin, geometry, flush, brightness, sleep/wake и управление RGB-PCLK |
+| esp_lcd_st7701_backend.cpp | Активный драйвер: байты команд Type9, панель RGB esp_lcd, физический кадровый буфер и вывод изображения |
 
-Байты команд Type9 остаются в translation unit ST7701 backend; PanelMode хранит
-только их проверенную identity/counts. DisplayPort не раскрывает raw panel
-handle. Активный backend владеет RGB peripheral и одним physical PSRAM
-framebuffer. LVGL отправляет flush rectangles через DisplayPort и не
-программирует RGB GPIO или timing напрямую.
+Байты команд Type9 остаются в единице трансляции драйвера ST7701; PanelMode хранит
+только проверенное описание последовательности и число команд/байтов.
+DisplayPort не раскрывает дескриптор панели. Активный драйвер владеет RGB-периферией
+и одним физическим кадровым буфером в PSRAM. LVGL отправляет обновляемые области
+через DisplayPort и не программирует GPIO RGB или тайминги напрямую.
 
 ### PCLK и запись flash
 
-Проверенная policy запускает scanout на 6 МГц, один раз поднимает PCLK до
-10 МГц на Boot-to-Main и опускает его до 6 МГц во время YoRadio-controlled
-physical flash writes. rgb_flash_guard координирует это через DisplayPort на
-DspTask и VSYNC. Автоматический RGB restart не является recovery policy;
-доступный restart только ручной diagnostic/service.
+Проверенная политика запускает вывод на 6 МГц, один раз поднимает PCLK до
+10 МГц при переходе Boot → Main и опускает его до 6 МГц во время физических
+записей flash, контролируемых YoRadio. rgb_flash_guard координирует это через
+DisplayPort в DspTask с учётом VSYNC. Автоматического перезапуска RGB для
+восстановления нет; доступный перезапуск предназначен для ручной диагностики.
 
 ### Настройка и реализация
 
 - **Изменение GPIO существующей платы:** используйте Custom Wiring DISP_* в
-  src/myoptions.h; см. [board README](../board/README.md). Это меняет effective
-  wiring, но не timing панели, геометрию 480×480 и не поддержку controller.
+  src/myoptions.h; см. [Board Contract](../board/README.md). Это меняет итоговую
+  разводку, но не тайминги панели, геометрию 480×480 и не поддержку контроллера.
   RESX не является строкой DISP_*.
-- **Поддерживаемые build choices:** YORADIO_RGB_BOUNCE10,
-  YORADIO_RGB_FLASH_GUARD, ST7701_BOOT_ORIENTATION_180 — resolved build
-  choices. Они не заменяют validation новой панели. `bounce_buffer_px` в
-  BoardDefaults записывает проверенный 0; в панель передаётся
-  `YORADIO_RGB_BOUNCE10`.
-- **Другое resolution/panel:** создайте проверенный PanelMode, обеспечьте
-  совпадающую BoardProfile wiring и добавьте/квалифицируйте backend за
-  DisplayPort. Второго panel backend в дереве нет. Раскладка LVGL под другое
-  разрешение ещё не собрана.
+- **Поддерживаемые настройки сборки:** YORADIO_RGB_BOUNCE10,
+  YORADIO_RGB_FLASH_GUARD, ST7701_BOOT_ORIENTATION_180. Они не заменяют проверку
+  новой панели. `bounce_buffer_px` в BoardDefaults хранит проверенный 0.
+  `YORADIO_RGB_BOUNCE10` — флаг, а не число пикселей: `effective_bounce_buffer_px`
+  равен 0 при выключенном флаге или ширине панели × 10 при включённом.
+  Для текущей панели драйвер получает 480 × 10 = 4800 пикселей.
+- **Другое разрешение или панель:** создайте проверенный PanelMode, согласуйте
+  с ним разводку BoardProfile и подключите/проверьте драйвер за DisplayPort.
+  Второго драйвера панели в дереве нет. Компоновка LVGL под другое разрешение
+  ещё не реализована.
 
-### Текущие ограничения и evidence
+### Текущие ограничения и подтверждённые параметры
 
-Реализован только ST7701 RGB565 parallel-16 480x480. Заводской reset панели не
-подключён к SoC, и backend требует, чтобы `panel_reset_gpio` оставался
-неподключённым. Политика 6/10/6 МГц — evidence 4848S040. Эти частоты и
-partial-буфер в 160 строк читают backend и LVGL, а `static_assert` фиксирует
+Реализован только ST7701 с 16-битной параллельной шиной RGB565 и геометрией 480x480.
+Сброс панели не подключён к SoC, и драйвер требует, чтобы `panel_reset_gpio`
+оставался неподключённым. Политика 6/10/6 МГц проверена на 4848S040. Эти частоты
+и частичный буфер в 160 строк читают драйвер и LVGL, а `static_assert` фиксирует
 их на проверенных числах. `render_mode`, `draw_buffer_count`,
 `draw_buffer_memory`, `flush` и `promote_pclk_once_on_boot_to_main`
-проверяются так же; рабочий путь — backend ST7701 и partial-инициализация
-LVGL. После изменения wiring, timing, resolution, framebuffer topology или
-controller требуется hardware validation.
+проверяются так же; рабочий путь — драйвер ST7701 и инициализация LVGL с частичным
+буфером. После изменения разводки, таймингов, разрешения, организации кадровых
+буферов или контроллера требуется проверка на устройстве.

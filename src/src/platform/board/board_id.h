@@ -1,9 +1,9 @@
 // Stable compile-time board identifiers for the YoRadio Board Contract.
-// Стабильные compile-time идентификаторы плат для Board Contract YoRadio.
+// Стабильные идентификаторы плат для Board Contract YoRadio, известные при сборке.
 // Ownership: platform/board. Bottom of the include graph: includes nothing from the project,
 // so it can be parsed before myoptions.h without any cycle.
-// Владелец: platform/board. Низ include-графа: ничего из проекта не включает,
-// поэтому парсится до myoptions.h без циклов.
+// Владелец: platform/board. Основание графа включений: ничего из проекта не включает,
+// поэтому обрабатывается до myoptions.h без циклов.
 // Values are permanent: never reuse or reassign an id.
 // Значения постоянны: id нельзя переиспользовать или переназначать.
 #ifndef YORADIO_PLATFORM_BOARD_ID_H

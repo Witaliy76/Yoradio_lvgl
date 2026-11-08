@@ -1,12 +1,13 @@
-// Board Contract value types: immutable physical truth of one named board.
-// Типы Board Contract: неизменяемая физическая правда одной именованной платы.
-// Ownership: platform/board. Depends only on <stdint.h> and board_id.h, because
+// Board Contract value types: factory facts, build requirements and board defaults.
+// Типы Board Contract: заводские факты, требования к сборке и настройки платы.
+// Ownership: platform/board. Depends on <stdint.h>, board_id.h and ui_profile_id.h;
 // src/src/core/options.h is sometimes parsed before Arduino.h — no Arduino types here.
-// Владелец: platform/board. Зависит только от <stdint.h> и board_id.h: options.h
-// иногда парсится раньше Arduino.h, поэтому Arduino-типы здесь недопустимы.
-// S02-1 defines Identity/BuildRequirements only. Display/Touch/Audio/Storage/USB/
-// Network/Controls/Power/SharedResources domains arrive in later S02 slices.
-// S02-1 определяет только Identity/BuildRequirements; остальные домены — позже.
+// Владелец: platform/board. Зависит от <stdint.h>, board_id.h и ui_profile_id.h:
+// options.h иногда обрабатывается раньше Arduino.h, поэтому типов Arduino здесь нет.
+// BoardProfile records hardware; BoardDefaults supplies host/touch policy and
+// explicit UI profile selection. Effective GPIO overrides are resolved separately.
+// BoardProfile описывает оборудование; BoardDefaults задаёт политику дисплея,
+// обслуживание тача и UI-профиль. Изменения GPIO применяются отдельно.
 #ifndef YORADIO_PLATFORM_BOARD_CONTRACT_H
 #define YORADIO_PLATFORM_BOARD_CONTRACT_H
 
@@ -26,14 +27,12 @@
 // Deliberately defined OUTSIDE the __cplusplus guard, exactly as board_id.h keeps
 // its YORADIO_BOARD_* macros outside: a board profile must be able to name "this
 // line is not routed" in its Section 1 literals, which are preprocessor-visible by
-// design, and a legacy compatibility macro derived from them must stay usable
-// inside #if. kPinNotConnected below is the typed projection of this one value and
-// must never restate the number.
+// design, including uses inside #if. kPinNotConnected below is the typed projection
+// of this one value and must never restate the number.
 // Намеренно вне блока __cplusplus, как и макросы YORADIO_BOARD_* в board_id.h:
 // профиль платы должен уметь назвать «линия не разведена» в литералах секции 1,
-// которые по замыслу видимы препроцессору, а производный legacy-макрос обязан
-// оставаться пригодным внутри #if. kPinNotConnected ниже — типизированная проекция
-// этого же значения и не вправе повторять число.
+// которые по замыслу видимы препроцессору, в том числе внутри #if.
+// kPinNotConnected ниже — типизированная проекция этого же значения, без повторения числа.
 #define YORADIO_BP_PIN_NOT_CONNECTED 255
 
 #ifdef __cplusplus
@@ -47,13 +46,13 @@ constexpr uint8_t kPinNotConnected = YORADIO_BP_PIN_NOT_CONNECTED;
 enum class SocTarget : uint8_t { Unknown = 0, Esp32S3, Esp32P4 };
 
 // Any = the board works with either PSRAM mode; the build family decides.
-// Any = плата работает с любым режимом PSRAM; выбор за build family.
+// Any = плата допускает любой режим PSRAM; выбор за конфигурацией сборки.
 enum class PsramMode : uint8_t { None = 0, Any, Quad, Octal };
 
 // What the board NEEDS from the build family. This is a requirement to validate
 // against PlatformIO/ESP-IDF configuration, never a copy of that configuration:
 // partition layout, toolchain and sdkconfig stay build-family responsibility.
-// Что плата ТРЕБУЕТ от build family. Это требование для проверки, а не копия
+// Что плата ТРЕБУЕТ от конфигурации сборки. Это требование для проверки, а не копия
 // конфигурации PlatformIO/ESP-IDF.
 struct BuildRequirements {
     SocTarget soc;
@@ -73,10 +72,10 @@ enum class PanelController  : uint8_t { Unknown = 0, St7701 };
 enum class DisplayTransport : uint8_t { Unknown = 0, Rgb565Parallel16 };
 enum class TouchController  : uint8_t { Unknown = 0, Gt911 };
 
-// Factory display wiring. Panel recipe (timings, porches, init identity)
-// belongs to PanelMode under platform/display. This struct holds wiring only.
-// Заводская разводка дисплея. Рецепт панели (тайминги, порчи, init) —
-// это PanelMode в platform/display. Здесь только разводка.
+// Factory display wiring and controller/geometry compatibility facts. The panel
+// recipe (timings, blanking intervals, init identity) belongs to PanelMode.
+// Заводская разводка дисплея и сведения о совместимости контроллера и геометрии.
+// Тайминги, интервалы гашения и описание инициализации принадлежат PanelMode.
 struct DisplayWiring {
     PanelController  controller;
     DisplayTransport transport;
@@ -87,7 +86,7 @@ struct DisplayWiring {
     // programs: [0..4]=B0..B4, [5..10]=G0..G5, [11..15]=R0..R4. That order is
     // Arduino_GFX parity and must never be "tidied" (little-endian pin map).
     // Линии данных строго в том порядке слотов esp_lcd, который программирует
-    // проверенный backend: [0..4]=B0..B4, [5..10]=G0..G5, [11..15]=R0..R4.
+    // проверенный драйвер: [0..4]=B0..B4, [5..10]=G0..G5, [11..15]=R0..R4.
     uint8_t data_gpio[16];
 
     uint8_t hsync_gpio;
@@ -102,11 +101,11 @@ struct DisplayWiring {
     uint8_t cmd_sda_gpio;
 
     // Single PWM backlight line; this board has no separate enable pin.
-    // Одна PWM-линия подсветки; отдельного enable-пина на этой плате нет.
+    // Одна PWM-линия подсветки; отдельного пина разрешения на этой плате нет.
     uint8_t backlight_gpio;
 
     // Panel RESX. kPinNotConnected when the panel reset is not wired to the SoC.
-    // Panel RESX. kPinNotConnected, если сброс панели не заведён на SoC.
+    // Сброс панели RESX. kPinNotConnected, если он не подключён к SoC.
     uint8_t panel_reset_gpio;
 };
 
@@ -143,10 +142,10 @@ struct AudioHardware {
 };
 
 // Onboard storage presence. Pin assignment is intentionally NOT a field: the
-// 4848S040 SD lines are known only from comments/documentation and are validated
-// on hardware in S07. Encoding them here would make unverified data authoritative.
+// 4848S040 SD lines are known only from comments/documentation; hardware validation
+// is deferred to S07. Encoding them here would make unverified data authoritative.
 // Наличие встроенного накопителя. Назначение пинов намеренно НЕ поле: линии SD
-// известны только из комментариев и проверяются на железе в S07.
+// известны только из комментариев/документации; проверка на устройстве отложена до S07.
 struct StorageHardware {
     bool onboard_sd_present;
 };
@@ -193,10 +192,9 @@ struct BoardProfile {
 };
 
 // ---------------------------------------------------------------------------
-// BoardDefaults — tested YoRadio recommendations for one board.
-// NOT physical truth and NOT a restriction: a value here does not ban a
-// different user setting in myoptions.h. Another screen layout is not
-// selected from this struct.
+// BoardDefaults — tested host/touch policy, recommendations and UI selection.
+// These are not physical board facts. Only supported user choices are resolved
+// from myoptions.h; not every field has an override. Backend assertions still apply.
 //
 // Three different layers, not one switch:
 //   BoardDefaults.display / .touch — tested host and touch-service recommendations.
@@ -207,23 +205,27 @@ struct BoardProfile {
 // ResolvedDisplayConfig and ResolvedTouchConfig read the display host policy
 // and the touch service mode / I2C clock. AudioDefaults and PowerDefaults are
 // not applied: live I2S pins and wake stay the myoptions.h macros.
+// BoardDefaults.ui.profile selects the factory UI metrics through ResolvedUiMetrics;
+// physical viewport geometry remains in the display contract.
 // Several display numbers are locked by static_assert to the tested 4848S040
 // policy (partial 160 lines, PCLK 6/10/6 MHz). Panel bounce follows
 // YORADIO_RGB_BOUNCE10, not bounce_buffer_px.
 // CONFIG_LCD_RGB_RESTART_IN_VSYNC stays a build-family sdkconfig switch.
 // It is not a second knob in this struct.
-// BoardDefaults — проверенные рекомендации YoRadio для одной платы.
-// Это НЕ физическая правда и НЕ запрет на другую настройку в myoptions.h.
-// Другая раскладка экрана отсюда не выбирается.
+// BoardDefaults — проверенная политика дисплея/тача, рекомендации и выбор UI.
+// Это не физические факты платы. Из myoptions.h читаются только поддерживаемые
+// настройки; не каждое поле можно переопределить. Ограничения драйвера сохраняются.
 //
-// Три разных слоя: рекомендация, пользовательский override, ограничение backend.
+// Три разных слоя: рекомендация, пользовательская настройка, ограничение драйвера.
 // ResolvedDisplayConfig и ResolvedTouchConfig читают политику хоста дисплея
 // и режим опроса / частоту I2C тача. AudioDefaults и PowerDefaults не
-// применяются: живые I2S и wake остаются макросами myoptions.h.
+// применяются: действующие пины I2S и пробуждения остаются макросами myoptions.h.
+// BoardDefaults.ui.profile выбирает заводские UI-метрики через ResolvedUiMetrics;
+// физический размер экрана остаётся в контракте дисплея.
 // Часть чисел дисплея зафиксирована static_assert на проверенной политике
-// 4848S040 (partial 160 строк, PCLK 6/10/6 МГц). Bounce панели берётся из
-// YORADIO_RGB_BOUNCE10, не из bounce_buffer_px.
-// CONFIG_LCD_RGB_RESTART_IN_VSYNC остаётся настройкой build-family, не полем здесь.
+// 4848S040 (частичный буфер 160 строк, PCLK 6/10/6 МГц). Размер bounce-буфера
+// вычисляется по флагу YORADIO_RGB_BOUNCE10, а не берётся из bounce_buffer_px.
+// CONFIG_LCD_RGB_RESTART_IN_VSYNC остаётся настройкой сборки, а не полем здесь.
 // ---------------------------------------------------------------------------
 
 // Recommended external I2S DAC pin assignment. Recommendation only.
@@ -248,8 +250,8 @@ struct PowerDefaults {
 
 // Touch servicing recommendation only. Controller identity, address and pins
 // remain physical/effective TouchWiring; geometry remains touch/display contract.
-// Только рекомендация обслуживания тача. Controller/address/pins остаются в
-// TouchWiring, geometry — в touch/display contract.
+// Только рекомендация обслуживания тача. Контроллер, адрес и пины остаются в
+// TouchWiring, геометрия — в контрактах тача и дисплея.
 enum class TouchServiceMode : uint8_t { Polling = 0, Interrupt = 1 };
 
 struct TouchDefaults {
@@ -259,8 +261,8 @@ struct TouchDefaults {
 
 // Explicit application UI policy. This is not panel geometry and does not make
 // a BoardProfile responsible for screen layout or an auto-selected resolution.
-// Явная UI-policy приложения. Это не геометрия панели и не переносит в
-// BoardProfile ответственность за layout или автоматический выбор разрешения.
+// Явный выбор UI-профиля приложения. Это не геометрия панели; BoardProfile
+// не отвечает за компоновку экранов или автоматический выбор разрешения.
 struct UiDefaults {
     UiProfile profile;
 };
@@ -273,12 +275,13 @@ enum class DisplayBufferMemory : uint8_t { Internal = 0, Psram = 1 };
 
 // Who allocates the RGB scanout buffer. PanelDriver is the panel driver;
 // on the proven path that driver is esp_lcd. No esp_lcd header is included here.
-// Кто выделяет буфер RGB scanout. PanelDriver — драйвер панели; на проверенном
+// Кто выделяет буфер вывода RGB. PanelDriver — драйвер панели; на проверенном
 // пути это esp_lcd. Заголовок esp_lcd сюда не включается.
 enum class RgbFramebufferOwner : uint8_t { PanelDriver = 0 };
 
-// Partial CPU blit of the damaged rectangle, then a full-framebuffer C2M writeback.
-// Частичный CPU-блит испорченного прямоугольника, затем полный C2M всего кадра.
+// CPU copy of the updated image region, then a full-framebuffer C2M writeback.
+// CPU копирует обновляемую область изображения, затем весь кадровый буфер
+// синхронизируется из кеша в память (C2M).
 enum class DisplayFlush : uint8_t { PartialBlitThenFullWriteback = 0 };
 
 struct DisplayDefaults {
@@ -291,7 +294,8 @@ struct DisplayDefaults {
     RgbFramebufferOwner  rgb_framebuffer_owner;
     bool                 double_framebuffer;
     // Tested bounce default in pixels. Not a ban on YORADIO_RGB_BOUNCE10=1.
-    // Проверенный bounce по умолчанию, в пикселях. Это не запрет YORADIO_RGB_BOUNCE10=1.
+    // Проверенный размер bounce-буфера по умолчанию, в пикселях.
+    // Это не запрет YORADIO_RGB_BOUNCE10=1.
     uint16_t             bounce_buffer_px;
     DisplayFlush         flush;
     uint32_t             startup_pclk_hz;

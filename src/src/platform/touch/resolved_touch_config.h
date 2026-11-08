@@ -1,4 +1,9 @@
 // ResolvedTouchConfig — effective clean touch policy without a second hardware table.
+// ResolvedTouchConfig — итоговые настройки тача без второй таблицы оборудования.
+// Flip is an explicit snapshot: WebUI publishes requests; TouchScreen applies them
+// on DspTask between polls. This value does not read persisted state itself.
+// Flip передаётся явно: WebUI публикует запрос, TouchScreen применяет его в DspTask
+// между опросами. Сам объект не читает сохранённые пользовательские настройки.
 #ifndef YORADIO_PLATFORM_TOUCH_RESOLVED_TOUCH_CONFIG_H
 #define YORADIO_PLATFORM_TOUCH_RESOLVED_TOUCH_CONFIG_H
 

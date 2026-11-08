@@ -37,7 +37,7 @@ void onBtnLongPressStop(int id);
 
 void setIRTolerance(uint8_t tl);
 void setEncAcceleration(uint16_t acc);
-void flipTS();
+void flipTS(bool flipped);
 
 extern __attribute__((weak)) void ctrls_on_loop();
 

@@ -1,18 +1,18 @@
 // Compile-time resolver/validator of the selected board against the build family.
-// Compile-time проверка выбранной платы на совместимость с build family.
+// Проверка совместимости выбранной платы с конфигурацией сборки при компиляции.
 // Ownership: platform/board.
 // Included from src/src/core/options.h at the END of that file, because the legacy
 // display-selector check below needs DSP_MODEL and DSP_ST7701, and options.h defines
 // them itself after myoptions.h. Checks that need user/default values must not run
 // before those values exist.
-// Включается из src/src/core/options.h в КОНЦЕ файла: проверке legacy-селектора
+// Включается из src/src/core/options.h в КОНЦЕ файла: проверке старого селектора
 // нужны DSP_MODEL и DSP_ST7701, которые options.h определяет сам после myoptions.h.
 //
 // sdkconfig.h is the authoritative build-family description. It is included here
 // explicitly and not assumed: options.h is sometimes parsed before Arduino.h, so the
 // CONFIG_* symbols are not guaranteed to be present yet.
-// sdkconfig.h — авторитетное описание build family. Включается явно, а не
-// предполагается: options.h иногда парсится раньше Arduino.h.
+// sdkconfig.h — источник параметров сборки. Включается явно: options.h иногда
+// обрабатывается раньше Arduino.h, когда CONFIG_* ещё могут быть недоступны.
 #ifndef YORADIO_PLATFORM_BOARD_VALIDATE_H
 #define YORADIO_PLATFORM_BOARD_VALIDATE_H
 
@@ -21,7 +21,7 @@
 
 // ---------------------------------------------------------------------------
 // Legacy display-selector consistency (preprocessor level)
-// Согласованность legacy-селектора дисплея (уровень препроцессора)
+// Согласованность старого селектора дисплея (уровень препроцессора)
 // ---------------------------------------------------------------------------
 #if !defined(DSP_MODEL)
 #  error "YoRadio Board Contract: DSP_MODEL is not defined. board_validate.h must be included from src/src/core/options.h after the legacy display defaults."
@@ -107,7 +107,7 @@ static_assert(kActiveBoard.identity.build.psram_mode == PsramMode::Any
 #endif
 
 // Factory profile numbers stay the accepted S02-4 / S02-5 baseline always.
-// Заводской профиль всегда хранит принятый baseline S02-4 / S02-5.
+// Заводской профиль сохраняет принятую разводку S02-4 / S02-5.
 static_assert(kActiveBoard.display.data_gpio[0]  == 4,  "factory B0 is GPIO4");
 static_assert(kActiveBoard.display.data_gpio[1]  == 5,  "factory B1 is GPIO5");
 static_assert(kActiveBoard.display.data_gpio[2]  == 6,  "factory B2 is GPIO6");
@@ -140,7 +140,7 @@ static_assert(kPinNotConnected == 255, "the not-connected sentinel stays 255");
 
 #if !YORADIO_CUSTOM_WIRING
 // Factory mode: effective wiring is identical to the accepted baseline.
-// Штатный режим: итоговая разводка совпадает с принятым baseline.
+// Штатный режим: итоговая разводка совпадает с принятой заводской.
 static_assert(kWiring.display.data_gpio[0]  == 4,  "S02-5 B0 is GPIO4");
 static_assert(kWiring.display.data_gpio[1]  == 5,  "S02-5 B1 is GPIO5");
 static_assert(kWiring.display.data_gpio[2]  == 6,  "S02-5 B2 is GPIO6");
@@ -224,9 +224,10 @@ static_assert(kWiring.touch.i2c_scl_gpio != kPinNotConnected, "TOUCH_SCL cannot 
 
 namespace wiring_check {
 
-// ESP32-S3 with octal flash/PSRAM: GPIO 22-25 do not exist; 26-37 serve the
+// ESP32-S3 N16R8 with octal PSRAM: GPIO 22-25 do not exist; 26-37 serve the
 // flash/PSRAM bus on the N16R8 module. 255 means not connected.
-// ESP32-S3 с octal flash/PSRAM: GPIO 22-25 нет; 26-37 заняты шиной на N16R8.
+// ESP32-S3 N16R8 с восьмилинейной PSRAM: GPIO 22-25 нет; 26-37 заняты flash/PSRAM.
+// 255 означает, что сигнал не подключён.
 inline constexpr bool isUsableGpio(uint8_t pin) {
     if (pin == kPinNotConnected) {
         return true;
@@ -273,7 +274,8 @@ static_assert(isUsableGpio(kWiring.touch.reset_gpio),   "TOUCH_RST uses an inval
 // Not claimed here: USB (unused in stock), BOOT/WAKE lifecycle share with R4,
 // undocumented SD lines, Arduino RGB LED on GPIO48 (migration debt).
 // Одновременно занятые: дисплей + тач (+ INT/RST) + активный I2S.
-// Не входят: USB, BOOT/WAKE (lifecycle с R4), недокументированный SD, RGB LED.
+// Не входят: USB, BOOT/WAKE (общий с R4 пин на разных этапах работы),
+// неподтверждённые линии SD и RGB-светодиод Arduino на GPIO48 (долг миграции).
 struct ClaimList {
     uint8_t pin[32];
     uint8_t count;
@@ -303,12 +305,26 @@ inline constexpr ClaimList buildClaims() {
     push(kWiring.touch.int_gpio);
     push(kWiring.touch.reset_gpio);
 #if defined(I2S_DOUT) && (I2S_DOUT != 255)
+    // Validate original values before narrowing; explicit 255 keeps its NC policy.
+    // Проверяем исходные значения до преобразования в uint8_t; 255 не занимает GPIO.
+    static_assert((I2S_DOUT) >= 0 && (I2S_DOUT) <= 48,
+                  "YoRadio Board Contract: I2S_DOUT must be GPIO 0..48 or explicit 255 (NC) before uint8_t conversion.");
+    static_assert(isUsableGpio(static_cast<uint8_t>(I2S_DOUT)),
+                  "I2S_DOUT uses an invalid ESP32-S3 GPIO");
     push(static_cast<uint8_t>(I2S_DOUT));
 #endif
 #if defined(I2S_BCLK) && (I2S_BCLK != 255)
+    static_assert((I2S_BCLK) >= 0 && (I2S_BCLK) <= 48,
+                  "YoRadio Board Contract: I2S_BCLK must be GPIO 0..48 or explicit 255 (NC) before uint8_t conversion.");
+    static_assert(isUsableGpio(static_cast<uint8_t>(I2S_BCLK)),
+                  "I2S_BCLK uses an invalid ESP32-S3 GPIO");
     push(static_cast<uint8_t>(I2S_BCLK));
 #endif
 #if defined(I2S_LRC) && (I2S_LRC != 255)
+    static_assert((I2S_LRC) >= 0 && (I2S_LRC) <= 48,
+                  "YoRadio Board Contract: I2S_LRC must be GPIO 0..48 or explicit 255 (NC) before uint8_t conversion.");
+    static_assert(isUsableGpio(static_cast<uint8_t>(I2S_LRC)),
+                  "I2S_LRC uses an invalid ESP32-S3 GPIO");
     push(static_cast<uint8_t>(I2S_LRC));
 #endif
     return c;

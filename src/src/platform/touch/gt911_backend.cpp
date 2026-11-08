@@ -74,7 +74,8 @@ bool Gt911Backend::begin(const ResolvedTouchConfig& config) {
     touch_config.process_coordinates = &Gt911Backend::processCoordinates;
     touch_config.driver_data = &driver_config_;
 
-    if (esp_lcd_touch_new_i2c_gt911(panel_io_, &touch_config, &touch_) != ESP_OK) {
+    report_io_.attach(panel_io_);
+    if (esp_lcd_touch_new_i2c_gt911(&report_io_, &touch_config, &touch_) != ESP_OK) {
         touch_ = nullptr;
         esp_lcd_panel_io_del(panel_io_);
         panel_io_ = nullptr;
@@ -93,7 +94,9 @@ void Gt911Backend::end() {
         esp_lcd_panel_io_del(panel_io_);
         panel_io_ = nullptr;
     }
+    report_io_.attach(nullptr);
     // Arduino Wire remains the I2C bus owner; never call Wire.end() here.
+    // Шиной I2C продолжает владеть Arduino Wire; вызывать Wire.end() здесь нельзя.
 }
 
 bool Gt911Backend::setOrientation(
@@ -109,6 +112,8 @@ bool Gt911Backend::setOrientation(
 // esp_lcd_touch invokes this after copying its cached point outside the driver
 // lock and before software mirror/swap. Keep only the production range-safety
 // clamp here; no logging or secondary controller read belongs in this callback.
+// esp_lcd_touch вызывает обработчик после копирования точки из кеша, вне блокировки
+// драйвера и до mirror/swap. Здесь только ограничение диапазона, без логов и чтений I2C.
 void Gt911Backend::processCoordinates(esp_lcd_touch_handle_t touch,
                                       uint16_t* x,
                                       uint16_t* y,
@@ -134,10 +139,34 @@ TouchSample Gt911Backend::read() {
         return makeTouchUnavailable();
     }
 
+    report_io_.beginRead();
     const esp_err_t read_result = esp_lcd_touch_read_data(touch_);
-    if (read_result != ESP_OK) {
+    if (read_result != ESP_OK || report_io_.result() != ESP_OK ||
+        !report_io_.statusSeen()) {
         // Do not query the component cache after a failed hardware transaction.
+        // После неудачной аппаратной транзакции не запрашиваем точку из кеша.
         return makeTouchError();
+    }
+
+    // Readiness belongs to this exact vendor transaction, never to its point
+    // cache. In 1.2.1, no-ready leaves the cache unchanged; bad counts clear it.
+    // Готовность определяется текущей транзакцией, а не кешем точек. В 1.2.1
+    // отсутствие ready не меняет кеш; некорректное число касаний его очищает.
+    if (!report_io_.ready()) {
+        return makeTouchNoData();
+    }
+    if (!report_io_.acknowledged() || report_io_.touchCount() > 5) {
+        return makeTouchError();
+    }
+    // With buttons enabled the driver handles key reports before touch points
+    // and leaves the point cache unchanged. They cannot prove finger release.
+    // При включённых кнопках драйвер сначала обрабатывает их отчёты, не меняя
+    // кеш точек. Такие отчёты не подтверждают отпускание пальца.
+    if (report_io_.keyReport()) {
+        return makeTouchNoData();
+    }
+    if (report_io_.touchCount() == 0) {
+        return makeTouchReleased();
     }
 
     esp_lcd_touch_point_data_t point{};
@@ -146,7 +175,7 @@ TouchSample Gt911Backend::read() {
         return makeTouchError();
     }
     if (point_count == 0) {
-        return makeTouchNoData();
+        return makeTouchError();
     }
     return makeTouchPressed(point.x, point.y);
 }

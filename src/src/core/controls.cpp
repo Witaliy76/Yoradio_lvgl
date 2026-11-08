@@ -132,13 +132,6 @@ void initControls() {
 }
 
 void loopControls() {
-#if (TS_MODEL!=TS_MODEL_UNDEFINED)
-  static bool s_touchInitDone = false;
-  if (!s_touchInitDone) {
-    s_touchInitDone = true;
-    touchscreen.init();
-  }
-#endif
   if(display.mode()==UPDATING) return;
   if(SDC_CS==255 && display.mode()==LOST) return;
   if(ctrls_on_loop) ctrls_on_loop();
@@ -599,8 +592,10 @@ void setEncAcceleration(uint16_t acc){
   encoder2.setAcceleration(config.store.encacc);
 #endif
 }
-void flipTS(){
+void flipTS(bool flipped){
 #if (TS_MODEL!=TS_MODEL_UNDEFINED)
-  touchscreen.flip();
+  touchscreen.requestFlip(flipped);
+#else
+  (void)flipped;
 #endif
 }
