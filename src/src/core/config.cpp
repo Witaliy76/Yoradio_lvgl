@@ -438,11 +438,7 @@ void Config::init() {
   emptyFS = _isFSempty();
   if(emptyFS) BOOTLOG("LittleFS is empty!");
   ssidsCount = 0;
-  #ifdef USE_SD
-  _SDplaylistFS = getMode()==PM_SDCARD?&sdman:(true?&LittleFS:_SDplaylistFS);
-  #else
-  _SDplaylistFS = &LittleFS;
-  #endif
+  _SDplaylistFS = &LittleFS; // numeric Radio catalog only
   _bootDone=false;
 }
 
@@ -528,54 +524,17 @@ void Config::_setupVersion(){
   saveValue(&store.version, currentVersion);
 }
 
+uint8_t Config::getMode() {
+  return player.playbackContext().source==yoradio::playback::PlaybackSource::SingleFile?PM_SDCARD:PM_WEB;
+}
+
+bool Config::changeMode(int newmode) {
+  return player.sendCommand({PR_MODE,newmode});
+}
+
 #ifdef USE_SD
 
-void Config::changeMode(int newmode){
-  bool pir = player.isRunning();
-  if(SDC_CS==255) return;
-  if(getMode()==PM_SDCARD) {
-    sdResumePos = player.getFilePos();
-  }
-  if(network.status==SOFT_AP || display.mode()==LOST){
-    saveValue(&store.play_mode, static_cast<uint8_t>(PM_SDCARD));
-    delay(50);
-    ESP.restart();
-  }
-  if(!sdman.ready && newmode!=PM_WEB) {
-    if(!sdman.start()){
-      Serial.println("##[ERROR]#\tSD Not Found");
-      netserver.requestOnChange(GETPLAYERMODE, 0);
-      sdman.stop();
-      return;
-    }
-  }
-  if(newmode<0){
-    store.play_mode++;
-    if(getMode() > MAX_PLAY_MODE) store.play_mode=0;
-  }else{
-    store.play_mode=(playMode_e)newmode;
-  }
-  saveValue(&store.play_mode, store.play_mode, true, true);
-  _SDplaylistFS = getMode()==PM_SDCARD?&sdman:(true?&LittleFS:_SDplaylistFS);
-  if(getMode()==PM_SDCARD){
-    if(pir) player.sendCommand({PR_STOP, 0});
-    // Block 8-E8: no SDCHANGE UI wait — sdman.start() above; playlist via initPlaylistMode().
-  }
-  if(getMode()==PM_WEB) {
-    if(network.status==SDREADY) ESP.restart();
-    sdman.stop();
-  }
-  if(!_bootDone) return;
-  initPlaylistMode();
-//  if ((pir) && (store.smartstart == 1)) player.sendCommand({PR_PLAY, getMode()==PM_WEB?store.lastStation:store.lastSdStation});
-  if (pir) player.sendCommand({PR_PLAY, getMode()==PM_WEB?store.lastStation:store.lastSdStation});
-  netserver.resetQueue();
-  netserver.requestOnChange(GETPLAYERMODE, 0);
-  netserver.requestOnChange(GETMODE, 0);
-  display.resetQueue();
-  display.putRequest(NEWMODE, PLAYER);
-  display.putRequest(NEWSTATION);
-}
+
 
 void Config::initSDPlaylist() {
   store.countStation = 0;
@@ -642,45 +601,19 @@ bool Config::fsCleanup(){
   return ret;
 }
 
-void Config::initPlaylistMode(){
-  uint16_t _lastStation = 0;
-  #ifdef USE_SD
-    if(getMode()==PM_SDCARD){
-      if(!sdman.start()){
-        store.play_mode=PM_WEB;
-        Serial.println("SD Mount Failed");
-        changeMode(PM_WEB);
-        _lastStation = store.lastStation;
-      }else{
-        if(_bootDone) Serial.println("SD Mounted"); else BOOTLOG("SD Mounted");
-          if(_bootDone) Serial.println("Waiting for SD card indexing..."); else BOOTLOG("Waiting for SD card indexing...");
-          initSDPlaylist();
-          if(_bootDone) Serial.println("done"); else BOOTLOG("done");
-          _lastStation = store.lastSdStation;
-          if(_lastStation>store.countStation && store.countStation>0){
-            _lastStation=1;
-          }
-          if(_lastStation==0) {
-            _lastStation = _randomStation();
-          }
-      }
-    }else{
-      Serial.println("done");
-      _lastStation = store.lastStation;
-    }
-  #else //ifdef USE_SD
-    store.play_mode=PM_WEB;
-    _lastStation = store.lastStation;
-  #endif
-  if(getMode()==PM_WEB && !emptyFS) initPlaylist();
-  log_i("%d" ,_lastStation);
-  if (_lastStation == 0 && store.countStation > 0) {
-    _lastStation = getMode()==PM_WEB?1:_randomStation();
-  }
-  lastStation(_lastStation);
-  saveValue(&store.play_mode, store.play_mode, true, true);
-  _bootDone = true;
-  loadStation(_lastStation);
+void Config::initPlaylistMode() {
+  // Numeric station IDs and their NVS fields remain Radio-only. Path playback
+  // never mounts SDManager, scans folders or selects a legacy SD index.
+  // Числовой каталог остаётся Radio; SD запускается только по полному пути.
+  _SDplaylistFS=&LittleFS;
+  store.play_mode=PM_WEB;
+  if(!emptyFS) initPlaylist();
+  uint16_t station=store.lastStation;
+  if(!station && store.countStation) station=1;
+  lastStation(station);
+  saveValue(&store.play_mode,store.play_mode,true,true);
+  _bootDone=true;
+  loadStation(station);
 }
 
 void Config::_initHW(){

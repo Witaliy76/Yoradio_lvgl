@@ -38,6 +38,7 @@ Special modes (not carousel slots):
 - **Preset Temporary** - eight positional presets overlay (from Info/Main/Visual/Weather)
 - **Screensaver** - analog clock on `lv_layer_top` (wake by touch)
 - **Overlays** - LOST / UPDATING style layers on `lv_layer_top` when used
+- **Source Selector (S07-LVGL-MEDIA, not implemented yet)** - swipe bottom→up overlay to pick Radio/SD (future: USB/DLNA/…); opens the matching Stations list; no separate Radio/SD switch on Stations. See `docs/phase2/stages/S07_STORAGE_SHARED_RESOURCES.md` §40.
 
 `screens/scr_stub.*` remains in-tree as retained Stage 5 compatibility code but is **not** registered in PageChain; all six carousel slots use real page classes.
 

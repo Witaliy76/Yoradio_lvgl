@@ -42,8 +42,8 @@
 #endif
 #define BOOTLOG( ... ) { char buf[120]; sprintf( buf, __VA_ARGS__ ) ; Serial.print("##[BOOT]#\t"); Serial.println(buf); }
 #define EVERY_MS(x)  static uint32_t tmr; bool flag = millis() - tmr >= (x); if (flag) tmr += (x); if (flag)
-#define REAL_PLAYL   getMode()==PM_WEB?PLAYLIST_PATH:PLAYLIST_SD_PATH
-#define REAL_INDEX   getMode()==PM_WEB?INDEX_PATH:INDEX_SD_PATH
+#define REAL_PLAYL   PLAYLIST_PATH
+#define REAL_INDEX   INDEX_PATH
 
 #define MAX_PLAY_MODE   1
 #define WEATHERKEY_LENGTH 58
@@ -250,14 +250,13 @@ class Config {
     void indexPlaylist();
     #ifdef USE_SD
       void initSDPlaylist();
-      void changeMode(int newmode=-1);
     #endif
+    bool changeMode(int newmode=-1); // bounded request, never performs Audio/SD IO
     uint16_t lastStation(){
-      return getMode()==PM_WEB?store.lastStation:store.lastSdStation;
+      return store.lastStation; // numeric IDs always identify Radio stations
     }
     void lastStation(uint16_t newstation){
-      if(getMode()==PM_WEB) saveValue(&store.lastStation, newstation);
-      else saveValue(&store.lastSdStation, newstation);
+      saveValue(&store.lastStation, newstation);
     }
     uint8_t fillPlMenu(int from, uint8_t count);
     char * stationByNum(uint16_t num);
@@ -268,7 +267,7 @@ class Config {
     void setDspOn(bool dspon, bool saveval = true);
     void bootInfo();
     void setSnuffle(bool sn);
-    uint8_t getMode() { return store.play_mode/* & 0b11*/; }
+    uint8_t getMode(); // confirmed runtime source, not a pending selection
     void initPlaylistMode();
     void reset();
     bool fsCleanup();

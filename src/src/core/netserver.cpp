@@ -7,11 +7,14 @@
 
 #include "save_manager.h"
 #include "player.h"
+#include "../platform/storage/storage_owner.h"
 #include "telnet.h"
 #include "display.h"
 #include "rgb_flash_guard.h"
 #include "lfs_upload_txn.h"
 #include "options.h"
+#include "sd_browser.h"
+#include "source_catalog.h"
 #include "network.h"
 #include "mqtt.h"
 #include "controls.h"
@@ -74,6 +77,11 @@ void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t ind
 void handleWebUploadComplete(AsyncWebServerRequest *request);
 void handleUpdate(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
 void handleHTTPArgs(AsyncWebServerRequest * request);
+void handleSources(AsyncWebServerRequest * request);
+#if YORADIO_S07_STORAGE_ENABLED
+void handleSdDir(AsyncWebServerRequest * request);
+void handleSdPlay(AsyncWebServerRequest * request);
+#endif
 void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len);
 void beginUploadBg(AsyncWebServerRequest *request);
 void handleUploadBg(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
@@ -184,6 +192,15 @@ bool NetServer::begin(bool quiet) {
   webserver.on(PLAYLIST_SD_PATH, HTTP_GET, handleHTTPArgs);
   webserver.on(INDEX_SD_PATH, HTTP_GET, handleHTTPArgs);
   webserver.on(SSIDS_PATH, HTTP_GET, handleHTTPArgs);
+  // Shared source catalog read-out for the WebUI browser. No activate / mode change.
+  // Выдача общего каталога источников для браузера WebUI. Без activate / смены режима.
+  webserver.on("/sources", HTTP_GET, handleSources);
+#if YORADIO_S07_STORAGE_ENABLED
+  // Directory pages and exact-path play. Registered before the static www handler.
+  // Страницы каталога и запуск по точному пути. Регистрация раньше статики www.
+  webserver.on("/sd/dir", HTTP_GET, handleSdDir);
+  webserver.on("/sd/play", HTTP_POST, handleSdPlay);
+#endif
   
   webserver.on("/upload", HTTP_POST, beginUpload, handleUpload);
   webserver.on("/update", HTTP_GET, handleHTTPArgs);
@@ -413,6 +430,42 @@ static bool wsbufFormat(const char* fmt, ...) {
   return true;
 }
 
+// Append a JSON string (escaped) into [p, end). Advances p. No surrounding quotes.
+// Добавляет JSON-строку (с экранированием) в [p, end). Двигает p. Без кавычек вокруг.
+static bool jsonAppendEscaped(char*& p, char* end, const char* s) {
+  if (!p || !end || !s || p >= end) return false;
+  while (*s) {
+    const unsigned char c = static_cast<unsigned char>(*s++);
+    char esc[7];
+    const char* out = nullptr;
+    size_t n = 0;
+    if (c == '"' || c == '\\') {
+      esc[0] = '\\'; esc[1] = static_cast<char>(c); n = 2; out = esc;
+    } else if (c < 0x20) {
+      n = static_cast<size_t>(snprintf(esc, sizeof esc, "\\u%04x", c));
+      if (n == 0 || n >= sizeof esc) return false;
+      out = esc;
+    } else {
+      if (p + 1 >= end) return false;
+      *p++ = static_cast<char>(c);
+      continue;
+    }
+    if (p + n >= end) return false;
+    memcpy(p, out, n);
+    p += n;
+  }
+  return true;
+}
+
+static bool jsonAppendLit(char*& p, char* end, const char* lit) {
+  if (!p || !end || !lit) return false;
+  const size_t n = strlen(lit);
+  if (p + n >= end) return false;
+  memcpy(p, lit, n);
+  p += n;
+  return true;
+}
+
 // Skip textAll when there are no WebSocket clients — avoids AsyncWebSocket::makeBuffer
 // allocation under network/Wi-Fi-loss pressure. / Пропускаем textAll при отсутствии клиентов
 // — избегаем malloc makeBuffer при нестабильной сети.
@@ -465,6 +518,9 @@ static bool isHeavyClientStateRequest(requestType_e type) {
     case SDPOS:
     case SDLEN:
     case SDSNUFFLE:
+    case SDREPEAT:
+    case SDSHUFFLE:
+    case SDPATH:
     case SDINIT:
     case GETPLAYERMODE:
     case DSPON:
@@ -503,16 +559,8 @@ void NetServer::processQueue(){
     switch (request.type) {
       case PLAYLIST:        getPlaylist(clientId); break;
       case PLAYLISTSAVED:   {
-        #ifdef USE_SD
-        if(config.getMode()==PM_SDCARD) {
-        //  config.indexSDPlaylist();
-          config.initSDPlaylist();
-        }
-        #endif
-        if(config.getMode()==PM_WEB){
-          config.indexPlaylist();
-          config.initPlaylist();
-        }
+        config.indexPlaylist(); // this catalog contains Radio station IDs only
+        config.initPlaylist();
         getPlaylist(clientId);
         // S01-5C-2: the index rebuild (stage P3) runs under its own RGB flash guard inside
         // Config::indexPlaylist(); no post-write repair is requested here any more.
@@ -559,8 +607,15 @@ void NetServer::processQueue(){
           requestOnChange(BITRATE, clientId); 
           requestOnChange(MODE, clientId); 
           requestOnChange(SDINIT, clientId);
-          requestOnChange(GETPLAYERMODE, clientId); 
-          if (config.getMode()==PM_SDCARD) { requestOnChange(SDPOS, clientId); requestOnChange(SDLEN, clientId); requestOnChange(SDSNUFFLE, clientId); } 
+          requestOnChange(GETPLAYERMODE, clientId);
+          requestOnChange(SDREPEAT, clientId);
+          requestOnChange(SDSHUFFLE, clientId);
+          if (config.getMode()==PM_SDCARD) {
+            requestOnChange(SDPOS, clientId);
+            requestOnChange(SDLEN, clientId);
+            requestOnChange(SDSNUFFLE, clientId);
+            requestOnChange(SDPATH, clientId);
+          } 
           return; 
           break;
         }
@@ -644,7 +699,30 @@ void NetServer::processQueue(){
                                   break;
       case DSPON:         wsbufFormat( "{\"dspontrue\":%d}", 1); break;
       case STATION:       requestOnChange(STATIONNAME, clientId); requestOnChange(ITEM, clientId); break;
-      case STATIONNAME:   wsbufFormat( "{\"nameset\": \"%s\"}", config.station.name); break;
+      case STATIONNAME: {
+          // Bundle sdmedia with nameset so folder-follow survives WS write drops.
+          // Кладём sdmedia вместе с nameset, чтобы follow папки пережил отбросы WS.
+          yoradio::storage::MediaRef media;
+          const bool havePath = player.currentMedia(media) && media.path[0];
+          static EXT_RAM_BSS_ATTR char stationMsg[yoradio::storage::kMaxMediaPathBytes + BUFLEN + 96];
+          char* p = stationMsg;
+          char* end = stationMsg + sizeof(stationMsg);
+          if (!jsonAppendLit(p, end, "{\"nameset\": \"") ||
+              !jsonAppendEscaped(p, end, config.station.name)) {
+            break;
+          }
+          if (havePath) {
+            if (!jsonAppendLit(p, end, "\", \"sdmedia\": \"") ||
+                !jsonAppendEscaped(p, end, media.path)) {
+              break;
+            }
+          }
+          if (!jsonAppendLit(p, end, "\"}") || p >= end) break;
+          *p = '\0';
+          if (clientId == 0) safeWsTextAll(stationMsg);
+          else safeWsTextClient(clientId, stationMsg);
+          return;
+        }
       case ITEM:          wsbufFormat( "{\"current\": %d}", config.lastStation()); break;
       case TITLE:         wsbufFormat( "{\"meta\": \"%s\"}", config.station.title); telnet.printf("##CLI.META#: %s\n> ", config.station.title); break;
       case PLAYER_ERROR:  wsbufFormat( "{\"player_error\": \"%s\"}", player.lastError()); break;
@@ -658,15 +736,46 @@ void NetServer::processQueue(){
                                   break;
       case SDLEN:         wsbufFormat( "{\"sdmin\": %d,\"sdmax\": %d}", player.sd_min, player.sd_max); break;
       case SDSNUFFLE:     wsbufFormat( "{\"snuffle\": %d}", config.store.sdsnuffle); break;
+      case SDREPEAT: {
+          const char* repeat="off";
+          switch(player.sdRepeatMode()) {
+            case yoradio::playback::SdRepeatMode::One: repeat="one"; break;
+            case yoradio::playback::SdRepeatMode::Folder: repeat="folder"; break;
+            case yoradio::playback::SdRepeatMode::All: repeat="all"; break;
+            default: break;
+          }
+          wsbufFormat( "{\"sdrepeat\": \"%s\"}", repeat);
+          break;
+        }
+      case SDSHUFFLE:     wsbufFormat( "{\"sdshuffle\": %d}", player.sdShuffle()?1:0); break;
+      case SDPATH: {
+          // Full SD locator for WebUI folder follow; wsbuf is too small for max paths.
+          // Полный путь SD для следования браузера; wsbuf слишком мал для max path.
+          yoradio::storage::MediaRef media;
+          if(!player.currentMedia(media) || !media.path[0]) break;
+          static EXT_RAM_BSS_ATTR char sdPathMsg[yoradio::storage::kMaxMediaPathBytes + 64];
+          char* p = sdPathMsg;
+          char* end = sdPathMsg + sizeof(sdPathMsg);
+          if (!jsonAppendLit(p, end, "{\"sdmedia\": \"") ||
+              !jsonAppendEscaped(p, end, media.path) ||
+              !jsonAppendLit(p, end, "\"}") || p >= end) {
+            break;
+          }
+          *p = '\0';
+          if(clientId == 0) safeWsTextAll(sdPathMsg);
+          else safeWsTextClient(clientId, sdPathMsg);
+          return;
+        }
       case BITRATE:       wsbufFormat( "{\"bitrate\": %d, \"format\": \"%s\"}", config.station.bitrate, getFormat(config.configFmt)); break;
-      case MODE:          wsbufFormat( "{\"mode\": \"%s\"}", player.status() == PLAYING ? "playing" : "stopped"); telnet.info(); break;
+      case MODE:          wsbufFormat( "{\"mode\": \"%s\"}", player.hasStopFailure() ? "stop_failed" : (player.status() == PLAYING ? "playing" : "stopped")); telnet.info(); break;
       case EQUALIZER:     wsbufFormat( "{\"bass\": %d, \"middle\": %d, \"trebble\": %d}", config.store.bass, config.store.middle, config.store.trebble); break;
       case BALANCE:       wsbufFormat( "{\"balance\": %d}", config.store.balance); break;
       case SDINIT:        wsbufFormat( "{\"sdinit\": %d}", SDC_CS!=255); break;
-      case GETPLAYERMODE: wsbufFormat( "{\"playermode\": \"%s\"}", config.getMode()==PM_SDCARD?"modesd":"modeweb"); break;
-      #ifdef USE_SD
-        case CHANGEMODE:    config.changeMode(newConfigMode); return; break;
-      #endif
+      case GETPLAYERMODE: wsbufFormat( "{\"playermode\": \"%s\", \"playmodes\": %d}",
+                                  config.getMode()==PM_SDCARD?"modesd":"modeweb",
+                                  player.playbackContext().source==yoradio::playback::PlaybackSource::SingleFile?1:0);
+                          break;
+      case CHANGEMODE: config.changeMode(newConfigMode); return;
       default:          break;
     }
     if (strlen(wsbuf) > 0) {
@@ -727,7 +836,7 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
       if (strcmp(cmd, "getweather") == 0  ) { requestOnChange(GETWEATHER, clientId);  return; }
       if (strcmp(cmd, "getai") == 0       ) { requestOnChange(GETAI, clientId);       return; }
       if (strcmp(cmd, "getactive") == 0   ) { requestOnChange(GETACTIVE, clientId);   return; }
-      if (strcmp(cmd, "newmode") == 0     ) { newConfigMode = atoi(val); requestOnChange(CHANGEMODE, 0); return; }
+      if (strcmp(cmd, "newmode") == 0     ) { config.changeMode(atoi(val)); return; }
       if (strcmp(cmd, "smartstart") == 0) {
         uint8_t valb = atoi(val);
         uint8_t ss = valb == 1 ? 1 : 2;
@@ -1177,19 +1286,19 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
       }
       if (strcmp(cmd, "sdpos") == 0) {
         //return;
-        if (config.getMode()==PM_SDCARD){
-          config.sdResumePos = 0;
-          if(!player.isRunning()){
-            player.setResumeFilePos(atoi(val)-player.sd_min);
-            player.sendCommand({PR_PLAY, config.store.lastSdStation});
-          }else{
-            player.setFilePos(atoi(val)-player.sd_min);
-          }
-        }
+        player.sendCommand({PR_SEEK,atoi(val)-static_cast<int>(player.sd_min)});
         return;
       }
       if (strcmp(cmd, "snuffle") == 0) {
         config.setSnuffle(strcmp(val, "true") == 0);
+        return;
+      }
+      if (strcmp(cmd, "sdrepeat") == 0) {
+        player.cycleSdRepeat();
+        return;
+      }
+      if (strcmp(cmd, "sdshuffle") == 0) {
+        player.toggleSdShuffle();
         return;
       }
       if (strcmp(cmd, "balance") == 0) {
@@ -1228,7 +1337,7 @@ void NetServer::onWsMessage(void *arg, uint8_t *data, size_t len, uint8_t client
         //mqttPublishPlaylist();
         mqttplaylistticker.attach(5, mqttplaylistSend);
 #endif
-        if (player.isRunning()) {
+        if (player.isRunning() && config.getMode()==PM_WEB) {
           player.sendCommand({PR_PLAY, -config.lastStation()});
         }
         return;
@@ -3649,7 +3758,176 @@ void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventTyp
   }
 }
 
+// Read-only catalog for the WebUI source browser. Availability comes from the
+// same facts openSource already uses; this does not call activate or changeMode.
+// Каталог только для чтения. Доступность — те же факты, что у openSource;
+// activate и changeMode здесь не вызываются.
+void handleSources(AsyncWebServerRequest* request) {
+  using namespace yoradio::source;
+  yoradio::storage::StorageStatus storage{};
+#if YORADIO_S07_STORAGE_ENABLED
+  storage = yoradio::storage::StorageOwner::instance().status();
+#endif
+  OpenFacts facts;
+  facts.radio_has_stations = config.store.countStation > 0;
+  facts.storage_ready = storage.ready;
+
+  // Bounded static buffer: two registered entries plus reason text.
+  // Ограниченный буфер: две зарегистрированные записи плюс текст причины.
+  char body[768];
+  size_t n = 0;
+  auto append = [&](const char* chunk) -> bool {
+    if (!chunk) return false;
+    const size_t len = strlen(chunk);
+    if (n + len + 1 >= sizeof(body)) return false;
+    memcpy(body + n, chunk, len);
+    n += len;
+    body[n] = 0;
+    return true;
+  };
+  auto appendEscaped = [&](const char* text) -> bool {
+    if (!text) text = "";
+    for (const unsigned char* p = reinterpret_cast<const unsigned char*>(text); *p; ++p) {
+      char esc[8];
+      if (*p == '"' || *p == '\\') {
+        esc[0] = '\\'; esc[1] = static_cast<char>(*p); esc[2] = 0;
+      } else if (*p < 0x20) {
+        snprintf(esc, sizeof esc, "\\u%04x", *p);
+      } else {
+        esc[0] = static_cast<char>(*p); esc[1] = 0;
+      }
+      if (!append(esc)) return false;
+    }
+    return true;
+  };
+
+  if (!append("{\"sources\":[")) {
+    request->send(500, "application/json", "{\"error\":\"buffer\"}");
+    return;
+  }
+  for (size_t i = 0; i < kCatalogCount; ++i) {
+    const SourceEntry& entry = kCatalog[i];
+    const OpenIntent intent = openSource(entry.id, facts);
+    const char* open = "stations";
+    if (entry.open_kind == OpenKind::Directory) open = "directory";
+    else if (entry.open_kind == OpenKind::ControlPanel) open = "panel";
+
+    const char* reason = "";
+    if (!intent.available) {
+      if (entry.id == SourceId::Radio) reason = "No stations";
+      else if (!storage.mounted && !storage.ready) reason = "Card unavailable";
+      else reason = "Card not ready";
+    }
+
+    char head[96];
+    snprintf(head, sizeof head,
+             "%s{\"id\":%u,\"key\":\"",
+             i ? "," : "",
+             static_cast<unsigned>(entry.id));
+    if (!append(head) || !appendEscaped(entry.key) || !append("\",\"title\":\"") ||
+        !appendEscaped(entry.title) || !append("\",\"icon\":\"") ||
+        !appendEscaped(entry.icon_key) || !append("\",\"open\":\"") ||
+        !append(open) || !append("\",\"available\":") ||
+        !append(intent.available ? "true" : "false") ||
+        !append(",\"reason\":\"")) {
+      request->send(500, "application/json", "{\"error\":\"buffer\"}");
+      return;
+    }
+    if (!appendEscaped(reason) || !append("\"")) {
+      request->send(500, "application/json", "{\"error\":\"buffer\"}");
+      return;
+    }
+    if (entry.open_kind == OpenKind::Directory) {
+      char gen[48];
+      snprintf(gen, sizeof gen, ",\"gen\":%llu",
+               static_cast<unsigned long long>(storage.ready ? storage.generation : 0));
+      if (!append(gen)) {
+        request->send(500, "application/json", "{\"error\":\"buffer\"}");
+        return;
+      }
+    }
+    if (!append("}")) {
+      request->send(500, "application/json", "{\"error\":\"buffer\"}");
+      return;
+    }
+  }
+  if (!append("]}")) {
+    request->send(500, "application/json", "{\"error\":\"buffer\"}");
+    return;
+  }
+  request->send(200, "application/json", body);
+}
+
+#if YORADIO_S07_STORAGE_ENABLED
+// Explicit engineering input; bounded bytes go straight to the owned Player API.
+// Явный инженерный запрос: полный путь передаётся в существующий API Player.
+static yoradio::playback::PathPlayResult requestEngineeringStoragePath(const char* path,size_t bytes) {
+  using namespace yoradio::playback;
+  if(bytes>yoradio::storage::kMaxMediaPathBytes) return PathPlayResult::PathTooLong;
+  if(!path || strlen(path)!=bytes) return PathPlayResult::InvalidPath; // reject embedded NUL
+  const auto status=yoradio::storage::StorageOwner::instance().status();
+  if(!status.ready) return status.mounted?PathPlayResult::StaleMedia:PathPlayResult::NoMedia;
+  PathPlayRequest ref;
+  const auto result=PathPlayRequest::copy(path,status.generation,player.pathEpoch(),ref);
+  return result==PathPlayResult::None?player.requestPlay(ref):result;
+}
+
+static void sendSdJson(AsyncWebServerRequest* request, int code, const char* json) {
+  request->send(code, "application/json", json ? json : "{}");
+}
+void handleSdDir(AsyncWebServerRequest* request) {
+  if (!request->hasParam("path") || !request->hasParam("req") || !request->hasParam("offset")
+      || !request->hasParam("client")) {
+    sendSdJson(request, 400, "{\"state\":\"error\",\"code\":\"path\"}");
+    return;
+  }
+  const String path = request->getParam("path")->value();
+  if (!path.c_str() || path.length() != strlen(path.c_str())) {
+    sendSdJson(request, 400, "{\"state\":\"error\",\"code\":\"path\"}");
+    return;
+  }
+  const uint32_t client = static_cast<uint32_t>(strtoul(request->getParam("client")->value().c_str(), nullptr, 10));
+  const uint32_t req = static_cast<uint32_t>(strtoul(request->getParam("req")->value().c_str(), nullptr, 10));
+  const uint32_t offset = static_cast<uint32_t>(strtoul(request->getParam("offset")->value().c_str(), nullptr, 10));
+  const bool start = request->hasParam("start") && request->getParam("start")->value() == "1";
+  SdBrowserReply reply = sdBrowserList(client, req, offset, path.c_str(), start);
+  // reply.json is a complete copy. send() copies it again into the response.
+  // reply.json — полная копия. send() копирует её ещё раз в ответ.
+  sendSdJson(request, 200, reply.json);
+  sdBrowserRelease(reply);
+}
+void handleSdPlay(AsyncWebServerRequest* request) {
+  if (!request->hasParam("path", true)) {
+    sendSdJson(request, 400, "{\"state\":\"rejected\"}");
+    return;
+  }
+  const String& path = request->getParam("path", true)->value();
+  const auto result = requestEngineeringStoragePath(path.c_str(), path.length());
+  const bool queued = result == yoradio::playback::PathPlayResult::Accepted;
+  char body[96];
+  snprintf(body, sizeof body, "{\"state\":\"%s\",\"result\":%u}",
+           queued ? "queued" : "rejected", static_cast<unsigned>(result));
+  // 202 admits the player queue only. It is not audible playback.
+  // 202 — только приём в очередь Player. Это не подтверждение звука.
+  sendSdJson(request, queued ? 202 : 400, body);
+}
+#endif
+
 void handleHTTPArgs(AsyncWebServerRequest * request) {
+#if YORADIO_S07_STORAGE_ENABLED
+  if(request->hasArg("s07_sd_path")) {
+    if(request->method()!=HTTP_POST) { request->send(405,"text/plain","POST required");return; }
+    if(!request->hasParam("s07_sd_path",true)) { request->send(400,"text/plain","form field required");return; }
+    const String& path=request->getParam("s07_sd_path",true)->value();
+    const auto result=requestEngineeringStoragePath(path.c_str(),path.length());
+    Serial.printf("[S07-ENG] path submit bytes=%u result=%u (Accepted is queued)\n",
+        static_cast<unsigned>(path.length()),static_cast<unsigned>(result));
+    char reply[64];snprintf(reply,sizeof(reply),"{\"result\":%u}",static_cast<unsigned>(result));
+    const int code=result==yoradio::playback::PathPlayResult::Accepted?202:400;
+    request->send(code,"application/json",reply);
+    return;
+  }
+#endif
   /* Fallback if HTTP_ANY "/" handled this URL first / Запасной путь если сначала сработал catch-all */
   if (request->method() == HTTP_GET && strcmp(request->url().c_str(), "/bg_status") == 0) {
     handleBgStatusHttp(request);
@@ -3666,11 +3944,7 @@ void handleHTTPArgs(AsyncWebServerRequest * request) {
 #ifdef MQTT_ROOT_TOPIC
       if (strcmp(request->url().c_str(), PLAYLIST_PATH) == 0) while (mqttplaylistblock) vTaskDelay(5);
 #endif
-      if(strcmp(request->url().c_str(), PLAYLIST_PATH) == 0 && config.getMode()==PM_SDCARD){
-         netserver.chunkedHtmlPage("application/octet-stream", request, PLAYLIST_SD_PATH, false);
-      }else{
-        netserver.chunkedHtmlPage("application/octet-stream", request, request->url().c_str(), false);
-      }
+      netserver.chunkedHtmlPage("application/octet-stream", request, request->url().c_str(), false);
       return;
     }
     if (strcmp(request->url().c_str(), "/") == 0 && request->params() == 0) {
@@ -3684,27 +3958,39 @@ void handleHTTPArgs(AsyncWebServerRequest * request) {
       return;
     }
   }
-  if (network.status == CONNECTED) {
-    bool commandFound=false;
-    if (request->hasArg("start")) { player.sendCommand({PR_PLAY, config.lastStation()}); commandFound=true; }
-    if (request->hasArg("stop")) { player.sendCommand({PR_STOP, 0}); commandFound=true; }
-    if (request->hasArg("toggle")) { player.toggle(); commandFound=true; }
-    if (request->hasArg("prev")) { player.prev(); commandFound=true; }
-    if (request->hasArg("next")) { player.next(); commandFound=true; }
-    if (request->hasArg("volm")) { player.stepVol(false); commandFound=true; }
-    if (request->hasArg("volp")) { player.stepVol(true); commandFound=true; }
-    #ifdef USE_SD
-    if (request->hasArg("mode")) {
-      AsyncWebParameter* p = request->getParam("mode");
-      int mm = atoi(p->value().c_str());
-      if(mm>2) mm=0;
-      if(mm==2)
-        config.changeMode();
-      else
-        config.changeMode(mm);
-      commandFound=true;
+  bool playbackAccepted=true;
+  auto playbackCommands = [&]() {
+    bool found=false;
+    auto submit=[&](playerRequestParams_t command) {
+      if(!player.sendCommand(command)) playbackAccepted=false;
+      found=true;
+    };
+    if(request->hasArg("start")) submit({PR_PLAY,config.lastStation()});
+    if(request->hasArg("stop")) submit({PR_STOP,0});
+    if(request->hasArg("toggle")) submit({PR_TOGGLE,0});
+    if(request->hasArg("prev")) submit({PR_PREV,0});
+    if(request->hasArg("next")) submit({PR_NEXT,0});
+    if(request->hasArg("volm")) { player.stepVol(false);found=true; }
+    if(request->hasArg("volp")) { player.stepVol(true);found=true; }
+    if(request->hasArg("mode")) {
+      int mode=atoi(request->getParam("mode")->value().c_str());
+      if(!config.changeMode(mode==2?-1:(mode>2?0:mode))) playbackAccepted=false;
+      found=true;
     }
-    #endif
+    if(request->hasArg("playstation") || request->hasArg("play")) {
+      auto* p=request->getParam(request->hasArg("playstation")?"playstation":"play",request->method()==HTTP_POST);
+      int id=atoi(p->value().c_str());
+      if(id<1) id=1;
+      if(id>config.store.countStation) id=config.store.countStation;
+      submit({PR_PLAY,id});
+    }
+    return found; // acknowledges request handling, not playback completion
+  };
+  if(network.status!=CONNECTED && playbackCommands()) {
+    request->send(playbackAccepted?200:503);return;
+  }
+  if (network.status == CONNECTED) {
+    bool commandFound=playbackCommands();
     if (request->hasArg("reset")) { request->redirect("/"); request->send(200); config.reset(); return; }
     if (request->hasArg("trebble") && request->hasArg("middle") && request->hasArg("bass")) {
       AsyncWebParameter* pt = request->getParam("trebble", request->method() == HTTP_POST);
@@ -3725,16 +4011,6 @@ void handleHTTPArgs(AsyncWebServerRequest * request) {
       config.setBalance(b);
       netserver.requestOnChange(BALANCE, 0);
       commandFound=true;
-    }
-    if (request->hasArg("playstation") || request->hasArg("play")) {
-      AsyncWebParameter* p = request->getParam(request->hasArg("playstation") ? "playstation" : "play", request->method() == HTTP_POST);
-      int id = atoi(p->value().c_str());
-      if (id < 1) id = 1;
-      if (id > config.store.countStation) id = config.store.countStation;
-      //config.sdResumePos = 0;
-      player.sendCommand({PR_PLAY, id});
-      commandFound=true;
-      DBGVB("[%s] play=%d", __func__, id);
     }
     if (request->hasArg("vol")) {
       AsyncWebParameter* p = request->getParam("vol", request->method() == HTTP_POST);
@@ -3807,7 +4083,7 @@ void handleHTTPArgs(AsyncWebServerRequest * request) {
       return;
     }
     if (request->params() > 0) {
-      request->send(commandFound?200:404);
+      request->send(commandFound?(playbackAccepted?200:503):404);
       return;
     }
   } else {

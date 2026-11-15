@@ -272,10 +272,11 @@ static_assert(isUsableGpio(kWiring.touch.reset_gpio),   "TOUCH_RST uses an inval
 
 // Simultaneous claimants: display + touch (+ INT/RST if wired) + active I2S.
 // Not claimed here: USB (unused in stock), BOOT/WAKE lifecycle share with R4,
-// undocumented SD lines, Arduino RGB LED on GPIO48 (migration debt).
+// SD candidate nets (S07-1: validated separately in platform/storage while SD
+// stays product-disabled), Arduino RGB LED on GPIO48 (migration debt).
 // Одновременно занятые: дисплей + тач (+ INT/RST) + активный I2S.
-// Не входят: USB, BOOT/WAKE (общий с R4 пин на разных этапах работы),
-// неподтверждённые линии SD и RGB-светодиод Arduino на GPIO48 (долг миграции).
+// Не входят: USB, BOOT/WAKE (общий с R4), кандидаты SD (S07-1: отдельно в
+// platform/storage при выключенном SD) и RGB-светодиод Arduino на GPIO48.
 struct ClaimList {
     uint8_t pin[32];
     uint8_t count;

@@ -34,7 +34,10 @@
 #include <driver/i2s_std.h>
 #include "audiolib_structs.hpp"
 #include "audio_retry_budget.h"
+#include "audio_stop_result.h"
 #include "audio_tls_sni_client.h"
+
+namespace yoradio { namespace storage { struct StorageFileStatus; } }
 
 #ifndef I2S_GPIO_UNUSED
   #define I2S_GPIO_UNUSED -1 // = I2S_PIN_NO_CHANGE in IDF < 5
@@ -176,7 +179,8 @@ class Audio{
     audiolib::hwoe_t       dismantle_host(const char* host);
     bool         connecttohost(const char* host, const char* user = "", const char* pwd = "");
     bool         connecttospeech(const char* speech, const char* lang);
-    bool         connecttoFS(fs::FS& fs, const char* path, int32_t fileStartPos = -1);
+    bool         connecttoFS(fs::FS& fs, const char* path, int32_t fileStartPos = -1,
+                            std::shared_ptr<yoradio::storage::StorageFileStatus> fileStatus = {});
 //    bool setFileLoop(bool input);//TEST loop
     void         setConnectionTimeout(uint16_t timeout_ms, uint16_t timeout_ms_ssl);
 //    bool         setAudioPlayTime(uint16_t sec);
@@ -186,7 +190,8 @@ class Audio{
     bool         pauseResume();
     bool         isRunning() { return m_f_running; }
     void         loop();
-    uint32_t     stopSong();
+    AudioStopResult stopSong();
+    bool         hasStopFailure() const { return m_stopFailed.load(std::memory_order_acquire); }
     void         forceMono(bool m);
     void         setBalance(int8_t bal = 0);
     void         setVolumeSteps(uint8_t steps);
@@ -209,7 +214,7 @@ class Audio{
 /*    uint16_t     getVUlevel();*/    uint16_t     get_VUlevel(uint16_t dimension);
 //    void           setVUmeter() {};
     bool           eofHeader;
-    void           setDefaults(); // free buffers and set defaults
+    [[nodiscard]] bool setDefaults(); // false: gate held, no reset/free/start permitted
     // E36REC1B: new user playback session — unstable-stream budget only / только счётчик unstable
     void           beginPlaybackSession();
     AudioTerminalReason consumeTerminalReason();
@@ -331,7 +336,7 @@ class Audio{
 
   private:
     void         startAudioTask(); // starts a task for decode and play
-    void         stopAudioTask();  // stops task for audio
+    bool         stopAudioTask();  // false: task still owns resources
     static void  taskWrapper(void* param);
     void         audioTask();
     void         performAudioTask();
@@ -374,7 +379,7 @@ class Audio{
     // аудиозадача. Инкремент там, где поток действительно снесён (setDefaults), а
     // не там, где новый только намечен (beginPlaybackSession).
     void         beginDecodeEpoch();
-    bool         audioTaskStopGateActive() const { return m_f_audioTaskStopGate; }
+    bool         audioTaskStopGateActive() const { return m_f_audioTaskStopGate.load(std::memory_order_acquire); }
     // E-ST1: the audio task asks for a stop instead of performing one.
     // E-ST1: аудиозадача просит остановку, а не выполняет её сама.
     void         requestStopFromAudioTask(const char* reason);
@@ -685,6 +690,8 @@ private:
     } pid_array;
 
     File                  m_audiofile;
+    // Shared close proof survives Arduino File::close() discarding its wrapper.
+    std::shared_ptr<yoradio::storage::StorageFileStatus> m_storageFileStatus;
     NetworkClient	      client;
     AudioNetworkClientSecure clientsecure;
     NetworkClient*        m_client = nullptr;
@@ -773,7 +780,7 @@ private:
     uint32_t        m_bytesNotConsumed = 0;         // pictures or something else that comes with the stream
 //    uint64_t        m_lastGranulePosition = 0;      // necessary to calculate the duration in OPUS and VORBIS
     uint32_t        m_PlayingStartTime = 0;         // Stores the milliseconds after the start of the audio
-    int32_t         m_resumeFilePos = -1;           // the return value from stopSong(), (-1) is idle
+    int32_t         m_resumeFilePos = -1;           // stop result.position; (-1) is idle
 //    int32_t         m_fileStartTime = -1;           // may be set in connecttoFS()
     int32_t         m_fileStartPos = -1;            // may be set in connecttoFS()
     uint16_t        m_m3u8_targetDuration = 10;     //
@@ -972,18 +979,11 @@ private:
     AudioTaskRequest  m_stopRequest{};
     AudioTaskRequest  m_vorbisReopenRequest{};
     uint32_t          m_decodeEpoch     = 1;
-    // E-ST1: stopSong() is a cross-task call by design - it raises m_f_lockInBuffer
-    // and waits for m_f_audioTaskIsDecoding to clear. Called from the audio task
-    // that wait is on itself: it spins out after ~100 ms and then frees the decoder
-    // buffers while that very decoder is on the stack, and closes m_client while the
-    // player task may be inside m_client->read(). So the audio task publishes a
-    // request instead, and Audio::loop() performs the stop.
-    // E-ST1: stopSong() по устройству межзадачный — он поднимает m_f_lockInBuffer и
-    // ждёт сброса m_f_audioTaskIsDecoding. При вызове из аудиозадачи это ожидание
-    // самого себя: оно отваливается по таймауту ~100 мс, после чего освобождает
-    // буферы декодера, находясь внутри него, и закрывает m_client, пока задача
-    // Player может быть в m_client->read(). Поэтому аудиозадача публикует запрос,
-    // а выполняет остановку Audio::loop().
+    // S07-4A.1: the decoder only publishes a stop request. The owner holds the
+    // gate and acquires mutex_audioTask (decode + PCM output) before teardown.
+    // Timeout leaves resources intact and gate held; explicit owner STOP retries.
+    // Декодер только публикует запрос; владелец подтверждает decode + PCM через
+    // mutex_audioTask. Timeout сохраняет ресурсы и gate, повторный STOP — retry.
     // E-HO1: hard gate. m_f_playing=false is not a stop - sendBytes() reads it as
     // "lost sync", resyncs and resumes decoding and publishing PCM. This gate is
     // checked by performAudioTask/playAudioData/sendBytes and is the only thing
@@ -998,7 +998,8 @@ private:
     // E-FL3: когда текущее соединение начало ждать стартовый порог;
     // 0 означает, что поток уже идёт.
     uint32_t      m_streamStartWaitBeganMs   = 0;
-    volatile bool m_f_audioTaskStopGate      = false;
+    std::atomic<bool> m_f_audioTaskStopGate{false};
+    std::atomic<bool> m_stopFailed{false}; // StopFailed; owner retries explicitly via STOP
     bool     m_f_streamHadAudio             = false;
     bool     m_f_shortLivedCounted          = false;
     bool     m_f_streamConnectionStable     = false;

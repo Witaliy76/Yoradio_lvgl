@@ -1,0 +1,16 @@
+# Single FATFS overlay for ordinary 4848S040 and its alias. Same LFN policy as B005.
+# Единственный FATFS overlay для штатного 4848S040 и его alias. Та же политика LFN, что в B005.
+# CONFIG_FATFS_LFN_NONE is not set
+CONFIG_FATFS_LFN_HEAP=y
+# CONFIG_FATFS_LFN_STACK is not set
+CONFIG_FATFS_MAX_LFN=255
+# CONFIG_FATFS_API_ENCODING_ANSI_OEM is not set
+CONFIG_FATFS_API_ENCODING_UTF_8=y
+CONFIG_FATFS_CODEPAGE_437=y
+CONFIG_FATFS_CODEPAGE=437
+# Same as sdkconfig.defaults: EXT_RAM_BSS_ATTR → PSRAM (folder_queue / directory slots).
+# Как в sdkconfig.defaults: EXT_RAM_BSS_ATTR → PSRAM (folder_queue / слоты directory).
+CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
+# Keep FreeRTOS EXT_MEM stack create allowed; S07Dir stack itself stays internal DRAM.
+# Разрешение EXT_MEM для стеков FreeRTOS сохраняем; сам стек S07Dir — внутренний DRAM.
+CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM=y

@@ -495,9 +495,7 @@ void onBtnClick(int id) {
           player.sendCommand({PR_PLAY, display.currentPlItem});
         }
         if(network.status==SOFT_AP || display.mode()==LOST){
-          #ifdef USE_SD
-            config.changeMode();
-          #endif
+          config.changeMode();
         }
         break;
       }
@@ -520,12 +518,10 @@ void onBtnClick(int id) {
         }
         break;
       }
-    #ifdef USE_SD
     case EVT_BTNMODE: {
       config.changeMode();
       break;
     }
-    #endif
     case EVT_BTNMUTE: {
         // Screensaver keeps its wake-first contract: the first press only wakes, as for the
         // centre button above; the mute toggle needs a second, deliberate press.

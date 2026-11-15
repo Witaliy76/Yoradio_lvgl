@@ -63,13 +63,18 @@
 				    </ul>
 		      </div>
 		      <div id="volnav">
-		        <div id="modeline"><span id="modeweb" class="modeitem" data-name="web">Web</span><span id="modesd" data-name="sd" class="modeitem">SD</span></div>
+		        <!-- Browser path / Sources home. Playback chrome stays on body.modeweb|modesd.
+		             Путь браузера / дом «Источники». Chrome воспроизведения — body.modeweb|modesd. -->
+		        <div id="modeline"><span id="navpath" class="navpath" title="Sources">Sources</span></div>
 		        <input type="range" id="volrange" class="slider" name="volume" data-slaveid="volinfo" min="0" max="254" value="0">
 		      </div>
 		      <div id="sdnav" class="hidden">
 		        <div id="sdposvals">
 		          <div id="sdposvalscurrent">0:00</div>
-	            <div id="snuffle" class="playerbytton active" data-name="snuffle"><span></span></div>
+		          <div id="sdplaymode">
+		            <button type="button" id="sdrepeat" class="sd-modebtn" data-mode="off">Repeat Off</button>
+		            <button type="button" id="sdshuffle" class="sd-modebtn">Folder Shuffle Off</button>
+		          </div>
 		          <div id="sdposvalsend">0:00</div>
 		        </div>
 		        <input type="range" id="sdpos" class="slider" name="sdpos" min="0" max="100" value="0">
@@ -79,8 +84,10 @@
 		        <div class="infoitem" id="bitinfo">bitrate: 0kBit</div>
 		        <div class="infoitem" id="rsiinfo">rssi: 0dBm</div>
 		      </div>
-		      <ul id="playlist">
-		      </ul>
+		      <ul id="sourcebrowser"></ul>
+		      <ul id="playlist" class="hidden"></ul>
+		      <div id="sdstatus" class="hidden"></div>
+		      <ul id="sdbrowser" class="hidden"></ul>
         </div><!--equalizerwrap-->
       </div><!--player-->
       <div id="pleditorwrap" class="hidden">
@@ -107,7 +114,9 @@
     </div><!--playerwrap-->
     <div id="copy">powered by <a target="_blank" href="https://github.com/Witaliy76/Yoradio_RGB_Panel">ёRadio</a> | v%VERSION%</div>
   </div>
-  <script src="script.js?%VERSION%"></script>
+  <!-- .webnav4 busts the year-long serveStatic cache after WebUI-only fixes (YOVERSION may stay B052).
+       .webnav4 сбрасывает годовой cache serveStatic после правок только WebUI (YOVERSION может остаться B052). -->
+  <script src="script.js?%VERSION%.webnav4"></script>
   <script src="dragpl.js?%VERSION%"></script>
 </body>
 </html>

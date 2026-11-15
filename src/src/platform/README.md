@@ -4,10 +4,11 @@ Author: Witaliy76 - https://github.com/Witaliy76
 
 ## English
 
-`src/src/platform/` is the compile-time hardware boundary. It turns a selected
-board profile and optional wiring overrides into typed values consumed by the
-display and touch implementations. It is not a UI, theme, persistence, or
-generic hardware framework.
+`src/src/platform/` defines hardware contracts and the Storage mount lifecycle.
+It turns a selected board profile and optional wiring overrides into typed
+values for display/touch backends. Storage Owner and the read-only Audio FS
+bridge are implemented; their enabled device integration is still gated.
+UI, theme and user-settings persistence belong to other modules.
 
 ### Map
 
@@ -17,6 +18,8 @@ src/myoptions.h
   -> platform/display: PanelMode + ResolvedDisplayConfig
   -> DisplayPort -> direct ST7701 / esp_lcd backend
   -> platform/touch: ResolvedTouchConfig -> Gt911Backend -> TouchPort
+  -> platform/storage: ResolvedStorageConfig -> StorageOwner -> StorageFsBridge / Directory Service
+  -> Audio File/decoder; Player owns path commands and epoch (stock SD disabled)
   -> lvgl_ui/lv_touch_indev.cpp -> LVGL pointer input
 ```
 
@@ -28,6 +31,7 @@ src/myoptions.h
 | Legacy-name migration errors | [board/compat/README.md](board/compat/README.md) | Why `ST7701_*` and `TS_*` names must not return |
 | Display Contract | [display/README.md](display/README.md) | Panel recipe, effective display configuration and DisplayPort |
 | Touch Contract | [touch/README.md](touch/README.md) | GT911, TouchPort and LVGL input path |
+| Storage Contract | [storage/README.md](storage/README.md) | Mount owner, Audio FS bridge, per-folder Directory Service; stock SD disabled |
 | UI Contract | [LVGL UI contract](../lvgl_ui/README.md#ui-contract--ui-контракт) | Explicit `BoardDefaults.ui.profile`, resolved viewport and UI metrics |
 
 ### Layers
@@ -43,6 +47,50 @@ src/myoptions.h
 `I2S_DOUT`, `I2S_BCLK`, `I2S_LRC` and `WAKE_PIN` stay macros in `src/myoptions.h`.
 Editing `BoardDefaults.audio` or `BoardDefaults.power` does not move the DAC or
 the wake pin.
+
+### Storage entry points
+
+`main.cpp` calls `StorageOwner::prepareBeforeDisplay()`,
+`mountAfterDisplay()` and `processFault()` on the setup/loop task. The owner
+controls mount generation and operation/handle accounting; `CloseLease` permits
+counted close after new operations are prohibited, without treating unknown
+close as success. The read-only `StorageFsBridge` exposes the existing mount to
+Audio; Audio owns File/decoder stop. Player owns `PathPlayRequest`, epoch,
+MP3/FLAC policy and command results. Player confirms stop/close before Radio↔SD
+or SD↔SD transitions; `PlaybackContext` and Config mode change only on confirmed
+playback. Control runs without Wi-Fi; ordinary STOP leaves SD mounted.
+Shared UTF-8 validation is in `utils/utf8.h`. Directory Service lists one
+folder on task `S07Dir` and returns an immutable snapshot for `WebUi`,
+`Lvgl`, or `Playback`. The engineering WebUI and the folder-queue next-track
+search are the current callers; LVGL does not. Path SD Next/EOF/Prev live in
+`core/folder_queue.*` and stay independent of the browse cwd. Detail is in
+the storage README.
+
+`core/source_catalog.h` is the static source list. It registers only Radio
+(`radio`, station list) and SD (`sd`, directory). Availability is read from
+the existing station count and Storage status; the catalog does not keep a
+second copy. WebUI reads that list through read-only `GET /sources` and opens
+Radio playlist or the existing SD folder browser without calling
+`Player::activate`. Browser navigation is tab-local RAM only. `Player::activate`
+admits one switch at a time. `Pending` means the request was accepted and is
+not Playing. A second call while that request is still in flight returns
+`Busy` and does not move the playback epoch. A missing bookmark file is
+`NeedsSelection`: the current sound keeps playing. The sounding source is
+only the confirmed Playing context. After SmartStart 2 selects a stopped
+source, Next and Prev follow that source. The last SD file that actually
+started is a RAM bookmark: it survives STOP and Radio, and reboot drops it.
+The bookmark's mount generation must still match; a new card does not inherit
+the old path.
+
+USB would be another directory entry, with its own mount generation and the
+same path playback. Bluetooth would be a control panel: no file path and no
+folder queue. Neither is registered, and there is no playback stub for either.
+
+The ordinary `4848S040` build enables the Storage Owner. Legacy `USE_SD` and
+SDManager stay off. The disposable SDSPI probe sources are gone. Build and flash are described in
+[S07 working build](storage/README.md#s07-working-build). Device acceptance remains pending; probe housekeeping
+follows integration. Operation accounting does not guarantee synchronous FS
+completion time. See [Storage roles and limits](storage/README.md).
 
 ### Four common tasks
 
@@ -81,17 +129,17 @@ the wake pin.
    behind TouchPort. LVGL layout for another resolution is not built yet.
 
 Only ESP32-S3 4848S040 with ST7701 RGB565 480x480 and GT911 is production
-supported today. The `night_build` sources currently report
-`0.9.434m-r2-lvgl-beta.3.08` in `YOVERSION`. That string is not a GitHub
-Release. This documentation does not claim plug-and-play support for other
-boards.
+supported today. `YOVERSION` in `core/options.h` identifies the current local
+engineering build, not a GitHub Release or device acceptance. This documentation
+does not claim plug-and-play support for other boards.
 
 ## Русский
 
-`src/src/platform/` описывает аппаратные контракты, проверяемые при сборке.
-Выбранный профиль платы и необязательные изменения разводки превращаются в
-типизированные значения для драйверов дисплея и тача. Компоновка UI, тема и
-хранение пользовательских настроек принадлежат другим модулям.
+`src/src/platform/` описывает аппаратные контракты и жизненный цикл монтирования
+Storage. Выбранный профиль платы и необязательные изменения разводки превращаются
+в типизированные значения для драйверов дисплея и тача. Storage Owner и адаптер
+Audio FS только для чтения реализованы; включение на устройстве ещё ограничено.
+Компоновка UI, тема и хранение пользовательских настроек принадлежат другим модулям.
 
 ### Карта
 
@@ -101,6 +149,8 @@ src/myoptions.h
   -> platform/display: PanelMode + ResolvedDisplayConfig
   -> DisplayPort -> прямой драйвер ST7701 / esp_lcd
   -> platform/touch: ResolvedTouchConfig -> Gt911Backend -> TouchPort
+  -> platform/storage: ResolvedStorageConfig -> StorageOwner -> StorageFsBridge / Directory Service
+  -> Audio File/декодер; Player владеет командами и epoch (штатная SD выключена)
   -> lvgl_ui/lv_touch_indev.cpp -> ввод указателя LVGL
 ```
 
@@ -112,6 +162,7 @@ src/myoptions.h
 | Ошибки миграции старых имён | [board/compat/README.md](board/compat/README.md) | Почему имена `ST7701_*` и `TS_*` не возвращаются |
 | Display Contract | [display/README.md](display/README.md) | Параметры панели, итоговая конфигурация дисплея и DisplayPort |
 | Touch Contract | [touch/README.md](touch/README.md) | GT911, TouchPort и путь ввода LVGL |
+| Storage Contract | [storage/README.md](storage/README.md) | Владелец mount, адаптер Audio FS, Directory Service одной папки; штатная SD выключена |
 | UI Contract | [UI-контракт LVGL](../lvgl_ui/README.md#ui-contract--ui-контракт) | Явный `BoardDefaults.ui.profile`, физический размер экрана и UI-метрики |
 
 ### Слои
@@ -127,6 +178,50 @@ src/myoptions.h
 `I2S_DOUT`, `I2S_BCLK`, `I2S_LRC` и `WAKE_PIN` остаются макросами в
 `src/myoptions.h`. Правка `BoardDefaults.audio` или `BoardDefaults.power` не
 переносит ЦАП и не меняет пин пробуждения.
+
+### Точки входа Storage
+
+`main.cpp` вызывает `StorageOwner::prepareBeforeDisplay()`,
+`mountAfterDisplay()` и `processFault()` в задаче setup/loop. Владелец управляет
+поколением монтирования и учётом операций/дескрипторов. `CloseLease` допускает
+учитываемое закрытие после запрета новых операций, сохраняя ошибку при неизвестном
+результате close. `StorageFsBridge` предоставляет существующий mount для чтения
+Audio; остановкой File/декодера владеет Audio. Player владеет `PathPlayRequest`,
+epoch, правилами MP3/FLAC и результатами команд. Перед переходом Radio↔SD или
+SD↔SD Player подтверждает stop/close; источник в `PlaybackContext` и режим Config
+меняются только после успешного запуска. Управление работает без Wi-Fi; обычный
+STOP сохраняет mount SD. Общая проверка UTF-8 находится в `utils/utf8.h`.
+Directory Service читает одну папку в задаче `S07Dir` и отдаёт неизменяемый
+снимок для `WebUi`, `Lvgl` или `Playback`. Текущие вызывающие — инженерный
+WebUI и поиск следующего трека folder-queue; LVGL — нет. Path SD
+Next/EOF/Prev живут в `core/folder_queue.*` и не зависят от browse cwd.
+Подробности — в README Storage.
+
+`core/source_catalog.h` — статический список источников. Зарегистрированы только
+Radio (`radio`, список станций) и SD (`sd`, каталог). Доступность читается из
+числа станций и статуса Storage; второй копии каталог не хранит. WebUI читает
+этот список через read-only `GET /sources` и открывает playlist Radio или
+существующий SD folder browser без вызова `Player::activate`. Навигация
+браузера — только RAM вкладки. `Player::activate` принимает одно переключение
+за раз. `Pending` означает, что запрос принят, и это ещё не Playing. Повторный
+вызов, пока запрос ещё исполняется, возвращает `Busy` и не двигает epoch.
+Отсутствующий файл закладки — `NeedsSelection`: текущий звук продолжает
+играть. Звучащий источник — только подтверждённый Playing. После выбора без
+запуска при SmartStart 2 команды Next и Prev идут в выбранный источник.
+Последний реально запущенный SD-файл хранится в RAM: он переживает STOP и
+Radio и исчезает после reboot. Поколение mount закладки должно совпадать;
+новая карта не наследует старый путь.
+
+USB был бы ещё одной записью каталога со своим поколением mount и тем же
+путевым воспроизведением. Bluetooth был бы панелью управления: без пути файла
+и без folder queue. Ни один из них не зарегистрирован, заглушек воспроизведения нет.
+
+Штатная сборка `4848S040` включает Storage Owner. Legacy `USE_SD` и SDManager
+выключены. Исходники одноразового SDSPI probe удалены.
+Сборка и прошивка описаны в
+[рабочей сборке S07](storage/README.md#рабочая-сборка-s07). Приёмка на устройстве ещё не выполнена; уборка probe следует
+после интеграции. Учёт операций не гарантирует время завершения синхронного FS.
+Подробнее: [роли и ограничения Storage](storage/README.md).
 
 ### Четыре частых задачи
 
@@ -167,6 +262,6 @@ src/myoptions.h
    разрешение ещё не реализована.
 
 Сейчас рабочая прошивка поддерживает только ESP32-S3 4848S040 со ST7701 RGB565
-480x480 и GT911. Исходники `night_build` сейчас сообщают
-`0.9.434m-r2-lvgl-beta.3.08` в `YOVERSION`. Эта строка не является GitHub
-Release. Документ не заявляет plug-and-play поддержку других плат.
+480x480 и GT911. `YOVERSION` в `core/options.h` обозначает текущую локальную
+инженерную сборку, не GitHub Release или приёмку на устройстве. Документ не
+заявляет plug-and-play поддержку других плат.

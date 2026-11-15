@@ -10,6 +10,7 @@
 #include "esp_lcd_st7701_backend.h"
 #include "st7701_type9_ops.h"
 #include "../platform/display/resolved_display_config.h"
+#include "../platform/storage/storage_owner.h"
 
 #include <Arduino.h>
 #include <string.h>
@@ -436,6 +437,10 @@ bool begin() {
     Serial.println("[esp_lcd_st7701] begin enter");
     if (s_ready) {
         return true;
+    }
+    if (!yoradio::storage::StorageOwner::instance().displayCommandPinsAvailable()) {
+        Serial.println("[esp_lcd_st7701] Type9 blocked by Storage GPIO ownership");
+        return false;
     }
     end();  // clear any half state / очистить полусостояние
 

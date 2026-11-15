@@ -188,6 +188,15 @@
 #define MEM_WATCHDOG_AUTOREBOOT
 
 /* ===============================================
+   BUILTIN LED
+   =============================================== */
+// This board has no WS2812 on GPIO48. That pin is SD SCK and the ST7701 command SCK.
+// Arduino's default builtin LED is virtual pin 97, and digitalWrite maps it through RMT onto GPIO48.
+// На этой плате нет WS2812 на GPIO48. Это SD SCK и командный SCK ST7701.
+// Штатный builtin LED Arduino — виртуальный пин 97; digitalWrite уводит его в RMT на GPIO48.
+#define USE_BUILTIN_LED false
+
+/* ===============================================
    SD CARD
    =============================================== */
 // SD card support DISABLED for ESP32-4848S040
@@ -206,6 +215,22 @@
 //#define SD_HSPI       true                  // Use HSPI to avoid conflicts
 //#define SD_DEBUG_ENABLED true               // SD card debug
 //#define SDSPISPEED    20000000              // SPI speed (20 MHz)
+
+// Compatibility with SD cards that time out when reading SD Status (SSR).
+// 1 = allow mounting after this specific timeout; log a warning.
+//     All remaining initialization and filesystem checks still apply.
+// 0 = strict mode: this timeout prevents mounting.
+// Applies only to builds that include this compatibility mechanism.
+// Does not enable writing to the card.
+//
+// Совместимость с SD-картами, у которых чтение SD Status (SSR)
+// завершается таймаутом. Помогает некоторым старым картам.
+// 1 = продолжить монтирование после этого таймаута, выдать предупреждение.
+//     Остальные проверки карты и файловой системы остаются обязательными.
+// 0 = строгий режим: при таком таймауте карта не монтируется.
+// Действует только в сборках, включающих этот механизм совместимости.
+// Запись на карту эта настройка не разрешает.
+#define YORADIO_SD_SSR_TIMEOUT_FALLBACK 1
 
 /* ===============================================
    TOUCHSCREEN

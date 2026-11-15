@@ -13,6 +13,12 @@
 #include "telnet.h"
 #include "sleep_timer.h"
 #include "../ai/ai_log.h"  // Для aiLogSetBootDone / For aiLogSetBootDone
+#if defined(YORADIO_S07_STORAGE_ENABLED) && YORADIO_S07_STORAGE_ENABLED
+#include "../platform/storage/storage_dir.h"
+#include "../platform/storage/storage_owner.h"
+#include "path_play_request.h"
+#include "s07_act_diag.h"
+#endif
 
 Telnet telnet;
 
@@ -107,6 +113,110 @@ ParsedLegacySleep parse_legacy_sleep(const char* input) {
   }
   return parsed;
 }
+
+#if defined(YORADIO_S07_STORAGE_ENABLED) && YORADIO_S07_STORAGE_ENABLED
+// One directory, loop task only. The played path is the bytes listDirectory returned.
+// Один каталог, только loop task. В Player уходит путь, который вернул listDirectory.
+struct S07LongFile {
+  bool found = false;
+  uint32_t seen = 0;
+  size_t max_bytes = 0;
+  size_t name_bytes = 0;
+  char name[yoradio::storage::kFatLfnUtf8Bytes + 1]{};
+  char path[yoradio::storage::kMaxMediaPathBytes + 1]{};
+};
+S07LongFile s07_long;
+
+bool s07_take_long_file(const yoradio::storage::DirEntry& entry, void*) {
+  const size_t n = strlen(entry.name);
+  ++s07_long.seen;
+  if (n > s07_long.max_bytes) s07_long.max_bytes = n;
+  if (entry.directory || n <= 255 || s07_long.found) return true;
+  memcpy(s07_long.name, entry.name, n + 1);
+  const size_t path_n = strlen(entry.path);
+  if (path_n > yoradio::storage::kMaxMediaPathBytes) return true;
+  memcpy(s07_long.path, entry.path, path_n + 1);
+  s07_long.name_bytes = n;
+  s07_long.found = true;
+  return false;
+}
+
+void s07_list_and_play() {
+  using namespace yoradio::storage;
+  using namespace yoradio::playback;
+  if (player.status() == PLAYING || player.hasStopFailure()) {
+    Serial.printf("[S07-ENG] dir refused status=%u stop_failed=%u\n",
+        static_cast<unsigned>(player.status()),
+        static_cast<unsigned>(player.hasStopFailure()));
+    return;
+  }
+  s07_long = S07LongFile{};
+  const auto before = StorageOwner::instance().status();
+  const DirStatus listed = listDirectory("/", before.generation, s07_take_long_file, nullptr);
+  const auto after = StorageOwner::instance().status();
+  Serial.printf("[S07-ENG] dir list path=/ status=%u seen=%u max_name=%u long=%u handles=%u ready=%u\n",
+      static_cast<unsigned>(listed), s07_long.seen,
+      static_cast<unsigned>(s07_long.max_bytes), static_cast<unsigned>(s07_long.found),
+      static_cast<unsigned>(after.open_handles), static_cast<unsigned>(after.ready));
+  if (!s07_long.found) {
+    Serial.printf("[S07-ENG] dir no file name over 255 UTF-8 bytes\n");
+    return;
+  }
+  Serial.printf("[S07-ENG] dir returned name_bytes=%u path_bytes=%u\n",
+      static_cast<unsigned>(s07_long.name_bytes),
+      static_cast<unsigned>(strlen(s07_long.path)));
+  Serial.printf("[S07-ENG] dir returned path=%s\n", s07_long.path);
+  if (listed != DirStatus::Ok && listed != DirStatus::End) {
+    Serial.printf("[S07-ENG] dir play skipped list status=%u\n", static_cast<unsigned>(listed));
+    return;
+  }
+  if (!after.ready || after.open_handles != 0) {
+    Serial.printf("[S07-ENG] dir play skipped ready=%u handles=%u\n",
+        static_cast<unsigned>(after.ready), static_cast<unsigned>(after.open_handles));
+    return;
+  }
+  PathPlayRequest ref;
+  const PathPlayResult copied = PathPlayRequest::copy(
+      s07_long.path, after.generation, player.pathEpoch(), ref);
+  const PathPlayResult queued = copied == PathPlayResult::None ? player.requestPlay(ref) : copied;
+  Serial.printf("[S07-ENG] dir play from returned path result=%u\n",
+      static_cast<unsigned>(queued));
+}
+
+// Reads only. Activation itself may copy the storage status; this helper does not.
+// Только чтение. Сама активация может скопировать статус накопителя; этот helper — нет.
+void s07_act_observe(yoradio::s07act::View& out) {
+  yoradio::source::SourceId id = yoradio::source::SourceId::Radio;
+  out.selected = player.selectedSource(id);
+  if (out.selected) out.selected_id = id;
+  out.sounding = player.soundingSource(id);
+  if (out.sounding) out.sounding_id = id;
+  const auto context = player.playbackContext();
+  if (context.state == yoradio::playback::PlaybackState::Playing) {
+    out.state = yoradio::s07act::PlayWord::Playing;
+  } else if (context.state == yoradio::playback::PlaybackState::StopFailed) {
+    out.state = yoradio::s07act::PlayWord::StopFailed;
+  } else {
+    out.state = yoradio::s07act::PlayWord::Stopped;
+  }
+  out.epoch = player.pathEpoch();
+}
+
+void s07_act_admit(void*, yoradio::source::SourceId id, yoradio::s07act::View& out) {
+  const auto admission = player.activate(id);
+  out.request = admission.request;
+  out.outcome = admission.outcome;
+  s07_act_observe(out);
+}
+
+void s07_act_read(void*, yoradio::s07act::View& out) {
+  const auto snap = player.activation();
+  out.request = snap.request;
+  out.outcome = snap.outcome;
+  out.complete = snap.complete;
+  s07_act_observe(out);
+}
+#endif
 
 }  // namespace
 
@@ -331,6 +441,41 @@ void Telnet::on_input(const char* str, uint8_t clientId) {
     }
   };
 
+#if defined(YORADIO_S07_STORAGE_ENABLED) && YORADIO_S07_STORAGE_ENABLED
+  // Serial/loop task. Lists only "/" and plays a returned name longer than 255 bytes.
+  // Serial/loop task. Перечисляет только "/" и играет возвращённое имя длиннее 255 байт.
+  if (strcmp(str, "s07dir") == 0) {
+    s07_list_and_play();
+    printf(clientId, "> ");
+    return;
+  }
+  // Same gate and parser position as s07dir. radio/sd admit once; status only reads.
+  // Тот же gate и место в parser, что у s07dir. radio/sd принимают один раз; status только читает.
+  {
+    yoradio::s07act::View view;
+    yoradio::s07act::Ports ports;
+    ports.admit = s07_act_admit;
+    ports.read = s07_act_read;
+    const auto effect = yoradio::s07act::apply(str, ports, view);
+    if (effect != yoradio::s07act::Effect::Ignored) {
+      if (effect == yoradio::s07act::Effect::Usage) {
+        printf(clientId, "usage: s07act radio|sd|status\n> ");
+        return;
+      }
+      char line[160];
+      const int wrote = effect == yoradio::s07act::Effect::Read
+          ? yoradio::s07act::formatStatus(line, sizeof(line), view)
+          : yoradio::s07act::formatAdmit(line, sizeof(line), view);
+      if (wrote > 0 && static_cast<size_t>(wrote) < sizeof(line)) {
+        printf(clientId, "%s\n> ", line);
+      } else {
+        printf(clientId, "s07act format error\n> ");
+      }
+      return;
+    }
+  }
+#endif
+
   // Runtime timer commands stay ahead of network.status so the identical parser works over
   // Serial without Wi-Fi. They change runtime snapshots only, never persisted UI presets.
   // Runtime-команды идут до network.status: один parser для Serial/telnet, пресеты не меняются.
@@ -525,11 +670,13 @@ void Telnet::on_input(const char* str, uint8_t clientId) {
         printf(clientId, "##SYS.DATE#: %s+%02d:%02d\n", timeStringBuff, config.store.tzHour, config.store.tzMin);
       }
       printf(clientId, "##CLI.NAMESET#: %d %s\n", config.lastStation(), config.station.name);
-      if (player.status() == PLAYING) {
+      if (!player.hasStopFailure() && player.status() == PLAYING) {
         printf(clientId, "##CLI.META#: %s\n", config.station.title);
       }
       printf(clientId, "##CLI.VOL#: %d\n", player.audibleVolume());
-      if (player.status() == PLAYING) {
+      if(player.hasStopFailure()) {
+        printf(clientId,"##CLI.STOP_FAILED#\n");
+      } else if (player.status() == PLAYING) {
         printf(clientId, "##CLI.PLAYING#\n");
       } else {
         printf(clientId, "##CLI.STOPPED#\n");
@@ -544,7 +691,6 @@ void Telnet::on_input(const char* str, uint8_t clientId) {
       player.sendCommand({PR_PLAY, (uint16_t)sb});
       return;
     }
-    #ifdef USE_SD
     int mm;
     if (sscanf(str, "mode %d", &mm) == 1 ) {
       if (mm > 2) mm = 0;
@@ -554,7 +700,6 @@ void Telnet::on_input(const char* str, uint8_t clientId) {
         config.changeMode(mm);
       return;
     }
-    #endif
     if (strcmp(str, "sys.tzo") == 0 || strcmp(str, "tzo") == 0) {
       printf(clientId, "##SYS.TZO#: %d:%d\n> ", config.store.tzHour, config.store.tzMin);
       return;

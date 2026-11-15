@@ -25,6 +25,8 @@
 #endif
 #include "AudioEx.h"
 #include "audio_text_url_utils.h"
+#include "flac_vorbis_comment.h"
+#include "../platform/storage/storage_file_status.h"
 #include "aac_decoder/aac_decoder.h"
 #include "flac_decoder/flac_decoder.h"
 #include "mp3_decoder/mp3_decoder.h"
@@ -51,6 +53,22 @@ constexpr size_t    AUDIO_STACK_SIZE     = 3300;
 // static allocations for Audio task
 StaticTask_t __attribute__((unused)) xAudioTaskBuffer;
 StackType_t  __attribute__((unused)) xAudioStack[AUDIO_STACK_SIZE];
+
+namespace {
+// Reuse the control mutex. Lock order: recursive control -> decoder -> request mux.
+// Порядок: recursive control -> decoder -> короткая request critical section.
+class AudioControlGuard {
+    SemaphoreHandle_t m_mutex;
+    bool m_locked;
+public:
+    explicit AudioControlGuard(SemaphoreHandle_t mutex)
+        : m_mutex(mutex), m_locked(mutex && xSemaphoreTakeRecursive(mutex, pdMS_TO_TICKS(100)) == pdTRUE) {}
+    ~AudioControlGuard() { if(m_locked) xSemaphoreGiveRecursive(m_mutex); }
+    explicit operator bool() const { return m_locked; }
+    AudioControlGuard(const AudioControlGuard&) = delete;
+    AudioControlGuard& operator=(const AudioControlGuard&) = delete;
+};
+}
 
 #if defined(YORADIO_IDF_C1_CONFIG) && YORADIO_IDF_C1_CONFIG
 namespace {
@@ -319,8 +337,9 @@ uint32_t AudioBuffer::getReadPos() { return m_readPtr - m_buffer.get(); }
 // clang-format off
 Audio::Audio(uint8_t i2sPort) {
 
-    mutex_playAudioData = xSemaphoreCreateMutex();
+    mutex_playAudioData = xSemaphoreCreateRecursiveMutex();
     mutex_audioTask     = xSemaphoreCreateMutex();
+    configASSERT(mutex_playAudioData && mutex_audioTask);
 
     if(!psramFound()) AUDIO_ERROR("audioI2S requires PSRAM!");
 
@@ -370,12 +389,13 @@ Audio::Audio(uint8_t i2sPort) {
 }
 //****************************************************************************************
 Audio::~Audio() {
-//    stopSong();
-    setDefaults();
+    // A live object's failed STOP is retryable. Destruction cannot return and let
+    // member destructors free memory still used by a task: fail before destruction.
+    // Обычный STOP допускает retry; разрушение объекта при живой task недопустимо.
+    if(!setDefaults() || !stopAudioTask()) abort();
 
     i2s_channel_disable(m_i2s_tx_handle);
     i2s_del_channel(m_i2s_tx_handle);
-    stopAudioTask();
     vSemaphoreDelete(mutex_playAudioData);
     vSemaphoreDelete(mutex_audioTask);
 }
@@ -460,13 +480,18 @@ void Audio::zeroI2Sbuff(){
     i2s_channel_preload_data(m_i2s_tx_handle, buff, 32, &bytes_loaded);
 }
 //****************************************************************************************
-void Audio::setDefaults() {
+bool Audio::setDefaults() {
+    AudioControlGuard control(mutex_playAudioData);
+    if(!control) {
+        m_f_audioTaskStopGate.store(true, std::memory_order_release);
+        m_stopFailed.store(true, std::memory_order_release);
+        return false;
+    }
     // E-HO1: the audio task's world is about to be replaced - decoders freed, InBuff
     // reset. Any request still in flight belongs to the stream that is going away.
     // E-HO1: мир аудиозадачи сейчас заменится — декодеры освобождаются, InBuff
     // сбрасывается. Любой запрос «в полёте» относится к уходящему потоку.
-    beginDecodeEpoch();
-    stopSong();
+    if(!stopSong()) return false;
     initInBuff(); // initialize InputBuffer if not already done
     InBuff.resetBuffer();
     MP3Decoder_FreeBuffers();
@@ -551,9 +576,14 @@ void Audio::setDefaults() {
     if(m_f_reset_m3u8Codec){m_m3u8Codec = CODEC_AAC;} // reset to default
     m_f_reset_m3u8Codec = true;
     m_resampleCursor = 0.0f;
+    // Only a completed reset may admit a new epoch. Failed STOP never reaches here.
+    // Только завершённый reset открывает новый epoch. Failed STOP сюда не попадает.
+    beginDecodeEpoch();
+    return true;
 }
 //****************************************************************************************
 void Audio::tlsPreconnectCleanup(uint8_t preserveCodec) {
+    if(hasStopFailure() || audioTaskStopGateActive()) return;
     // shrink_to_fit to reduce fragmentation before TLS connect
     if(m_playlistURL.size() > 1024) m_playlistURL.shrink_to_fit();
     if(m_playlistContent.size() > 1024) m_playlistContent.shrink_to_fit();
@@ -606,6 +636,7 @@ void Audio::setConnectionTimeout(uint16_t timeout_ms, uint16_t timeout_ms_ssl) {
     Usage: audio.openai_speech(OPENAI_API_KEY, "tts-1", input, instructions, "shimmer", "mp3", "1");
 */
 bool Audio::openai_speech(const String& api_key, const String& model, const String& input, const String& instructions, const String& voice, const String& response_format, const String& speed) {
+    if(hasStopFailure()) return false;
     ps_ptr<char> host(__LINE__);
     host.assign("api.openai.com");
     char path[] = "/v1/audio/speech";
@@ -615,9 +646,8 @@ bool Audio::openai_speech(const String& api_key, const String& model, const Stri
         stopSong();
         return false;
     }
-    xSemaphoreTakeRecursive(mutex_playAudioData, 0.3 * configTICK_RATE_HZ);
-
-    setDefaults();
+    AudioControlGuard control(mutex_playAudioData);
+    if(!control || hasStopFailure() || !setDefaults()) return false;
     m_f_ssl = true;
 
     m_speechtxt.assign(input.c_str());
@@ -726,7 +756,6 @@ bool Audio::openai_speech(const String& api_key, const String& model, const Stri
         { auto d = memWatchdog.evaluate(); if (d.trigger) memWatchdog.armReboot(); }
 #endif
     }
-    xSemaphoreGiveRecursive(mutex_playAudioData);
     return res;
 }
 //****************************************************************************************
@@ -771,6 +800,7 @@ audiolib::hwoe_t Audio::dismantle_host(const char* host){
 }
 //****************************************************************************************
 bool Audio::connecttohost(const char* host, const char* user, const char* pwd) { // user and pwd for authentification only, can be empty
+    if(hasStopFailure()) return false;
 
     if(!host) { AUDIO_ERROR("Hostaddress is empty");     stopSong(); return false;}
     if (strlen(host) > 2048) { AUDIO_ERROR("Hostaddress is too long");  stopSong(); return false;} // max length in Chrome DevTools
@@ -788,7 +818,8 @@ bool Audio::connecttohost(const char* host, const char* user, const char* pwd) {
     ps_ptr<char> path("path_connecttohost");                 // extension + '?' + parameter
     ps_ptr<char> rqh("rqh_connecttohost");                   // request header
 
-    xSemaphoreTakeRecursive(mutex_playAudioData, 0.3 * configTICK_RATE_HZ);
+    AudioControlGuard control(mutex_playAudioData);
+    if(!control || hasStopFailure()) return false;
 
     c_host.copy_from(host);
     c_host.trim();
@@ -803,7 +834,6 @@ bool Audio::connecttohost(const char* host, const char* user, const char* pwd) {
     if(!dismantledHost.valid) {
         AUDIO_ERROR("Invalid URL: %s", c_host.c_get());
         stopSong();
-        xSemaphoreGiveRecursive(mutex_playAudioData);
         return false;
     }
 
@@ -842,7 +872,7 @@ bool Audio::connecttohost(const char* host, const char* user, const char* pwd) {
         b64encode((const char*)toEncode.get(), toEncode.strlen(), authorization.get());
     }
 
-    setDefaults();
+    if(!setDefaults()) return false;
 
                        rqh.assign("GET /");
                        rqh.append(path.get());
@@ -922,7 +952,6 @@ bool Audio::connecttohost(const char* host, const char* user, const char* pwd) {
 //        if(audio_icydescription) audio_icydescription("");
         if(audio_icyurl) audio_icyurl("");
     }
-    xSemaphoreGiveRecursive(mutex_playAudioData);
     return res;
 }
 //****************************************************************************************
@@ -936,11 +965,13 @@ bool Audio::connecttohost(const char* host, const char* user, const char* pwd) {
 // заставляет mbedtls подставлять ip.toString() в SNI. Для URL с буквальным IP
 // поведение не меняется — hostname и есть строка IP.
 bool Audio::audioTransportConnect(const IPAddress& ip, uint16_t port, const char* hostname) {
+    if(hasStopFailure() || audioTaskStopGateActive()) return false;
     if(m_f_ssl) return clientsecure.connectWithSni(ip, port, hostname) > 0;
     return m_client->connect(ip, port) > 0;
 }
 //****************************************************************************************
 bool Audio::httpPrint(const char* host) {
+    if(hasStopFailure() || audioTaskStopGateActive()) return false;
     // user and pwd for authentification only, can be empty
     if(!m_f_running) return false;
     if(host == NULL) {AUDIO_ERROR("Hostaddress is empty"); stopSong(); return false;}
@@ -1083,6 +1114,7 @@ bool Audio::httpPrint(const char* host) {
 }
 //****************************************************************************************
 bool Audio::httpRange(uint32_t seek, uint32_t length){
+    if(hasStopFailure() || audioTaskStopGateActive()) return false;
 
     if(!m_f_running) return false;
 
@@ -1179,58 +1211,58 @@ bool Audio::httpRange(uint32_t seek, uint32_t length){
     return true;
 }
 //****************************************************************************************
-bool Audio::connecttoFS(fs::FS& fs, const char* path, int32_t fileStartPos) {
-
-    xSemaphoreTakeRecursive(mutex_playAudioData, 0.3 * configTICK_RATE_HZ);
-    ps_ptr<char>c_path;
-//    ps_ptr<char> audioPath;
+bool Audio::connecttoFS(fs::FS& fs, const char* path, int32_t fileStartPos,
+                        std::shared_ptr<yoradio::storage::StorageFileStatus> fileStatus) {
+    if(hasStopFailure()) return false;
+    AudioControlGuard control(mutex_playAudioData);
+    if(!control || hasStopFailure()) return false;
     bool res = false;
 //    m_fileStartTime = fileStartPos;
     m_fileStartPos = fileStartPos;
     if(m_fileStartPos == 0) m_fileStartPos = -1;
     uint8_t codec = CODEC_NONE;
 
-    if(!path) {AUDIO_ERROR("file path is not set"); goto exit;}  // guard
-    c_path.copy_from(path); // copy from path
-    c_path.trim();
-    if(!c_path.contains(".")) {AUDIO_ERROR("No file extension found"); goto exit;}  // guard
-    setDefaults(); // free buffers an set defaults
+    if(!path || path[0] != '/') {AUDIO_ERROR("absolute file path is required"); goto exit;}
+    if(!setDefaults()) goto exit;
+    m_storageFileStatus = std::move(fileStatus);
 
-    if(c_path.ends_with_icase(".mp3")) { codec = CODEC_MP3; AUDIO_INFO("format is mp3"); }
+    if(audio_safe::endsWithIcase(path,".mp3")) { codec = CODEC_MP3; AUDIO_INFO("format is mp3"); }
 //    if(c_path.ends_with_icase(".m4a")) { codec = CODEC_M4A; AUDIO_INFO("format is aac"); }
 //    if(c_path.ends_with_icase(".aac")) { codec = CODEC_AAC; AUDIO_INFO("format is aac"); }
 //    if(c_path.ends_with_icase(".wav")) { codec = CODEC_WAV; AUDIO_INFO("format is wav"); }
-    if(c_path.ends_with_icase(".flac")) { codec = CODEC_FLAC; AUDIO_INFO("format is flac"); }
+    if(audio_safe::endsWithIcase(path,".flac")) { codec = CODEC_FLAC; AUDIO_INFO("format is flac"); }
 //    if(c_path.ends_with_icase(".opus")) { codec = CODEC_OPUS; m_f_ogg = true; AUDIO_INFO("format is opus"); }
 //    if(c_path.ends_with_icase(".ogg")) { codec = CODEC_OGG; m_f_ogg = true; AUDIO_INFO("format is ogg"); }
 //    if(c_path.ends_with_icase(".oga")) { codec = CODEC_OGG; m_f_ogg = true; AUDIO_INFO("format is ogg"); }
     if(codec == CODEC_NONE) {   // guard
-        int dotPos = c_path.last_index_of('.');
-        /*AUDIO_LOG_WARN*/AUDIO_ERROR("The %s format is not supported", path + dotPos); goto exit;
+        AUDIO_ERROR("file format is not supported"); goto exit;
     }
 
-    if(!c_path.starts_with("/")) c_path.insert("/", 0);
-
-    if(!fs.exists(c_path.get())) {/*AUDIO_LOG_WARN*/AUDIO_ERROR("file not found: %s", c_path.get()); goto exit;}
-    AUDIO_INFO("Reading file: \"%s\"", c_path.get());
-    m_audiofile = fs.open(c_path.get());
+    // Exact bytes; one open, no exists/open race or alias/trim normalization.
+    AUDIO_INFO("Reading file: \"%s\"", path);
+    m_audiofile = fs.open(path);
+    if(!m_audiofile || m_audiofile.isDirectory() ||
+       (m_storageFileStatus && m_storageFileStatus->failed())) {
+        m_audiofile.close();
+        AUDIO_ERROR("file open failed or not a regular file"); goto exit;
+    }
     m_dataMode = AUDIO_LOCALFILE;
     m_audioFileSize = m_audiofile.size();
 
     res = initializeDecoder(codec);
+    if(hasStopFailure()) goto exit;
     m_codec = codec;
     if(res) m_f_running = true;
     else m_audiofile.close();
 
 exit:
-    xSemaphoreGiveRecursive(mutex_playAudioData);
     return res;
 }
 //****************************************************************************************
 bool Audio::connecttospeech(const char* speech, const char* lang) {
-    xSemaphoreTakeRecursive(mutex_playAudioData, 0.3 * configTICK_RATE_HZ);
-
-    setDefaults();
+    if(hasStopFailure()) return false;
+    AudioControlGuard control(mutex_playAudioData);
+    if(!control || hasStopFailure() || !setDefaults()) return false;
     char host[] = "translate.google.com.vn";
     char path[] = "/translate_tts";
 
@@ -1261,7 +1293,6 @@ bool Audio::connecttospeech(const char* speech, const char* lang) {
         memWatchdog.record(MWEvent::HTTP_FAIL);
         { auto d = memWatchdog.evaluate(); if (d.trigger) memWatchdog.armReboot(); }
 #endif
-        xSemaphoreGiveRecursive(mutex_playAudioData);
         return false;
     }
     m_client->print(req.get());
@@ -1272,7 +1303,6 @@ bool Audio::connecttospeech(const char* speech, const char* lang) {
     m_dataMode = HTTP_RESPONSE_HEADER;
     m_lastHost.assign(host);
     m_currentHost.copy_from(host);
-    xSemaphoreGiveRecursive(mutex_playAudioData);
     return true;
 }
 //****************************************************************************************
@@ -1902,10 +1932,11 @@ int Audio::read_FLAC_Header(uint8_t* data, size_t len) {
         size_t commentListLength = data[0] + (data[1] << 8) + (data[2] << 16) + (data[3] << 24);
         data += 4; idx += 4;
 
-        char* album = NULL;
-        char* artist = NULL;
-        char* title  = NULL;
-
+        // Each Vorbis field is copied into its own bounded buffer and published on its
+        // own callback. TITLE/ARTIST must not write through an album pointer: that pointer
+        // stayed NULL when ALBUM was absent and panicked on Core 1 (B017b, EXCVADDR 0).
+        // Каждое поле Vorbis копируется в свой ограниченный буфер и уходит в свой callback.
+        // TITLE/ARTIST не пишут через указатель album: без ALBUM он оставался NULL и ронял Core 1.
         for(int i = 0; i < commentListLength; i++) {
             (void)i;
             size_t commentLength = data[0] + (data[1] << 8) + (data[2] << 16) + (data[3] << 24);
@@ -1915,22 +1946,17 @@ int Audio::read_FLAC_Header(uint8_t* data, size_t len) {
                 if(commentString.starts_with("LYRICS=")) lyricsBuffer.clone_from(commentString);
                 else /*info(evt_id3data,*/ audio_id3data(commentString.get());
 
-            if(startsWith(commentString.get(), "album") || startsWith(commentString.get(), "ALBUM")){
-                album = strdup(commentString.get() + 6);
-                audio_id3album(album); }
-
-            if(startsWith(commentString.get(), "artist") || startsWith(commentString.get(), "ARTIST")){
-                artist = strdup(commentString.get() + 7);
-//                audio_id3artist(artist);
-                strcpy(album, " / ");
-                strcpy(album, artist); }
-
-            if(startsWith(commentString.get(), "title") || startsWith(commentString.get(), "TITLE")){
-                title = strdup(commentString.get() + 6);
-                strcpy(album, " - ");
-                strcpy(album, title);
-                audio_id3album(album); }
-
+                char vorbisValue[kFlacVorbisValueCap];
+                const FlacVorbisField vorbis = flacVorbisCopy(commentString.get(), vorbisValue, sizeof(vorbisValue));
+                if(vorbis.key == kFlacVorbisAlbum) {
+                    if(audio_id3album) audio_id3album(vorbisValue);
+                } else if(vorbis.key == kFlacVorbisArtist) {
+                    if(audio_id3artist) audio_id3artist(vorbisValue);
+                } else if(vorbis.key == kFlacVorbisTitle) {
+                    // Title uses the same callback as ID3 TIT2. audio_id3title is only a wrapper.
+                    // Title идёт в тот же callback, что ID3 TIT2. audio_id3title лишь обёртка над ним.
+                    if(audio_id3album) audio_id3album(vorbisValue);
+                }
             }
             data += commentLength; idx += commentLength;
             if(idx > vendorLength + 3) {AUDIO_ERROR("VORBIS COMMENT section is too long");}
@@ -3188,49 +3214,69 @@ size_t Audio::process_m3u8_ID3_Header(uint8_t* packet) {
     return id3Size;
 }
 //****************************************************************************************
-uint32_t Audio::stopSong() {
+AudioStopResult Audio::stopSong() {
+    AudioStopResult result;
+    m_f_audioTaskStopGate.store(true, std::memory_order_release);
+    m_stopFailed.store(true, std::memory_order_release);
+    if(m_audioTaskHandle && xTaskGetCurrentTaskHandle() == m_audioTaskHandle) {
+        requestStopFromAudioTask("stop called on decoder task");
+        result.error = AudioStopError::DecoderTask;
+        return result;
+    }
+    AudioControlGuard control(mutex_playAudioData);
+    if(!control) {
+        result.error = AudioStopError::ControlTimeout;
+        return result;
+    }
+    // This mutex covers decode AND playChunk/I2S writes. Do not wait on the old
+    // decoding flag (it excludes pending PCM). A timeout performs no cleanup.
+    // Mutex покрывает decode И PCM output. Timeout не разрешает освобождение.
+    if(!mutex_audioTask || xSemaphoreTake(mutex_audioTask, pdMS_TO_TICKS(100)) != pdTRUE) {
+        result.error = AudioStopError::DecoderTimeout;
+        return result;
+    }
+    result.decoderQuiesced = true;
     clearBufferedReconnectPcmWatch();
     resetAacOverlapDiagnostic(true);
     m_f_preserveStreamReconnect = false;
     m_preservedStreamCodec = CODEC_NONE;
-    m_f_lockInBuffer = true; // wait for the decoding to finish
-        uint8_t maxWait = 0;
-        while(m_f_audioTaskIsDecoding) {vTaskDelay(1); maxWait++; if(maxWait > 100) break;} // in case of error wait max 100ms
-        uint32_t currTime = getAudioCurrentTime();
-        uint32_t pos = 0;
-        if(m_f_running) {
-            m_f_running = false;
-            if(m_client->connected()){
-                AUDIO_INFO("Closing web file \"%s\"", m_lastHost.c_get());
-                m_client->stop();
-            }
-            if(m_audiofile) {
-               AUDIO_INFO("Closing audio file \"%s\"", m_audiofile.name());
-               pos = m_audioFilePosition - inBufferFilled();
-               m_audiofile.close();
-            }
-        }
-        memset(m_filterBuff, 0, sizeof(m_filterBuff)); // Clear FilterBuffer
-        if(m_codec == CODEC_MP3) MP3Decoder_FreeBuffers();
-        if(m_codec == CODEC_AAC) AACDecoder_FreeBuffers();
-        if(m_codec == CODEC_M4A) AACDecoder_FreeBuffers();
-        if(m_codec == CODEC_FLAC) FLACDecoder_FreeBuffers();
-        if(m_codec == CODEC_OPUS) OPUSDecoder_FreeBuffers();
-        if(m_codec == CODEC_VORBIS) VORBISDecoder_FreeBuffers();
+    m_f_webstreamReconnectPending = false;
+    m_f_running = false;
+    if(m_audiofile) {
+        const uint32_t buffered = inBufferFilled();
+        result.position = m_audioFilePosition > buffered ? m_audioFilePosition - buffered : 0;
+    }
+    // close is idempotent and must also run after a header failure / running=false.
+    // File закрывается и после failed header / running=false, а не только Playing.
+    m_audiofile.close();
+    result.fileClosed = !m_audiofile && (!m_storageFileStatus || m_storageFileStatus->allClosed());
+    if(m_client) m_client->stop(); // disconnected sockets may still own buffers
+    result.transportStopped = result.fileClosed && (!m_client || !m_client->connected());
+    if(result.transportStopped) {
+        m_storageFileStatus.reset();
+        memset(m_filterBuff, 0, sizeof(m_filterBuff));
         m_validSamples = 0;
+        m_plCh.count = 0;
         m_audioCurrentTime = 0;
         m_audioFileDuration = 0;
         m_codec = CODEC_NONE;
         m_dataMode = AUDIO_NONE;
         m_streamType = ST_NONE;
         m_playlistFormat = FORMAT_NONE;
-        m_f_lockInBuffer = false;
-//    return currTime;
-    return pos;
+        m_stopFailed.store(false, std::memory_order_release);
+    } else {
+        result.error = AudioStopError::TransportClose;
+    }
+    // Keep the gate held even on success. setDefaults admits the next epoch only
+    // after all resets/frees; a waiting old task ticket must fail its epoch check.
+    // Gate остаётся закрыт; новый epoch открывает только завершённый setDefaults.
+    xSemaphoreGive(mutex_audioTask);
+    return result;
 }
 //****************************************************************************************
 // E36REC1B: unstable-stream session — Player-owned reset, Audio-owned budget / сессия unstable
 void Audio::beginPlaybackSession() {
+    if(hasStopFailure()) return;
     m_playbackSession++;
     if (!m_playbackSession) m_playbackSession = 1;
     resetAacOverlapDiagnostic(true);
@@ -3705,10 +3751,11 @@ void Audio::pollAacOverlapDiagnostic() {
 }
 
 bool Audio::restartAacAfterBufferedReconnect(uint32_t pcmAgeMs, const char* reason) {
+    if(hasStopFailure() || audioTaskStopGateActive()) return false;
     const uint32_t requestedSession = m_playbackSession;
     if(xSemaphoreTake(mutex_audioTask, 0.3 * configTICK_RATE_HZ) != pdTRUE) return false;
 
-    if(!m_f_running || m_playbackSession != requestedSession ||
+    if(hasStopFailure() || audioTaskStopGateActive() || !m_f_running || m_playbackSession != requestedSession ||
        m_dataMode != AUDIO_DATA || m_streamType != ST_WEBSTREAM ||
        !overlapDedupEligibleCodec()) {   // E-MP4
         xSemaphoreGive(mutex_audioTask);
@@ -3979,7 +4026,6 @@ void Audio::pollAudioTaskStopRequest() {
     req = m_stopRequest;
     currentEpoch = m_decodeEpoch;
     m_stopRequest = AudioTaskRequest{};
-    if(req.pending) m_f_audioTaskStopGate = false;   // owner takes over from here
     portEXIT_CRITICAL(&m_audioRequestMux);
 
     if(!req.pending) return;
@@ -4026,7 +4072,9 @@ void Audio::beginDecodeEpoch() {
     portENTER_CRITICAL(&m_audioRequestMux);
     m_decodeEpoch++;
     if(!m_decodeEpoch) m_decodeEpoch = 1;
-    m_f_audioTaskStopGate = false;
+    m_stopRequest = AudioTaskRequest{};
+    m_vorbisReopenRequest = AudioTaskRequest{};
+    m_f_audioTaskStopGate.store(false, std::memory_order_release);
     portEXIT_CRITICAL(&m_audioRequestMux);
 }
 //****************************************************************************************
@@ -4166,9 +4214,11 @@ void Audio::pollWebstreamReconnect() {
 }
 //****************************************************************************************
 bool Audio::pauseResume() {
-    xSemaphoreTake(mutex_audioTask, 0.3 * configTICK_RATE_HZ);
+    if(hasStopFailure() || audioTaskStopGateActive()) return false;
+    if(xSemaphoreTake(mutex_audioTask, 0.3 * configTICK_RATE_HZ) != pdTRUE) return false;
     bool retVal = false;
-    if(m_dataMode == AUDIO_LOCALFILE || m_streamType == ST_WEBSTREAM || m_streamType == ST_WEBFILE) {
+    if(!hasStopFailure() && !audioTaskStopGateActive() &&
+       (m_dataMode == AUDIO_LOCALFILE || m_streamType == ST_WEBSTREAM || m_streamType == ST_WEBFILE)) {
         m_f_running = !m_f_running;
         retVal = true;
         if(!m_f_running) {
@@ -4259,6 +4309,7 @@ size_t Audio::resampleTo48kStereo(const int16_t* input, size_t inputSamples) {
 
 //****************************************************************************************
 void IRAM_ATTR Audio::playChunk() {
+    if(audioTaskStopGateActive()) { m_validSamples = 0; m_plCh.count = 0; return; }
     if(m_validSamples == 0) return; // nothing to do
     int16_t* outBuff_ptr = nullptr;
 
@@ -4341,7 +4392,7 @@ void IRAM_ATTR Audio::playChunk() {
     }
 
 i2swrite:
-
+    if(audioTaskStopGateActive()) { m_validSamples = 0; m_plCh.count = 0; return; }
     m_plCh.err = i2s_channel_write(m_i2s_tx_handle, outBuff_ptr + m_plCh.count, m_validSamples * m_plCh.sampleSize, &m_plCh.i2s_bytesConsumed, 50);
     if( ! (m_plCh.err == ESP_OK || m_plCh.err == ESP_ERR_TIMEOUT)) goto exit;
     m_validSamples -= m_plCh.i2s_bytesConsumed / m_plCh.sampleSize;
@@ -4372,6 +4423,7 @@ exit:
 //****************************************************************************************
 void Audio::loop() {
     pollAudioTaskStopRequest();  // E-ST1: a pending stop outranks everything below
+    if(hasStopFailure() || audioTaskStopGateActive()) return;
     pollVorbisReopenRequest();   // E-VS7: owner task consumes the audio-task request
     if(m_f_webstreamReconnectPending) {
         pollWebstreamReconnect();
@@ -4756,7 +4808,7 @@ const char* Audio::parsePlaylist_PLS() {
 
 exit:
     m_f_running = false;
-    stopSong();
+    if(!stopSong()) return nullptr;
     vector_clear_and_shrink(m_playlistContent);
     m_dataMode = AUDIO_NONE;
     return nullptr;
@@ -5053,6 +5105,9 @@ ps_ptr<char>Audio::m3u8redirection(uint8_t* codec) {
 //****************************************************************************************
 void Audio::processLocalFile() {
     if(!(m_audiofile && m_f_running && m_dataMode == AUDIO_LOCALFILE)) return; // guard
+    if(m_storageFileStatus && m_storageFileStatus->failed()) {
+        AUDIO_ERROR("SD file IO failed"); stopSong(); return;
+    }
     m_prlf.maxFrameSize = InBuff.getMaxBlockSize(); // every mp3/aac frame is not bigger maxFrameSize = InBuff.getMaxBlockSize(); // every mp3/aac frame is not bigger
     m_prlf.availableBytes = 0;
     m_prlf.bytesAddedToBuffer = 0;
@@ -5082,6 +5137,9 @@ void Audio::processLocalFile() {
     m_prlf.availableBytes = min(InBuff.writeSpace(), m_audioFileSize - m_audioFilePosition);
 
     m_prlf.bytesAddedToBuffer = audioFileRead(InBuff.getWritePtr(), min(m_prlf.availableBytes, UINT16_MAX));
+    if(m_storageFileStatus && m_storageFileStatus->failed()) {
+        AUDIO_ERROR("SD file read failed"); stopSong(); return;
+    }
     if(m_prlf.bytesAddedToBuffer > 0) {InBuff.bytesWritten(m_prlf.bytesAddedToBuffer);}
     if(m_audioDataSize && m_audioFilePosition >= m_audioDataSize){if(!m_f_allDataReceived) m_f_allDataReceived = true;}
     if(!m_audioDataSize && m_audioFilePosition == m_audioFileSize){if(!m_f_allDataReceived) m_f_allDataReceived = true;}
@@ -5116,6 +5174,16 @@ void Audio::processLocalFile() {
         }
         else {
             m_f_stream = true;
+            // Read-only timing of the bytes already pulled for the header. Timeout and buffer stay as they are.
+            // Только время уже прочитанных байт заголовка. Таймаут и буфер не меняются.
+            const uint32_t header_ms = millis() - m_prlf.ctime;
+            const uint32_t file_pos = static_cast<uint32_t>(m_audioFilePosition);
+            const uint32_t filled = static_cast<uint32_t>(InBuff.bufferFilled());
+            const uint32_t kib_s = header_ms
+                ? static_cast<uint32_t>((static_cast<uint64_t>(file_pos) * 1000ull) / header_ms / 1024ull)
+                : 0;
+            AUDIO_INFO("SD header ready ms=%u file_pos=%u buf=%u read_KiB_s=%u",
+                header_ms, file_pos, filled, kib_s);
             AUDIO_INFO("stream ready");
         }
     }
@@ -5136,6 +5204,7 @@ void Audio::processLocalFile() {
         if(m_f_ID3v1TagFound) readID3V1Tag();
 
 exit:
+        const bool naturalEof = m_f_eof;
         ps_ptr<char>afn; 	//  ("afn")audio file name
         if(m_audiofile) afn.assign(m_audiofile.name()); // store temporary the name
 //        m_audioCurrentTime = 0;			// present in stopSong()
@@ -5143,9 +5212,9 @@ exit:
 //        m_resumeFilePos = -1;			// present in stopSong()
 //        m_haveNewFilePos = 0;			// present in stopSong()
 //        m_codec = CODEC_NONE;			// present in stopSong()
-        stopSong();
+        if(!stopSong()) return;
 
-        if(afn.valid()) {
+        if(afn.valid() && naturalEof) {
 //            AUDIO_INFO("End of file \"%s\"", afn.c_get());
             /*info(evt_eof,*/ if(audio_eof_mp3) audio_eof_mp3(afn.c_get());
             afn.clear();
@@ -5302,8 +5371,8 @@ void Audio::processWebStream() {
     }
 
     if(m_f_eof) {
+        if(!stopSong()) return;
         /*info(evt_eof,*/ if(audio_eof_stream) audio_eof_stream(m_lastHost.c_get());
-        stopSong();
     }
 }
 //****************************************************************************************
@@ -5391,7 +5460,7 @@ void Audio::processWebFile() {
     if(m_f_eof){ // m_f_eof and m_f_ID3v1TagFound will be set in playAudioData()
         if(m_f_ID3v1TagFound) readID3V1Tag();
 exit:
-        stopSong();
+        if(!stopSong()) return;
         /*info(evt_eof,*/ audio_eof_mp3(m_lastHost.c_get());
 
 //        m_audioCurrentTime = 0;			// present in stopSong()
@@ -5973,6 +6042,7 @@ bool Audio::parseHttpResponseHeader() { // this is the response to a GET / reque
             if(strlen(c_idesc) > 0 && specialIndexOf((uint8_t*)c_idesc, "24bit", 0) > 0) {
                 AUDIO_ERROR("icy-description: %s has to be 8 or 16", c_idesc);
                 stopSong();
+                return false;
             }
 //            /*info(evt_icydescription,*/ audio_icydescription(c_idesc);
         }
@@ -6215,6 +6285,7 @@ return true;
 }
 //****************************************************************************************
 bool Audio::initializeDecoder(uint8_t codec) {
+    if(hasStopFailure() || audioTaskStopGateActive()) return false;
     switch(codec) {
         case CODEC_MP3:
             if(!MP3Decoder_IsInit()){
@@ -6754,6 +6825,7 @@ void Audio::setDecoderItems() {
 }
 //****************************************************************************************
 uint32_t Audio::decodeError(int8_t res, uint8_t* data, int32_t bytesDecoded){
+        if(audioTaskStopGateActive()) return bytesDecoded;
         // for(int i = 0; i < 10; i++){printf("0x%02X ", data[i]);} printf("\n");
         // E-ST1: this runs on the audio task - ask, do not stop. FLAC_STOP is -100, so
         // a station that keeps failing to decode used to close the socket from here
@@ -7061,6 +7133,7 @@ void Audio::calculateAudioTime(uint16_t bytesDecoderIn, uint16_t bytesDecoderOut
 }
 //****************************************************************************************
 bool Audio::setPinout(uint8_t BCLK, uint8_t LRC, uint8_t DOUT, int8_t MCLK) {
+    if(hasStopFailure()) return false;
 
     m_f_psramFound = psramInit();
 
@@ -7163,7 +7236,7 @@ bool Audio::setTimeOffset(int sec) { // fast forward or rewind the current posit
 
     int32_t newTime = getAudioCurrentTime() + sec;
     if (newTime < 0) newTime = 0;
-    if (newTime > getAudioFileDuration()) {stopSong(); return true;}
+    if (newTime > getAudioFileDuration()) return stopSong().ok();
 
     uint32_t oneSec = getBitRate() / 8;                 // bytes decoded in one sec
     int32_t  offset = oneSec * sec;                      // bytes to be wind/rewind
@@ -8217,6 +8290,7 @@ bool Audio::readID3V1Tag() {
 }
 //****************************************************************************************
 int32_t Audio::newInBuffStart(int32_t m_resumeFilePos){
+        if(hasStopFailure() || audioTaskStopGateActive()) return -1;
         int32_t  offset = 0, buffFillValue = 0, res = 0;
         uint32_t timeOut = 0;
 
@@ -8469,8 +8543,8 @@ uint8_t Audio::determineOggCodec(uint8_t* data, uint16_t len) {
 //****************************************************************************************
 void Audio::setAudioTaskCore(uint8_t coreID){  // Recommendation:If the ARDUINO RUNNING CORE is 1, the audio task should be core 0 or vice versa
     if(coreID > 1) return;
-    stopAudioTask();
-    xSemaphoreTake(mutex_audioTask, 0.3 * configTICK_RATE_HZ);
+    if(!stopAudioTask()) return;
+    if(xSemaphoreTake(mutex_audioTask, 0.3 * configTICK_RATE_HZ) != pdTRUE) return;
     m_audioTaskCoreId = coreID;
     xSemaphoreGive(mutex_audioTask);
     startAudioTask();
@@ -8494,20 +8568,22 @@ void Audio::startAudioTask() {
         &xAudioTaskBuffer,      /* Memory for the task's control block */
         m_audioTaskCoreId       /* Core where the task should run */
     );
+    if(!m_audioTaskHandle) m_f_audioTaskIsRunning = false;
 }
 //****************************************************************************************
-void Audio::stopAudioTask()  {
+bool Audio::stopAudioTask()  {
     if (!m_f_audioTaskIsRunning) {
         AUDIO_INFO("audio task is not running.");
-        return;
+        return true;
     }
-    xSemaphoreTake(mutex_audioTask, 0.3 * configTICK_RATE_HZ);
+    if(xSemaphoreTake(mutex_audioTask, 0.3 * configTICK_RATE_HZ) != pdTRUE) return false;
     m_f_audioTaskIsRunning = false;
     if (m_audioTaskHandle != nullptr) {
         vTaskDelete(m_audioTaskHandle);
         m_audioTaskHandle = nullptr;
     }
     xSemaphoreGive(mutex_audioTask);
+    return true;
 }
 //****************************************************************************************
 void Audio::taskWrapper(void *param) {
@@ -8524,20 +8600,36 @@ void Audio::audioTask() {
 }
 //****************************************************************************************
 void Audio::performAudioTask() {
-    if(!m_f_running) return;
     // E-HO1: a terminal stop has been requested and not yet executed by the owner.
     // Drop the already decoded PCM instead of playing it out - nothing more of this
     // stream may reach I2S.
     // E-HO1: terminal stop запрошен и ещё не выполнен владельцем. Сбрасываем уже
     // декодированный PCM вместо доигрывания — ничего из этого потока больше не
     // должно попасть в I2S.
-    if(m_f_audioTaskStopGate) {m_validSamples = 0; return;}
-    if(!m_f_stream) return;
-    if(m_codec == CODEC_NONE) return; // wait for codec is  set
-    if(m_codec == CODEC_OGG)  return; // wait for FLAC, VORBIS or OPUS
-    xSemaphoreTake(mutex_audioTask, 0.3 * configTICK_RATE_HZ);
-    while(m_validSamples) {vTaskDelay(20 / portTICK_PERIOD_MS); playChunk();} // I2S buffer full
-    playAudioData();
+    if(audioTaskStopGateActive()) return;
+    uint32_t epoch;
+    portENTER_CRITICAL(&m_audioRequestMux);
+    epoch = m_decodeEpoch;
+    portEXIT_CRITICAL(&m_audioRequestMux);
+    if(xSemaphoreTake(mutex_audioTask, 0.3 * configTICK_RATE_HZ) != pdTRUE) return;
+    uint32_t currentEpoch;
+    portENTER_CRITICAL(&m_audioRequestMux);
+    currentEpoch = m_decodeEpoch;
+    portEXIT_CRITICAL(&m_audioRequestMux);
+    // A task may have waited across a complete stop/reset/new stream. Never
+    // decode that new stream using an old pre-lock ticket or pending PCM.
+    // После ожидания mutex проверяем gate/epoch заново, до PCM и decoder access.
+    if(audioTaskStopGateActive() || epoch != currentEpoch || !m_f_running || !m_f_stream ||
+       m_codec == CODEC_NONE || m_codec == CODEC_OGG) {
+        xSemaphoreGive(mutex_audioTask);
+        return;
+    }
+    while(m_validSamples && !audioTaskStopGateActive()) {
+        vTaskDelay(20 / portTICK_PERIOD_MS);
+        if(audioTaskStopGateActive()) break;
+        playChunk();
+    }
+    if(!audioTaskStopGateActive()) playAudioData();
     xSemaphoreGive(mutex_audioTask);
 }
 //****************************************************************************************

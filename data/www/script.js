@@ -51,8 +51,24 @@ function secondToTime(seconds){
     return new Date(seconds * 1000).toISOString().substring(14, 19);
   }
 }
+function parseWsPayload(raw) {
+  // Prefer the real JSON. escapeData() is only a legacy fallback: its regex can
+  // swallow a later field when nameset and sdmedia share one object.
+  // Сначала настоящий JSON. escapeData() — только legacy: его regex может
+  // «съесть» второе поле, когда nameset и sdmedia в одном объекте.
+  try {
+    return JSON.parse(raw);
+  } catch (e1) {
+    try {
+      return JSON.parse(escapeData(raw));
+    } catch (e2) {
+      return null;
+    }
+  }
+}
 function onMessage(event) {
-  var data = JSON.parse(escapeData(event.data));
+  var data = parseWsPayload(event.data);
+  if (!data) return;
   if(typeof data.pmode !== 'undefined'){
     if(data.pmode=="player"){
       if(window.location.pathname.includes("settings")){
@@ -65,8 +81,9 @@ function onMessage(event) {
         getWiFi(`http://${hostname}/data/wifi.csv`+"?"+new Date().getTime());
         websocket.send('getactive=1');
       }else if(window.location.pathname.includes("index") || window.location.pathname=="/"){
+        // Sources is the first screen — do not fetch/build the radio CSV until Radio or the editor opens.
+        // Первый экран — Sources; CSV радио не качаем и не строим, пока не откроют Radio или редактор.
         websocket.send('getindex=1');
-        generatePlaylist(`http://${hostname}/data/playlist.csv`+"?"+new Date().getTime());
       }
     }else{
       getWiFi(`http://${hostname}/data/wifi.csv`+"?"+new Date().getTime());
@@ -160,10 +177,28 @@ function onMessage(event) {
     return;
   }
   if(typeof data.snuffle!== 'undefined'){
-    if(data.snuffle==1){
-      document.getElementById("snuffle").classList.add("active");
-    }else{
-      document.getElementById("snuffle").classList.remove("active");
+    const snuffle = document.getElementById("snuffle");
+    if(snuffle){
+      if(data.snuffle==1) snuffle.classList.add("active");
+      else snuffle.classList.remove("active");
+    }
+    return;
+  }
+  if(typeof data.sdrepeat !== 'undefined'){
+    const labels = {off:'Repeat Off', one:'Repeat One', folder:'Repeat Folder', all:'Repeat All'};
+    const el = document.getElementById('sdrepeat');
+    if(el){
+      el.textContent = labels[data.sdrepeat] || 'Repeat Off';
+      el.setAttribute('data-mode', data.sdrepeat || 'off');
+    }
+    return;
+  }
+  if(typeof data.sdshuffle !== 'undefined'){
+    const el = document.getElementById('sdshuffle');
+    if(el){
+      const on = data.sdshuffle==1 || data.sdshuffle===true;
+      el.textContent = on ? 'Folder Shuffle On' : 'Folder Shuffle Off';
+      el.classList.toggle('active', on);
     }
     return;
   }
@@ -188,7 +223,12 @@ function onMessage(event) {
     return;
   }
   if(document.getElementById('meta')){ // index loaded
-    if(typeof data.nameset !== 'undefined') { document.getElementById('nameset').innerHTML = data.nameset; return; }
+    if(typeof data.nameset !== 'undefined') {
+      document.getElementById('nameset').innerHTML = data.nameset;
+      if(typeof data.sdmedia !== 'undefined') sdFollowPlaying(data.sdmedia);
+      return;
+    }
+    if(typeof data.sdmedia !== 'undefined') { sdFollowPlaying(data.sdmedia); return; }
     if(typeof data.meta !== 'undefined') {
       cachedRealMeta = data.meta;
       if (activePlayerError === "") {
@@ -233,17 +273,19 @@ function onMessage(event) {
       setSlRangeValue(document.getElementById('eqbal'),data.balance);
       return;
     }
-    if(typeof data.playermode !== 'undefined') { //Web, SD
-      document.getElementById('sdnav').classList.add('hidden');
-      document.getElementById('volnav').classList.remove('hidden');
-      document.getElementById('sdbutton').classList.remove('active');
-      let elements = document.getElementsByClassName("modeitem");
-      for (var i = 0; i < elements.length; i++) {
-        elements[i].classList.remove('active');
-      }
-      document.getElementById(data.playermode).classList.add('active');
-      document.body.setAttribute("class", data.playermode);
+    if(typeof data.playermode !== 'undefined') { // playback chrome only — never the browser tab
+      // Только chrome воспроизведения — открытый экран браузера не меняем.
+      document.body.classList.remove('modeweb','modesd');
+      document.body.classList.add(data.playermode);
+      const playmodes = (typeof data.playmodes === 'undefined')
+        ? data.playermode === 'modesd'
+        : (data.playmodes==1 || data.playmodes===true);
+      document.body.classList.toggle('playmodes', playmodes);
+      if(!playmodes) sdPlayingPath = '';
+      syncSdChrome();
     }
+    // SDINIT is pin presence, not Storage ready. Do not drive browser availability.
+    // SDINIT — наличие пина, не готовность Storage. Навигацию браузера не ведёт.
     if(typeof data.sdinit !== 'undefined') {
       if(data.sdinit==1) {
         document.getElementById('equalizerwrap').classList.add("sd");
@@ -315,7 +357,8 @@ function scrollToCurrent(){
   var topPos = 0;
   var lih = 0;
   for (var i = 0; i <= lis.length - 1; i++) {
-    if(i+1==currentItem) {
+    if (lis[i].classList.contains('nav-up')) continue;
+    if(lis[i].getAttribute('attr-id')==String(currentItem)) {
       topPos = lis[i].offsetTop;
       lih = lis[i].offsetHeight;
     }
@@ -331,8 +374,9 @@ function setCurrentItem(item){
   var pl = document.getElementById('playlist');
   var lis = pl.getElementsByTagName('li');
   for (var i = 0; i <= lis.length - 1; i++) {
+    if (lis[i].classList.contains('nav-up')) continue;
     lis[i].removeAttribute('class');
-    if(i+1==currentItem) {
+    if(lis[i].getAttribute('attr-id')==String(currentItem)) {
       lis[i].setAttribute("class","active");
     }
   }
@@ -341,6 +385,7 @@ function setCurrentItem(item){
 function playStation(el){
   let lis = document.getElementById('playlist').getElementsByTagName('li');
   for (let i = 0; i <= lis.length - 1; i++) {
+    if (lis[i].classList.contains('nav-up')) continue;
     lis[i].removeAttribute('class');
   }
   el.setAttribute("class","active");
@@ -350,11 +395,29 @@ function playStation(el){
 	xhr.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
 	xhr.send("playstation="+id);
 }
+let playlistLoaded = false;
+let playlistLoading = false;
+let playlistWaiters = [];
 function handlePlaylistData(fileData) {
-  if (!fileData) return;
+  playlistLoading = false;
+  if (!fileData) {
+    const waiters = playlistWaiters.splice(0, playlistWaiters.length);
+    for (let i = 0; i < waiters.length; i++) waiters[i](false);
+    return;
+  }
   var lines = fileData.split('\n');
   var ul = document.getElementById('playlist');
   ul.innerHTML="";
+  // Parent row returns to Sources; station numbers stay 1-based from CSV.
+  // Строка «..» возвращает к Источникам; номера станций остаются 1-based из CSV.
+  const up = document.createElement('li');
+  up.className = 'nav-up';
+  up.addEventListener('click', showSources);
+  const upName = document.createElement('span');
+  upName.className = 'sd-name';
+  upName.textContent = '..';
+  up.appendChild(upName);
+  ul.appendChild(up);
   for(var i = 0;i < lines.length;i++){
     let line = lines[i].split('\t');
     if(line.length==3){
@@ -374,10 +437,17 @@ function handlePlaylistData(fileData) {
       ul.appendChild(li);
     }
   }
+  playlistLoaded = true;
   initPLEditor();
-  scrollToCurrent();
+  if (navScreen === 'radio') {
+    if (radioScrollTop > 0) ul.scrollTop = radioScrollTop;
+    else scrollToCurrent();
+  }
+  const waiters = playlistWaiters.splice(0, playlistWaiters.length);
+  for (let i = 0; i < waiters.length; i++) waiters[i](true);
 }
 function generatePlaylist(path){
+  playlistLoading = true;
   var xhr = new XMLHttpRequest();
   xhr.onreadystatechange = function() {
     if (xhr.readyState == 4) {
@@ -390,6 +460,15 @@ function generatePlaylist(path){
   };
   xhr.open("GET", path);
   xhr.send(null);
+}
+function ensurePlaylistLoaded(done) {
+  if (playlistLoaded) {
+    if (done) done(true);
+    return;
+  }
+  if (done) playlistWaiters.push(done);
+  if (playlistLoading) return;
+  generatePlaylist(`http://${hostname}/data/playlist.csv`+"?"+new Date().getTime());
 }
 function checkSelectSet(name, val){
   let checkb=document.getElementById(name);
@@ -452,14 +531,19 @@ function initPLEditor(){
   ple= document.getElementById('pleditorcontent');
   ple.innerHTML="";
   pllines = document.getElementById('playlist').getElementsByTagName('li');
+  // ".." is browser navigation, not a station. Editor numbers stay 1-based station order.
+  // «..» — навигация браузера, не станция. Нумерация редактора — порядок станций с 1.
+  let n = 0;
   for (let i = 0; i <= pllines.length - 1; i++) {
+    if (pllines[i].classList.contains('nav-up')) continue;
     plitem = document.createElement('li');
     plitem.setAttribute('class', 'pleitem');
-    plitem.setAttribute('id', 'plitem'+i);
+    plitem.setAttribute('id', 'plitem'+n);
     let pName = pllines[i].getAttribute('attr-name');
     let pUrl = pllines[i].getAttribute('attr-url');
     let pOvol = pllines[i].getAttribute('attr-ovol');
-    plitem.innerHTML = '<span class="grabbable" draggable="true">'+("00"+(i+1)).slice(-3)+'</span>\
+    n++;
+    plitem.innerHTML = '<span class="grabbable" draggable="true">'+("00"+n).slice(-3)+'</span>\
           <span class="pleinput plecheck"><input type="checkbox" class="plcb" /></span>\
           <input class="pleinput plename" type="text" value="'+quoteattr(pName)+'" maxlength="140" />\
           <input class="pleinput pleurl" type="text" value="'+pUrl+'" maxlength="140" />\
@@ -545,8 +629,16 @@ function submitPlaylist(){
 }
 function showEditor(){
   document.getElementById('equalizerbg').setAttribute('class','hidden');
-  initPLEditor();
-  document.getElementById('pleditorwrap').classList.toggle('hidden');
+  const wrap = document.getElementById('pleditorwrap');
+  if (wrap && !wrap.classList.contains('hidden')) {
+    wrap.classList.add('hidden');
+    return;
+  }
+  ensurePlaylistLoaded(function(ok) {
+    if (!ok) return;
+    initPLEditor();
+    document.getElementById('pleditorwrap').classList.remove('hidden');
+  });
 }
 function playercommand(cmd){
 	xhr = new XMLHttpRequest();
@@ -566,10 +658,377 @@ function playbutton(){
 	  playercommand("stop");
 	}
 }
-function changeMode(){
-  if(this.classList.contains('active')) return;
-  this.classList.add('active');
-  websocket.send("newmode="+(this.getAttribute('data-name')=="web"?0:1));
+// Browser navigation is tab-local RAM only. Never NVS / Player / activate.
+// Навигация браузера — только RAM вкладки. Не NVS / Player / activate.
+let navScreen = 'sources'; // sources | radio | sd
+let radioScrollTop = 0;
+let sdPath = '/';
+let sdLastPath = '/';
+let sdLastGen = 0;
+let sdScrollTop = 0;
+let sdReq = Math.floor(Math.random() * 1000000) + 1;
+let sourcesReq = Math.floor(Math.random() * 1000000) + 1;
+let sdOffset = 0;
+let sdPlayingPath = '';
+let sdClient = Math.floor(Math.random() * 2147483646) + 1;
+let sdPlaceValid = false;
+let sdRestoreScroll = false;
+function sdParentOf(path) {
+  if (!path || path.charAt(0) !== '/') return '/';
+  if (path === '/') return '/';
+  const i = path.lastIndexOf('/');
+  if (i <= 0) return '/';
+  return path.substring(0, i);
+}
+function sdNormPath(path) {
+  if (!path || path === '/') return '/';
+  if (path.length > 1 && path.charAt(path.length - 1) === '/') return path.substring(0, path.length - 1);
+  return path;
+}
+function rememberOpenScroll() {
+  if (navScreen === 'radio') {
+    const pl = document.getElementById('playlist');
+    if (pl) radioScrollTop = pl.scrollTop;
+  } else if (navScreen === 'sd') {
+    const sd = document.getElementById('sdbrowser');
+    if (sd) sdScrollTop = sd.scrollTop;
+    sdLastPath = sdPath;
+  }
+}
+function setNavPath(label) {
+  const el = document.getElementById('navpath');
+  if (!el) return;
+  el.textContent = label || 'Sources';
+  el.classList.toggle('at-home', !label || label === 'Sources');
+}
+function applyNavVisibility() {
+  const sources = document.getElementById('sourcebrowser');
+  const playlist = document.getElementById('playlist');
+  const browser = document.getElementById('sdbrowser');
+  const status = document.getElementById('sdstatus');
+  if (sources) sources.classList.toggle('hidden', navScreen !== 'sources');
+  if (playlist) playlist.classList.toggle('hidden', navScreen !== 'radio');
+  if (browser) browser.classList.toggle('hidden', navScreen !== 'sd');
+  if (status) status.classList.toggle('hidden', navScreen !== 'sd');
+  document.body.classList.remove('nav-sources', 'nav-radio', 'nav-sd');
+  document.body.classList.add('nav-' + navScreen);
+}
+function showSources() {
+  rememberOpenScroll();
+  navScreen = 'sources';
+  setNavPath('Sources');
+  applyNavVisibility();
+  loadSources();
+}
+function openRadioSource() {
+  rememberOpenScroll();
+  navScreen = 'radio';
+  setNavPath('Radio');
+  applyNavVisibility();
+  ensurePlaylistLoaded(function() {
+    const pl = document.getElementById('playlist');
+    if (pl && radioScrollTop > 0) pl.scrollTop = radioScrollTop;
+    else scrollToCurrent();
+  });
+}
+function openSdSource(forceRoot) {
+  rememberOpenScroll();
+  navScreen = 'sd';
+  applyNavVisibility();
+  // Last browsed folder wins over the playing file parent when still valid.
+  // Последняя просмотренная папка важнее parent играющего файла, если ещё актуальна.
+  let target = '/';
+  if (!forceRoot && sdPlaceValid && sdLastPath) {
+    target = sdLastPath;
+    sdRestoreScroll = true;
+  } else {
+    sdRestoreScroll = false;
+    sdScrollTop = 0;
+  }
+  sdOpen(target);
+}
+function invalidateSdPlace(reason) {
+  sdPlaceValid = false;
+  sdLastPath = '/';
+  sdLastGen = 0;
+  sdPath = '/';
+  sdOffset = 0;
+  sdReq += 1;
+  if (sdReq > 4000000000) sdReq = 1;
+  const list = document.getElementById('sdbrowser');
+  if (list) list.textContent = '';
+  if (navScreen === 'sd') {
+    sdSetStatus((reason || 'Card unavailable'));
+    setNavPath('SD');
+  }
+}
+function loadSources() {
+  const list = document.getElementById('sourcebrowser');
+  if (!list) return;
+  sourcesReq += 1;
+  if (sourcesReq > 4000000000) sourcesReq = 1;
+  const req = sourcesReq;
+  list.textContent = '';
+  const loading = document.createElement('li');
+  loading.className = 'source-row source-loading';
+  loading.textContent = 'Loading…';
+  list.appendChild(loading);
+  const xhr = new XMLHttpRequest();
+  xhr.onreadystatechange = function() {
+    if (xhr.readyState != 4) return;
+    // Drop stale / left-screen replies. Do not treat this snapshot as live SD truth.
+    // Отбрасываем устаревшие и «чужие» ответы. Снимок не считается живой правдой SD.
+    if (req !== sourcesReq || navScreen !== 'sources') return;
+    let data = null;
+    try { data = JSON.parse(xhr.responseText); } catch (e) { data = null; }
+    list.textContent = '';
+    if (!data || !Array.isArray(data.sources)) {
+      const err = document.createElement('li');
+      err.className = 'source-row source-unavailable';
+      err.textContent = 'Sources unavailable';
+      list.appendChild(err);
+      return;
+    }
+    for (let i = 0; i < data.sources.length; i++) {
+      const src = data.sources[i];
+      const li = document.createElement('li');
+      const kind = src.open === 'directory' ? 'sd' : 'radio';
+      li.className = 'source-row source-' + kind + (src.available ? '' : ' source-unavailable');
+      const title = document.createElement('span');
+      title.className = 'source-title';
+      title.textContent = src.title || src.key || '?';
+      li.appendChild(title);
+      if (!src.available) {
+        const why = document.createElement('span');
+        why.className = 'source-reason';
+        why.textContent = src.reason || 'Unavailable';
+        li.appendChild(why);
+      }
+      li._sourceKey = src.key;
+      li._sourceOpen = src.open;
+      li._sourceAvailable = !!src.available;
+      li._sourceReason = src.reason || '';
+      li._sourceGen = typeof src.gen === 'number' ? src.gen : 0;
+      li.addEventListener('click', onSourceRowClick);
+      list.appendChild(li);
+    }
+    // sdLastGen / sdPlaceValid stay owned by SD browse + open click, not by /sources.
+    // sdLastGen / sdPlaceValid остаются у SD browse и клика открытия, не у /sources.
+  };
+  xhr.open('GET', `http://${hostname}/sources`);
+  xhr.send(null);
+}
+function onSourceRowClick() {
+  if (this._sourceOpen === 'stations') {
+    if (!this._sourceAvailable) {
+      // Still open Radio so the reason-free empty playlist is not used; show unavailable note via path.
+      // Всё равно открываем Radio только если доступен; иначе оставляем причину в списке.
+      return;
+    }
+    openRadioSource();
+    return;
+  }
+  if (this._sourceOpen === 'directory') {
+    if (!this._sourceAvailable) return;
+    if (this._sourceGen && sdLastGen && this._sourceGen !== sdLastGen) {
+      invalidateSdPlace('Card changed');
+    }
+    if (this._sourceGen) sdLastGen = this._sourceGen;
+    openSdSource(false);
+  }
+}
+function sdHighlightPlaying() {
+  const list = document.getElementById('sdbrowser');
+  if (!list) return;
+  const rows = list.querySelectorAll('li');
+  for (let i = 0; i < rows.length; i++) {
+    rows[i].classList.toggle('active', !!sdPlayingPath && rows[i]._mediaPath === sdPlayingPath);
+  }
+}
+function sdFollowPlaying(path) {
+  if (!path) return;
+  sdPlayingPath = path;
+  // Follow folders only while the SD browser screen is open — never from Sources/Radio.
+  // Следовать по папкам только на экране SD — никогда с Источников/Radio.
+  if (navScreen !== 'sd') {
+    sdHighlightPlaying();
+    return;
+  }
+  const browser = document.getElementById('sdbrowser');
+  if (!browser || browser.classList.contains('hidden')) return;
+  const parent = sdNormPath(sdParentOf(path));
+  if (parent !== sdNormPath(sdPath)) sdOpen(parent);
+  else sdHighlightPlaying();
+}
+function setSdTimeline(on) {
+  const nav = document.getElementById('sdnav');
+  const btn = document.getElementById('sdbutton');
+  if (nav) nav.classList.toggle('hidden', !on);
+  if (btn) btn.classList.toggle('active', on);
+}
+function syncSdChrome() {
+  // Timeline and Repeat/Shuffle follow the confirmed source, not the folder tab.
+  // Таймлайн и Repeat/Shuffle — от подтверждённого источника, не от вкладки браузера.
+  setSdTimeline(document.body.classList.contains('playmodes'));
+}
+function sdSetStatus(text) {
+  const el = document.getElementById('sdstatus');
+  if (el) el.textContent = text;
+}
+function sdNote(state, code) {
+  if (state === 'pending') return 'Loading…';
+  if (state === 'empty') return 'Empty folder';
+  if (state === 'unavailable') return 'Card unavailable';
+  if (state === 'busy') return 'Busy';
+  if (state === 'cancelled') return 'Cancelled';
+  if (state === 'error') {
+    if (code === 'limit') return 'Folder is too large';
+    if (code === 'memory') return 'Not enough memory';
+    if (code === 'open') return 'Cannot open folder';
+    if (code === 'read' || code === 'close') return 'Read error';
+    if (code === 'stale') return 'Card changed';
+    if (code === 'path' || code === 'name') return 'Path rejected';
+    return 'Folder error';
+  }
+  return '';
+}
+function sdOpen(path) {
+  sdPath = path || '/';
+  sdReq += 1;
+  if (sdReq > 4000000000) sdReq = 1;
+  sdOffset = 0;
+  document.getElementById('sdbrowser').textContent = '';
+  setNavPath(sdPath === '/' ? 'SD' : sdPath);
+  sdSetStatus(sdPath + ' — Loading…');
+  sdFetch(sdReq, sdPath, 0, false, true, sdLastGen);
+}
+function sdFetch(req, path, offset, append, start, expectGen) {
+  const xhr = new XMLHttpRequest();
+  xhr.onreadystatechange = function() {
+    if (xhr.readyState != 4) return;
+    if (req !== sdReq || path !== sdPath || navScreen !== 'sd') return;
+    let data = null;
+    try { data = JSON.parse(xhr.responseText); } catch (e) { data = null; }
+    if (!data || data.req !== req) {
+      sdSetStatus(path + ' — Cancelled');
+      return;
+    }
+    if (data.path && data.path !== path) {
+      sdSetStatus(path + ' — Cancelled');
+      return;
+    }
+    if (typeof data.gen === 'number' && data.gen > 0) {
+      if (expectGen && expectGen > 0 && data.gen !== expectGen) {
+        invalidateSdPlace('Card changed');
+        if (navScreen === 'sd') {
+          sdSetStatus('SD — Card changed');
+          setNavPath('SD');
+        }
+        return;
+      }
+      if (sdLastGen && data.gen !== sdLastGen) {
+        invalidateSdPlace('Card changed');
+        if (navScreen === 'sd') sdOpen('/');
+        return;
+      }
+      sdLastGen = data.gen;
+    }
+    if (data.state === 'unavailable' || (data.state === 'error' && data.code === 'stale')) {
+      invalidateSdPlace(sdNote(data.state, data.code));
+      if (navScreen === 'sd') {
+        sdSetStatus('SD — ' + sdNote(data.state, data.code));
+        setNavPath('SD');
+      }
+      return;
+    }
+    if (data.state === 'pending') {
+      sdSetStatus(path + ' — ' + sdNote(data.state));
+      setTimeout(function() { sdFetch(req, path, offset, append, false, expectGen || sdLastGen); }, 250);
+      return;
+    }
+    if (data.state === 'busy') {
+      sdSetStatus(path + ' — ' + sdNote(data.state));
+      setTimeout(function() { sdFetch(req, path, offset, append, start, expectGen || sdLastGen); }, 500);
+      return;
+    }
+    sdRender(data, append);
+  };
+  xhr.open('GET', `http://${hostname}/sd/dir?path=${encodeURIComponent(path)}&client=${sdClient}&req=${req}&offset=${offset}&start=${start ? 1 : 0}`);
+  xhr.send(null);
+}
+function sdAddRow(list, label, path, kind, more, toSources) {
+  const li = document.createElement('li');
+  li.className = kind === 'up' ? 'sd-up' : (kind === 'd' ? 'sd-dir' : (kind === 'a' ? 'sd-audio' : 'sd-more'));
+  const name = document.createElement('span');
+  name.className = 'sd-name';
+  name.textContent = label;
+  li.appendChild(name);
+  li._mediaPath = path;
+  li._mediaDir = kind === 'd' || kind === 'up';
+  li._mediaMore = !!more;
+  li._toSources = !!toSources;
+  li.addEventListener('click', sdRowClick);
+  list.appendChild(li);
+}
+function sdRowClick() {
+  if (this._toSources) {
+    showSources();
+    return;
+  }
+  if (this._mediaMore) {
+    this.remove();
+    sdFetch(sdReq, sdPath, sdOffset, true, false, sdLastGen);
+    return;
+  }
+  if (this._mediaDir) sdOpen(this._mediaPath);
+  else sdPlay(this._mediaPath);
+}
+function sdRender(data, append) {
+  const list = document.getElementById('sdbrowser');
+  const shown = data.path || sdPath;
+  if (data.state !== 'ready' && data.state !== 'empty') {
+    if (!append) list.textContent = '';
+    sdSetStatus(shown + ' — ' + sdNote(data.state, data.code));
+    return;
+  }
+  if (!append) {
+    list.textContent = '';
+    // Root ".." returns to Sources; nested ".." keeps the folder parent.
+    // В корне «..» ведёт к Источникам; вложенный «..» — к родителю папки.
+    if (data.up) sdAddRow(list, '..', data.up, 'up', false, false);
+    else sdAddRow(list, '..', '/', 'up', false, true);
+  }
+  const items = data.items || [];
+  for (let i = 0; i < items.length; i++) {
+    sdAddRow(list, items[i].n, items[i].p, items[i].k === 'd' ? 'd' : 'a', false, false);
+  }
+  sdOffset = typeof data.next === 'number' ? data.next : sdOffset;
+  if (data.more) sdAddRow(list, '…', sdPath, 'more', true, false);
+  sdHighlightPlaying();
+  sdPlaceValid = true;
+  sdLastPath = shown;
+  sdSetStatus(shown + (data.state === 'empty' ? ' — Empty folder' : ''));
+  setNavPath(shown === '/' ? 'SD' : shown);
+  if (!append && sdRestoreScroll) {
+    list.scrollTop = sdScrollTop;
+    sdRestoreScroll = false;
+  }
+}
+function sdPlay(path) {
+  // 202 queued admits the Player queue only — not audible confirmation.
+  // 202 queued — только приём в очередь Player, не подтверждение звука.
+  sdSetStatus(sdPath + ' — Queued, playback not confirmed');
+  const xhr = new XMLHttpRequest();
+  xhr.onreadystatechange = function() {
+    if (xhr.readyState != 4) return;
+    let data = null;
+    try { data = JSON.parse(xhr.responseText); } catch (e) { data = null; }
+    if (data && data.state === 'queued') sdSetStatus(sdPath + ' — Queued, playback not confirmed');
+    else sdSetStatus(sdPath + ' — Play rejected');
+  };
+  xhr.open('POST', `http://${hostname}/sd/play`);
+  xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
+  xhr.send('path=' + encodeURIComponent(path));
 }
 function buttonClick(){
   let target=this.getAttribute('data-name');
@@ -617,24 +1076,26 @@ function buttonClick(){
     case "plsubmit": submitPlaylist(); break;
     case "sdcard": toggleSDCard(); break;
     case "snuffle": toggleSnuffle(); break;
+    case "sdrepeat": websocket.send("sdrepeat=cycle"); break;
+    case "sdshuffle": websocket.send("sdshuffle=toggle"); break;
     case "webboard": window.location.href=`http://${hostname}/webboard`; break;
     default: break;
   }
 }
 function toggleSnuffle(){
-  document.getElementById('snuffle').classList.toggle('active');
-  websocket.send("snuffle="+document.getElementById("snuffle").classList.contains('active'));
+  const snuffle = document.getElementById('snuffle');
+  if(!snuffle) return;
+  snuffle.classList.toggle('active');
+  websocket.send("snuffle="+snuffle.classList.contains('active'));
 }
 function toggleSDCard(){
+  if (!document.body.classList.contains('playmodes')) return;
   let sdbutton = document.getElementById('sdbutton');
   sdbutton.classList.toggle('active');
-  if(sdbutton.classList.contains('active')){
-    document.getElementById('sdnav').classList.remove('hidden');
-    document.getElementById('volnav').classList.add('hidden');
-  }else{
-    document.getElementById('sdnav').classList.add('hidden');
-    document.getElementById('volnav').classList.remove('hidden');
-  }
+  const show = sdbutton.classList.contains('active');
+  // Card icon only toggles the timeline; volume and Radio/SD stay on the page.
+  // Значок карты только переключает таймлайн; громкость и Radio/SD остаются.
+  setSdTimeline(show);
 }
 function resetClick(){
   websocket.send("reset="+this.getAttribute('data-name'));
@@ -702,10 +1163,12 @@ function initButtons(){
   for (var i = 0; i < elements.length; i++) {
     elements[i].addEventListener('click', buttonClick, false);
   }
-  elements = document.getElementsByClassName("modeitem");
-  for (var i = 0; i < elements.length; i++) {
-    elements[i].addEventListener('click', changeMode, false);
-  }
+  const sdrepeat = document.getElementById('sdrepeat');
+  if (sdrepeat) sdrepeat.addEventListener('click', function(){ websocket.send('sdrepeat=cycle'); });
+  const sdshuffle = document.getElementById('sdshuffle');
+  if (sdshuffle) sdshuffle.addEventListener('click', function(){ websocket.send('sdshuffle=toggle'); });
+  const navpath = document.getElementById('navpath');
+  if (navpath) navpath.addEventListener('click', showSources, false);
   elements = document.getElementsByClassName("reset");
   for (var i = 0; i < elements.length; i++) {
     elements[i].addEventListener('click', resetClick, false);
@@ -784,6 +1247,9 @@ function onLoad(event) {
   initSliders();
   initButtons();
   initWebSocket();
+  // First paint is Sources; playlist CSV still loads in the background via WS.
+  // Первый экран — Источники; CSV плейлиста всё равно подгружается через WS.
+  if (document.getElementById('sourcebrowser')) showSources();
   // Initialize prompt upload button / Инициализировать кнопку загрузки промпта
   var uploadBtn = document.getElementById("ai_prompt_upload_btn");
   var fileInput = document.getElementById("ai_prompt_file");

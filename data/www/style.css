@@ -437,51 +437,49 @@ input[type=range]::-moz-range-track {
 #sdbutton {
   background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAMAAABEpIrGAAAAdVBMVEUAAADWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVLWwVKFdKrkAAAAJnRSTlMA+YrM2clf7eH18cSGcGVXQRoP5761rJFyEwjTmXhoTUs2KyYfpLSDvKIAAADTSURBVDjLzdDJDoMwDEVROyElYS5TKZ2n9/+f2LTqBhJA3XE3lqwjRTGtqZwxqB0DAaUDaZQJtJGIK7ig3GUPWcr8JJ9MRw8gsdkqUtdU7pl2M6CbBMmljCkuMkVMiQdEzBFCGIYd7IAEw8bgyfPgDswDvQSCJSAZNp4G+xqouixt8ErTTriAGqC0I8eGbBcH9AzQzQAWVNGWHBB/N7eitUDjTOz7hXz01IcWcOYHOuKCLFAHzxPBb3Pn/DPOXlAnp2OIRghR8/+XPCyBIsSoltbTG+uEKyfwC399AAAAAElFTkSuQmCC');
 }
-#snuffle span {
-  background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAYCAMAAACLI47uAAAApVBMVEUAAABtbW1tbW3WwVJtbW3WwVJtbW3WwVJtbW3WwVJtbW3WwVLWwVLWwVJtbW3WwVLWwVJtbW3WwVJtbW3WwVLWwVJtbW3WwVJtbW3WwVJtbW3WwVJtbW1tbW1tbW1tbW1tbW3WwVLWwVLWwVJtbW1tbW3WwVJtbW3WwVLWwVLWwVLWwVJtbW1tbW1tbW3WwVJtbW3WwVLWwVJtbW1tbW1tbW3WwVI5rvdYAAAANXRSTlMAihISDAzUi2hoCgr40cvLuIV6XFxEMTEdHRgYSUP49+fn19a5tqKRkYiFhH14cXFWVkuioSFu79cAAAC8SURBVDjL7ZJHDsJADEVnIL1Aeg+992bf/2iYJFKkCARhnbd6Y8mSPd+s4y9CvOrv6gFctEJ0R5ZlJyzd221XiNaNXDtwzo8BGblr8wfAImNE30DCUEnFIZZY9OiNgRgppMIASpas6CD8GapMnOMmFn2cekW9R+QSKEyQYB0JOUxcVhObuDfxTJbKKauJJLAlOJElPKnL1Tgqa1CNo1TevqH9SF+XzhpLt/7WZnDih+AECu7+Cq71aXT8xhMHmR/V7aGidwAAAABJRU5ErkJggg==');
-}
-#snuffle {
-  border: solid 2px #333;
-  border-radius: 14px;
-  overflow: hidden;
-  cursor: pointer;
-  min-width: 136px;
-  text-align: center;
+#sdplaymode {
   position: absolute;
   z-index: 10;
-  top: 5px;
+  top: 4px;
   left: 50%;
-  height: 24px;
   transform: translateX(-50%);
-  display: block;
+  display: none;
+  gap: 6px;
+  align-items: center;
 }
-#snuffle span {
-  width: 24px;
-  height: 24px;
-  background-position: -24px top;
-  border: 0;
-  display: block;
-  overflow: hidden;
-  margin: 0 auto;
+/* Repeat/Shuffle only while the confirmed source supports them (SD today; not Radio).
+   Repeat/Shuffle только если подтверждённый источник это умеет (сейчас SD; Radio нет). */
+body.playmodes #sdplaymode {
+  display: flex;
 }
-#snuffle.active {
+.sd-modebtn {
+  border: solid 2px #333;
+  border-radius: 14px;
+  background: #1a1a1a;
+  color: #888;
+  font-size: 12px;
+  line-height: 20px;
+  padding: 0 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: inherit;
+}
+.sd-modebtn.active,
+#sdrepeat[data-mode]:not([data-mode="off"]) {
   background: #272727;
+  color: #e3d25f;
+  border-color: #4d4d4d;
 }
-#snuffle.active span {
-  background-position: left top;
-}
-#snuffle:hover span{
-  background-color: transparent;
-}
-#snuffle:hover{
+.sd-modebtn:hover {
   border-color: #4d4d4d;
 }
 .modeweb #sdbutton{
   display: none;
 }
-.modescard #playlistbutton, .modesd #playlistbutton{
-  display: none;
-  background: red;
+/* Playlist editor stays available while SD plays; only the card icon is mode-gated.
+   Редактор плейлиста остаётся при SD; режим прячет только значок карты. */
+.modescard #sdbutton {
+  display: block;
 }
 #eqalbutton {
   background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgBAMAAACBVGfHAAAAKlBMVEUAAADYxFTXw1LZxVbax1jXwlHZxlbTvk7gz17fzVzbyFjYxFTh0GDWwVITDq6YAAAADXRSTlMA+/f79/v3gICAgICAFE2HUQAAAF1JREFUKM9joCrgVluAKsB4VwBVgPfuBSjrLgQABe7exRBA00LAUK60CXA2u1IBqiTr3QAgids8iI0QgCGAywmsMCcgrN2AJTw4XRpQBZjvGlA9PDAN5XA5QK0YBQAgJU6T2VaqEAAAAABJRU5ErkJggg==');
@@ -533,7 +531,7 @@ input[type=range]::-moz-range-track {
 #volrange, .slider {
   overflow: hidden;
   width: 432px;
-  margin-top: 34px;
+  margin-top: 46px;
   background: linear-gradient(to right, #bfa73e 0%, #bfa73e 0%, #272727 0%, #272727 100%);
   border: solid 2px #e3d25f;
   border-radius: 13px;
@@ -547,12 +545,13 @@ input[type=range]::-moz-range-track {
 }
 #sdpos {
   width: 432px;
+  margin-top: 8px;
 }
 #volnav {
   position: relative;
 }
 #modeline {
-  display: none;
+  display: block;
   position: absolute;
   z-index: 10;
   top: 5px;
@@ -562,13 +561,27 @@ input[type=range]::-moz-range-track {
   border-radius: 14px;
   overflow: hidden;
 }
-#modeline span {
+#modeline span,
+#modeline .navpath {
   line-height: 24px;
-  color: #555;
+  color: #e3d25f;
   display: inline-block;
   min-width: 68px;
+  max-width: 360px;
+  padding: 0 12px;
   text-align: center;
   cursor: pointer;
+  background: #272727;
+  font-weight: bold;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+#modeline .navpath.at-home {
+  text-decoration: none;
+  cursor: default;
 }
 #modeline span.active {
   color: #e3d25f;
@@ -622,7 +635,7 @@ input[type=range]::-moz-range-track {
   width: 400px;
   margin-top: 4px;
 }
-#playlist {
+#playlist, #sdbrowser, #sourcebrowser {
   width: 400px;
   scroll-behavior: smooth;
   overflow: auto;
@@ -638,15 +651,16 @@ input[type=range]::-moz-range-track {
   scrollbar-color: #e3d25f #000;
   scrollbar-width: thin;
 }
-#playlist::-webkit-scrollbar {
+#playlist::-webkit-scrollbar, #sdbrowser::-webkit-scrollbar, #sourcebrowser::-webkit-scrollbar {
   width: 5px;
   height: 8px;
   background-color: #000;
 }
-#playlist::-webkit-scrollbar-thumb {
+#playlist::-webkit-scrollbar-thumb, #sdbrowser::-webkit-scrollbar-thumb,
+#sourcebrowser::-webkit-scrollbar-thumb {
   background: #e3d25f;
 }
-#playlist li {
+#playlist li, #sdbrowser li, #sourcebrowser li {
   text-transform: capitalize;
   font-size: 20px;
   padding: 8px 16px;
@@ -656,7 +670,7 @@ input[type=range]::-moz-range-track {
   background: #000;
   overflow: hidden;
 }
-#playlist li span {
+#playlist li span, #sdbrowser li span {
   position: absolute;
   display: flex;
   flex-direction: column;
@@ -672,17 +686,148 @@ input[type=range]::-moz-range-track {
   font-size: 14px;
   vertical-align: middle;
 }
-#playlist li:nth-child(odd), #playlist li:nth-child(odd) span {
+#playlist li:nth-child(odd), #playlist li:nth-child(odd) span,
+#sdbrowser li:nth-child(odd), #sdbrowser li:nth-child(odd) span,
+#sourcebrowser li:nth-child(odd) {
   background: #272727;
 }
 
-#playlist li:hover, #playlist li:hover span {
+#playlist li:hover, #playlist li:hover span,
+#sdbrowser li:hover, #sdbrowser li:hover span,
+#sourcebrowser li:hover {
   color: #fff;
   background: #323232;
 }
-#playlist li.active, #playlist li.active span {
+#playlist li.active, #playlist li.active span,
+#sdbrowser li.active, #sdbrowser li.active span {
   background: #bfa73e;
   color: #000;
+}
+#playlist li.nav-up,
+#sourcebrowser li.source-row {
+  text-transform: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+#playlist li.nav-up .sd-name {
+  position: static;
+  display: block;
+  width: auto;
+  padding: 0;
+  background: transparent;
+}
+#sourcebrowser li.source-row {
+  justify-content: space-between;
+}
+#sourcebrowser li .source-title {
+  position: static;
+  display: block;
+  width: auto;
+  padding: 0;
+  background: transparent;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#sourcebrowser li .source-reason {
+  position: static;
+  display: block;
+  width: auto;
+  padding: 0;
+  background: transparent;
+  color: #888;
+  font-size: 13px;
+  flex: 0 1 auto;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#sourcebrowser li.source-unavailable {
+  color: #777;
+  cursor: default;
+}
+#sourcebrowser li.source-unavailable:hover {
+  color: #777;
+  background: #272727;
+}
+#sourcebrowser li.source-radio::before,
+#sourcebrowser li.source-sd::before {
+  content: "";
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 18px 18px;
+}
+#sourcebrowser li.source-radio::before {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e3d25f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='2'/><path d='M16.24 7.76a6 6 0 0 1 0 8.49M7.76 16.24a6 6 0 0 1 0-8.49M19.07 4.93a10 10 0 0 1 0 14.14M4.93 19.07a10 10 0 0 1 0-14.14'/></svg>");
+}
+#sourcebrowser li.source-sd::before {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e3d25f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4 7a2 2 0 0 1 2-2h8l4 4v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z'/><path d='M14 5v4h4'/></svg>");
+}
+#sdstatus {
+  width: 400px;
+  max-width: 100%;
+  box-sizing: border-box;
+  color: #e3d25f;
+  font-size: 14px;
+  line-height: 18px;
+  padding: 2px 8px 0 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#sdbrowser li {
+  text-transform: none;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+#sdbrowser li .sd-name {
+  position: static;
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+  padding: 0;
+  background: transparent;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: inherit;
+  text-align: left;
+}
+#sdbrowser li.sd-dir::before,
+#sdbrowser li.sd-audio::before {
+  content: "";
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 18px 18px;
+}
+#sdbrowser li.sd-dir::before {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e3d25f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'/></svg>");
+}
+#sdbrowser li.sd-audio::before {
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23e3d25f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M9 18V5l12-2v13'/><circle cx='6' cy='18' r='3'/><circle cx='18' cy='16' r='3'/></svg>");
+}
+#sdbrowser li.sd-up .sd-name,
+#sdbrowser li.sd-more .sd-name {
+  padding-left: 0;
+}
+#sdbrowser li:nth-child(odd) .sd-name,
+#sdbrowser li:hover .sd-name,
+#sdbrowser li.active .sd-name {
+  background: transparent;
 }
 #copy {
   padding-top: 14px;
@@ -853,8 +998,8 @@ input[type=range]::-moz-range-track {
 }
 @media screen and (max-width: 480px) {
  .content { padding: 20px; }
- #playlist { width: 100%; }
- #playlist li { font-size: 16px; }
+ #playlist, #sdbrowser, #sourcebrowser, #sdstatus { width: 100%; }
+ #playlist li, #sdbrowser li, #sourcebrowser li { font-size: 16px; }
  #volrange { width: 100%; margin-top: 24px;}
  #volnav, #sdnav { width: 100%; }
  #sdpos { width: 100%; }
