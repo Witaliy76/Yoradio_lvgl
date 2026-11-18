@@ -8,6 +8,7 @@
 #include "options.h"
 #include "save_manager.h"
 #include "rtcsupport.h"
+#include <atomic>
 
 /* Emulated EEPROM blob size (NVS). Must be >= EEPROM_START + sizeof(config_t): Arduino-ESP32
  * EEPROM.put skips memcpy entirely when address+sizeof(value) exceeds this → silent no persistence. */
@@ -220,6 +221,11 @@ class Config {
     uint16_t screensaverTicks;
     uint16_t screensaverPlayingTicks;
     bool     isScreensaver;
+    std::atomic<uint32_t> _playlistRevision{0};
+    std::atomic<uint32_t> _playlistViewRevision{0};
+    std::atomic_flag _playlistAccess = ATOMIC_FLAG_INIT;
+    std::atomic<bool> _playlistReady{true};
+    std::atomic<uint16_t> _playlistCount{0};
   public:
     Config() {};
     //void save();
@@ -240,14 +246,32 @@ class Config {
     bool parseJSON(const char* line, char* name, char* url, int &ovol);
     bool parseWsCommand(const char* line, char* cmd, char* val, uint8_t cSize);
     bool parseSsid(const char* line, char* ssid, char* pass);
-    void loadStation(uint16_t station);
+    bool loadStation(uint16_t station);
     bool initNetwork();
     bool saveWifi();
     bool saveWifiFromPost(const char* post);
     void setSmartStart(uint8_t ss);
     void setBitrateFormat(BitrateFormat fmt) { configFmt = fmt; }
     void initPlaylist();
-    void indexPlaylist();
+    bool indexPlaylist();
+    // Readers fail immediately while CSV/index is changing. Writers serialize;
+    // a failed update leaves the pair unavailable until a successful rebuild.
+    bool tryPlaylistRead();
+    void endPlaylistRead() { _playlistAccess.clear(std::memory_order_release); }
+    void lockPlaylistUpdate();
+    void unlockPlaylistUpdate() { _playlistAccess.clear(std::memory_order_release); }
+    bool playlistReady() const { return _playlistReady.load(std::memory_order_acquire); }
+    uint16_t radioStationCount() const {
+      return playlistReady() ? _playlistCount.load(std::memory_order_acquire) : 0u;
+    }
+    uint32_t playlistViewRevision() const {
+      return _playlistViewRevision.load(std::memory_order_acquire);
+    }
+    // Bumps only after a successful index rebuild. Same-length name edits still count.
+    // Растёт только после успешной пересборки индекса. Смена имени той же длины тоже считается.
+    uint32_t playlistRevision() const {
+      return _playlistRevision.load(std::memory_order_acquire);
+    }
     #ifdef USE_SD
       void initSDPlaylist();
     #endif
@@ -341,6 +365,26 @@ class Config {
       return station;
     }
     char _stationBuf[BUFLEN/2];
+};
+
+class PlaylistReadGuard {
+    Config& owner;
+    bool acquired;
+  public:
+    explicit PlaylistReadGuard(Config& value) : owner(value), acquired(owner.tryPlaylistRead()) {}
+    ~PlaylistReadGuard() { if (acquired) owner.endPlaylistRead(); }
+    explicit operator bool() const { return acquired; }
+    PlaylistReadGuard(const PlaylistReadGuard&) = delete;
+    PlaylistReadGuard& operator=(const PlaylistReadGuard&) = delete;
+};
+
+class PlaylistUpdateGuard {
+    Config& owner;
+  public:
+    explicit PlaylistUpdateGuard(Config& value) : owner(value) { owner.lockPlaylistUpdate(); }
+    ~PlaylistUpdateGuard() { owner.unlockPlaylistUpdate(); }
+    PlaylistUpdateGuard(const PlaylistUpdateGuard&) = delete;
+    PlaylistUpdateGuard& operator=(const PlaylistUpdateGuard&) = delete;
 };
 
 extern Config config;

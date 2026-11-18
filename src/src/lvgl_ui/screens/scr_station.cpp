@@ -15,6 +15,7 @@
 #include <cstdint>
 
 #include "lvgl.h"
+#include "../../core/source_catalog.h"
 #include "../adapters/station_list_adapter.h"
 #include "../control_glyph_utf8.h"
 #include "../fonts/lv_fonts.h"
@@ -31,6 +32,9 @@ namespace lvgl_ui {
 namespace {
 
 static constexpr char kStrCountPlaceholder[]      = "-- / --";
+// U+203A is in the factory text face used by the page title.
+// U+203A есть в заводском текстовом шрифте заголовка.
+static constexpr char kHeaderChevron[] = " \u203A";
 
 static const char* const kIconHintClick = station_glyph_utf8_hand_click();
 
@@ -47,6 +51,7 @@ static constexpr lv_coord_t kHintPadHorizontal = 16;
 static constexpr lv_coord_t kHintPadVertical   = 10;
 static constexpr lv_coord_t kHintRowGap        = 10;
 static constexpr lv_coord_t kHintMinTextWidth  = 80;
+static constexpr lv_coord_t kHeaderPressRadius = 8;
 
 static void station_set_font(lv_obj_t* obj, const void* font_slot) {
     if (!obj || !font_slot) return;
@@ -68,6 +73,40 @@ static bool station_format_checked(char* out, size_t cap, const char* fallback,
     const size_t bytes = strlen(safe) + 1u;
     if (bytes <= cap) memcpy(out, safe, bytes);
     return false;
+}
+
+// Title plus chevron in the existing label. The count stays a separate right-side label.
+// Название и шеврон в существующей надписи. Счётчик остаётся отдельной правой меткой.
+static void format_header_title(char* out, size_t cap, const char* name) {
+    if (!out || cap == 0u) return;
+    out[0] = '\0';
+    const char* safe = name ? name : "";
+    const int written = snprintf(out, cap, "%s%s", safe, kHeaderChevron);
+    if (written < 0 || static_cast<size_t>(written) >= cap) {
+        out[0] = '\0';
+    }
+}
+
+// Interactive header only. Sources keeps the same hit target and does not flash.
+// Только интерактивный заголовок. На Sources область та же, вспышки нет.
+static void apply_header_press(lv_obj_t* header, bool interactive) {
+    if (!header) return;
+    const YoRadioPalette& pal = yoradio_palette();
+    const lv_style_selector_t pressed =
+        static_cast<lv_style_selector_t>(LV_PART_MAIN | LV_STATE_PRESSED);
+    // Background only: a pressed border would change the header height and the hit area.
+    // Dark uses a lighter wash so white title text stays readable on main_chrome_pressed_bg.
+    // Только фон: рамка в pressed изменила бы высоту заголовка и область нажатия.
+    // На Dark заливка слабее, чтобы белый заголовок читался на main_chrome_pressed_bg.
+    lv_opa_t opa = LV_OPA_COVER;
+    if (!interactive) {
+        opa = LV_OPA_TRANSP;
+    } else if (yoradio_theme_active_preset() == ThemePreset::Dark) {
+        opa = LV_OPA_40;
+    }
+    lv_obj_set_style_radius(header, kHeaderPressRadius, pressed);
+    lv_obj_set_style_bg_color(header, pal.main_chrome_pressed_bg, pressed);
+    lv_obj_set_style_bg_opa(header, opa, pressed);
 }
 
 static void style_transparent(lv_obj_t* obj) {
@@ -126,11 +165,19 @@ void LvglStationPage::create_header(LvglStationPage& self, const YoRadioPalette&
     lv_obj_set_flex_align(header, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     style_transparent(header);
 
+    self._header = header;
+    lv_obj_add_flag(header, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(header, LV_OBJ_FLAG_GESTURE_BUBBLE);
+    lv_obj_add_event_cb(header, _headerClickedEvt, LV_EVENT_CLICKED, &self);
+
     self._lbl_title = lv_label_create(header);
     if (self._lbl_title) {
         lv_label_set_text(self._lbl_title, i18n::text(i18n::TextId::StationTitle));
         station_set_font(self._lbl_title, font_title());
         lv_obj_set_style_text_color(self._lbl_title, pal.text_primary, LV_PART_MAIN);
+        // The header owns the press. Children must not take LV_STATE_PRESSED away from it.
+        // Нажатие принадлежит заголовку. Дочерние объекты не забирают у него LV_STATE_PRESSED.
+        lv_obj_clear_flag(self._lbl_title, LV_OBJ_FLAG_CLICKABLE);
     }
 
     self._lbl_count = lv_label_create(header);
@@ -138,7 +185,9 @@ void LvglStationPage::create_header(LvglStationPage& self, const YoRadioPalette&
         lv_label_set_text(self._lbl_count, kStrCountPlaceholder);
         station_set_font(self._lbl_count, font_count());
         lv_obj_set_style_text_color(self._lbl_count, pal.text_secondary, LV_PART_MAIN);
+        lv_obj_clear_flag(self._lbl_count, LV_OBJ_FLAG_CLICKABLE);
     }
+    apply_header_press(header, false);
 }
 
 void LvglStationPage::create_hint_band(LvglStationPage& self, const YoRadioPalette& pal) {
@@ -228,30 +277,29 @@ void LvglStationPage::create() {
         // Footer affects flex height — finalize layout before rows_per_page / first page fill.
         // Footer влияет на flex-высоту — layout до расчёта rows_per_page и первой страницы.
         lv_obj_update_layout(_screen);
-        station_list_active::populate(_list);
-        _updateCountLabel(station_list_adapter::current_station_num(),
-                          station_list_adapter::station_count());
     } else {
         create_hint_band(*this, pal);
         installCarouselGesturesOnPageRoot(_screen);
     }
 }
 
-void LvglStationPage::_refreshOnPageActivate() {
-    if (!_list.list_area) return;
+void LvglStationPage::armBrowser(yoradio::source::SourceId id) {
+    if (id == yoradio::source::SourceId::Sd) _armed = ArmedBrowser::Sd;
+    else if (id == yoradio::source::SourceId::Radio) _armed = ArmedBrowser::Radio;
+    else _armed = ArmedBrowser::None;
+}
 
-    const auto result = station_list_active::refreshOnActivate(_list);
-    if (result == station_list_active::RefreshOnActivateResult::Rebuilt) {
-        _updateCountLabel(station_list_adapter::current_station_num(),
-                          station_list_adapter::station_count());
-        return;
-    }
-    refreshCurrentStationVisuals();
+void LvglStationPage::cancelArmedBrowser() {
+    _armed = ArmedBrowser::None;
 }
 
 void LvglStationPage::enter() {
-    _refreshOnPageActivate();
-    station_list_active::onEnter(_list);
+    if (_screen) lv_obj_update_layout(_screen);
+    const ArmedBrowser armed = _armed;
+    _armed = ArmedBrowser::None;
+    if (armed == ArmedBrowser::Sd) _showSd(false, false);
+    else if (armed == ArmedBrowser::Radio) _showRadio(false);
+    else _applyEntry();
     if (!_screen || !_status_line.root) return;
     wgt_status_line::update(_status_line);
 }
@@ -259,36 +307,508 @@ void LvglStationPage::enter() {
 void LvglStationPage::update() {
     if (!_screen || !_status_line.root) return;
     wgt_status_line::update(_status_line);
+    if (_level == BrowserLevel::Sd && _list.list_area) {
+        _pollOpenFolder(true);
+        return;
+    }
+    if (_level != BrowserLevel::Radio || !_list.list_area) {
+        station_list_active::refreshCurrentStationVisuals(_list);
+        return;
+    }
+    const auto result = station_list_active::refreshOnActivate(_list);
+    if (result == station_list_active::RefreshOnActivateResult::Rebuilt) {
+        _syncChrome();
+    }
+    station_list_active::refreshCurrentStationVisuals(_list);
 }
 
 void LvglStationPage::refreshCurrentStationVisuals() {
     if (!_screen) return;
-    const uint16_t total = station_list_adapter::station_count();
-    const uint16_t current = station_list_adapter::current_station_num();
-    _updateCountLabel(current, total);
+    _syncChrome();
     station_list_active::refreshCurrentStationVisuals(_list);
 }
 
-void LvglStationPage::_updateCountLabel(uint16_t current, uint16_t total) {
-    if (!_lbl_count) return;
-    _station_total = total;
-    char count_buf[kCountBufferSize];
-    if (total == 0u) {
-        lv_label_set_text(_lbl_count, kStrCountPlaceholder);
+namespace {
+
+bool append_text(char* out, size_t cap, size_t& used, const char* text) {
+    if (!out || cap == 0u || !text) return false;
+    const size_t len = strlen(text);
+    if (used + len + 1u > cap) return false;
+    memcpy(out + used, text, len);
+    used += len;
+    out[used] = '\0';
+    return true;
+}
+
+void truncate_utf8(char* s, size_t max_bytes) {
+    if (!s) return;
+    const size_t len = strlen(s);
+    if (len <= max_bytes) return;
+    if (max_bytes == 0u) {
+        s[0] = '\0';
         return;
     }
-    if (station_list_adapter::is_valid_station_num(current)) {
+    size_t cut = max_bytes;
+    while (cut > 0u && (static_cast<unsigned char>(s[cut]) & 0xC0u) == 0x80u) --cut;
+    if (cut == 0u) cut = max_bytes;
+    s[cut] = '\0';
+}
+
+} // namespace
+
+void LvglStationPage::serviceSdPending() {
+    if (!_screen || _level != BrowserLevel::Sd || !_list.list_area) return;
+    if (browserSdStatus() != BrowserStatus::Loading) return;
+    // Idle list refresh stays on the 1 Hz path. This turn only completes a pending open.
+    // Спокойный список остаётся на пути 1 Гц. Здесь завершается только ждущее открытие.
+    _pollOpenFolder(false);
+}
+
+void LvglStationPage::_pollOpenFolder(bool allow_idle_refresh) {
+    browserSdPoll(_request_id);
+    if (browserSdShouldOpenRoot()) {
+        _sd_jump = false;
+        _sd_loading_row = false;
+        browserSdOpen(_nextRequest(), "/");
+        _redisplaySd(false);
+        return;
+    }
+    const BrowserStatus status = browserSdStatus();
+    if (_sd_jump && status != BrowserStatus::Loading) {
+        _sd_loading_row = false;
+        if (status == BrowserStatus::Ready) _list.jump_to_sounding = true;
+        _sd_jump = false;
+        station_list_active::populate(_list);
+        _syncChrome();
+        station_list_active::refreshCurrentStationVisuals(_list);
+        return;
+    }
+    if (status == BrowserStatus::Loading) {
+        if (!allow_idle_refresh) return;
+    } else if (_sd_loading_row) {
+        // Loading used row 1. A finished folder lands on ".." again unless a sounding jump wins.
+        // Загрузка занимала строку 1. Готовая папка снова садится на «..», если нет прыжка к звучащему.
+        _list.focus_row = 0u;
+        _list.page_index = 0u;
+        _sd_loading_row = false;
+    }
+    const auto result = station_list_active::refreshOnActivate(_list);
+    if (result == station_list_active::RefreshOnActivateResult::Rebuilt) _syncChrome();
+    station_list_active::refreshCurrentStationVisuals(_list);
+}
+
+void LvglStationPage::_releaseProvider() {
+    if (_provider && _provider->release) _provider->release(_request_id);
+    _provider = nullptr;
+    _sd_jump = false;
+    _sd_loading_row = false;
+}
+
+uint32_t LvglStationPage::_nextRequest() {
+    _request_id = (_request_id == UINT32_MAX) ? 1u : _request_id + 1u;
+    if (_request_id == 0u) _request_id = 1u;
+    return _request_id;
+}
+
+void LvglStationPage::_bindFeed(const station_list_active::BrowserRowFeed& feed,
+                                bool jump_to_sounding) {
+    _list.jump_to_sounding = jump_to_sounding;
+    station_list_active::setFeed(_list, feed);
+    station_list_active::populate(_list);
+    _syncChrome();
+}
+
+void LvglStationPage::_showSources() {
+    _releaseProvider();
+    _level = BrowserLevel::Sources;
+    station_list_active::BrowserRowFeed feed{};
+    feed.count = _sourcesCount;
+    feed.page_text = _sourcesPageText;
+    feed.sounding_row = _sourcesSounding;
+    feed.on_tap = _sourcesTap;
+    feed.revision = _sourcesRevision;
+    feed.ctx = this;
+    _bindFeed(feed, false);
+}
+
+void LvglStationPage::_showRadio(bool jump_to_sounding) {
+    _releaseProvider();
+    const BrowserProvider* provider = browserProvider(yoradio::source::SourceId::Radio);
+    if (!provider || !provider->implemented) {
+        _showSources();
+        return;
+    }
+    _level = BrowserLevel::Radio;
+    _provider = provider;
+    _request_id = (_request_id == UINT32_MAX) ? 1u : _request_id + 1u;
+    if (_provider->prepare) {
+        (void)_provider->prepare(_request_id, _generation);
+    }
+    station_list_active::BrowserRowFeed feed{};
+    feed.count = _radioCount;
+    feed.page_text = _radioPageText;
+    feed.sounding_row = _radioSounding;
+    feed.on_tap = _radioTap;
+    feed.press_focus = _radioPressFocus;
+    feed.revision = _radioRevision;
+    feed.ctx = this;
+    _bindFeed(feed, jump_to_sounding);
+}
+
+void LvglStationPage::_showSd(bool playing_folder, bool jump_to_sounding) {
+    const BrowserProvider* provider = browserProvider(yoradio::source::SourceId::Sd);
+    if (!provider || !provider->implemented) {
+        _showSources();
+        return;
+    }
+    _releaseProvider();
+    _level = BrowserLevel::Sd;
+    _provider = provider;
+    _sd_jump = jump_to_sounding;
+    const uint32_t request_id = _nextRequest();
+    if (playing_folder) browserSdOpenPlaying(request_id);
+    else browserSdOpen(request_id, "/");
+    _redisplaySd(false);
+}
+
+void LvglStationPage::_redisplaySd(bool jump_to_sounding) {
+    _list.page_index = 0u;
+    const bool loading = browserSdStatus() == BrowserStatus::Loading;
+    // Row 1 is the Loading line, drawn with the same focus chrome as a selected folder.
+    // Строка 1 — Loading, тем же фокусом, что и выбранная папка.
+    _sd_loading_row = loading;
+    _list.focus_row = loading ? 1u : 0u;
+    station_list_active::BrowserRowFeed feed{};
+    feed.count = _sdCount;
+    feed.page_text = _sdPageText;
+    feed.sounding_row = _sdSounding;
+    feed.on_tap = _sdTap;
+    feed.press_focus = _sdPressFocus;
+    feed.revision = _sdRevision;
+    feed.ctx = this;
+    _bindFeed(feed, jump_to_sounding);
+}
+
+void LvglStationPage::_applyEntry() {
+    const BrowserEntry entry = browserEntryFromPlayer();
+    if (entry == BrowserEntry::Radio) _showRadio(true);
+    else if (entry == BrowserEntry::Sd) _showSd(true, true);
+    else _showSources();
+}
+
+const char* sdStatusLine(BrowserStatus status) {
+    switch (status) {
+    case BrowserStatus::Loading:
+        return i18n::text(i18n::TextId::BrowserSdLoading);
+    case BrowserStatus::Empty:
+        return i18n::text(i18n::TextId::BrowserSdEmpty);
+    case BrowserStatus::Unavailable:
+        return i18n::text(i18n::TextId::BrowserSdUnavailable);
+    case BrowserStatus::ResourceLimit:
+        return i18n::text(i18n::TextId::BrowserSdResourceLimit);
+    case BrowserStatus::Error:
+        return i18n::text(i18n::TextId::BrowserSdError);
+    default:
+        return "";
+    }
+}
+
+const char* sdPlayHint() {
+    using yoradio::playback::PathPlayResult;
+    switch (browserSdPlayResult()) {
+    case PathPlayResult::None:
+    case PathPlayResult::Accepted: return i18n::text(i18n::TextId::StationFooter);
+    case PathPlayResult::Busy:
+    case PathPlayResult::NotReady: return i18n::text(i18n::TextId::BrowserPlayBusy);
+    case PathPlayResult::StopFailed: return i18n::text(i18n::TextId::BrowserPlayStopFailed);
+    case PathPlayResult::NoMedia:
+    case PathPlayResult::StaleMedia:
+    case PathPlayResult::StaleEpoch:
+    case PathPlayResult::SourceBusy: return i18n::text(i18n::TextId::BrowserPlayRetry);
+    default: return i18n::text(i18n::TextId::BrowserPlayFailed);
+    }
+}
+
+void LvglStationPage::_syncChrome() {
+    if (_lbl_hint_text) lv_label_set_text(_lbl_hint_text, _level == BrowserLevel::Sd
+        ? sdPlayHint() : i18n::text(i18n::TextId::StationFooter));
+    apply_header_press(_header, _level != BrowserLevel::Sources);
+    if (_lbl_title) {
+        if (_level == BrowserLevel::Sources) {
+            lv_label_set_text(_lbl_title, i18n::text(i18n::TextId::BrowserSourcesTitle));
+        } else {
+            char title[48];
+            const char* name = (_level == BrowserLevel::Sd)
+                ? i18n::text(i18n::TextId::BrowserSourceSd)
+                : i18n::text(i18n::TextId::BrowserSourceRadio);
+            format_header_title(title, sizeof(title), name);
+            lv_label_set_text(_lbl_title, title);
+        }
+    }
+    if (!_lbl_count) return;
+    char count_buf[kCountBufferSize];
+    if (_level == BrowserLevel::Sd) {
+        const BrowserStatus status = browserSdStatus();
+        if (status != BrowserStatus::Ready && status != BrowserStatus::Empty) {
+            lv_label_set_text(_lbl_count, kStrCountPlaceholder);
+            return;
+        }
+        const uint16_t total = browserSdCount();
+        const int32_t sounding = browserSdSoundingIndex();
+        if (total == 0u || sounding < 0) {
+            station_format_checked(
+                count_buf, sizeof(count_buf), kStrCountPlaceholder,
+                i18n::text(i18n::TextId::StationCountUnknownTotalFormat),
+                static_cast<unsigned>(total));
+        } else {
+            station_format_checked(
+                count_buf, sizeof(count_buf), kStrCountPlaceholder,
+                i18n::text(i18n::TextId::StationCountCurrentTotalFormat),
+                static_cast<unsigned>(sounding) + 1u, static_cast<unsigned>(total));
+        }
+        lv_label_set_text(_lbl_count, count_buf);
+        return;
+    }
+    if (_level == BrowserLevel::Sources) {
         station_format_checked(
             count_buf, sizeof(count_buf), kStrCountPlaceholder,
-            i18n::text(i18n::TextId::StationCountCurrentTotalFormat),
-            static_cast<unsigned>(current), static_cast<unsigned>(total));
-    } else {
+            i18n::text(i18n::TextId::StationCountUnknownTotalFormat),
+            static_cast<unsigned>(yoradio::source::implementedCount()));
+        lv_label_set_text(_lbl_count, count_buf);
+        return;
+    }
+    const uint16_t total = (_provider && _provider->count) ? _provider->count() : 0u;
+    const int32_t content = browserRadioContentIndex();
+    if (total == 0u || content < 0) {
         station_format_checked(
             count_buf, sizeof(count_buf), kStrCountPlaceholder,
             i18n::text(i18n::TextId::StationCountUnknownTotalFormat),
             static_cast<unsigned>(total));
+    } else {
+        station_format_checked(
+            count_buf, sizeof(count_buf), kStrCountPlaceholder,
+            i18n::text(i18n::TextId::StationCountCurrentTotalFormat),
+            static_cast<unsigned>(content) + 1u, static_cast<unsigned>(total));
     }
     lv_label_set_text(_lbl_count, count_buf);
+}
+
+uint16_t LvglStationPage::_sourcesCount(void*) {
+    return static_cast<uint16_t>(yoradio::source::implementedCount());
+}
+
+bool LvglStationPage::_sourcesPageText(void*, uint16_t first, uint16_t last,
+                                       char* out, size_t cap, size_t name_limit) {
+    if (!out || cap == 0u) return false;
+    out[0] = '\0';
+    size_t used = 0;
+    if (last >= yoradio::source::implementedCount()) return false;
+    // U+203A is in the factory text face. It sits in the same label, right after the name.
+    // U+203A есть в заводском текстовом шрифте. Он в той же строке, сразу после названия.
+    static constexpr char kChevron[] = " \u203A";
+    const size_t chevron_bytes = strlen(kChevron);
+    for (uint16_t row = first; row <= last; ++row) {
+        const yoradio::source::SourceEntry* entry = yoradio::source::implementedAt(row);
+        if (!entry) return false;
+        const yoradio::source::SourceId id = entry->id;
+        const char* localized = entry->title;
+        if (id == yoradio::source::SourceId::Radio) {
+            localized = i18n::text(i18n::TextId::BrowserSourceRadio);
+        } else if (id == yoradio::source::SourceId::Sd) {
+            localized = i18n::text(i18n::TextId::BrowserSourceSd);
+        }
+        char title[64];
+        snprintf(title, sizeof(title), "%s", localized ? localized : "");
+        const size_t name_budget = name_limit > chevron_bytes ? (name_limit - chevron_bytes) : 0u;
+        truncate_utf8(title, name_budget);
+        if (!append_text(out, cap, used, title)
+            || !append_text(out, cap, used, kChevron)
+            || !append_text(out, cap, used, "\n")) {
+            return false;
+        }
+    }
+    return true;
+}
+
+int32_t LvglStationPage::_sourcesSounding(void*) {
+    return browserSoundingCatalogRow();
+}
+
+void LvglStationPage::_sourcesTap(void* ctx, uint16_t row) {
+    auto* self = static_cast<LvglStationPage*>(ctx);
+    const yoradio::source::SourceEntry* entry = yoradio::source::implementedAt(row);
+    if (!self || !entry) return;
+    const yoradio::source::SourceId id = entry->id;
+    if (id == yoradio::source::SourceId::Radio) self->_showRadio(true);
+    else if (id == yoradio::source::SourceId::Sd) self->_showSd(false, false);
+}
+
+uint32_t LvglStationPage::_sourcesRevision(void*) {
+    return 0u;
+}
+
+uint16_t LvglStationPage::_radioCount(void* ctx) {
+    auto* self = static_cast<LvglStationPage*>(ctx);
+    const uint16_t stations = (self && self->_provider && self->_provider->count)
+                                  ? self->_provider->count()
+                                  : 0u;
+    return static_cast<uint16_t>(stations + (stations < 65535u ? 1u : 0u));
+}
+
+bool LvglStationPage::_radioPageText(void* ctx, uint16_t first, uint16_t last,
+                                     char* out, size_t cap, size_t name_limit) {
+    if (!out || cap == 0u || last < first) return false;
+    out[0] = '\0';
+    size_t used = 0;
+    uint16_t station_first = first;
+    if (first == 0u) {
+        if (!append_text(out, cap, used, "..\n")) return false;
+        if (last == 0u) {
+            auto* self = static_cast<LvglStationPage*>(ctx);
+            const uint16_t stations = (self && self->_provider && self->_provider->count)
+                                          ? self->_provider->count()
+                                          : 0u;
+            if (stations == 0u) {
+                return append_text(out, cap, used, i18n::text(i18n::TextId::StationEmptyList));
+            }
+            return true;
+        }
+        station_first = 1u;
+    }
+    return station_list_adapter::station_page_text(
+        station_first, last, out + used, cap - used, name_limit);
+}
+
+int32_t LvglStationPage::_radioSounding(void*) {
+    const int32_t content = browserRadioContentIndex();
+    if (content < 0) return -1;
+    return content + 1;
+}
+
+void LvglStationPage::_radioTap(void* ctx, uint16_t row) {
+    auto* self = static_cast<LvglStationPage*>(ctx);
+    if (!self) return;
+    if (row == 0u) {
+        self->_showSources();
+        return;
+    }
+    if (!self->_provider || !self->_provider->play) return;
+    char id[8];
+    const int wrote = snprintf(id, sizeof(id), "%u", static_cast<unsigned>(row));
+    if (wrote <= 0 || static_cast<size_t>(wrote) >= sizeof(id)) return;
+    self->_provider->play(id);
+}
+
+bool LvglStationPage::_radioPressFocus(void*, uint16_t row) {
+    // Radio ".." uses the same press-time focus as SD "..". Station rows stay unchanged.
+    // Radio «..» получает тот же фокус при касании, что и SD «..». Строки станций не меняются.
+    return row == 0u;
+}
+
+uint16_t LvglStationPage::_sdCount(void*) {
+    if (browserSdStatus() == BrowserStatus::Loading) return 2u;
+    const uint16_t items = browserSdCount();
+    return static_cast<uint16_t>(items + 1u);
+}
+
+bool LvglStationPage::_sdPageText(void*, uint16_t first, uint16_t last,
+                                  char* out, size_t cap, size_t name_limit) {
+    if (!out || cap == 0u || last < first) return false;
+    out[0] = '\0';
+    size_t used = 0;
+    const BrowserStatus status = browserSdStatus();
+    if (status == BrowserStatus::Loading) {
+        if (first == 0u && !append_text(out, cap, used, "..\n")) return false;
+        if (first <= 1u && (last >= 1u || last == 0u)) {
+            if (!append_text(out, cap, used, sdStatusLine(status))) return false;
+        }
+        return used > 0u;
+    }
+    if (first == 0u) {
+        if (!append_text(out, cap, used, "..\n")) return false;
+        if (last == 0u) {
+            if (status == BrowserStatus::Ready) return true;
+            return append_text(out, cap, used, sdStatusLine(status));
+        }
+    }
+    if (status != BrowserStatus::Ready) return used > 0u;
+    for (uint16_t row = first; row <= last; ++row) {
+        if (row == 0u) continue;
+        const uint16_t index = static_cast<uint16_t>(row - 1u);
+        char name[96];
+        bool directory = false;
+        if (!browserSdName(index, name, sizeof(name), &directory)) return false;
+        const size_t limit = (directory && name_limit > 0u) ? (name_limit - 1u) : name_limit;
+        truncate_utf8(name, limit);
+        if (directory && !append_text(out, cap, used, name)) return false;
+        if (directory && !append_text(out, cap, used, "/")) return false;
+        if (!directory && !append_text(out, cap, used, name)) return false;
+        if (!append_text(out, cap, used, "\n")) return false;
+    }
+    return true;
+}
+
+int32_t LvglStationPage::_sdSounding(void*) {
+    const int32_t index = browserSdSoundingIndex();
+    if (index < 0) return -1;
+    return index + 1;
+}
+
+void LvglStationPage::_sdTap(void* ctx, uint16_t row) {
+    auto* self = static_cast<LvglStationPage*>(ctx);
+    if (!self || self->_level != BrowserLevel::Sd) return;
+    if (row == 0u) {
+        if (browserSdAtRoot()) {
+            self->_showSources();
+            return;
+        }
+        const uint32_t previous = self->_request_id;
+        if (!browserSdOpenParent(self->_nextRequest())) {
+            self->_request_id = previous;
+            return;
+        }
+        self->_sd_jump = false;
+        self->_redisplaySd(false);
+        return;
+    }
+    if (browserSdStatus() != BrowserStatus::Ready) return;
+    const uint16_t index = static_cast<uint16_t>(row - 1u);
+    if (browserSdIsDirectory(index)) {
+        const uint32_t previous = self->_request_id;
+        if (!browserSdOpenIndex(self->_nextRequest(), index)) {
+            self->_request_id = previous;
+            return;
+        }
+        self->_sd_jump = false;
+        self->_redisplaySd(false);
+        return;
+    }
+    if (!browserSdPlay(index)) self->_syncChrome();
+}
+
+bool LvglStationPage::_sdPressFocus(void*, uint16_t row) {
+    if (browserSdStatus() != BrowserStatus::Ready) return false;
+    if (row == 0u) return !browserSdAtRoot();
+    return browserSdIsDirectory(static_cast<uint16_t>(row - 1u));
+}
+
+uint32_t LvglStationPage::_sdRevision(void*) {
+    return browserSdRevision();
+}
+
+uint32_t LvglStationPage::_radioRevision(void* ctx) {
+    auto* self = static_cast<LvglStationPage*>(ctx);
+    if (!self || !self->_provider || !self->_provider->revision) return 0u;
+    return self->_provider->revision();
+}
+
+void LvglStationPage::_headerClickedEvt(lv_event_t* e) {
+    auto* self = static_cast<LvglStationPage*>(lv_event_get_user_data(e));
+    if (!self || !e || lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    lv_obj_t* target = static_cast<lv_obj_t*>(lv_event_get_target(e));
+    if (target != self->_header && lv_obj_get_parent(target) != self->_header) return;
+    if (self->_level == BrowserLevel::Sources) return;
+    self->_showSources();
 }
 
 void LvglStationPage::_hintAreaClickedEvt(lv_event_t* e) {
@@ -303,7 +823,9 @@ void LvglStationPage::_onHintAreaClicked(lv_event_t* e) {
     lvgl_ui::goToCarouselPage(PageChain::MAIN_INDEX);
 }
 
-void LvglStationPage::exit() {}
+void LvglStationPage::exit() {
+    _releaseProvider();
+}
 
 void LvglStationPage::liveReapplyTheme() {
     if (!_screen) return;
@@ -314,6 +836,7 @@ void LvglStationPage::liveReapplyTheme() {
 
     if (_lbl_title) lv_obj_set_style_text_color(_lbl_title, pal.text_primary, LV_PART_MAIN);
     if (_lbl_count) lv_obj_set_style_text_color(_lbl_count, pal.text_secondary, LV_PART_MAIN);
+    apply_header_press(_header, _level != BrowserLevel::Sources);
 
     if (_hint_area) {
         wgt_footer_pill::apply_palette(_hint_area, pal);
@@ -340,15 +863,21 @@ void LvglStationPage::releaseAfterAutoDelete() {
 }
 
 void LvglStationPage::_nullHandles() {
+    _releaseProvider();
     station_list_active::releaseAfterTreeDelete(_list);
     _screen = nullptr;
     _status_line = {};
+    _header = nullptr;
     _lbl_title = nullptr;
     _lbl_count = nullptr;
     _lbl_hint_icon = nullptr;
     _lbl_hint_text = nullptr;
     _hint_area = nullptr;
-    _station_total = 0;
+    _level = BrowserLevel::Sources;
+    _request_id = 0;
+    _generation = 0;
+    _sd_jump = false;
+    _sd_loading_row = false;
 }
 
 lv_obj_t* LvglStationPage::screen() {

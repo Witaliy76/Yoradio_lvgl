@@ -70,6 +70,18 @@ enum class TextId : uint16_t {
   StationEmptyList,
   StationListUnavailable,
   StationFallbackNameFormat,
+  BrowserSourcesTitle,
+  BrowserSourceRadio,
+  BrowserSourceSd,
+  BrowserSdLoading,
+  BrowserSdEmpty,
+  BrowserSdUnavailable,
+  BrowserSdError,
+  BrowserSdResourceLimit,
+  BrowserPlayBusy,
+  BrowserPlayStopFailed,
+  BrowserPlayRetry,
+  BrowserPlayFailed,
   PresetTitle,
   PresetEmptySlot,
   PresetUnavailable,
@@ -141,6 +153,18 @@ enum class TextId : uint16_t {
   WifiScanSecuredRowFormat,
   WifiRemoveConfirm,
   WifiRemoveConfirmFormat,
+  SourceUsb,
+  SourceDlna,
+  SourceNas,
+  SourceYandex,
+  SourceSpotify,
+  SourceAirPlay,
+  SourceBluetooth,
+  SourceAux,
+  SourceI2s,
+  SourcePlannedNotice,
+  SourceShortRadio,
+  SourceShortYandex,
   Count
 };
 
@@ -411,6 +435,18 @@ inline constexpr std::array<TextSpec, textCount()> kTextSpecs{{
   makeTextSpec("", 64),       // StationEmptyList: multiline renderer state
   makeTextSpec("", 64),       // StationListUnavailable: normalized renderer error
   makeTextSpec("%u", 32),     // StationFallbackNameFormat: one-based station number
+  makeTextSpec("", 24),       // BrowserSourcesTitle: uppercase browser root
+  makeTextSpec("", 32),       // BrowserSourceRadio: Sources row title
+  makeTextSpec("", 24),       // BrowserSourceSd: Sources row title
+  makeTextSpec("", 64),       // BrowserSdLoading: folder still opening
+  makeTextSpec("", 64),       // BrowserSdEmpty: opened folder has no rows
+  makeTextSpec("", 64),       // BrowserSdUnavailable: card missing or generation changed
+  makeTextSpec("", 64),       // BrowserSdError: open/read failed
+  makeTextSpec("", 64),       // BrowserSdResourceLimit: budget exceeded, not a short list
+  makeTextSpec("", 64),       // BrowserPlayBusy
+  makeTextSpec("", 64),       // BrowserPlayStopFailed
+  makeTextSpec("", 64),       // BrowserPlayRetry
+  makeTextSpec("", 64),       // BrowserPlayFailed
   makeTextSpec("", 24),       // PresetTitle: uppercase Temporary title
   makeTextSpec("", 24),       // PresetEmptySlot: row state
   makeTextSpec("", 32),       // PresetUnavailable: invalid/missing station row
@@ -482,6 +518,18 @@ inline constexpr std::array<TextSpec, textCount()> kTextSpecs{{
   makeTextSpec("%s %d", 64),  // WifiScanSecuredRowFormat: SSID, RSSI
   makeTextSpec("", 48),       // WifiRemoveConfirm: no-SSID fallback
   makeTextSpec("%s", 64),     // WifiRemoveConfirmFormat: saved SSID
+  makeTextSpec("", 32),       // SourceUsb
+  makeTextSpec("", 32),       // SourceDlna
+  makeTextSpec("", 32),       // SourceNas
+  makeTextSpec("", 40),       // SourceYandex
+  makeTextSpec("", 24),       // SourceSpotify
+  makeTextSpec("", 24),       // SourceAirPlay
+  makeTextSpec("", 32),       // SourceBluetooth
+  makeTextSpec("", 24),       // SourceAux
+  makeTextSpec("", 16),       // SourceI2s
+  makeTextSpec("", 64),       // SourcePlannedNotice
+  makeTextSpec("", 16),       // SourceShortRadio: carousel tile label
+  makeTextSpec("", 16),       // SourceShortYandex: carousel tile label
 }};
 
 // Parser foundation checks. These stay next to the constexpr implementation so

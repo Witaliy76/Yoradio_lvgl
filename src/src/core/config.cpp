@@ -843,49 +843,84 @@ void Config::setStation(const char* station) {
   u8fix(config.station.name);
 }
 
-void Config::indexPlaylist() {
-  File playlist = LittleFS.open(PLAYLIST_PATH, "r");
-  if (!playlist) {
-    return;
-  }
-  // S01-5C-2 stage P3: index.dat rebuild (playlist import PLAYLISTSAVED on loopTask, and the rare
-  // boot rebuild when index.dat is missing). open("w") already programs flash, so the RGB flash
-  // guard comes first and is held until index.close() returned. Denied: index.dat is not touched.
-  // S01-5C-2 этап P3: перестроение index.dat. open("w") уже пишет во flash, поэтому сначала guard
-  // до возврата index.close(). Denied: index.dat не трогаем.
+bool Config::tryPlaylistRead() {
+  if (!playlistReady() || _playlistAccess.test_and_set(std::memory_order_acquire)) return false;
+  if (playlistReady()) return true;
+  endPlaylistRead();
+  return false;
+}
+
+void Config::lockPlaylistUpdate() {
+  while (_playlistAccess.test_and_set(std::memory_order_acquire)) vTaskDelay(1);
+  _playlistReady.store(false, std::memory_order_release);
+  _playlistViewRevision.fetch_add(1, std::memory_order_release);
+}
+
+bool Config::indexPlaylist() {
+  // RGB guard still precedes every flash mutation, including the staged index.
   rgb_flash_guard::Scope flash_guard("LFS_PL_INDEX");
   if (!flash_guard.ok()) {
     Serial.println("[LFS-UPLOAD] abort source=LFS_PL_INDEX reason=flash_busy (index not rebuilt)");
-    playlist.close();
-    return;
+    return false;
   }
-  lfs_upload::StageTimer stage("LFS_PL_INDEX", "ok");
+  PlaylistUpdateGuard update(*this);
+  lfs_upload::StageTimer stage("LFS_PL_INDEX", "failed");
+  File playlist = LittleFS.open(PLAYLIST_PATH, "r");
+  if (!playlist) return false;
+  constexpr const char* candidate = "/data/index.tmp";
+  File index = LittleFS.open(candidate, "w");
+  if (!index) return false;
   char sName[BUFLEN], sUrl[BUFLEN];
   int sOvol;
-  File index = LittleFS.open(INDEX_PATH, "w");
+  uint32_t rows = 0;
+  bool complete = true;
   while (playlist.available()) {
     uint32_t pos = playlist.position();
     if (parseCSV(playlist.readStringUntil('\n').c_str(), sName, sUrl, sOvol)) {
-      stage.addBytes(index.write((uint8_t *) &pos, 4));
+      if (rows == 65535u) { complete = false; break; }
+      const size_t wrote = index.write(reinterpret_cast<const uint8_t*>(&pos), sizeof(pos));
+      stage.addBytes(wrote);
+      if (wrote != sizeof(pos)) { complete = false; break; }
+      ++rows;
     }
   }
   index.close();
   playlist.close();
+  File verify = LittleFS.open(candidate, "r");
+  complete = complete && verify && verify.size() == rows * sizeof(uint32_t);
+  if (verify) verify.close();
+  if (!complete || !LittleFS.rename(candidate, INDEX_PATH)) {
+    LittleFS.remove(candidate);
+    stage.outcome("index_incomplete");
+    Serial.println("[LFS-UPLOAD] index failed: catalog unavailable until rebuild");
+    return false;
+  }
+  // The gate, not revision, excludes readers of a changing CSV/index pair.
+  store.countStation = static_cast<uint16_t>(rows);
+  _playlistCount.store(static_cast<uint16_t>(rows), std::memory_order_release);
+  _playlistRevision.fetch_add(1, std::memory_order_release);
+  _playlistViewRevision.fetch_add(1, std::memory_order_release);
+  _playlistReady.store(true, std::memory_order_release);
+  stage.outcome("ok");
+  return true;
 }
 
 void Config::initPlaylist() {
-  store.countStation = 0;
   if (!LittleFS.exists(INDEX_PATH)) indexPlaylist();
-
-  if (LittleFS.exists(INDEX_PATH)) {
-    File index = LittleFS.open(INDEX_PATH, "r");
-    store.countStation = index.size() / 4;
-    index.close();
-    saveValue(&store.countStation, store.countStation, true, true);
-  }
+  PlaylistReadGuard read(*this);
+  if (!read) return;
+  File index = LittleFS.open(INDEX_PATH, "r");
+  if (!index || index.size() % sizeof(uint32_t) != 0
+      || index.size() / sizeof(uint32_t) > 65535u) return;
+  const uint16_t count = static_cast<uint16_t>(index.size() / sizeof(uint32_t));
+  index.close();
+  saveValue(&store.countStation, count, true, true);
+  _playlistCount.store(count, std::memory_order_release);
 }
 
-void Config::loadStation(uint16_t ls) {
+bool Config::loadStation(uint16_t ls) {
+  PlaylistReadGuard read(*this);
+  if (!read) return false;
   char sName[BUFLEN], sUrl[BUFLEN];
   int sOvol;
   if (store.countStation == 0) {
@@ -893,16 +928,16 @@ void Config::loadStation(uint16_t ls) {
     memset(station.name, 0, BUFLEN);
     strncpy(station.name, "ёRadio", BUFLEN);
     station.ovol = 0;
-    return;
+    return false;
   }
   if (ls > store.countStation) {
     ls = 1;
   }
   File playlist = SDPLFS()->open(REAL_PLAYL, "r");
   File index = SDPLFS()->open(REAL_INDEX, "r");
-  index.seek((ls - 1) * 4, SeekSet);
-  uint32_t pos;
-  index.readBytes((char *) &pos, 4);
+  uint32_t pos = 0;
+  if (!playlist || !index || !index.seek((ls - 1) * 4, SeekSet)
+      || index.readBytes(reinterpret_cast<char*>(&pos), sizeof(pos)) != sizeof(pos)) return false;
   index.close();
   playlist.seek(pos, SeekSet);
   if (parseCSV(playlist.readStringUntil('\n').c_str(), sName, sUrl, sOvol)) {
@@ -912,17 +947,22 @@ void Config::loadStation(uint16_t ls) {
     strncpy(station.url, sUrl, BUFLEN);
     station.ovol = sOvol;
     setLastStation(ls);
+    playlist.close();
+    return true;
   }
   playlist.close();
+  return false;
 }
 
 char * Config::stationByNum(uint16_t num){
+  memset(_stationBuf, 0, BUFLEN/2);
+  PlaylistReadGuard read(*this);
+  if (!read || num == 0) return _stationBuf;
   File playlist = SDPLFS()->open(REAL_PLAYL, "r");
   File index = SDPLFS()->open(REAL_INDEX, "r");
-  index.seek((num - 1) * 4, SeekSet);
-  uint32_t pos;
-  memset(_stationBuf, 0, BUFLEN/2);
-  index.readBytes((char *) &pos, 4);
+  uint32_t pos = 0;
+  if (!playlist || !index || !index.seek((num - 1) * 4, SeekSet)
+      || index.readBytes(reinterpret_cast<char*>(&pos), sizeof(pos)) != sizeof(pos)) return _stationBuf;
   index.close();
   playlist.seek(pos, SeekSet);
   strncpy(_stationBuf, playlist.readStringUntil('\t').c_str(), BUFLEN/2);
@@ -931,6 +971,8 @@ char * Config::stationByNum(uint16_t num){
 }
 
 uint8_t Config::fillPlMenu(int from, uint8_t count) {
+  PlaylistReadGuard read(*this);
+  if (!read) return 0;
   int     ls      = from;
   uint8_t c       = 0;
   bool    finded  = false;

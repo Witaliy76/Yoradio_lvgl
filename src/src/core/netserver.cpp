@@ -1526,6 +1526,7 @@ bool NetServer::importPlaylist() {
     candidate = kPlaylistCsvStagePath;
   }
 
+  PlaylistUpdateGuard update(config);
   // Remove the old index first: a crash may leave either playlist without an index,
   // but must never pair the new playlist with the old index.
   if (LittleFS.exists(INDEX_PATH) && !LittleFS.remove(INDEX_PATH)) {
@@ -3248,6 +3249,10 @@ static void webUploadBeginFile(WebUploadReqState* upSt, const String& base, cons
 
 static void webUploadCompleteFile(WebUploadReqState* upSt, bool callIndexPlaylist) {
   if (!upSt) return;
+  if (callIndexPlaylist && !config.indexPlaylist()) {
+    webUploadMarkFileFailed(upSt);
+    return;
+  }
   upSt->files_ok++;
   upSt->total_bytes += upSt->current_bytes;
   if (upSt->current_is_web) upSt->web_ok = true;
@@ -3255,9 +3260,6 @@ static void webUploadCompleteFile(WebUploadReqState* upSt, bool callIndexPlaylis
   if (upSt->current_is_wifi) upSt->wifi_ok = true;
   Serial.printf("[WebUpload] complete name='%s' bytes=%u\n",
                 upSt->current_name, static_cast<unsigned>(upSt->current_bytes));
-  if (callIndexPlaylist) {
-    config.indexPlaylist();
-  }
 }
 
 void handleWebUploadComplete(AsyncWebServerRequest* request) {
@@ -3338,12 +3340,24 @@ static lfs_upload::Txn s_promptUploadTxn;
 // дескриптор и не удаляет destination, т.к. удаление недописанного /www-файла — новый, видимый
 // продукту отказ (удалённый index.html ломает WebUI, а обрезанный можно перезалить).
 static lfs_upload::Txn s_webAssetTxn;
+static bool s_webPlaylistUpdating = false;
+static void webPlaylistUnlock() {
+  if (!s_webPlaylistUpdating) return;
+  s_webPlaylistUpdating = false;
+  config.unlockPlaylistUpdate();
+}
+static void finishWebAssetUpload(const char* outcome) {
+  webPlaylistUnlock();
+  s_webAssetTxn.finish(outcome);
+}
 static void webAssetUploadAbortCleanup(void* owner) {
   AsyncWebServerRequest* const request = static_cast<AsyncWebServerRequest*>(owner);
   if (request && request->_tempFile) {
     request->_tempFile.close();
   }
+  webPlaylistUnlock();
 }
+
 static void promptUploadAbortCleanup(void* owner) {
   AsyncWebServerRequest* const request = static_cast<AsyncWebServerRequest*>(owner);
   if (request && request->_tempFile) {
@@ -3703,9 +3717,19 @@ void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t ind
       return;
     }
     request->onDisconnect([request]() { s_webAssetTxn.ownerGone(request); });
+    if (webUploadBasenameEquals(base, "playlist.csv")) {
+      config.lockPlaylistUpdate();
+      s_webPlaylistUpdating = true;
+      // Direct CSV upload also invalidates the old offsets before truncation.
+      if (LittleFS.exists(INDEX_PATH) && !LittleFS.remove(INDEX_PATH)) {
+        finishWebAssetUpload("index_invalidate_failed");
+        webUploadMarkFileFailed(upSt);
+        return;
+      }
+    }
     request->_tempFile = LittleFS.open(dest, "w");
     if (!request->_tempFile) {
-      s_webAssetTxn.finish("open_failed");
+      finishWebAssetUpload("open_failed");
       webUploadMarkFileFailed(upSt);
       return;
     }
@@ -3714,7 +3738,7 @@ void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t ind
   }
   if (len) {
     if (!request->_tempFile) {
-      s_webAssetTxn.finish("no_file");
+      finishWebAssetUpload("no_file");
       webUploadMarkFileFailed(upSt);
       return;
     }
@@ -3722,7 +3746,7 @@ void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t ind
     s_webAssetTxn.addBytes(written);
     if (written != len) {
       request->_tempFile.close();
-      s_webAssetTxn.finish("write_failed");
+      finishWebAssetUpload("write_failed");
       webUploadMarkFileFailed(upSt);
       return;
     }
@@ -3730,7 +3754,7 @@ void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t ind
   }
   if (final) {
     if (!request->_tempFile) {
-      s_webAssetTxn.finish("no_file");
+      finishWebAssetUpload("no_file");
       webUploadMarkFileFailed(upSt);
       return;
     }
@@ -3742,8 +3766,9 @@ void handleUploadWeb(AsyncWebServerRequest *request, String filename, size_t ind
     // webUploadCompleteFile может перестроить index.dat через config.indexPlaylist() со своим
     // Scope("LFS_PL_INDEX"). Это вложенный acquire того же глобального guard: счётчик holder'ов
     // идёт в 2 и обратно в 1, а эта транзакция всё равно отпускает ровно один раз ниже.
+    webPlaylistUnlock(); // Keep unavailable while indexPlaylist reacquires the gate.
     webUploadCompleteFile(upSt, isPlaylist);
-    s_webAssetTxn.finish("ok");
+    finishWebAssetUpload("ok");
   }
 }
 
@@ -3772,8 +3797,8 @@ void handleSources(AsyncWebServerRequest* request) {
   facts.radio_has_stations = config.store.countStation > 0;
   facts.storage_ready = storage.ready;
 
-  // Bounded static buffer: two registered entries plus reason text.
-  // Ограниченный буфер: две зарегистрированные записи плюс текст причины.
+  // Bounded static buffer: implemented entries only. Planned stays off this list.
+  // Ограниченный буфер: только Implemented. Planned в этот список не входит.
   char body[768];
   size_t n = 0;
   auto append = [&](const char* chunk) -> bool {
@@ -3805,8 +3830,10 @@ void handleSources(AsyncWebServerRequest* request) {
     request->send(500, "application/json", "{\"error\":\"buffer\"}");
     return;
   }
+  size_t emitted = 0;
   for (size_t i = 0; i < kCatalogCount; ++i) {
     const SourceEntry& entry = kCatalog[i];
+    if (entry.status != SourceStatus::Implemented) continue;
     const OpenIntent intent = openSource(entry.id, facts);
     const char* open = "stations";
     if (entry.open_kind == OpenKind::Directory) open = "directory";
@@ -3822,7 +3849,7 @@ void handleSources(AsyncWebServerRequest* request) {
     char head[96];
     snprintf(head, sizeof head,
              "%s{\"id\":%u,\"key\":\"",
-             i ? "," : "",
+             emitted ? "," : "",
              static_cast<unsigned>(entry.id));
     if (!append(head) || !appendEscaped(entry.key) || !append("\",\"title\":\"") ||
         !appendEscaped(entry.title) || !append("\",\"icon\":\"") ||
@@ -3850,6 +3877,7 @@ void handleSources(AsyncWebServerRequest* request) {
       request->send(500, "application/json", "{\"error\":\"buffer\"}");
       return;
     }
+    ++emitted;
   }
   if (!append("]}")) {
     request->send(500, "application/json", "{\"error\":\"buffer\"}");

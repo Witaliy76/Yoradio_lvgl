@@ -27,7 +27,7 @@ Info <-> Main <-> Visual <-> Station <-> Weather <-> Settings
 | 0 | Info | Device / network / firmware / memory facts |
 | 1 | Main | Now-playing: metadata, controls, volume, Presence Rail, optional bg/art |
 | 2 | Visual | Beocord-style stereo PPM on real pre-Gain PCM + stream metadata |
-| 3 | Station | Station list (default: simple paged renderer) |
+| 3 | Station | Source browser: Sources, Radio, and SD folders. One paged list. The bottom source overlay does not open on this page |
 | 4 | Weather | Current weather + forecast from shared `WeatherState` |
 | 5 | Settings | Display, theme, Auto Dim, TIMERS (Radio Stop/Start + Deep Sleep/Wake), Music Rail, Wi-Fi service entry |
 
@@ -37,10 +37,14 @@ Special modes (not carousel slots):
 - **Wi-Fi flow / RebootRequired** - setup and recovery shell (AP `yoRadioAP` when needed)
 - **Preset Temporary** - eight positional presets overlay (from Info/Main/Visual/Weather)
 - **Screensaver** - analog clock on `lv_layer_top` (wake by touch)
-- **Overlays** - LOST / UPDATING style layers on `lv_layer_top` when used
-- **Source Selector (S07-LVGL-MEDIA, not implemented yet)** - swipe bottom→up overlay to pick Radio/SD (future: USB/DLNA/…); opens the matching Stations list; no separate Radio/SD switch on Stations. See `docs/phase2/stages/S07_STORAGE_SHARED_RESOURCES.md` §40.
+- **Overlays** - LOST / UPDATING on `lv_layer_top`, and the bottom Source Selector (swipe up from the bottom edge; not on Stations)
+- **Stations browser (S07-LVGL-MEDIA.1)** - The Stations browser is accepted on B060 (2026-11-16). Slice 1 was accepted on B055 (2026-11-15): Sources and Radio, header and `..` return to Sources. Each Sources row shows its localized title and a trailing `›` (U+203A) in the same list label. Radio and SD page headers use that same localized source name with a trailing `›` in the existing title label; the Sources page title is unchanged. Slice 2 opens SD through Directory Service: Sources → SD root → folders and audio files on the same paged list. A folder tap does not start playback. While the finger is down on a folder, on SD `..` above the root, or on Radio `..`, the existing row focus is shown; the release still decides the action. A file tap queues the canonical path. `..` walks up and leaves the SD root for Sources; the header returns to Sources from any depth. On Radio and SD the header uses `LV_STATE_PRESSED` with `main_chrome_pressed_bg`; Sources keeps the same hit area and does not flash. Confirmed SD playback opens the file's parent folder once; later Player changes do not move the open section. Radio names always come from `PLAYLIST_PATH` / `INDEX_PATH`, including while an SD file is playing. Loading, empty, unavailable, error, and resource-limit states reuse the existing list label. While a folder is opening, `..` and the Loading line are two rows and the focus chrome sits on Loading; a pending result is polled every DspTask turn instead of waiting for the 1 Hz station refresh. Vertical gestures still flip pages. Legacy scroll remains a compile shim and does not follow this browser. Status-line source glyphs are not implemented. The bottom Source Selector is a separate layer: see below.
 
 `screens/scr_stub.*` remains in-tree as retained Stage 5 compatibility code but is **not** registered in PageChain; all six carousel slots use real page classes.
+
+## Source Selector
+
+Swipe up from the bottom 64 px of Info, Main, Visual, Weather, or Settings. The same gesture does nothing on Stations (the Radio/SD browser). A translucent panel on `lv_layer_top` shows the shared source catalog as a horizontal icon carousel: Radio, SD, then the planned sources in catalog order. The panel has a centered title with side rules, square tiles with one-line short captions, left/right arrows that step focus and dim at the ends, and one dot per source under the row that marks the focused tile. The screen behind it stays the live LVGL screen: the panel uses ordinary `bg_opa`, with no framebuffer copy and no blur. The row scrolls horizontally with snap-to-center and does not wrap. A horizontal swipe changes the centered tile and does not start playback or turn a PageChain page. A tap on the centered implemented tile calls `Player::activate`. A tap on a side tile only brings it to the center. A planned tile shows a short “support is planned” line and does not call `activate`. Swipe down on the panel, or tap outside it, closes it and consumes that touch. Screensaver, blank, LOST, UPDATING, Wi-Fi, Boot, and Preset take priority. The overlay does not call `openSource`, STOP, or file IO. `Pending` leaves the panel open and does not paint a successful switch. `AlreadyActive`, `Playing`, and `SelectedStopped` close it and leave the current page; `SelectedStopped` refreshes the visible now-playing page. `NeedsSelection` opens the existing SD browser, or the Radio list when Radio has no stations. Busy, unavailable, and errors stay on the panel with a short reason. Closing the panel does not cancel an activation Player already accepted. Focus, the Player’s selected source, and the sounding source are separate marks. `sourceOverlayFocusPrevious`, `sourceOverlayFocusNext`, and `sourceOverlayFocusSelect` are the DspTask entry points for a future encoder or IR control; they are not wired to a driver here.
 
 ## Directory structure
 
@@ -50,7 +54,8 @@ lvgl_ui/
 ├── lvgl_ui.h / lvgl_ui.cpp   - Public entry points and lifecycle integration
 ├── lv_page_chain.*           - Carousel + Boot / Temporary / Wi-Fi special modes
 ├── lv_screen.h               - ILvglScreen contract
-├── lv_overlay.*              - Top-layer modal overlays
+├── lv_overlay.*              - Top-layer modal overlays (LOST / UPDATING)
+├── source_overlay.*          - Bottom source carousel (activate Radio / SD; planned tiles do not)
 ├── lv_touch_indev.*          - Pointer indev (DspTask only)
 ├── lv_screensaver.*          - Analog clock screensaver
 ├── lv_fs_littlefs.*          - LittleFS bridge for LVGL images
@@ -226,7 +231,7 @@ Ordinary firmware uses TinyTTF, not a per-size compiled C ladder.
 |-------|------|
 | `fonts/yoradio_factory_font.ttf` | multilingual factory text; `FontProvider::text(px)` when no valid user file |
 | LittleFS `/fonts/user.ttf` | optional user text TTF (runtime, PSRAM copy, 512 KiB cap, reboot to apply) |
-| `fonts/yoradio_tabler.ttf` | 34-glyph Tabler subset; `FontProvider::icon(px)` |
+| `fonts/yoradio_tabler.ttf` | 44-glyph Tabler subset; `FontProvider::icon(px)` |
 | `fonts/lv_font_yora_montserrat_16_cyr.c` | emergency 16 px only |
 
 Pixel size is a runtime request. `FontProvider::begin()` eagerly creates factory

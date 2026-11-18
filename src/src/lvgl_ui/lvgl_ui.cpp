@@ -2,6 +2,7 @@
 #include "lvgl_ui.h"
 #include "lv_draw_buf_heap.h"
 #include "lv_overlay.h"
+#include "source_overlay.h"
 #include "lv_screensaver.h"
 #include "lv_text_scroll.h"
 #include "lv_touch_indev.h"
@@ -55,6 +56,20 @@ static LvglPresetScreen s_preset_screen;
 static LvglBootScreen s_boot_screen;
 static LvglWifiFlowScreen s_wifi_flow_screen;
 
+static OverlayPlace source_overlay_place() {
+    if (lvgl_ui::isLvglBootActive() || s_page_chain.isTemporaryActive() ||
+        lvgl_ui::isWifiSetupFlowActive()) {
+        return OverlayPlace::Modal;
+    }
+    const displayMode_e mode = display.mode();
+    if (mode == SCREENBLANK || mode == SCREENSAVER) return OverlayPlace::Wake;
+    if (mode == WIFI || mode == LOST || mode == UPDATING) return OverlayPlace::Modal;
+    if (mode == STATIONS || s_page_chain.currentIndex() == PageChain::STATION_INDEX) {
+        return OverlayPlace::StationsOrBrowser;
+    }
+    return OverlayPlace::PlayerSurface;
+}
+
 namespace {
 
 // Stage 6.4A: Preset Temporary timeout — explicit caller value; PageChain default stays 20s.
@@ -93,6 +108,7 @@ static bool preset_carousel_slot_allowed(int index) {
 }
 
 static bool preset_open_gesture_allowed() {
+    if (sourceOverlayIsOpen()) return false;
     if (s_page_chain.isTemporaryActive()) return false;
     if (lvgl_ui::isLvglBootActive()) return false;
     if (lvgl_ui::isWifiSetupFlowActive()) return false;
@@ -168,6 +184,11 @@ static void map_horizontal_gesture_to_carousel(lv_dir_t dir) {
 // Только горизонтальная карусель; вертикальный свайп (Preset) — в poll_top_edge_swipe().
 static void carousel_gesture_event_cb(lv_event_t* e) {
     if (lv_event_get_code(e) != LV_EVENT_GESTURE) return;
+    if (sourceOverlayIsOpen()) {
+        lv_indev_t* held = lv_indev_get_act();
+        if (held) lv_indev_wait_release(held);
+        return;
+    }
 
     // Screensaver / blank wake is handled in lv_touch_read_cb — skip here.
     // Пробуждение saver/blank — в lv_touch_read_cb, здесь пропускаем.
@@ -233,6 +254,27 @@ static void poll_top_edge_swipe() {
             s_swipe_triggered = true;
             s_page_chain.onActivity();
             s_page_chain.showTemporary(&s_preset_screen, kPresetTimeoutMs);
+        } else if (!s_swipe_triggered) {
+            lv_disp_t* disp = lv_disp_get_default();
+            const int16_t height = disp ? static_cast<int16_t>(lv_disp_get_ver_res(disp)) : 0;
+            BottomStroke stroke;
+            stroke.tracking = true;
+            stroke.down = true;
+            stroke.start_x = s_swipe_start_x;
+            stroke.start_y = s_swipe_start_y;
+            stroke.x = cx;
+            stroke.y = cy;
+            stroke.height = height;
+            stroke.place = source_overlay_place();
+            stroke.overlay_open = sourceOverlayIsOpen();
+            if (!bottomSwipeOpens(stroke)) return;
+            s_swipe_triggered = true;
+            s_deferred_carousel_dir = LV_DIR_NONE;
+            s_page_chain.onActivity();
+            if (sourceOverlayOpen(stroke.place)) {
+                lv_indev_t* indev = lv_indev_get_act();
+                if (indev) lv_indev_wait_release(indev);
+            }
         }
     } else {
         s_swipe_tracking  = false;
@@ -750,15 +792,41 @@ void lvgl_ui::taskHandler() {
     prepareTouchPolling();
     s_page_chain.tick();
     lv_timer_handler();
+    // A pending SD folder is polled every DspTask turn. The 1 Hz station refresh stays clock/RSSI.
+    // Ждущая папка SD опрашивается каждый цикл DspTask. Секундный refresh Stations остаётся часами/RSSI.
+    if (isLvglCarouselOnStationSlot()) {
+        s_station_page.serviceSdPending();
+    }
     // Poll after lv_timer_handler so we read the just-processed indev state.
     // После lv_timer_handler — читаем свежеобработанное состояние indev.
     poll_top_edge_swipe();
+    const OverlayCommand source_command = sourceOverlayService(source_overlay_place());
+    if (source_command == OverlayCommand::CloseAndRefresh) {
+        refreshMainScreen();
+        refreshVisualScreen();
+    } else if (source_command == OverlayCommand::OpenSdBrowser ||
+               source_command == OverlayCommand::OpenRadioBrowser) {
+        // NeedsSelection only changes the carousel page. NEWMODE STATIONS would leave
+        // display.mode() there, and neither the footer nor a swipe puts it back to PLAYER.
+        // Main's 1 Hz refresh runs only in PLAYER/VOL, so the clock and metadata would freeze.
+        // NeedsSelection меняет только страницу карусели. NEWMODE STATIONS оставляет этот
+        // режим, а футер и свайп не возвращают PLAYER. Часы и метаданные Main обновляются
+        // раз в секунду только в PLAYER/VOL и иначе замирают.
+        s_station_page.armBrowser(source_command == OverlayCommand::OpenSdBrowser
+                                      ? yoradio::source::SourceId::Sd
+                                      : yoradio::source::SourceId::Radio);
+        s_page_chain.goTo(PageChain::STATION_INDEX); // overlay-browser-keeps-player-mode
+        if (s_page_chain.currentIndex() != PageChain::STATION_INDEX) {
+            s_station_page.cancelArmedBrowser();
+        }
+    }
     // EXEC-01D: apply the carousel switch requested by carousel_gesture_event_cb. Placed after
     // lv_timer_handler() so LVGL has completely finished dispatching the gesture event before
     // PageChain::goTo() is allowed to delete the (formerly active) screen root. Clearing the
     // request before the call keeps it consumed even if goTo() early-returns.
     // EXEC-01D: применяем отложенное переключение карусели — уже вне диспетчеризации событий
     // LVGL, поэтому goTo() может безопасно удалить прежний активный экран.
+    if (sourceOverlayIsOpen()) s_deferred_carousel_dir = LV_DIR_NONE;
     if (s_deferred_carousel_dir != LV_DIR_NONE) {
         const lv_dir_t dir = s_deferred_carousel_dir;
         s_deferred_carousel_dir = LV_DIR_NONE;
@@ -909,16 +977,19 @@ void lvgl_ui::noteDisplayBatchBusy() {
 void lvgl_ui::onModeChanged(displayMode_e mode, displayMode_e prev_mode) {
     ensurePageChainRegistered();
     if (mode == SCREENSAVER) {
+        sourceOverlayDismiss();
         overlayHideAll();
         screensaverShow();
         return;
     }
     if (mode == SCREENBLANK) {
+        sourceOverlayDismiss();
         screensaverHide();
         overlayHideAll();
         return;
     }
     if (mode == WIFI) {
+        sourceOverlayDismiss();
         overlayHideAll();
         (void)wifiOpsInit();
         // Wi‑Fi 5B: boot-fail handoff may already have loaded the shell via dismissBootThenShowRebootRequired().
@@ -939,12 +1010,14 @@ void lvgl_ui::onModeChanged(displayMode_e mode, displayMode_e prev_mode) {
         }
         goToMainAndRefresh();
     } else if (mode == LOST) {
+        sourceOverlayDismiss();
         // Wi‑Fi 4C: do not stack LOST over Wi‑Fi shell (STA may drop during manual connect).
         // Wi‑Fi 4C: не класть LOST поверх Wi‑Fi shell (STA может рваться при ручном connect).
         if (!isWifiSetupFlowActive()) {
             overlayShowLost();
         }
     } else if (mode == UPDATING) {
+        sourceOverlayDismiss();
         overlayShowUpdating();
     } else if (mode == VOL) {
         overlayHideAll();
@@ -953,6 +1026,7 @@ void lvgl_ui::onModeChanged(displayMode_e mode, displayMode_e prev_mode) {
     } else if (mode == STATIONS) {
         // Block 8-E12: STATIONS → LvglStationPage (PageChain).
         // Block 8-E12: режим STATIONS → карусель Station.
+        sourceOverlayDismiss();
         overlayHideAll();
         s_page_chain.goTo(PageChain::STATION_INDEX);
     } else if (mode == SETTINGS) {

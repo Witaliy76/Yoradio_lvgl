@@ -13,7 +13,7 @@ namespace yoradio { namespace playback {
 constexpr size_t kFolderQueueHistoryDepth = 8;
 // Compact folder-shuffle permutation of audio indices. Not a path list.
 // Компактная перестановка индексов аудио в папке. Не список путей.
-constexpr uint16_t kFolderQueueShuffleMax = 256;
+constexpr uint16_t kFolderQueueShuffleMax = 4096;
 
 enum class FolderQueuePoll : uint8_t {
     Idle, Pending, Found, End, Error, Cancelled
@@ -65,6 +65,8 @@ void folderQueueClearLaunchFlags();
 #if defined(YORADIO_DIRECTORY_HOST)
 void folderQueueHostReset();
 void folderQueueHostSetShuffleSeed(uint32_t seed);
+void folderQueueHostFailShuffleAlloc(bool fail);
+size_t folderQueueHostShuffleBytes();
 #endif
 
 }}

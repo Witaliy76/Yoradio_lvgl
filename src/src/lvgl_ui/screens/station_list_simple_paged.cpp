@@ -16,7 +16,6 @@
 #include <cstdint>
 
 #include "lvgl.h"
-#include "../adapters/station_list_adapter.h"
 #include "../control_glyph_utf8.h"
 #include "../fonts/lv_fonts.h"
 #include "../font_provider.h"
@@ -138,51 +137,6 @@ static size_t name_limit_for_profile() {
                : kStationNameLimitCompact;
 }
 
-static void truncate_utf8_in_place(char* s, size_t max_bytes) {
-    if (!s) return;
-    const size_t len = strlen(s);
-    if (len <= max_bytes) return;
-    if (max_bytes == 0u) {
-        s[0] = '\0';
-        return;
-    }
-    size_t cut = max_bytes;
-    while (cut > 0u && (static_cast<unsigned char>(s[cut]) & 0xC0u) == 0x80u) {
-        --cut;
-    }
-    if (cut == 0u) cut = max_bytes;
-    s[cut] = '\0';
-}
-
-static bool format_fallback_station_name(char* out, size_t cap, uint16_t num) {
-    if (!out || cap == 0u) return false;
-    out[0] = '\0';
-    const int written = snprintf(out, cap,
-                                 i18n::text(i18n::TextId::StationFallbackNameFormat),
-                                 static_cast<unsigned>(num));
-    if (written >= 0 && static_cast<size_t>(written) < cap) return true;
-    if (cap >= 3u) {
-        memcpy(out, "--", 3u);
-    }
-    return false;
-}
-
-static bool append_station_line(char* out, size_t cap, size_t& used, uint16_t num, const char* name) {
-    if (!out || cap == 0u || used >= cap - 1u || !name) return false;
-    const char* fmt = (num < 100u) ? "%02u    %s\n" : "%u    %s\n";
-    const int written = snprintf(out + used, cap - used, fmt, static_cast<unsigned>(num), name);
-    if (written <= 0) {
-        out[used] = '\0';
-        return false;
-    }
-    if (static_cast<size_t>(written) >= cap - used) {
-        out[used] = '\0';
-        return false;
-    }
-    used += static_cast<size_t>(written);
-    return true;
-}
-
 static void listAreaPressedEvt(lv_event_t* e);
 static void listAreaPressingEvt(lv_event_t* e);
 static void listAreaReleasedEvt(lv_event_t* e);
@@ -195,32 +149,32 @@ static bool ensurePageTextBuffer(Instance& instance, uint16_t rows_per_page);
 
 static void computeRowsPerPage(Instance& instance);
 static uint16_t pageCountForTotal(uint16_t total, uint16_t rows_per_page);
-static uint16_t firstStationOnPage(const Instance& instance);
-static uint16_t lastStationOnPage(const Instance& instance);
-static bool stationOnCurrentPage(const Instance& instance, uint16_t station_num);
-static uint16_t localRowForStation(const Instance& instance, uint16_t station_num);
+static uint16_t firstRowOnPage(const Instance& instance);
+static uint16_t lastRowOnPage(const Instance& instance);
+static bool rowOnCurrentPage(const Instance& instance, uint16_t row);
+static uint16_t localIndexForRow(const Instance& instance, uint16_t row);
+static int32_t soundingRow(const Instance& instance);
 static void clampPageIndex(Instance& instance);
-static void clampFocusForTotal(Instance& instance, uint16_t total);
+static void clampFocus(Instance& instance);
 
 static void ensurePageLabel(Instance& instance);
 static void ensureOverlays(Instance& instance);
 static void styleFocusRowOverlays(Instance& instance, const YoRadioPalette& pal);
 static void positionFocusRowOverlays(Instance& instance, uint16_t local_row);
-static void layoutFocusChrome(Instance& instance, uint16_t focus_station);
+static void layoutFocusChrome(Instance& instance, uint16_t focus_row);
 static void hideFocusOverlays(Instance& instance);
 static void styleCurrentMarker(Instance& instance, const YoRadioPalette& pal);
 static void positionCurrentMarker(Instance& instance, uint16_t local_row);
-static void layoutCurrentMarker(Instance& instance, uint16_t current_station);
+static void layoutCurrentMarker(Instance& instance, int32_t sounding_row);
 static void hideCurrentMarker(Instance& instance);
 static void applyOverlayZOrder(Instance& instance);
-static void cacheListSignature(Instance& instance);
+static void rememberRevision(Instance& instance);
 
 static void fillCurrentPage(Instance& instance);
-static void setPageIndexFromCurrentStation(Instance& instance);
 static bool tryPageStep(Instance& instance, int direction);
-static bool candidateStationFromScreenPoint(Instance& instance, lv_coord_t screen_py,
-                                            uint16_t* out_station);
-static void setFocusStation(Instance& instance, uint16_t num);
+static bool candidateRowFromScreenPoint(Instance& instance, lv_coord_t screen_py,
+                                        uint16_t* out_row);
+static void setFocusRow(Instance& instance, uint16_t row);
 
 static void onListAreaPressed(Instance& instance, lv_event_t* e);
 static void onListAreaPressing(Instance& instance, lv_event_t* e);
@@ -237,6 +191,8 @@ static void resetStrokeTracking(Instance& instance) {
 static void resetInputState(Instance& instance) {
     resetStrokeTracking(instance);
     instance.arm_suppress_next_tap = false;
+    instance.press_focus_active = false;
+    instance.focus_before_press = 0;
 }
 
 static void releasePageTextBuffer(Instance& instance) {
@@ -298,32 +254,39 @@ static uint16_t pageCountForTotal(uint16_t total, uint16_t rows_per_page) {
         / static_cast<uint32_t>(rows_per_page));
 }
 
-static uint16_t firstStationOnPage(const Instance& instance) {
-    if (instance.rows_per_page == 0u) return 1u;
+static uint16_t firstRowOnPage(const Instance& instance) {
+    if (instance.rows_per_page == 0u) return 0u;
     return static_cast<uint16_t>(
-        static_cast<uint32_t>(instance.page_index) * static_cast<uint32_t>(instance.rows_per_page)
-        + 1u);
+        static_cast<uint32_t>(instance.page_index) * static_cast<uint32_t>(instance.rows_per_page));
 }
 
-static uint16_t lastStationOnPage(const Instance& instance) {
-    if (instance.station_total == 0u || instance.rows_per_page == 0u) return 0u;
-    const uint32_t first = static_cast<uint32_t>(firstStationOnPage(instance));
-    const uint32_t last = first + static_cast<uint32_t>(instance.rows_per_page) - 1u;
-    const uint32_t total = static_cast<uint32_t>(instance.station_total);
-    return static_cast<uint16_t>(last > total ? total : last);
+static uint16_t lastRowOnPage(const Instance& instance) {
+    if (instance.row_count == 0u || instance.rows_per_page == 0u) return 0u;
+    const uint32_t first = static_cast<uint32_t>(firstRowOnPage(instance));
+    uint32_t last = first + static_cast<uint32_t>(instance.rows_per_page) - 1u;
+    const uint32_t total = static_cast<uint32_t>(instance.row_count);
+    if (last >= total) last = total - 1u;
+    return static_cast<uint16_t>(last);
 }
 
-static bool stationOnCurrentPage(const Instance& instance, uint16_t station_num) {
-    if (!station_list_adapter::is_valid_station_num(station_num)) return false;
-    const uint16_t first = firstStationOnPage(instance);
-    const uint16_t last = lastStationOnPage(instance);
-    return station_num >= first && station_num <= last;
+static bool rowOnCurrentPage(const Instance& instance, uint16_t row) {
+    if (row >= instance.row_count) return false;
+    const uint16_t first = firstRowOnPage(instance);
+    const uint16_t last = lastRowOnPage(instance);
+    return row >= first && row <= last;
 }
 
-static uint16_t localRowForStation(const Instance& instance, uint16_t station_num) {
-    const uint16_t first = firstStationOnPage(instance);
-    if (station_num < first) return 0u;
-    return static_cast<uint16_t>(station_num - first);
+static uint16_t localIndexForRow(const Instance& instance, uint16_t row) {
+    const uint16_t first = firstRowOnPage(instance);
+    if (row < first) return 0u;
+    return static_cast<uint16_t>(row - first);
+}
+
+static int32_t soundingRow(const Instance& instance) {
+    if (!instance.feed.sounding_row) return -1;
+    const int32_t row = instance.feed.sounding_row(instance.feed.ctx);
+    if (row < 0 || static_cast<uint32_t>(row) >= instance.row_count) return -1;
+    return row;
 }
 
 static void clampPageIndex(Instance& instance) {
@@ -336,20 +299,9 @@ static void clampPageIndex(Instance& instance) {
     }
 }
 
-static void clampFocusForTotal(Instance& instance, uint16_t total) {
-    if (total == 0u) {
-        instance.focus_station_num = 0;
-        return;
-    }
-    if (instance.focus_station_num >= 1u && instance.focus_station_num <= total
-        && station_list_adapter::is_valid_station_num(instance.focus_station_num)) {
-        return;
-    }
-    const uint16_t cur = station_list_adapter::current_station_num();
-    if (station_list_adapter::is_valid_station_num(cur) && cur <= total) {
-        instance.focus_station_num = cur;
-    } else {
-        instance.focus_station_num = 1u;
+static void clampFocus(Instance& instance) {
+    if (instance.row_count == 0u || instance.focus_row >= instance.row_count) {
+        instance.focus_row = 0u;
     }
 }
 
@@ -437,16 +389,16 @@ static void hideFocusOverlays(Instance& instance) {
     }
 }
 
-static void layoutFocusChrome(Instance& instance, uint16_t focus_station) {
+static void layoutFocusChrome(Instance& instance, uint16_t focus_row) {
     if (!instance.list_area || !instance.lbl_page) return;
-    if (!stationOnCurrentPage(instance, focus_station)) {
+    if (!rowOnCurrentPage(instance, focus_row)) {
         hideFocusOverlays(instance);
         return;
     }
 
     ensureOverlays(instance);
     const YoRadioPalette& pal = yoradio_palette();
-    const uint16_t local_row = localRowForStation(instance, focus_station);
+    const uint16_t local_row = localIndexForRow(instance, focus_row);
 
     styleFocusRowOverlays(instance, pal);
     positionFocusRowOverlays(instance, local_row);
@@ -477,20 +429,20 @@ static void positionCurrentMarker(Instance& instance, uint16_t local_row) {
     lv_obj_set_pos(instance.current_marker, mx, y + marker_y_offset());
 }
 
-static void layoutCurrentMarker(Instance& instance, uint16_t current_station) {
-    if (!instance.list_area || !instance.lbl_page
-        || !station_list_adapter::is_valid_station_num(current_station)) {
+static void layoutCurrentMarker(Instance& instance, int32_t current_row) {
+    if (!instance.list_area || !instance.lbl_page || current_row < 0) {
         hideCurrentMarker(instance);
         return;
     }
-    if (!stationOnCurrentPage(instance, current_station)) {
+    const uint16_t row = static_cast<uint16_t>(current_row);
+    if (!rowOnCurrentPage(instance, row)) {
         hideCurrentMarker(instance);
         return;
     }
 
     ensureOverlays(instance);
     const YoRadioPalette& pal = yoradio_palette();
-    const uint16_t local_row = localRowForStation(instance, current_station);
+    const uint16_t local_row = localIndexForRow(instance, row);
     styleCurrentMarker(instance, pal);
     positionCurrentMarker(instance, local_row);
     lv_obj_clear_flag(instance.current_marker, LV_OBJ_FLAG_HIDDEN);
@@ -509,28 +461,50 @@ static void applyOverlayZOrder(Instance& instance) {
     }
 }
 
-static void cacheListSignature(Instance& instance) {
-    (void)station_list_adapter::list_signature(&instance.list_sig_cache);
-    instance.list_sig_cache_valid = true;
+static void rememberRevision(Instance& instance) {
+    if (!instance.feed.revision) {
+        instance.revision_valid = false;
+        return;
+    }
+    instance.applied_revision = instance.feed.revision(instance.feed.ctx);
+    instance.revision_valid = true;
+}
+
+static void applySoundingJump(Instance& instance) {
+    if (!instance.jump_to_sounding) return;
+    instance.jump_to_sounding = false;
+    const int32_t sounding = soundingRow(instance);
+    if (sounding >= 0 && instance.rows_per_page > 0u) {
+        instance.page_index = static_cast<uint16_t>(
+            static_cast<uint32_t>(sounding) / static_cast<uint32_t>(instance.rows_per_page));
+        instance.focus_row = static_cast<uint16_t>(sounding);
+        return;
+    }
+    instance.page_index = 0u;
+    instance.focus_row = instance.row_count > 1u ? 1u : 0u;
 }
 
 static void fillCurrentPage(Instance& instance) {
     if (!instance.list_area) return;
+    ++instance.content_version;
+    instance.press_focus_active = false;
 
     computeRowsPerPage(instance);
-    instance.station_total = station_list_adapter::station_count();
-    instance.page_count = pageCountForTotal(instance.station_total, instance.rows_per_page);
+    instance.row_count = instance.feed.count ? instance.feed.count(instance.feed.ctx) : 0u;
+    instance.page_count = pageCountForTotal(instance.row_count, instance.rows_per_page);
+    applySoundingJump(instance);
     clampPageIndex(instance);
-    clampFocusForTotal(instance, instance.station_total);
+    clampFocus(instance);
 
     ensurePageLabel(instance);
     if (!instance.lbl_page) return;
 
-    if (instance.station_total == 0u) {
+    if (instance.row_count == 0u) {
         lv_label_set_text(instance.lbl_page,
                           i18n::text(i18n::TextId::StationEmptyList));
         hideFocusOverlays(instance);
         hideCurrentMarker(instance);
+        instance.revision_valid = true;
         return;
     }
 
@@ -539,52 +513,32 @@ static void fillCurrentPage(Instance& instance) {
                           i18n::text(i18n::TextId::StationListUnavailable));
         hideFocusOverlays(instance);
         hideCurrentMarker(instance);
-        instance.list_sig_cache_valid = false;
+        instance.revision_valid = false;
         return;
     }
 
-    const uint16_t first = firstStationOnPage(instance);
-    const uint16_t last = lastStationOnPage(instance);
+    const uint16_t first = firstRowOnPage(instance);
+    const uint16_t last = lastRowOnPage(instance);
     const size_t name_limit = name_limit_for_profile();
-
-    if (!station_list_adapter::station_page_text(
-            first, last, instance.page_text, instance.page_text_cap, name_limit)) {
-        size_t used = 0;
-        instance.page_text[0] = '\0';
-        for (uint16_t num = first; num <= last; ++num) {
-            char name_buf[160];
-            if (!station_list_adapter::station_name(num, name_buf, sizeof(name_buf))) {
-                format_fallback_station_name(name_buf, sizeof(name_buf), num);
-            }
-            truncate_utf8_in_place(name_buf, name_limit);
-            if (!append_station_line(instance.page_text, instance.page_text_cap, used, num, name_buf)) {
-                break;
-            }
-        }
+    bool filled = false;
+    if (instance.feed.page_text) {
+        filled = instance.feed.page_text(instance.feed.ctx, first, last,
+                                         instance.page_text, instance.page_text_cap, name_limit);
+    }
+    if (!filled) {
+        lv_label_set_text(instance.lbl_page,
+                          i18n::text(i18n::TextId::StationListUnavailable));
+        hideFocusOverlays(instance);
+        hideCurrentMarker(instance);
+        instance.revision_valid = false;
+        return;
     }
 
     lv_label_set_text_static(instance.lbl_page, instance.page_text);
 
-    layoutFocusChrome(instance, instance.focus_station_num);
-    layoutCurrentMarker(instance, station_list_adapter::current_station_num());
-}
-
-static void setPageIndexFromCurrentStation(Instance& instance) {
-    computeRowsPerPage(instance);
-    instance.station_total = station_list_adapter::station_count();
-    instance.page_count = pageCountForTotal(instance.station_total, instance.rows_per_page);
-    const uint16_t current = station_list_adapter::current_station_num();
-    if (instance.station_total == 0u || instance.rows_per_page == 0u) {
-        instance.page_index = 0u;
-        return;
-    }
-    if (station_list_adapter::is_valid_station_num(current) && current <= instance.station_total) {
-        instance.page_index = static_cast<uint16_t>(
-            (static_cast<uint32_t>(current) - 1u) / static_cast<uint32_t>(instance.rows_per_page));
-    } else {
-        instance.page_index = 0u;
-    }
-    clampPageIndex(instance);
+    layoutFocusChrome(instance, instance.focus_row);
+    layoutCurrentMarker(instance, soundingRow(instance));
+    instance.revision_valid = true;
 }
 
 static bool tryPageStep(Instance& instance, int direction) {
@@ -604,10 +558,10 @@ static bool tryPageStep(Instance& instance, int direction) {
     return true;
 }
 
-static bool candidateStationFromScreenPoint(Instance& instance, lv_coord_t screen_py,
-                                            uint16_t* out_station) {
-    if (!instance.list_area || !instance.lbl_page || !out_station) return false;
-    if (instance.station_total == 0u || instance.rows_per_page == 0u) return false;
+static bool candidateRowFromScreenPoint(Instance& instance, lv_coord_t screen_py,
+                                        uint16_t* out_row) {
+    if (!instance.list_area || !instance.lbl_page || !out_row) return false;
+    if (instance.row_count == 0u || instance.rows_per_page == 0u) return false;
 
     lv_area_t list_coords{};
     lv_obj_get_coords(instance.list_area, &list_coords);
@@ -623,29 +577,67 @@ static bool candidateStationFromScreenPoint(Instance& instance, lv_coord_t scree
     const uint32_t row_idx = static_cast<uint32_t>(local_y) / pitch_u;
     if (row_idx > kStationRowSafetyLimit) return false;
 
-    const uint16_t first = firstStationOnPage(instance);
-    const uint16_t last = lastStationOnPage(instance);
+    const uint16_t first = firstRowOnPage(instance);
+    const uint16_t last = lastRowOnPage(instance);
     const uint32_t filled_rows =
         static_cast<uint32_t>(last >= first ? (last - first + 1u) : 0u);
     if (row_idx >= filled_rows) return false;
 
-    const uint16_t station_one_based = static_cast<uint16_t>(first + row_idx);
-    if (!station_list_adapter::is_valid_station_num(station_one_based)
-        || station_one_based > instance.station_total) {
-        return false;
-    }
-    *out_station = station_one_based;
+    const uint16_t row = static_cast<uint16_t>(first + row_idx);
+    if (row >= instance.row_count) return false;
+    *out_row = row;
     return true;
 }
 
-static void setFocusStation(Instance& instance, uint16_t num) {
-    if (instance.station_total == 0u
-        || !station_list_adapter::is_valid_station_num(num)
-        || num > instance.station_total) {
+static void setFocusRow(Instance& instance, uint16_t row) {
+    if (row >= instance.row_count) return;
+    instance.focus_row = row;
+    layoutFocusChrome(instance, row);
+}
+
+static bool wantsPressFocus(const Instance& instance, uint16_t row) {
+    return instance.feed.press_focus && instance.feed.press_focus(instance.feed.ctx, row);
+}
+
+static void restorePressFocus(Instance& instance) {
+    if (!instance.press_focus_active) return;
+    const uint16_t previous = instance.focus_before_press;
+    instance.press_focus_active = false;
+    if (instance.focus_row != previous) setFocusRow(instance, previous);
+}
+
+static bool pressContentCurrent(const Instance& instance) {
+    return instance.press_content_version == instance.content_version
+        && instance.revision_valid
+        && (!instance.feed.revision
+            || (instance.press_revision == instance.applied_revision
+                && instance.feed.revision(instance.feed.ctx) == instance.press_revision));
+}
+
+// Folder rows light the existing focus chrome while the finger is down.
+// A swipe or a non-folder row puts that chrome back before the click commits.
+// Папка зажигает уже существующий фокус, пока палец удерживается.
+// Свайп или не-папка возвращают его до подтверждения клика.
+static void trackPressFocus(Instance& instance, lv_coord_t screen_y) {
+    if (!pressContentCurrent(instance)) {
+        restorePressFocus(instance);
         return;
     }
-    instance.focus_station_num = num;
-    layoutFocusChrome(instance, num);
+    if (instance.stroke_max_dx >= static_cast<int32_t>(kTapMaxFingerTravelPx)
+        || instance.stroke_max_dy >= static_cast<int32_t>(kTapMaxFingerTravelPx)) {
+        restorePressFocus(instance);
+        return;
+    }
+    uint16_t row = 0;
+    if (!candidateRowFromScreenPoint(instance, screen_y, &row) || !wantsPressFocus(instance, row)) {
+        restorePressFocus(instance);
+        return;
+    }
+    if (!instance.press_focus_active) {
+        instance.focus_before_press = instance.focus_row;
+        instance.press_focus_active = true;
+    }
+    if (instance.focus_row != row) setFocusRow(instance, row);
 }
 
 static void listAreaPressedEvt(lv_event_t* e) {
@@ -674,10 +666,13 @@ static void onListAreaPressed(Instance& instance, lv_event_t* e) {
     if (lv_event_get_target(e) != instance.list_area) return;
 
     resetStrokeTracking(instance);
+    instance.press_content_version = instance.content_version;
+    instance.press_revision = instance.applied_revision;
     lv_indev_t* indev = lv_indev_get_act();
     if (indev) {
         lv_indev_get_point(indev, &instance.press_pt);
     }
+    trackPressFocus(instance, instance.press_pt.y);
 }
 
 static void onListAreaPressing(Instance& instance, lv_event_t* e) {
@@ -694,12 +689,16 @@ static void onListAreaPressing(Instance& instance, lv_event_t* e) {
     const int32_t dy = abs_i32(static_cast<int32_t>(cur.y) - static_cast<int32_t>(instance.press_pt.y));
     instance.stroke_max_dx = max_i32(instance.stroke_max_dx, dx);
     instance.stroke_max_dy = max_i32(instance.stroke_max_dy, dy);
+    trackPressFocus(instance, cur.y);
 }
 
 static void onListAreaReleased(Instance& instance, lv_event_t* e) {
     if (!instance.list_area || !e) return;
     if (lv_event_get_code(e) != LV_EVENT_RELEASED) return;
     if (lv_event_get_target(e) != instance.list_area) return;
+    restorePressFocus(instance);
+
+    if (!pressContentCurrent(instance)) return;
 
     lv_indev_t* indev = lv_indev_get_act();
     lv_point_t cur = instance.press_pt;
@@ -733,6 +732,7 @@ static void onListAreaShortClicked(Instance& instance, lv_event_t* e) {
     if (!instance.list_area || !instance.lbl_page || !e) return;
     if (lv_event_get_code(e) != LV_EVENT_SHORT_CLICKED) return;
     if (lv_event_get_target(e) != instance.list_area) return;
+    if (!pressContentCurrent(instance)) return;
 
     if (instance.completed_vertical_page_gesture) {
         instance.completed_vertical_page_gesture = false;
@@ -775,13 +775,13 @@ static void onListAreaShortClicked(Instance& instance, lv_event_t* e) {
         return;
     }
 
-    uint16_t station_num = 0;
-    if (!candidateStationFromScreenPoint(instance, p.y, &station_num)) {
+    uint16_t row = 0;
+    if (!candidateRowFromScreenPoint(instance, p.y, &row)) {
         return;
     }
 
-    setFocusStation(instance, station_num);
-    station_list_adapter::play_station(station_num);
+    setFocusRow(instance, row);
+    if (instance.feed.on_tap) instance.feed.on_tap(instance.feed.ctx, row);
 }
 
 } // namespace
@@ -816,26 +816,31 @@ bool create(Instance& instance, lv_obj_t* parent_screen, const YoRadioPalette& p
     return true;
 }
 
+void setFeed(Instance& instance, const BrowserRowFeed& feed) {
+    ++instance.content_version;
+    instance.press_focus_active = false;
+    instance.feed = feed;
+    instance.revision_valid = false;
+}
+
 void populate(Instance& instance) {
     if (!instance.list_area) return;
-    setPageIndexFromCurrentStation(instance);
     fillCurrentPage(instance);
-    cacheListSignature(instance);
+    if (instance.revision_valid) rememberRevision(instance);
     instance.page_filled_for_pending_enter = true;
 }
 
 RefreshOnActivateResult refreshOnActivate(Instance& instance) {
-    if (!instance.list_area) return RefreshOnActivateResult::MarkerOnly;
-
-    station_list_adapter::StationListSignature now{};
-    if (!station_list_adapter::list_signature(&now)) {
+    if (!instance.list_area || !instance.feed.revision) {
         return RefreshOnActivateResult::MarkerOnly;
     }
-    if (instance.list_sig_cache_valid
-        && station_list_adapter::list_signature_equal(now, instance.list_sig_cache)) {
+    const uint32_t now = instance.feed.revision(instance.feed.ctx);
+    if (instance.revision_valid && now == instance.applied_revision) {
         return RefreshOnActivateResult::MarkerOnly;
     }
-    populate(instance);
+    instance.jump_to_sounding = false;
+    fillCurrentPage(instance);
+    if (instance.revision_valid) rememberRevision(instance);
     return RefreshOnActivateResult::Rebuilt;
 }
 
@@ -843,31 +848,29 @@ void onEnter(Instance& instance) {
     if (!instance.list_area) return;
     const bool already_filled = instance.page_filled_for_pending_enter;
     instance.page_filled_for_pending_enter = false;
-    const uint16_t filled_page = instance.page_index;
-    setPageIndexFromCurrentStation(instance);
-    if (already_filled && instance.page_index == filled_page) {
-        layoutCurrentMarker(instance, station_list_adapter::current_station_num());
+    if (already_filled) {
+        layoutCurrentMarker(instance, soundingRow(instance));
         return;
     }
     fillCurrentPage(instance);
+    rememberRevision(instance);
 }
 
 void refreshCurrentStationVisuals(Instance& instance) {
     if (!instance.list_area || !instance.lbl_page) return;
-    layoutCurrentMarker(instance, station_list_adapter::current_station_num());
+    layoutCurrentMarker(instance, soundingRow(instance));
 }
 
 void liveReapplyTheme(Instance& instance, const YoRadioPalette& palette) {
     if (instance.lbl_page) {
         lv_obj_set_style_text_color(instance.lbl_page, palette.list_row_text, LV_PART_MAIN);
     }
-    if (instance.focus_row_bg
-        && station_list_adapter::is_valid_station_num(instance.focus_station_num)
-        && stationOnCurrentPage(instance, instance.focus_station_num)) {
-        layoutFocusChrome(instance, instance.focus_station_num);
+    if (instance.focus_row_bg && rowOnCurrentPage(instance, instance.focus_row)) {
+        layoutFocusChrome(instance, instance.focus_row);
     }
-    if (instance.current_marker
-        && stationOnCurrentPage(instance, station_list_adapter::current_station_num())) {
+    const int32_t sounding = soundingRow(instance);
+    if (instance.current_marker && sounding >= 0
+        && rowOnCurrentPage(instance, static_cast<uint16_t>(sounding))) {
         lv_obj_set_style_text_color(instance.current_marker, palette.accent, LV_PART_MAIN);
     }
 }
@@ -879,12 +882,15 @@ void releaseAfterTreeDelete(Instance& instance) {
     instance.focus_row_accent = nullptr;
     instance.current_marker = nullptr;
     instance.parent_screen = nullptr;
+    instance.feed = {};
     instance.page_index = 0;
     instance.page_count = 0;
     instance.rows_per_page = 0;
-    instance.station_total = 0;
-    instance.focus_station_num = 0;
-    instance.list_sig_cache_valid = false;
+    instance.row_count = 0;
+    instance.focus_row = 0;
+    instance.applied_revision = 0;
+    instance.revision_valid = false;
+    instance.jump_to_sounding = false;
     instance.page_filled_for_pending_enter = false;
     resetInputState(instance);
     releasePageTextBuffer(instance);

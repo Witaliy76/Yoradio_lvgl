@@ -66,25 +66,26 @@ search are the current callers; LVGL does not. Path SD Next/EOF/Prev live in
 `core/folder_queue.*` and stay independent of the browse cwd. Detail is in
 the storage README.
 
-`core/source_catalog.h` is the static source list. It registers only Radio
-(`radio`, station list) and SD (`sd`, directory). Availability is read from
-the existing station count and Storage status; the catalog does not keep a
-second copy. WebUI reads that list through read-only `GET /sources` and opens
-Radio playlist or the existing SD folder browser without calling
-`Player::activate`. Browser navigation is tab-local RAM only. `Player::activate`
-admits one switch at a time. `Pending` means the request was accepted and is
-not Playing. A second call while that request is still in flight returns
-`Busy` and does not move the playback epoch. A missing bookmark file is
-`NeedsSelection`: the current sound keeps playing. The sounding source is
-only the confirmed Playing context. After SmartStart 2 selects a stopped
-source, Next and Prev follow that source. The last SD file that actually
-started is a RAM bookmark: it survives STOP and Radio, and reboot drops it.
-The bookmark's mount generation must still match; a new card does not inherit
-the old path.
+`core/source_catalog.h` is the static source list. Radio (`radio`, station
+list) and SD (`sd`, directory) are the only Implemented entries. Nine later
+entries are Planned, in carousel order: USB, DLNA, NAS/SMB2, Yandex Music,
+Spotify, AirPlay, Bluetooth, AUX, and I2S. Planned is not a temporarily
+unavailable Radio or SD, and it has no playback stub. Availability of the
+implemented entries is read from the existing station count and Storage
+status; the catalog does not keep a second copy. WebUI `GET /sources` and the
+media browser publish Implemented entries only. `Player::activate` admits one
+switch at a time. `Pending` means the request was accepted and is not Playing.
+A second call while that request is still in flight returns `Busy` and does
+not move the playback epoch. A missing bookmark file is `NeedsSelection`: the
+current sound keeps playing. The sounding source is only the confirmed Playing
+context. After SmartStart 2 selects a stopped source, Next and Prev follow
+that source. The last SD file that actually started is a RAM bookmark: it
+survives STOP and Radio, and reboot drops it. The bookmark's mount generation
+must still match; a new card does not inherit the old path.
 
-USB would be another directory entry, with its own mount generation and the
-same path playback. Bluetooth would be a control panel: no file path and no
-folder queue. Neither is registered, and there is no playback stub for either.
+USB, DLNA, and NAS/SMB2 are reserved Directory names. NAS means SMB2, not SMB1
+and not WebDAV. Bluetooth and the other planned panels are ControlPanel: no
+file path and no folder queue. None of them is activatable yet.
 
 The ordinary `4848S040` build enables the Storage Owner. Legacy `USE_SD` and
 SDManager stay off. The disposable SDSPI probe sources are gone. Build and flash are described in
@@ -197,24 +198,26 @@ WebUI и поиск следующего трека folder-queue; LVGL — не�
 Next/EOF/Prev живут в `core/folder_queue.*` и не зависят от browse cwd.
 Подробности — в README Storage.
 
-`core/source_catalog.h` — статический список источников. Зарегистрированы только
-Radio (`radio`, список станций) и SD (`sd`, каталог). Доступность читается из
-числа станций и статуса Storage; второй копии каталог не хранит. WebUI читает
-этот список через read-only `GET /sources` и открывает playlist Radio или
-существующий SD folder browser без вызова `Player::activate`. Навигация
-браузера — только RAM вкладки. `Player::activate` принимает одно переключение
-за раз. `Pending` означает, что запрос принят, и это ещё не Playing. Повторный
-вызов, пока запрос ещё исполняется, возвращает `Busy` и не двигает epoch.
-Отсутствующий файл закладки — `NeedsSelection`: текущий звук продолжает
-играть. Звучащий источник — только подтверждённый Playing. После выбора без
-запуска при SmartStart 2 команды Next и Prev идут в выбранный источник.
-Последний реально запущенный SD-файл хранится в RAM: он переживает STOP и
-Radio и исчезает после reboot. Поколение mount закладки должно совпадать;
-новая карта не наследует старый путь.
+`core/source_catalog.h` — статический список источников. Radio (`radio`, список
+станций) и SD (`sd`, каталог) — единственные записи Implemented. Девять
+следующих записей — Planned, в порядке карусели: USB, DLNA, NAS/SMB2, Яндекс
+Музыка, Spotify, AirPlay, Bluetooth, AUX и I2S. Planned — не временно
+недоступные Radio или SD, и у них нет заглушки воспроизведения. Доступность
+реализованных записей читается из числа станций и статуса Storage; второй
+копии каталог не хранит. WebUI `GET /sources` и медиабраузер публикуют только
+Implemented. `Player::activate` принимает одно переключение за раз. `Pending`
+означает, что запрос принят, и это ещё не Playing. Повторный вызов, пока
+запрос ещё исполняется, возвращает `Busy` и не двигает epoch. Отсутствующий
+файл закладки — `NeedsSelection`: текущий звук продолжает играть. Звучащий
+источник — только подтверждённый Playing. После выбора без запуска при
+SmartStart 2 команды Next и Prev идут в выбранный источник. Последний реально
+запущенный SD-файл хранится в RAM: он переживает STOP и Radio и исчезает
+после reboot. Поколение mount закладки должно совпадать; новая карта не
+наследует старый путь.
 
-USB был бы ещё одной записью каталога со своим поколением mount и тем же
-путевым воспроизведением. Bluetooth был бы панелью управления: без пути файла
-и без folder queue. Ни один из них не зарегистрирован, заглушек воспроизведения нет.
+USB, DLNA и NAS/SMB2 — зарезервированные имена Directory. NAS — это SMB2, не
+SMB1 и не WebDAV. Bluetooth и остальные planned-панели — ControlPanel: без
+пути файла и без folder queue. Активировать их пока нельзя.
 
 Штатная сборка `4848S040` включает Storage Owner. Legacy `USE_SD` и SDManager
 выключены. Исходники одноразового SDSPI probe удалены.

@@ -9,7 +9,7 @@ enum class PathPlayResult : uint8_t {
     None, Accepted, Busy, NotReady, InvalidPath, PathTooLong, UnsupportedFormat,
     StaleMedia, StaleEpoch, SourceBusy, StopFailed, OpenFailed, IoError,
     Playing, Stopped, EndOfFile, NoAdjacentTrack, NoMedia, ReadFailed, SeekFailed,
-    PathRequired, SearchingNext, ShuffleLimit
+    PathRequired, SearchingNext, ShuffleLimit, NoMemory
 };
 
 // RAM-only SD play modes. Player owns them; Radio ignores them.

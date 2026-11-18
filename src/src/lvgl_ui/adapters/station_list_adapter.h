@@ -28,6 +28,9 @@ uint16_t station_count();
 uint16_t current_station_num();
 bool is_valid_station_num(uint16_t num);
 bool station_name(uint16_t num, char* out, size_t cap);
+// Second CSV field of one radio station. Always PLAYLIST_PATH, never the SD catalog.
+// Второе поле CSV одной радиостанции. Всегда PLAYLIST_PATH, не SD-каталог.
+bool station_url(uint16_t num, char* out, size_t cap);
 bool station_page_text(uint16_t first, uint16_t last, char* out, size_t cap, size_t name_limit);
 bool station_list_text(char* out, size_t cap, size_t name_limit);
 bool list_signature(StationListSignature* out);

@@ -800,6 +800,22 @@ DirectoryStatus directorySubmit(const DirectoryQuery& query) {
     return DirectoryStatus::Ok;
 }
 
+void directoryCancel(DirectoryConsumer consumer) {
+    if (!knownConsumer(consumer)) return;
+    DirectorySnapshot* dropped = nullptr;
+    {
+        Guard guard;
+        Slot& slot = g_slots[slotIndex(consumer)];
+        slot.ticket = slot.ticket == UINT32_MAX ? 1u : slot.ticket + 1u;
+        slot.has_pending = false;
+        slot.result_ready = true;
+        slot.terminal = DirectoryStatus::Unavailable;
+        dropped = slot.published;
+        slot.published = nullptr;
+    }
+    directoryRelease(dropped);
+}
+
 DirectoryStatus directoryPoll(DirectoryConsumer consumer, DirectorySnapshot** out) {
     if (out) *out = nullptr;
     if (!knownConsumer(consumer) || !out) return DirectoryStatus::InvalidPath;
@@ -892,6 +908,7 @@ void directoryHostResetWorker() {
 #else
 namespace yoradio { namespace storage {
 DirectoryStatus directorySubmit(const DirectoryQuery&) { return DirectoryStatus::Unavailable; }
+void directoryCancel(DirectoryConsumer) {}
 DirectoryStatus directoryPoll(DirectoryConsumer, DirectorySnapshot** out) {
     if (out) *out = nullptr;
     return DirectoryStatus::Unavailable;

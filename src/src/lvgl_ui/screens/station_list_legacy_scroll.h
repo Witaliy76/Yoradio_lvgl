@@ -24,6 +24,23 @@ struct YoRadioPalette;
 
 namespace station_list_legacy_scroll {
 
+// Compile shim for the shared Stations page. This renderer still draws the
+// station list itself and does not follow the feed.
+// Совместимость общего экрана Stations. Этот renderer по-прежнему рисует
+// список станций сам и не следует за feed.
+struct BrowserRowFeed {
+    uint16_t (*count)(void* ctx) = nullptr;
+    bool (*page_text)(void* ctx, uint16_t first, uint16_t last, char* out, size_t cap,
+                      size_t name_limit) = nullptr;
+    int32_t (*sounding_row)(void* ctx) = nullptr;
+    void (*on_tap)(void* ctx, uint16_t row) = nullptr;
+    // Present so the shared page compiles. This shim ignores the feed.
+    // Поле нужно, чтобы общая страница компилировалась. Этот shim feed игнорирует.
+    bool (*press_focus)(void* ctx, uint16_t row) = nullptr;
+    uint32_t (*revision)(void* ctx) = nullptr;
+    void* ctx = nullptr;
+};
+
 struct Instance {
     lv_obj_t* list_area = nullptr;
     lv_obj_t* lbl_list = nullptr;
@@ -46,6 +63,7 @@ struct Instance {
     int32_t list_stroke_max_manhattan = 0;
     int32_t list_stroke_max_scroll_y_abs = 0;
     bool list_arm_suppress_next_focus = false;
+    bool jump_to_sounding = false;
 };
 
 // Result of enter-time signature check / результат проверки сигнатуры при enter.
@@ -57,6 +75,10 @@ enum class RefreshOnActivateResult {
 // Creates scrollable list_area under parent_screen (flex_grow slot). Does not populate rows.
 // Создаёт прокручиваемый list_area под parent_screen. Строки не заполняет.
 bool create(Instance& instance, lv_obj_t* parent_screen, const YoRadioPalette& palette);
+
+// Accepted and ignored. Keeps the shared page compiling; populate() stays station-based.
+// Принимается и игнорируется. Общая страница компилируется; populate() остаётся списком станций.
+void setFeed(Instance& instance, const BrowserRowFeed& feed);
 
 // Initial fill after create(), or full rebuild when playlist signature changes.
 // Первичное заполнение или полный rebuild при смене сигнатуры плейлиста.

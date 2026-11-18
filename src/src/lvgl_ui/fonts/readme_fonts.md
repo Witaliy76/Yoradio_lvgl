@@ -128,9 +128,11 @@ Per-glyph miss walks `font->fallback`: user → factory same size → emergency 
 - File: `yoradio_tabler.ttf`
 - Role: embedded production Tabler subset; `FontProvider::icon(px)` via TinyTTF
 - Provenance: `@tabler/icons-webfont` **3.26.0**
-- Production subset bytes: `12772`
-- SHA256: `F588E6ADA40FCF8DABA606061C90B492FDA64528B3687688F5580E68EA7CAB7C`
-- cmap: **34** codepoints (glyph/codepoint subset, **not** pixel-size-specific)
+- Production subset bytes: `16564`
+- SHA256: `06022483E9A2E6F3FDB7E43AC6F1F51494ADC13A3DE05C2AF1CC69BBEBA3386C`
+- cmap: **44** codepoints (glyph/codepoint subset, **not** pixel-size-specific)
+- License: Tabler Icons MIT. The subset adds only the source-carousel glyphs
+  listed below; it is not the full Tabler webfont.
 - TinyTTF provides runtime sizes. Current 480×480 eager requests: 20, 22, 26,
   28, 36, 64; 24 px remains a supported lazy product request.
 
@@ -139,13 +141,15 @@ Per-glyph miss walks `font->fallback`: user → factory same size → emergency 
 - Файл: `yoradio_tabler.ttf`
 - Роль: встроенный production-subset Tabler; `FontProvider::icon(px)` через TinyTTF
 - Происхождение: `@tabler/icons-webfont` **3.26.0**
-- Размер subset: `12772` байт
-- SHA256: `F588E6ADA40FCF8DABA606061C90B492FDA64528B3687688F5580E68EA7CAB7C`
-- cmap: **34** codepoints (subset по глифам, **не** по размеру в пикселях)
+- Размер subset: `16564` байт
+- SHA256: `06022483E9A2E6F3FDB7E43AC6F1F51494ADC13A3DE05C2AF1CC69BBEBA3386C`
+- cmap: **44** codepoints (subset по глифам, **не** по размеру в пикселях)
+- Лицензия: Tabler Icons MIT. В subset добавлены только глифы карусели
+  источников ниже; это не полный webfont Tabler.
 - Размеры даёт TinyTTF. Текущие eager-запросы 480×480: 20, 22, 26, 28, 36, 64;
   24 px остаётся поддерживаемым lazy-запросом продукта.
 
-### 34 production codepoints / 34 production-codepoints
+### 44 production codepoints / 44 production-codepoints
 
 | Codepoint | Name | Use |
 |-----------|------|-----|
@@ -183,8 +187,22 @@ Per-glyph miss walks `font->fallback`: user → factory same size → emergency 
 | U+EB18 | router | Settings category |
 | U+ECD4 | wave-sine | Settings category |
 | U+F6D7 | sparkles | Settings category |
+| U+EF2D | radio | source carousel |
+| U+F384 | device-sd-card | source carousel (`sd`) |
+| U+F00C | usb | source carousel |
+| U+EA56 | cast | source carousel (DLNA) |
+| U+F919 | folder-share | source carousel (NAS / SMB2) |
+| U+FAE1 | brand-yandex | source carousel |
+| U+ED03 | brand-spotify | source carousel |
+| U+EC17 | brand-apple | source carousel (AirPlay) |
+| U+EA37 | bluetooth | source carousel |
+| U+F00A | plug-connected | source carousel (AUX) |
+
+`wave-sine` U+ECD4 is not a new glyph. The carousel reuses it for I2S Input.
+`wave-sine` U+ECD4 — не новый глиф. Карусель использует его для I2S Input.
 
 PUA strings live in product helper headers (`control_glyph_utf8.h`,
+`source_glyph_utf8.h`,
 `weather_owm_glyph.h`, `settings_glyph_utf8.h`, …), not in compiled C fonts.
 
 Строки PUA живут в helper-заголовках продукта, не в compiled C-шрифтах.
@@ -219,7 +237,7 @@ PUA strings live in product helper headers (`control_glyph_utf8.h`,
 
 **English**
 
-If factory coverage or the Tabler 34-codepoint vocabulary must change later,
+If factory coverage or the Tabler vocabulary (currently 44 codepoints) must change later,
 that is a **separate manual authoring operation**. Full Montserrat Medium /
 Tabler 3.26.0 sources and fontTools are local authoring inputs only; they are
 **not** part of the firmware repository tree and are **not** invoked by the
@@ -230,7 +248,7 @@ add a per-size compiled C ladder.
 
 **Русский**
 
-Если нужно изменить покрытие factory или словарь 34 codepoints Tabler, это
+Если нужно изменить покрытие factory или словарь Tabler (сейчас 44 codepoints), это
 **отдельная ручная authoring-операция**. Полные Montserrat Medium /
 Tabler 3.26.0 и fontTools — только локальные входы authoring; они **не**
 входят в дерево репозитория прошивки и обычной сборкой **не** вызываются.

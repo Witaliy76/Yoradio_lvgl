@@ -416,6 +416,8 @@ void Player::_pollFolderQueue() {
     }
     if(_pathResult==PathPlayResult::ShuffleLimit && !hasError())
       setError("SD shuffle limit");
+    if(_pathResult==PathPlayResult::NoMemory && !hasError())
+      setError("SD folder: no memory");
     return;
   }
   if(poll!=FolderQueuePoll::Found) return;
@@ -914,7 +916,11 @@ void Player::_play(uint16_t stationId, uint32_t epoch) {
   config.station.stream_bits_per_sample = 0;
   config.setBitrateFormat(BF_UNCNOWN);
   Serial.printf("🎵 [PLAY] About to call config.loadStation(%d)\n", stationId);
-  config.loadStation(stationId);
+  if (!config.loadStation(stationId)) {
+    setError("Radio catalog unavailable");
+    config.setTitle(i18n::text(i18n::TextId::PlayerStopped));
+    return;
+  }
   Serial.printf("🎵 [PLAY] config.loadStation() completed\n");
   _applyVolumeToAudio();
   Serial.printf("🎵 [PLAY] volume applied\n");

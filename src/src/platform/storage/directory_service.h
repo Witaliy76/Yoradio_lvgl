@@ -25,15 +25,16 @@ enum class DirectoryStatus : uint8_t {
     OpenFailed, ReadFailed, CloseFailed, NameTooLong, PathTooLong, Unavailable
 };
 
-// §16.2's 128 KiB covers every block that is allocated at the same time:
+// B061: bounded 2 MiB PSRAM pool for up to 4096-entry playback folders.
+// Includes every block allocated at the same time:
 // snapshots callers still hold, the catalog being built, and the previous
 // block that is still alive while it is copied. A temporary copy is not free
 // budget. 100/500/2000 measurements stay with the WebUI consumer.
-// 128 КиБ из §16.2 — потолок всех блоков, выделенных одновременно: снимки,
-// которые ещё держат вызывающие, собираемый каталог и предыдущий блок, пока
-// он жив во время копирования. Временная копия не считается бесплатной.
+// B061: потолок PSRAM 2 МиБ для всех одновременно выделенных блоков: снимки,
+// которые ещё держат вызывающие, собираемый каталог и обе копии при росте.
+// Длинные имена и дополнительные старые снимки могут дать ResourceLimit.
 // Замеры 100/500/2000 остаются потребителю WebUI.
-constexpr size_t kDirectorySnapshotBudget = 128u * 1024u;
+constexpr size_t kDirectorySnapshotBudget = 2u * 1024u * 1024u;
 // One outstanding request per consumer. A newer request replaces that slot.
 // Один ожидающий запрос на потребителя. Более новый запрос заменяет этот слот.
 constexpr size_t kDirectoryConsumerSlots = 3;
@@ -83,6 +84,9 @@ DirectoryStatus directorySubmit(const DirectoryQuery& query);
 // Pending, a terminal error with *out == nullptr, or Ok and a retained snapshot.
 // Pending, конечная ошибка с *out == nullptr, либо Ok и удержанный снимок.
 DirectoryStatus directoryPoll(DirectoryConsumer consumer, DirectorySnapshot** out);
+// Logical cancellation of this consumer only; the worker closes its own DIR.
+// Drops the service reference; snapshots retained by callers remain valid.
+void directoryCancel(DirectoryConsumer consumer);
 void directoryRelease(DirectorySnapshot* snapshot);
 
 const char* directorySnapshotPath(const DirectorySnapshot* snapshot);

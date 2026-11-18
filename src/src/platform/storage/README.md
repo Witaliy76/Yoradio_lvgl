@@ -45,7 +45,7 @@ step does not use `uploadfs`.
 | `storage_fs_bridge.h/.cpp` | `StorageFsBridge::bind(generation)`, `fileStatus()` and `probeMediaFile()`; restricted Arduino FS interface for Audio. The probe uses an owner lease and does not report a media fault |
 | `directory_service.h/.cpp` | One folder, async: `directorySubmit`, `directoryPoll`, `directoryRelease` |
 | `../../core/path_play_request.h` / `Player` | `PathPlayRequest {media, epoch}`, MP3/FLAC policy, `PathPlayResult`, `requestPlay()` and playback diagnostics |
-| `../../core/source_catalog.h` | Static Radio/SD list and activation decisions. USB would be another directory source; Bluetooth would be a control panel. Neither is registered |
+| `../../core/source_catalog.h` | Shared source list. Radio and SD are Implemented. USB, DLNA, NAS/SMB2 and the later panels are Planned names only; `GET /sources` does not publish them |
 | `../../core/netserver.cpp` `GET /sources` | Read-only WebUI adapter over `kCatalog` + `openSource` + `StorageOwner::status()`. Does not call `activate` or `changeMode` |
 
 Boot hooks run on the setup/loop lifecycle task: `prepareBeforeDisplay()` before
@@ -327,7 +327,7 @@ PlatformIO — обычный `4848S040` (`default_envs`).
 | `storage_fs_bridge.h/.cpp` | `StorageFsBridge::bind(generation)`, `fileStatus()` и `probeMediaFile()`; ограниченный интерфейс Arduino FS для Audio. Проверка файла берёт lease владельца и не сообщает media fault |
 | `directory_service.h/.cpp` | Одна папка, асинхронно: `directorySubmit`, `directoryPoll`, `directoryRelease` |
 | `../../core/path_play_request.h` / `Player` | `PathPlayRequest {media, epoch}`, правила MP3/FLAC, `PathPlayResult`, `requestPlay()` и диагностика воспроизведения |
-| `../../core/source_catalog.h` | Статический список Radio/SD и решения активации. USB был бы ещё одним каталогом; Bluetooth — панелью управления. Оба не зарегистрированы |
+| `../../core/source_catalog.h` | Общий список источников. Radio и SD — Implemented. USB, DLNA, NAS/SMB2 и дальнейшие панели — только имена Planned; `GET /sources` их не публикует |
 | `../../core/netserver.cpp` `GET /sources` | Read-only адаптер WebUI над `kCatalog` + `openSource` + `StorageOwner::status()`. Не вызывает `activate` и `changeMode` |
 
 Загрузочные вызовы выполняет задача setup/loop: `prepareBeforeDisplay()` до

@@ -674,6 +674,11 @@ bool create(Instance& instance, lv_obj_t* parent_screen, const YoRadioPalette& p
     return true;
 }
 
+void setFeed(Instance& instance, const BrowserRowFeed& feed) {
+    (void)instance;
+    (void)feed;
+}
+
 void populate(Instance& instance) {
     if (!instance.list_area) return;
 

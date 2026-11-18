@@ -76,6 +76,7 @@ struct State {
 // ~14 КиБ MediaRef/истории — EXT_RAM_BSS требует ALLOW_BSS_SEG_EXTERNAL_MEMORY.
 #if defined(YORADIO_DIRECTORY_HOST)
 State g;
+bool g_host_fail_shuffle_alloc = false;
 #else
 EXT_RAM_BSS_ATTR State g;
 #endif
@@ -85,6 +86,9 @@ void releaseHeld() {
     storage::directoryRelease(g.held);
     g.held = nullptr;
 }
+
+void clearShuffle();
+void cancelSearch();
 
 bool copyPath(char* out, size_t cap, const char* path) {
     if (!out || !path || !cap) return false;
@@ -143,6 +147,8 @@ void clearSearch() {
 
 void fail(PathPlayResult detail) {
     releaseHeld();
+    storage::directoryCancel(DirectoryConsumer::Playback);
+    clearShuffle();
     g.phase = Phase::Error;
     g.active_request = 0;
     g.has_found = false;
@@ -152,6 +158,8 @@ void fail(PathPlayResult detail) {
 
 void finishEnd() {
     releaseHeld();
+    storage::directoryCancel(DirectoryConsumer::Playback);
+    clearShuffle();
     g.phase = Phase::End;
     g.active_request = 0;
     g.has_found = false;
@@ -188,7 +196,7 @@ bool submitList(const char* path) {
     query.path = g.list_path;
     const DirectoryStatus status = storage::directorySubmit(query);
     if (status != DirectoryStatus::Ok) {
-        fail(status == DirectoryStatus::NoMemory ? PathPlayResult::Busy :
+        fail(status == DirectoryStatus::NoMemory ? PathPlayResult::NoMemory :
              status == DirectoryStatus::StaleMedia ? PathPlayResult::StaleMedia :
              status == DirectoryStatus::Unavailable ? PathPlayResult::NoMedia :
              PathPlayResult::IoError);
@@ -239,21 +247,18 @@ void freeShuffleStorage() {
 
 bool ensureShuffleStorage(uint16_t n) {
     if (!n || n > kFolderQueueShuffleMax) return false;
-    if (g.shuffle_perm && g.shuffle_cap >= n) return true;
+    if (g.shuffle_perm && g.shuffle_cap == n) return true;
     freeShuffleStorage();
 #if defined(YORADIO_DIRECTORY_HOST)
-    g.shuffle_perm = static_cast<uint16_t*>(malloc(sizeof(uint16_t) * kFolderQueueShuffleMax));
+    g.shuffle_perm = g_host_fail_shuffle_alloc ? nullptr
+        : static_cast<uint16_t*>(malloc(sizeof(uint16_t) * n));
 #else
     g.shuffle_perm = static_cast<uint16_t*>(heap_caps_malloc(
-        sizeof(uint16_t) * kFolderQueueShuffleMax,
+        sizeof(uint16_t) * n,
         MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    if (!g.shuffle_perm) {
-        g.shuffle_perm = static_cast<uint16_t*>(heap_caps_malloc(
-            sizeof(uint16_t) * kFolderQueueShuffleMax, MALLOC_CAP_8BIT));
-    }
 #endif
     if (!g.shuffle_perm) return false;
-    g.shuffle_cap = kFolderQueueShuffleMax;
+    g.shuffle_cap = n;
     return true;
 }
 
@@ -275,8 +280,7 @@ void clearShuffle() {
     g.shuffle_valid = false;
     g.shuffle_n = 0;
     g.shuffle_folder[0] = 0;
-    // Keep the PSRAM block for the next pass; free only on Reset/host reset.
-    // Блок PSRAM оставляем для следующего прохода; free — на Reset/host reset.
+    freeShuffleStorage();
 }
 
 uint16_t countAudio(const DirectorySnapshot* snapshot) {
@@ -401,7 +405,7 @@ void handleShuffle(const DirectorySnapshot* snapshot, bool entering) {
                          strcmp(g.shuffle_folder, g.list_path) != 0;
     if (rebuilt) {
         if (!rebuildShuffle(n)) {
-            fail(PathPlayResult::ShuffleLimit);
+            fail(PathPlayResult::NoMemory);
             return;
         }
         if (!copyPath(g.shuffle_folder, sizeof g.shuffle_folder, g.list_path)) {
@@ -440,7 +444,7 @@ void handleShuffle(const DirectorySnapshot* snapshot, bool entering) {
     if (next_slot >= n) {
         if (g.repeat == SdRepeatMode::Folder) {
             if (!rebuildShuffle(n)) {
-                fail(PathPlayResult::ShuffleLimit);
+                fail(PathPlayResult::NoMemory);
                 return;
             }
             next_slot = 0;
@@ -610,13 +614,15 @@ void folderQueueOnHistoryPlay(const MediaRef& media) {
     clearSearch();
 }
 
-void folderQueueCancel() {
+namespace {
+void cancelSearch() {
     // Bump id so a late Playback snapshot cannot match an active search.
     // Номер запроса растёт, чтобы поздний снимок не совпал с активным поиском.
     uint32_t id = g.request_id + 1u;
     if (id == 0) id = 1u;
     g.request_id = id;
     releaseHeld();
+    storage::directoryCancel(DirectoryConsumer::Playback);
     g.phase = g.session ? Phase::Cancelled : Phase::Idle;
     g.active_request = 0;
     g.search_epoch = 0;
@@ -627,6 +633,12 @@ void folderQueueCancel() {
     g.advance_launch = false;
     g.history_launch = false;
     g.pending_previous = {};
+}
+} // namespace
+
+void folderQueueCancel() {
+    cancelSearch();
+    clearShuffle();
 }
 
 void folderQueueReset() {
@@ -643,7 +655,10 @@ void folderQueueReset() {
 bool folderQueueStartNext(const MediaRef& after, uint32_t search_epoch,
                           SdRepeatMode repeat, bool shuffle) {
     if (!after.path[0] || !after.generation || !search_epoch) return false;
-    folderQueueCancel();
+    // A new search within the session preserves the permutation. External
+    // cancellation releases it, including STOP, Radio and a new selection.
+    cancelSearch();
+    if (!shuffle || after.generation != g.generation) clearShuffle();
     g.session = true;
     g.current = after;
     g.pending_previous = after;
@@ -712,7 +727,7 @@ FolderQueuePoll folderQueuePoll(MediaRef& out, PathPlayResult& detail) {
     }
     if (status != DirectoryStatus::Ok || !snapshot) {
         fail(status == DirectoryStatus::StaleMedia ? PathPlayResult::StaleMedia :
-             status == DirectoryStatus::NoMemory ? PathPlayResult::Busy :
+             status == DirectoryStatus::NoMemory ? PathPlayResult::NoMemory :
              status == DirectoryStatus::Unavailable ? PathPlayResult::NoMedia :
              PathPlayResult::ReadFailed);
         detail = g.detail;
@@ -783,10 +798,14 @@ void folderQueueClearLaunchFlags() {
 
 #if defined(YORADIO_DIRECTORY_HOST)
 void folderQueueHostReset() {
-    releaseHeld();
+    folderQueueCancel();
     freeShuffleStorage();
     g = State{};
+    g_host_fail_shuffle_alloc = false;
 }
+
+void folderQueueHostFailShuffleAlloc(bool fail) { g_host_fail_shuffle_alloc = fail; }
+size_t folderQueueHostShuffleBytes() { return g.shuffle_cap * sizeof(uint16_t); }
 
 void folderQueueHostSetShuffleSeed(uint32_t seed) {
     g.rng = seed ? seed : 1u;

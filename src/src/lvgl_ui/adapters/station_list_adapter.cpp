@@ -100,10 +100,16 @@ static bool append_station_line(char* out, size_t cap, size_t& used, uint16_t nu
     return true;
 }
 
+// Radio Browser always reads the radio catalog. Player mode must not point it at playlistsd.
+// Radio Browser всегда читает радиокаталог. Режим Player не переключает его на playlistsd.
+static const char* radio_playlist_path() { return PLAYLIST_PATH; }
+static const char* radio_index_path() { return INDEX_PATH; }
+
 } // namespace
 
 uint16_t station_count() {
-    return config.store.countStation;
+    // A competing reader must not turn a ready list into a cached empty list.
+    return config.radioStationCount();
 }
 
 uint16_t current_station_num() {
@@ -112,6 +118,47 @@ uint16_t current_station_num() {
 
 bool is_valid_station_num(uint16_t num) {
     return num >= 1u && num <= station_count();
+}
+
+bool station_url(uint16_t num, char* out, size_t cap) {
+    if (!out || cap == 0u) return false;
+    out[0] = '\0';
+    if (!is_valid_station_num(num)) return false;
+
+    PlaylistReadGuard read(config);
+    if (!read) return false;
+    FS* fs = config.SDPLFS();
+    File playlist = fs ? fs->open(radio_playlist_path(), "r") : File();
+    File index = fs ? fs->open(radio_index_path(), "r") : File();
+    bool ok = false;
+    if (playlist && index
+        && index.seek(static_cast<size_t>(num - 1u) * sizeof(uint32_t), SeekSet)) {
+        uint32_t pos = 0;
+        if (index.readBytes(reinterpret_cast<char*>(&pos), sizeof(pos)) == sizeof(pos)
+            && playlist.seek(pos, SeekSet)) {
+            char line[BUFLEN];
+            size_t used = 0;
+            while (playlist.available() && used + 1u < sizeof(line)) {
+                const int raw = playlist.read();
+                if (raw < 0) break;
+                const char c = static_cast<char>(raw);
+                if (c == '\n') break;
+                if (c == '\r') continue;
+                line[used++] = c;
+            }
+            line[used] = '\0';
+            char name[BUFLEN];
+            char url[BUFLEN];
+            int ovol = 0;
+            if (config.parseCSV(line, name, url, ovol)) {
+                strlcpy(out, url, cap);
+                ok = out[0] != '\0';
+            }
+        }
+    }
+    if (index) index.close();
+    if (playlist) playlist.close();
+    return ok;
 }
 
 bool station_name(uint16_t num, char* out, size_t cap) {
@@ -132,12 +179,11 @@ bool station_page_text(uint16_t first, uint16_t last, char* out, size_t cap, siz
     out[0] = '\0';
     if (!is_valid_station_num(first) || last < first || last > station_count()) return false;
 
+    PlaylistReadGuard read(config);
+    if (!read) return false;
     FS* fs = config.SDPLFS();
-    const bool web_mode = config.getMode() == PM_WEB;
-    const char* playlist_path = web_mode ? PLAYLIST_PATH : PLAYLIST_SD_PATH;
-    const char* index_path = web_mode ? INDEX_PATH : INDEX_SD_PATH;
-    File playlist = fs ? fs->open(playlist_path, "r") : File();
-    File index = fs ? fs->open(index_path, "r") : File();
+    File playlist = fs ? fs->open(radio_playlist_path(), "r") : File();
+    File index = fs ? fs->open(radio_index_path(), "r") : File();
 
     bool complete = false;
     if (playlist && index) {
@@ -173,9 +219,15 @@ bool station_page_text(uint16_t first, uint16_t last, char* out, size_t cap, siz
 bool list_signature(StationListSignature* out) {
     if (!out) return false;
     out->station_count = station_count();
+    // Mode stays in the signature so an existing consumer can still refresh on a source change.
+    // The bytes themselves are always the radio playlist, including while SD audio is playing.
+    // Режим остаётся в сигнатуре: потребитель по-прежнему обновляется при смене источника.
+    // Размер всегда относится к радиоплейлисту, в том числе во время SD.
     out->play_mode = config.getMode();
     out->playlist_file_bytes = 0;
-    const char* path = (out->play_mode == PM_WEB) ? PLAYLIST_PATH : PLAYLIST_SD_PATH;
+    const char* path = radio_playlist_path();
+    PlaylistReadGuard read(config);
+    if (!read) return false;
     FS* fs = config.SDPLFS();
     if (fs && fs->exists(path)) {
         File f = fs->open(path, "r");
@@ -200,9 +252,10 @@ bool station_list_text(char* out, size_t cap, size_t name_limit) {
         return copy_complete(out, cap, i18n::text(i18n::TextId::StationEmptyList));
     }
 
+    PlaylistReadGuard read(config);
+    if (!read) return false;
     FS* fs = config.SDPLFS();
-    const char* path = (config.getMode() == PM_WEB) ? PLAYLIST_PATH : PLAYLIST_SD_PATH;
-    File playlist = fs ? fs->open(path, "r") : File();
+    File playlist = fs ? fs->open(radio_playlist_path(), "r") : File();
     if (!playlist) return false;
 
     size_t used = 0;
