@@ -105,8 +105,9 @@ class AsyncJsonResponse: public AsyncAbstractResponse {
         _root = _jsonBuffer.createObject();
     }
 #else
-    AsyncJsonResponse(bool isArray=false, size_t maxJsonBufferSize = DYNAMIC_JSON_DOCUMENT_SIZE) : _isValid{false} {
-      (void)maxJsonBufferSize;
+    // ArduinoJson 7 JsonDocument has no constructor capacity; do not accept a dead size arg.
+    // В ArduinoJson 7 у JsonDocument нет ёмкости в конструкторе — мёртвый size не принимаем.
+    AsyncJsonResponse(bool isArray=false) : _isValid{false} {
       _code = 200;
       _contentType = JSON_MIMETYPE;
       if(isArray)
@@ -147,11 +148,7 @@ class AsyncJsonResponse: public AsyncAbstractResponse {
 
 class PrettyAsyncJsonResponse: public AsyncJsonResponse {	
 public:
-#ifdef ARDUINOJSON_5_COMPATIBILITY
 	PrettyAsyncJsonResponse (bool isArray=false) : AsyncJsonResponse{isArray} {}
-#else
-	PrettyAsyncJsonResponse (bool isArray=false, size_t maxJsonBufferSize = DYNAMIC_JSON_DOCUMENT_SIZE) : AsyncJsonResponse{isArray, maxJsonBufferSize} {}
-#endif
 	size_t setLength () {
 #ifdef ARDUINOJSON_5_COMPATIBILITY
 		_contentLength = _root.measurePrettyLength ();

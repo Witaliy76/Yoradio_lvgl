@@ -4016,7 +4016,7 @@ void Audio::requestStopFromAudioTask(const char* reason) {
     // caller must find the audio task held still afterwards.
     // Затвор поднимается и при повторном вызове: побеждает первый запрос, но
     // каждый вызывающий должен увидеть аудиозадачу остановленной.
-    m_f_audioTaskStopGate = true;
+    m_f_audioTaskStopGate.store(true, std::memory_order_release);
     portEXIT_CRITICAL(&m_audioRequestMux);
 
     if(!published) return;
