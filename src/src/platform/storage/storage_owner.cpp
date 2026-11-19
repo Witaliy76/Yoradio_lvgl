@@ -92,6 +92,12 @@ void StorageOwner::mountAfterDisplay(bool display_ready) {
     }
     S07_STORAGE_LOG("[S07-ENG] Type9 ready; runtime mount begin requested=20000kHz host=SPI2\n");
     auto result = sdspi::mount(20000);
+    // Try an intermediate SDSPI clock after FR_NO_FILESYSTEM and clean rollback.
+    // После FR_NO_FILESYSTEM и успешного освобождения пробуем промежуточную частоту SDSPI.
+    if (result.error == 13 && !result.cleanup_error && !result.resources_held && !result.mounted) {
+        S07_STORAGE_LOG("[S07-ENG] SD mount failed at requested 20 MHz (FatFs 13: FR_NO_FILESYSTEM). Retrying at 10 MHz.\n");
+        result = sdspi::mount(10000);
+    }
     S07_STORAGE_LOG("[S07-ENG] runtime mount=%ld cleanup=%ld mounted=%u held=%u requested_khz=%d card_max_khz=%d real_khz=%d\n",
         static_cast<long>(result.error),static_cast<long>(result.cleanup_error),
         static_cast<unsigned>(result.mounted),static_cast<unsigned>(result.resources_held),

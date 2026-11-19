@@ -8,6 +8,8 @@
 #include <string.h>
 
 _Static_assert(FF_LFN_BUF == 768, "FatFs LFN byte buffer was not overridden");
+_Static_assert(FF_FS_EXFAT == 1 && sizeof(((FILINFO*)0)->fsize) == 8,
+    "FatFs exFAT requires 64-bit FILINFO sizes");
 _Static_assert(sizeof(((FILINFO*)0)->fname) == FF_LFN_BUF + 1,
     "FILINFO.fname must be the overridden byte buffer plus NUL");
 

@@ -101,12 +101,14 @@ if(_yoradio_s07_storage_enabled)
     # бы те же типы ещё раз. Установленные исходники и поведение FS те же.
     foreach(_rel src/ff.c src/ff.h src/ffunicode.c src/diskio.h
             diskio/diskio.c diskio/diskio_rawflash.c diskio/diskio_sdmmc.c diskio/diskio_wl.c diskio/diskio_impl.h
-            vfs/vfs_fat.c vfs/vfs_fat_sdmmc.c vfs/vfs_fat_spiflash.c vfs/esp_vfs_fat.h vfs/vfs_fat_internal.h
+            vfs/vfs_fat_sdmmc.c vfs/vfs_fat_spiflash.c vfs/esp_vfs_fat.h vfs/vfs_fat_internal.h
             port/freertos/ffsystem.c)
         get_filename_component(_name "${_rel}" NAME)
         configure_file("${_fatfs_dir}/${_rel}" "${_lfn_mirror}/${_name}" COPYONLY)
     endforeach()
+    configure_file("${_fatfs_dir}/src/ffconf.h" "${_lfn_mirror}/ffconf_sdk.h" COPYONLY)
     configure_file("${_lfn_repo}/ffconf.h" "${_lfn_mirror}/ffconf.h" COPYONLY)
+    include("${_lfn_repo}/vfs_size_guard.cmake")
     configure_file("${_lfn_repo}/fatfs_dir_read.c" "${_lfn_mirror}/fatfs_dir_read.c" COPYONLY)
     configure_file("${_lfn_repo}/fatfs_dir_read.h" "${_lfn_mirror}/fatfs_dir_read.h" COPYONLY)
     get_target_property(_fatfs_srcs ${_fatfs_lib} SOURCES)
@@ -121,7 +123,10 @@ if(_yoradio_s07_storage_enabled)
     endforeach()
     list(APPEND _fatfs_replaced "${_lfn_mirror}/fatfs_dir_read.c")
     set_target_properties(${_fatfs_lib} PROPERTIES SOURCES "${_fatfs_replaced}")
-    message(STATUS "YoRadio FatFs FILINFO UTF-8 buffer overridden to 768 bytes")
+    # App and Arduino must also use the mirrored FATFS/FIL/FSIZE_t declarations.
+    # Приложение и Arduino также должны видеть типы FATFS/FIL/FSIZE_t из зеркала.
+    target_include_directories(${_fatfs_lib} BEFORE PUBLIC "${_lfn_mirror}")
+    message(STATUS "YoRadio FatFs: FAT/exFAT, 768-byte UTF-8 LFN buffer")
 endif()
 
 # Mixed pioarduino generates embed assembly but does not link it, and the

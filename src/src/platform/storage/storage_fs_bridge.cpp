@@ -153,7 +153,9 @@ public:
         if (file->fd < 0) { const int e=errno;binding->fail(FileError::OpenFailed,e,mediaError(e));file->close();return {}; }
         struct stat info{};
         if (::fstat(file->fd,&info) != 0) {
-            const int e=errno;binding->fail(FileError::OpenFailed,e,mediaError(e));file->close();return {};
+            const int e=errno;
+            binding->fail(e == EOVERFLOW ? FileError::FileTooLarge : FileError::OpenFailed,e,mediaError(e));
+            file->close();return {};
         }
         if (!S_ISREG(info.st_mode)) { binding->fail(FileError::NotRegularFile);file->close();return {}; }
         // Existing Audio uses signed 32-bit seek/resume offsets.
@@ -208,9 +210,11 @@ MediaProbe probeMediaFile(uint64_t generation, const char* path) {
     }
     struct stat info{};
     const bool stated = ::fstat(fd, &info) == 0;
+    const int stat_error = errno;
     if (::close(fd) != 0) return MediaProbe::Io; // unknown close stays counted
     handle.releaseAfterClose();
-    if (!stated || !S_ISREG(info.st_mode)) return MediaProbe::Missing;
+    if (!stated) return stat_error == EOVERFLOW ? MediaProbe::Io : MediaProbe::Missing;
+    if (!S_ISREG(info.st_mode)) return MediaProbe::Missing;
     if (info.st_size < 0 || static_cast<uint64_t>(info.st_size) > INT32_MAX) return MediaProbe::Io;
     OperationLease still_current;
     if (!owner.acquireOperation(generation, still_current)) return MediaProbe::Stale;

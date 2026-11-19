@@ -142,9 +142,10 @@ int compiledSsrTimeoutFallback() {
 }
 
 Result mount(uint32_t frequency_khz) {
-    // Early entry stays 400 kHz. Runtime is 20 MHz. 1 MHz remains a legal host value.
-    // Ранний вход остаётся 400 кГц. Runtime — 20 МГц. 1 МГц остаётся допустимым для хоста.
-    if (!validConfig() || (frequency_khz != 400 && frequency_khz != 1000 && frequency_khz != 20000))
+    // Early entry uses 400 kHz. Runtime requests 20 MHz or retries at 10 MHz.
+    // Ранний вход использует 400 кГц. Runtime запрашивает 20 МГц или повторяет на 10 МГц.
+    if (!validConfig() || (frequency_khz != 400 && frequency_khz != 1000 &&
+                          frequency_khz != 10000 && frequency_khz != 20000))
         return facts(ESP_ERR_NOT_SUPPORTED); // disabled path performs no SDK IO
     if (held()) return facts(ESP_ERR_INVALID_STATE);
     const auto& c = bootConfig();
