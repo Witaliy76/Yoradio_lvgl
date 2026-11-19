@@ -350,6 +350,15 @@ bool fileInDirectory(const char* file, const char* directory, const char** base)
 
 void browserSdOpen(uint32_t request_id, const char* path) {
     if (request_id == 0u) return;
+    if (!yoradio::kResolvedStorageConfig.enabled) {
+        g_sd.live = true;
+        g_sd.request_id = request_id;
+        g_sd.generation = 0;
+        g_sd.settled = true;
+        g_sd.status = BrowserStatus::Unavailable;
+        sdBump();
+        return;
+    }
     g_sd.play_result = yoradio::playback::PathPlayResult::None;
     if (!path || path[0] == '\0') path = "/";
     if (path != g_sd.scratch) {

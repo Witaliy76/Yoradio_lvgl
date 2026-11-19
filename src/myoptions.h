@@ -199,14 +199,18 @@
 /* ===============================================
    SD CARD
    =============================================== */
-// SD card support DISABLED for ESP32-4848S040
-// SD card did not work properly on this board
+// 1 = SD разрешена (как в B073). 0 = не монтировать SD и не резервировать GPIO 41/42.
+// 1 = SD permitted (B073 behavior). 0 = do not mount SD or reserve GPIO 41/42.
+// GPIO 47/48 остаются командными линиями ST7701. Legacy USE_SD не используется.
+// GPIO 47/48 stay ST7701 command lines. Legacy USE_SD is not the switch.
+#define YORADIO_SD_ENABLE 1
+
 // SD pins according to ESP32-4848S040 schematic:
 //   io42 - TF(D3) - Chip Select
 //   io47 - SPICLK_P - MOSI (Master Out Slave In)
 //   io48 - SPICLK_N - SCK (Clock)
 //   io41 - TF(D1) - MISO (Master In Slave Out)
-// Note: SD card functionality is not implemented for this board
+// The Owner uses this map only when YORADIO_SD_ENABLE is 1. The macros below stay unused.
 //#define USE_SD                              // SD card support disabled
 //#define SDC_CS        42                    // Chip Select
 //#define SD_SCK        48                    // SCK pin

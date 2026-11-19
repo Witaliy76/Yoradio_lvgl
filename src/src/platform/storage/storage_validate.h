@@ -144,12 +144,16 @@ inline constexpr bool storagePinHasHardConflict(uint8_t pin,
 
 #if YORADIO_BOARD == YORADIO_BOARD_4848S040
 
-// ---- Product ResolvedStorageConfig invariants (S07-1) ----
-static_assert(kResolvedStorageConfig.enabled == kStorageEngineeringEnabled,
-              "Storage IO requires the explicit engineering opt-in; stock remains disabled.");
-static_assert(kResolvedStorageConfig.transport == (kStorageEngineeringEnabled ?
-                  StorageTransport::SdSpi : StorageTransport::Disabled),
-              "Engineering Storage uses SDSPI; stock transport stays Disabled.");
+// Final permission is one formula. Card readiness is not part of it.
+// Итоговое разрешение — одна формула. Готовность карты в неё не входит.
+static_assert(kResolvedStorageConfig.enabled ==
+                  (kStorageEngineeringEnabled && kUserSdEnable &&
+                   kActiveBoard.storage.onboard_sd_present),
+              "SD permission must be Owner build + YORADIO_SD_ENABLE + board slot.");
+static_assert(kResolvedStorageConfig.transport ==
+                  (kResolvedStorageConfig.enabled ? StorageTransport::SdSpi
+                                                  : StorageTransport::Disabled),
+              "Permitted SD uses SDSPI. Otherwise transport stays Disabled.");
 static_assert(!kResolvedStorageConfig.allow_autoformat,
               "YoRadio Storage: allow_autoformat must remain false.");
 static_assert(kResolvedStorageConfig.onboard_sd_present ==
@@ -163,46 +167,88 @@ static_assert(kResolvedStorageConfig.pin_evidence != StoragePinEvidence::DeviceV
 static_assert(kResolvedStorageConfig.display_command_lifecycle_share_expected,
               "YoRadio Storage: 4848 expects DisplayCommand↔TF lifecycle share on 47/48.");
 
-// ---- Checker self-check against SCHEMATIC candidates (not BoardProfile apply) ----
-// Identity: candidate CMD/CLK must match effective DisplayCommand SDA/SCK.
-static_assert(storage_schematic_4848s040::kTfCmdGpio == kWiring.display.cmd_sda_gpio,
-              "YoRadio Storage: schematic TF CMD must match effective DisplayCommand SDA (GPIO47).");
-static_assert(storage_schematic_4848s040::kTfClkGpio == kWiring.display.cmd_sck_gpio,
-              "YoRadio Storage: schematic TF CLK must match effective DisplayCommand SCK (GPIO48).");
-static_assert(storage_schematic_4848s040::kLcdCmdCsGpio == kWiring.display.cmd_cs_gpio,
-              "YoRadio Storage: schematic LCD_CS must match effective DisplayCommand CS (GPIO39).");
+// The resolver rejects a second claim on a pin an active device already owns.
+// Резолвер отвергает повторное требование пина, который уже занят активным устройством.
+static_assert(wiring_check::hasDuplicateGpio(wiring_check::withPin(
+                  wiring_check::kClaims, kWiring.display.pclk_gpio)),
+              "GPIO resolver must reject a pin already claimed by the active display.");
+static_assert(storagePinHasHardConflict(kWiring.display.cmd_cs_gpio, true),
+              "ST7701 command CS stays exclusive. SD must not take it.");
 
-// With lifecycle share allowed, CMD/CLK must NOT hard-conflict; CS/DAT0 must be free
-// of exclusive runtime claimants under stock IR/MUTE=255.
+// A moved command SDA is not the TF map. The literal is a resolver check,
+// not a change to the board wiring.
+// Сдвинутый командный SDA — не карта TF. Литерал проверяет резолвер,
+// а не меняет разводку платы.
+inline constexpr bool sdCommandPinsMatchDisplay(uint8_t sda, uint8_t sck, uint8_t lcd_cs) {
+    return sda == storage_schematic_4848s040::kTfCmdGpio &&
+           sck == storage_schematic_4848s040::kTfClkGpio &&
+           lcd_cs == storage_schematic_4848s040::kLcdCmdCsGpio;
+}
+static_assert(!sdCommandPinsMatchDisplay(1, 48, 39),
+              "Custom DisplayCommand SDA is not a usable TF map while SD is enabled.");
+
+// One GPIO that the base claim list does not own can be added once.
+// Один GPIO, которого нет в базовом списке, можно занять один раз.
+inline constexpr uint8_t firstUnclaimedGpio() {
+    for (uint8_t pin = 0; pin <= 48; ++pin) {
+        if (!isUsableGpio(pin)) {
+            continue;
+        }
+        if (wiring_check::containsPin(wiring_check::kClaims, pin)) {
+            continue;
+        }
+        return pin;
+    }
+    return kPinNotConnected;
+}
+static_assert(firstUnclaimedGpio() != kPinNotConnected,
+              "GPIO resolver found no free pin to prove reassignment.");
+static_assert(!wiring_check::hasDuplicateGpio(wiring_check::withPin(
+                  wiring_check::kClaims, firstUnclaimedGpio())),
+              "GPIO resolver must accept one claim on a pin no active device owns.");
+
+#if YORADIO_SD_ENABLE && YORADIO_S07_STORAGE_ENABLED
+// SD on: DAT0/CS join the real claim list. 47/48 stay display command pins.
+// SD включена: DAT0/CS входят в реальный список. 47/48 остаются командными пинами дисплея.
+static_assert(kResolvedStorageConfig.enabled,
+              "YORADIO_SD_ENABLE=1 on the Owner build must permit SD.");
+static_assert(sdCommandPinsMatchDisplay(kWiring.display.cmd_sda_gpio,
+                                        kWiring.display.cmd_sck_gpio,
+                                        kWiring.display.cmd_cs_gpio),
+              "YORADIO_SD_ENABLE=1 needs DISP_SDA=47, DISP_SCK=48 and DISP_CS=39. "
+              "Set YORADIO_SD_ENABLE to 0 or restore those DisplayCommand lines.");
+inline constexpr wiring_check::ClaimList kSdClaims = wiring_check::withPin(
+    wiring_check::withPin(wiring_check::kClaims, storage_schematic_4848s040::kTfDat0Gpio),
+    storage_schematic_4848s040::kTfDat3CsGpio);
+static_assert(wiring_check::containsPin(kSdClaims, storage_schematic_4848s040::kTfDat0Gpio) &&
+                  wiring_check::containsPin(kSdClaims, storage_schematic_4848s040::kTfDat3CsGpio),
+              "SD on must reserve GPIO 41 and GPIO 42.");
+static_assert(!wiring_check::hasDuplicateGpio(kSdClaims),
+              "YORADIO_SD_ENABLE=1: GPIO 41 or 42 is already used by display, touch, or I2S. "
+              "Move that signal or set YORADIO_SD_ENABLE to 0.");
 static_assert(!storagePinHasHardConflict(storage_schematic_4848s040::kTfCmdGpio, true),
-              "YoRadio Storage: schematic TF CMD (47) must be legal under DisplayCommand lifecycle share.");
+              "YORADIO_SD_ENABLE=1: TF CMD GPIO47 conflicts with an active device.");
 static_assert(!storagePinHasHardConflict(storage_schematic_4848s040::kTfClkGpio, true),
-              "YoRadio Storage: schematic TF CLK (48) must be legal under DisplayCommand lifecycle share.");
+              "YORADIO_SD_ENABLE=1: TF CLK GPIO48 conflicts with an active device.");
 static_assert(!storagePinHasHardConflict(storage_schematic_4848s040::kTfDat0Gpio, true),
-              "YoRadio Storage: schematic TF DAT0 (41) conflicts with display/touch/I2S/IR/MUTE/WAKE.");
+              "YORADIO_SD_ENABLE=1: TF DAT0 GPIO41 conflicts with display, touch, I2S, IR, MUTE, or WAKE.");
 static_assert(!storagePinHasHardConflict(storage_schematic_4848s040::kTfDat3CsGpio, true),
-              "YoRadio Storage: schematic TF DAT3/CS (42) conflicts with display/touch/I2S/IR/MUTE/WAKE.");
-
-// Without the share exception, CMD/CLK correctly look like conflicts — proves the
-// exception is intentional, not a missing collision check.
+              "YORADIO_SD_ENABLE=1: TF CS GPIO42 conflicts with display, touch, I2S, IR, MUTE, or WAKE.");
 static_assert(storagePinHasHardConflict(storage_schematic_4848s040::kTfCmdGpio, false),
-              "YoRadio Storage: TF CMD must conflict with DisplayCommand SDA when share is disallowed.");
+              "TF CMD must still conflict with DisplayCommand SDA when the share is disallowed.");
 static_assert(storagePinHasHardConflict(storage_schematic_4848s040::kTfClkGpio, false),
-              "YoRadio Storage: TF CLK must conflict with DisplayCommand SCK when share is disallowed.");
-
-// LCD_CS must never be claimed as an SD line.
-static_assert(storagePinHasHardConflict(storage_schematic_4848s040::kLcdCmdCsGpio, true),
-              "YoRadio Storage: LCD_CS (39) must remain exclusive to the display.");
+              "TF CLK must still conflict with DisplayCommand SCK when the share is disallowed.");
+#else
+// SD off: do not reserve DAT0/CS. Display, touch and I2S claims stay in force.
+// SD выключена: DAT0/CS не резервируются. Требования дисплея, тача и I2S остаются.
+static_assert(!kResolvedStorageConfig.enabled,
+              "YORADIO_SD_ENABLE=0 must leave SD disabled.");
+#endif
 
 static_assert(!storage_schematic_4848s040::kSupportsSdmmc4Bit,
               "YoRadio Storage: 4848 schematic has no MCU DAT1/DAT2 — 4-bit SDMMC is unavailable.");
 static_assert(!storage_schematic_4848s040::kCardDetectGpioPresent,
               "YoRadio Storage: 4848 schematic ties CD to GND — no CD GPIO.");
-
-// Permanent product BoardProfile/kWiring storage pins remain outside the
-// engineering opt-in. Runtime handoff/mount belong to StorageOwner, not here.
-// Постоянная разводка Storage в BoardProfile/kWiring не задаётся инженерным
-// opt-in. Runtime handoff/mount выполняет StorageOwner, а не валидатор.
 
 #endif  // YORADIO_BOARD == YORADIO_BOARD_4848S040
 

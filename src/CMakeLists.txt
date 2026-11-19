@@ -49,6 +49,18 @@ idf_component_register(
 # AAC / static-RX в Audio.cpp по-прежнему требует этот compile-gate.
 target_compile_definitions(${COMPONENT_LIB} PRIVATE YORADIO_IDF_C1_CONFIG=1)
 
+# This component is compiled with the unscanned ninja rule, so a changed
+# myoptions.h would not rebuild the TUs that include it. The user SD switch
+# is one of those settings. One explicit edge covers the whole app component.
+# Компонент собирается правилом ninja без сканера заголовков, поэтому правка
+# myoptions.h сама не пересобирает включающие её файлы. Переключатель SD — одна
+# из таких настроек. Одна явная связь покрывает весь компонент приложения.
+foreach(_src ${app_sources})
+    get_filename_component(_abs_src "${_src}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_LIST_DIR}")
+    set_property(SOURCE "${_abs_src}" APPEND PROPERTY OBJECT_DEPENDS
+        "${CMAKE_CURRENT_LIST_DIR}/myoptions.h")
+endforeach()
+
 # Ordinary 4848S040 is the Storage Owner build. Directory detection covers mixed
 # requirement collection, where PlatformIO -D flags may not be visible on app TUs.
 # Штатный 4848S040 — сборка Storage Owner. Каталог учитывает mixed-сборку
@@ -66,12 +78,6 @@ if(_yoradio_s07_storage_enabled)
     # Ровно один символ. Сам fallback дополнительно закрыт в storage_sdspi.cpp:
     # наш mount, политика из myoptions и ESP_ERR_TIMEOUT.
     target_link_options(${COMPONENT_LIB} INTERFACE "LINKER:--wrap=sdmmc_init_sd_ssr")
-    # myoptions.h is included by storage_sdspi.cpp. OBJECT_DEPENDS covers a
-    # scanner that misses the include, which left B034 with a stale policy.
-    # myoptions.h включён из storage_sdspi.cpp. OBJECT_DEPENDS закрывает сканер,
-    # который пропустил include и оставил B034 со старой политикой.
-    set_property(SOURCE "${CMAKE_CURRENT_LIST_DIR}/src/platform/storage/storage_sdspi.cpp"
-        APPEND PROPERTY OBJECT_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/myoptions.h")
     message(STATUS "YoRadio Storage Owner ENABLED for 4848S040")
     # IDF 5.5.5 hardcodes FF_LFN_BUF 255 next to ff.h. Quoted includes prefer
     # that sibling, so the fatfs sources are compiled from a build-tree copy

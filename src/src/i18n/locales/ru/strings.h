@@ -172,6 +172,7 @@ inline constexpr std::array<TextEntry, textCount()> kStrings{{
   {TextId::RepeatAll, "Повтор всех"},
   {TextId::ShuffleOff, "Перемешивание выключено"},
   {TextId::ShuffleOn, "Перемешивание включено"},
+  {TextId::SourceSdDisabled, "SD выключена"},
 }};
 
 }  // namespace i18n::locales::ru

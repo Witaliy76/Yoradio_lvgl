@@ -171,6 +171,7 @@ enum class TextId : uint16_t {
   RepeatAll,
   ShuffleOff,
   ShuffleOn,
+  SourceSdDisabled,
   Count
 };
 
@@ -542,6 +543,7 @@ inline constexpr std::array<TextSpec, textCount()> kTextSpecs{{
   makeTextSpec("", 48),       // RepeatAll
   makeTextSpec("", 64),       // ShuffleOff
   makeTextSpec("", 64),       // ShuffleOn
+  makeTextSpec("", 32),       // SourceSdDisabled: user turned SD off
 }};
 
 // Parser foundation checks. These stay next to the constexpr implementation so

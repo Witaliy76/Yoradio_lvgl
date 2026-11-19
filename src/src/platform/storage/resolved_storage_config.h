@@ -29,16 +29,31 @@
 #error "Engineering Storage opt-in is restricted to ESP32-4848S040."
 #endif
 
+// User permission. The macro lives in src/myoptions.h, which options.h includes
+// before this header. 0 and 1 are the only accepted values.
+// Разрешение пользователя. Макрос задаётся в src/myoptions.h до этого заголовка.
+#ifndef YORADIO_SD_ENABLE
+#error "YoRadio: define YORADIO_SD_ENABLE as 0 or 1 in src/myoptions.h."
+#endif
+#if (YORADIO_SD_ENABLE) != 0 && (YORADIO_SD_ENABLE) != 1
+#error "YoRadio: YORADIO_SD_ENABLE must be 0 or 1."
+#endif
+
 namespace yoradio {
 inline constexpr bool kStorageEngineeringEnabled = YORADIO_S07_STORAGE_ENABLED != 0;
+// User asked for SD. This is not card readiness and not the board's slot fact.
+// Пользователь запросил SD. Это не готовность карты и не факт слота на плате.
+inline constexpr bool kUserSdEnable = (YORADIO_SD_ENABLE) != 0;
 
 struct ResolvedStorageConfig {
     // Factory fact: slot present on the board (not "SD enabled in firmware").
     // Заводской факт: слот на плате есть (это не «SD включён в прошивке»).
     bool onboard_sd_present;
 
-    // SD enable gate. On for the 4848S040 Owner build; off when the macro is 0.
-    // Включение SD. Включено в сборке Owner 4848S040; выключено при макросе 0.
+    // Final SD permission: Owner build AND user flag AND a board slot.
+    // Pin conflicts are rejected at compile time, not turned into a silent false.
+    // Итоговое разрешение SD: сборка Owner, флаг пользователя и слот платы.
+    // Конфликт пинов останавливает сборку, а не прячется в false.
     bool enabled;
 
     StorageTransport transport;
@@ -69,11 +84,17 @@ namespace detail {
 // Legacy SDC_CS!=255 remains refused.
 // Сборка Owner 4848S040 выбирает SDSPI. При макросе 0 транспорт Disabled.
 // Legacy SDC_CS!=255 по-прежнему запрещён.
+constexpr bool storagePermitted() {
+    return kStorageEngineeringEnabled && kUserSdEnable &&
+           kActiveBoard.storage.onboard_sd_present;
+}
+
 constexpr ResolvedStorageConfig resolveStorageConfigS07_1() {
+    const bool permitted = storagePermitted();
     return ResolvedStorageConfig{
         .onboard_sd_present = kActiveBoard.storage.onboard_sd_present,
-        .enabled = kStorageEngineeringEnabled,
-        .transport = kStorageEngineeringEnabled ? StorageTransport::SdSpi : StorageTransport::Disabled,
+        .enabled = permitted,
+        .transport = permitted ? StorageTransport::SdSpi : StorageTransport::Disabled,
         .pin_evidence =
             (YORADIO_BOARD == YORADIO_BOARD_4848S040)
                 ? storage_schematic_4848s040::kPinEvidence

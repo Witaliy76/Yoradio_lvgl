@@ -2,8 +2,10 @@
 #include "storage_sdspi.h"
 
 namespace yoradio { namespace storage { namespace sdspi {
-static_assert(kResolvedStorageConfig.enabled == kStorageEngineeringEnabled,
-              "Only the explicit engineering binding may enable Storage.");
+static_assert(kResolvedStorageConfig.enabled ==
+                  (kStorageEngineeringEnabled && kUserSdEnable &&
+                   kActiveBoard.storage.onboard_sd_present),
+              "Storage mounts only when the Owner build, the user flag and the slot agree.");
 static_assert(!kResolvedStorageConfig.allow_autoformat, "Storage never autoformats.");
 
 #if YORADIO_S07_STORAGE_ENABLED
@@ -20,12 +22,14 @@ const BootConfig& bootConfig() {
     // Единая карта кандидата проверенной платы. Сборка Owner её использует;
     // при макросе 0 пины отключены. BoardProfile не повышается.
     using namespace storage_schematic_4848s040;
-    static const BootConfig config{kStorageEngineeringEnabled,
-        kStorageEngineeringEnabled ? kTfDat3CsGpio : -1,
-        kStorageEngineeringEnabled ? kTfCmdGpio : -1,
-        kStorageEngineeringEnabled ? kTfDat0Gpio : -1,
-        kStorageEngineeringEnabled ? kTfClkGpio : -1,
-        kStorageEngineeringEnabled ? kLcdCmdCsGpio : -1,
+    // Pins follow the one permission. Off leaves every SD GPIO disconnected.
+    // Пины следуют одному разрешению. В выключенном состоянии линии SD не задаются.
+    static const BootConfig config{kResolvedStorageConfig.enabled,
+        kResolvedStorageConfig.enabled ? kTfDat3CsGpio : -1,
+        kResolvedStorageConfig.enabled ? kTfCmdGpio : -1,
+        kResolvedStorageConfig.enabled ? kTfDat0Gpio : -1,
+        kResolvedStorageConfig.enabled ? kTfClkGpio : -1,
+        kResolvedStorageConfig.enabled ? kLcdCmdCsGpio : -1,
         kResolvedStorageConfig.mount_path};
     return config;
 }

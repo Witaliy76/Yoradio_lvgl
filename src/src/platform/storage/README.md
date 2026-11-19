@@ -8,8 +8,13 @@ Author: Witaliy76 - https://github.com/Witaliy76
 read-only FS bridge used by the existing Audio MP3/FLAC path. These are production
 components awaiting authorized hardware/FATFS integration and device acceptance.
 `SDC_CS` stays 255 and legacy `USE_SD` / SDManager stay off. The ordinary
-`4848S040` build enables the Storage Owner. A version string alone does not
-prove device playback, and this is not BoardProfile acceptance.
+`4848S040` build compiles the Storage Owner. `YORADIO_SD_ENABLE` in
+`src/myoptions.h` is the user permission: `1` permits SD, `0` skips early and
+runtime mount and does not reserve GPIO 41/42. BoardProfile still only records
+that the slot exists. `StorageOwner::status()` reports whether the card is
+actually ready. Those three facts meet in `kResolvedStorageConfig.enabled`.
+A version string alone does not prove device playback, and this is not
+BoardProfile acceptance.
 
 ### S07 working build
 
@@ -38,7 +43,7 @@ step does not use `uploadfs`.
 |---|---|
 | `BoardProfile.storage.onboard_sd_present` | Factory slot-presence fact; no SD GPIO fields yet |
 | `ResolvedStorageConfig` / `storage_validate.h` | Stock enable restriction and compile-time checks; `SDC_CS != 255` is refused |
-| `storage_boot_config.cpp` | Owner binding; macro 0 leaves the candidate pins disconnected |
+| `storage_boot_config.cpp` | Owner binding; `kResolvedStorageConfig.enabled == false` leaves the candidate pins disconnected |
 | `storage_owner.h/.cpp` | `StorageOwner::instance()` owns mount lifecycle and operation/handle accounting |
 | `storage_sdspi.h/.cpp` | Private IDF SPI2/device/card/FAT/VFS implementation; no raw card or mount exported |
 | `media_ref.h` | Exact owned UTF-8 path, mount generation, path validation and `FileError` |
@@ -291,7 +296,11 @@ subsequent work. Stock enablement and device acceptance are pending.
 только для чтения существующим Audio MP3/FLAC. Это штатные компоненты, ожидающие
 разрешённой интеграции аппаратуры/FATFS и приёмки на устройстве. `SDC_CS`
 остаётся 255, legacy `USE_SD` / SDManager выключены. Штатная сборка
-`4848S040` включает Storage Owner. Номер версии сам по себе не доказывает
+`4848S040` компилирует Storage Owner. `YORADIO_SD_ENABLE` в `src/myoptions.h`
+разрешает SD (`1`) или запрещает её (`0`: без раннего и runtime mount и без
+резерва GPIO 41/42). BoardProfile по-прежнему только отмечает наличие слота.
+`StorageOwner::status()` сообщает, готова ли карта. Эти три факта сходятся в
+`kResolvedStorageConfig.enabled`. Номер версии сам по себе не доказывает
 воспроизведение, и это не приёмка BoardProfile.
 
 ### Рабочая сборка S07
@@ -320,7 +329,7 @@ PlatformIO — обычный `4848S040` (`default_envs`).
 |---|---|
 | `BoardProfile.storage.onboard_sd_present` | Заводской факт наличия слота; полей GPIO SD пока нет |
 | `ResolvedStorageConfig` / `storage_validate.h` | Запрет включения в штатной конфигурации и проверки при сборке; `SDC_CS != 255` отвергается |
-| `storage_boot_config.cpp` | Привязка Owner; при макросе 0 кандидатные пины остаются отключёнными |
+| `storage_boot_config.cpp` | Привязка Owner; при `kResolvedStorageConfig.enabled == false` кандидатные пины отключены |
 | `storage_owner.h/.cpp` | `StorageOwner::instance()` владеет монтированием и учётом операций/дескрипторов |
 | `storage_sdspi.h/.cpp` | Внутренняя реализация IDF SPI2/device/card/FAT/VFS; сырые card/mount наружу не выдаются |
 | `media_ref.h` | Полный UTF-8 путь, поколение монтирования, проверка пути и `FileError` |

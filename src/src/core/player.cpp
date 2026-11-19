@@ -154,6 +154,7 @@ yoradio::playback::PathPlayResult Player::requestPlay(const yoradio::playback::P
   using namespace yoradio::playback;
   const auto result=validatePathPlayback(ref.media.path);
   if(result!=PathPlayResult::None) return result;
+  if(!yoradio::kResolvedStorageConfig.enabled) return PathPlayResult::NoMedia;
   if(hasStopFailure()) return PathPlayResult::StopFailed;
   const auto status=StorageOwner::instance().status();
   if(!status.ready) return status.mounted?PathPlayResult::StaleMedia:PathPlayResult::NoMedia;
@@ -596,6 +597,7 @@ Player::ActivateAdmission Player::activate(yoradio::source::SourceId id) {
   facts.storage_ready=status.ready;
   facts.storage_mounted=status.mounted;
   facts.storage_generation=status.generation;
+  facts.sd_permitted=yoradio::kResolvedStorageConfig.enabled;
   const auto decision=classify(id,facts);
   PlayerRequestGuard guard(_controlMux);
   // One activation owns the player until it finishes. A second call does not
@@ -1253,6 +1255,10 @@ void Player::_pumpRequests() {
             folderQueueReset();
             _play(config.lastStation(),request.epoch);
           } else if(action==yoradio::source::ToggleWhenStopped::StartSd) {
+            if(!yoradio::kResolvedStorageConfig.enabled) {
+              _pathResult=PathPlayResult::NoMedia;
+              break;
+            }
             PathPlayRequest armed_ref;
             armed_ref.media=mark;
             armed_ref.epoch=request.epoch;

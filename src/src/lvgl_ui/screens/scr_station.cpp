@@ -15,6 +15,7 @@
 #include <cstdint>
 
 #include "lvgl.h"
+#include "../../core/options.h"
 #include "../../core/source_catalog.h"
 #include "../adapters/station_list_adapter.h"
 #include "../control_glyph_utf8.h"
@@ -456,6 +457,12 @@ void LvglStationPage::_showRadio(bool jump_to_sounding) {
 }
 
 void LvglStationPage::_showSd(bool playing_folder, bool jump_to_sounding) {
+    // Disabled SD stays on the source list. The directory backend is not opened.
+    // Выключенная SD остаётся в списке источников. Каталог карты не открывается.
+    if (!yoradio::kResolvedStorageConfig.enabled) {
+        _showSources();
+        return;
+    }
     const BrowserProvider* provider = browserProvider(yoradio::source::SourceId::Sd);
     if (!provider || !provider->implemented) {
         _showSources();

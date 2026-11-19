@@ -3796,6 +3796,7 @@ void handleSources(AsyncWebServerRequest* request) {
   OpenFacts facts;
   facts.radio_has_stations = config.store.countStation > 0;
   facts.storage_ready = storage.ready;
+  facts.storage_permitted = yoradio::kResolvedStorageConfig.enabled;
 
   // Bounded static buffer: implemented entries only. Planned stays off this list.
   // Ограниченный буфер: только Implemented. Planned в этот список не входит.
@@ -3842,8 +3843,7 @@ void handleSources(AsyncWebServerRequest* request) {
     const char* reason = "";
     if (!intent.available) {
       if (entry.id == SourceId::Radio) reason = "No stations";
-      else if (!storage.mounted && !storage.ready) reason = "Card unavailable";
-      else reason = "Card not ready";
+      else reason = sdBlockedReason(facts.storage_permitted, storage.mounted, storage.ready);
     }
 
     char head[96];

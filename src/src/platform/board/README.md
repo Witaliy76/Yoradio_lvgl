@@ -52,9 +52,11 @@ before conversion to `uint8_t`. The validator rejects a GPIO used twice among di
 `I2S_DOUT` / `I2S_BCLK` / `I2S_LRC`; ESP32-S3 numbers 22–37, negative and
 out-of-range values on `DISP_*`, `TOUCH_*` and active I2S macros; a required
 display or touch line set to 255; and a `DISP_*` or `TOUCH_*` override while
-the flag is off. It does not check `MUTE_PIN`, `WAKE_PIN`,
-IR or SD against the display. It cannot prove a physical wire or that a pin
-is free.
+the flag is off. It does not check `MUTE_PIN`, `WAKE_PIN` or IR against the display.
+When `YORADIO_SD_ENABLE` is 1, `storage_validate.h` adds TF DAT0/CS
+(GPIO 41/42) to this claim list and rejects a conflict with display, touch,
+I2S, IR, MUTE or WAKE. GPIO 47/48 remain DisplayCommand pins and stay claimed
+when SD is off. The check cannot prove a physical wire.
 
 ### External I2S DAC
 
@@ -162,8 +164,11 @@ PSRAM и таблицу разделов; оно не выбирает BoardProf
 `I2S_DOUT` / `I2S_BCLK` / `I2S_LRC`; номера ESP32-S3 22–37, отрицательные и
 выходящие за диапазон значения `DISP_*`, `TOUCH_*` и активных I2S-макросов;
 обязательную линию дисплея или тача со значением 255; override `DISP_*` или
-`TOUCH_*` при выключенном флаге. `MUTE_PIN`, `WAKE_PIN`, IR и SD с дисплеем
-он не сверяет. Корректность физической разводки и свободу непроверяемых пинов он не доказывает.
+`TOUCH_*` при выключенном флаге. `MUTE_PIN`, `WAKE_PIN` и IR с дисплеем он не
+сверяет. При `YORADIO_SD_ENABLE=1` `storage_validate.h` добавляет к этому списку
+TF DAT0/CS (GPIO 41/42) и отвергает конфликт с дисплеем, тачем, I2S, IR, MUTE
+или WAKE. GPIO 47/48 остаются командными линиями дисплея и заняты и при
+выключенной SD. Физическую разводку проверка не доказывает.
 
 ### Внешний I2S ЦАП
 

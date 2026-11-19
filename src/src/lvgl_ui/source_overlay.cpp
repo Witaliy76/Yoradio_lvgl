@@ -64,6 +64,9 @@ const char* reasonText(yoradio::source::ActivateOutcome outcome) {
     case ActivateOutcome::Busy:
         return i18n::text(i18n::TextId::BrowserPlayBusy);
     case ActivateOutcome::Unavailable:
+        if (!yoradio::kResolvedStorageConfig.enabled) {
+            return i18n::text(i18n::TextId::SourceSdDisabled);
+        }
         return i18n::text(i18n::TextId::PresetUnavailable);
     case ActivateOutcome::StaleMedia:
         return i18n::text(i18n::TextId::BrowserPlayRetry);

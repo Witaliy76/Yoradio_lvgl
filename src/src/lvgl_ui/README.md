@@ -55,7 +55,7 @@ lvgl_ui/
 ├── lv_page_chain.*           - Carousel + Boot / Temporary / Wi-Fi special modes
 ├── lv_screen.h               - ILvglScreen contract
 ├── lv_overlay.*              - Top-layer modal overlays (LOST / UPDATING)
-├── source_overlay.*          - Bottom source carousel (activate Radio / SD; planned tiles do not)
+├── source_overlay.*          - Bottom source carousel (Radio / SD; SD stays visible but inactive when YORADIO_SD_ENABLE is 0)
 ├── lv_touch_indev.*          - Pointer indev (DspTask only)
 ├── lv_screensaver.*          - Analog clock screensaver
 ├── lv_fs_littlefs.*          - LittleFS bridge for LVGL images

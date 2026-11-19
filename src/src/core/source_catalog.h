@@ -128,6 +128,9 @@ inline int32_t implementedIndex(SourceId id) {
 struct OpenFacts {
     bool radio_has_stations = false;
     bool storage_ready = false;
+    // Final SD permission from kResolvedStorageConfig. Not card readiness.
+    // Итоговое разрешение SD из kResolvedStorageConfig. Не готовность карты.
+    bool storage_permitted = false;
 };
 
 struct OpenIntent {
@@ -145,8 +148,17 @@ inline OpenIntent openSource(SourceId id, OpenFacts facts) {
     intent.known = true;
     intent.kind = entry->open_kind;
     if (entry->status != SourceStatus::Implemented) return intent;
-    intent.available = id == SourceId::Radio ? facts.radio_has_stations : facts.storage_ready;
+    if (id == SourceId::Radio) intent.available = facts.radio_has_stations;
+    else intent.available = facts.storage_permitted && facts.storage_ready;
     return intent;
+}
+
+// Disabled by the user flag, or permitted but the card is not ready.
+// Запрещено флагом пользователя либо разрешено, но карта не готова.
+inline const char* sdBlockedReason(bool permitted, bool mounted, bool ready) {
+    if (!permitted) return "SD disabled";
+    if (!mounted && !ready) return "Card unavailable";
+    return "Card not ready";
 }
 
 // Pending is admission. It is not Playing.
@@ -195,6 +207,7 @@ struct ActivateFacts {
     bool radio_has_stations = false;
     bool storage_ready = false;
     bool storage_mounted = false;
+    bool sd_permitted = false;
     uint64_t storage_generation = 0;
     bool bookmark_valid = false;
     uint64_t bookmark_generation = 0;
@@ -222,6 +235,11 @@ inline ActivateDecision classify(SourceId id, const ActivateFacts& facts) {
     // и не останавливают звучащий источник.
     if (!isImplemented(id)) return { ActivateStep::Done, ActivateOutcome::Cancelled };
     if (facts.stop_failed) return { ActivateStep::Done, ActivateOutcome::StopFailed };
+    // Config-off never probes the card and never asks the browser to open.
+    // Выключенная настройка не проверяет карту и не открывает браузер.
+    if (id == SourceId::Sd && !facts.sd_permitted) {
+        return { ActivateStep::Done, ActivateOutcome::Unavailable };
+    }
     if (id == SourceId::Radio) {
         if (facts.radio_playing) return { ActivateStep::Done, ActivateOutcome::AlreadyActive };
         if (!facts.radio_has_stations) return { ActivateStep::Done, ActivateOutcome::NeedsSelection };

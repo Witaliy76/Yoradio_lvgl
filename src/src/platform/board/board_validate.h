@@ -271,14 +271,17 @@ static_assert(isUsableGpio(kWiring.touch.int_gpio),     "TOUCH_INT uses an inval
 static_assert(isUsableGpio(kWiring.touch.reset_gpio),   "TOUCH_RST uses an invalid ESP32-S3 GPIO");
 
 // Simultaneous claimants: display + touch (+ INT/RST if wired) + active I2S.
-// Not claimed here: USB (unused in stock), BOOT/WAKE lifecycle share with R4,
-// SD candidate nets (S07-1: validated separately in platform/storage while SD
-// stays product-disabled), Arduino RGB LED on GPIO48 (migration debt).
+// SD DAT0/CS are not in this base list. storage_validate adds them only when
+// the user SD permission is on, so turning SD off releases just those pins.
+// GPIO 47/48 stay here as DisplayCommand lines either way.
 // Одновременно занятые: дисплей + тач (+ INT/RST) + активный I2S.
-// Не входят: USB, BOOT/WAKE (общий с R4), кандидаты SD (S07-1: отдельно в
-// platform/storage при выключенном SD) и RGB-светодиод Arduino на GPIO48.
+// DAT0/CS SD в этот базовый список не входят. storage_validate добавляет их
+// только при разрешении SD, поэтому выключение SD освобождает только их.
+// GPIO 47/48 остаются здесь линиями DisplayCommand в любом случае.
+// 16 RGB + sync/command/backlight + touch + I2S, plus a later SD DAT0/CS pair.
+// 16 RGB + синхро/команды/подсветка + тач + I2S и ещё пара SD DAT0/CS.
 struct ClaimList {
-    uint8_t pin[32];
+    uint8_t pin[40];
     uint8_t count;
 };
 
@@ -346,6 +349,27 @@ inline constexpr ClaimList kClaims = buildClaims();
 static_assert(!hasDuplicateGpio(kClaims),
               "YoRadio Custom Wiring: two active signals share the same GPIO. "
               "Check DISP_*/TOUCH_* overrides against each other and against I2S_DOUT/BCLK/LRC in src/myoptions.h.");
+static_assert(kClaims.count < 40, "YoRadio GPIO resolver: claim list is full.");
+
+inline constexpr bool containsPin(const ClaimList& claims, uint8_t pin) {
+    for (uint8_t i = 0; i < claims.count; ++i) {
+        if (claims.pin[i] == pin) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// One extra claim. The caller checks hasDuplicateGpio; this does not drop a pin
+// that still fits. 255 is not a claim.
+// Одно дополнительное требование. Повторы проверяет hasDuplicateGpio. 255 не занимает пин.
+inline constexpr ClaimList withPin(ClaimList base, uint8_t pin) {
+    if (pin != kPinNotConnected && base.count < 40) {
+        base.pin[base.count] = pin;
+        base.count = static_cast<uint8_t>(base.count + 1u);
+    }
+    return base;
+}
 
 }  // namespace wiring_check
 
