@@ -49,6 +49,12 @@ idf_component_register(
 # AAC / static-RX в Audio.cpp по-прежнему требует этот compile-gate.
 target_compile_definitions(${COMPONENT_LIB} PRIVATE YORADIO_IDF_C1_CONFIG=1)
 
+# HTTPS connects synchronously on loopTask; use the Arduino Core stack-size hook.
+# HTTPS подключается синхронно на loopTask; размер задаёт штатный hook Arduino Core.
+if("${CMAKE_BINARY_DIR}" MATCHES "/4848S040$")
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE YORADIO_ARDUINO_LOOP_STACK_BYTES=16384)
+endif()
+
 # This component is compiled with the unscanned ninja rule, so a changed
 # myoptions.h would not rebuild the TUs that include it. The user SD switch
 # is one of those settings. One explicit edge covers the whole app component.

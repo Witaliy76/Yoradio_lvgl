@@ -19,6 +19,12 @@
 // AI subsystem (Stage 6.0) / AI-подсистема
 #include "ai/ai_subsystem.h"
 
+#if defined(YORADIO_ARDUINO_LOOP_STACK_BYTES)
+// Keep the synchronous HTTPS call stack in the ordinary internal task memory.
+// Стек синхронного HTTPS остаётся в штатной внутренней памяти задачи.
+SET_LOOP_TASK_STACK_SIZE(YORADIO_ARDUINO_LOOP_STACK_BYTES)
+#endif
+
 #if DSP_HSPI || TS_HSPI || VS_HSPI
 SPIClass  SPI2(HOOPSENb);
 #endif
