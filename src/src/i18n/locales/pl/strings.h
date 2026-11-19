@@ -71,7 +71,7 @@ inline constexpr std::array<TextEntry, textCount()> kStrings{{
   {TextId::StationEmptyList, "--  Brak dostępnych stacji\n"},
   {TextId::StationListUnavailable, "Lista stacji niedostępna"},
   {TextId::StationFallbackNameFormat, "Stacja %u"},
-  {TextId::BrowserSourcesTitle, "ŹRÓDŁA"},
+  {TextId::BrowserSourcesTitle, "Biblioteka mediów"},
   {TextId::BrowserSourceRadio, "Radio"},
   {TextId::BrowserSourceSd, "SD"},
   {TextId::BrowserSdLoading, "--  Wczytywanie\n"},
@@ -166,6 +166,12 @@ inline constexpr std::array<TextEntry, textCount()> kStrings{{
   {TextId::SourcePlannedNotice, "Wsparcie jest planowane"},
   {TextId::SourceShortRadio, "Radio"},
   {TextId::SourceShortYandex, "Yandex"},
+  {TextId::RepeatOff, "Powtarzanie wyłączone"},
+  {TextId::RepeatOne, "Powtarzanie utworu"},
+  {TextId::RepeatFolder, "Powtarzanie folderu"},
+  {TextId::RepeatAll, "Powtarzanie wszystkich"},
+  {TextId::ShuffleOff, "Losowość wyłączona"},
+  {TextId::ShuffleOn, "Losowość włączona"},
 }};
 
 }  // namespace i18n::locales::pl

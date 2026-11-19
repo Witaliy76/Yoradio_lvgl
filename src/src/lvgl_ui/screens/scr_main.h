@@ -151,6 +151,31 @@ private:
     lv_obj_t* _ctrl_btn_play     = nullptr;
     lv_obj_t* _ctrl_btn_next     = nullptr;
     lv_obj_t* _ctrl_btn_settings = nullptr;
+    // Shuffle and Repeat sit on the existing shelf, floating at the midpoints.
+    // They do not join the flex row, so the five original buttons stay put.
+    // Shuffle и Repeat лежат на той же полке и не входят в flex, поэтому пять кнопок не сдвигаются.
+    lv_obj_t* _ctrl_btn_shuffle  = nullptr;
+    lv_obj_t* _ctrl_btn_repeat   = nullptr;
+    lv_obj_t* _lbl_mode_tip      = nullptr;
+    // Last painted Player values. Not a second source of truth.
+    // Последние нарисованные значения Player. Это не второй источник истины.
+    bool      _file_modes_seen   = false;
+    bool      _file_mode_announce = false;
+    uint8_t   _seen_repeat       = 0;
+    bool      _seen_shuffle      = false;
+
+    void _mountFileModeControls();
+    void _placeFileModeButtons();
+    void _syncFileModeButtons(bool announce);
+    void _armFileModePoll();
+    void _showFileModeTip(lv_obj_t* anchor, const char* text);
+    void _stopFileModeTimers();
+    void _onRepeatClick();
+    void _onShuffleClick();
+    friend void main_file_mode_on_repeat(LvglMainScreen* self);
+    friend void main_file_mode_on_shuffle(LvglMainScreen* self);
+    friend void main_file_mode_on_poll(LvglMainScreen* self);
+    friend void main_file_mode_on_tip(LvglMainScreen* self);
 
     // Left Art slot (6.1E-visual v1): hidden when no local asset (Mode A); visible when asset present (Mode B).
     // Dynamic collapse: LVGL v8 flex skips HIDDEN children — cont_text auto-expands in Mode A.

@@ -165,6 +165,12 @@ enum class TextId : uint16_t {
   SourcePlannedNotice,
   SourceShortRadio,
   SourceShortYandex,
+  RepeatOff,
+  RepeatOne,
+  RepeatFolder,
+  RepeatAll,
+  ShuffleOff,
+  ShuffleOn,
   Count
 };
 
@@ -530,6 +536,12 @@ inline constexpr std::array<TextSpec, textCount()> kTextSpecs{{
   makeTextSpec("", 64),       // SourcePlannedNotice
   makeTextSpec("", 16),       // SourceShortRadio: carousel tile label
   makeTextSpec("", 16),       // SourceShortYandex: carousel tile label
+  makeTextSpec("", 64),       // RepeatOff
+  makeTextSpec("", 48),       // RepeatOne
+  makeTextSpec("", 48),       // RepeatFolder
+  makeTextSpec("", 48),       // RepeatAll
+  makeTextSpec("", 64),       // ShuffleOff
+  makeTextSpec("", 64),       // ShuffleOn
 }};
 
 // Parser foundation checks. These stay next to the constexpr implementation so

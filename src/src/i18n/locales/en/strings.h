@@ -71,7 +71,7 @@ inline constexpr std::array<TextEntry, textCount()> kStrings{{
   {TextId::StationEmptyList, "--  No stations indexed\n"},
   {TextId::StationListUnavailable, "Station list unavailable"},
   {TextId::StationFallbackNameFormat, "Station %u"},
-  {TextId::BrowserSourcesTitle, "SOURCES"},
+  {TextId::BrowserSourcesTitle, "Media Library"},
   {TextId::BrowserSourceRadio, "Radio"},
   {TextId::BrowserSourceSd, "SD"},
   {TextId::BrowserSdLoading, "--  Loading\n"},
@@ -166,6 +166,12 @@ inline constexpr std::array<TextEntry, textCount()> kStrings{{
   {TextId::SourcePlannedNotice, "Support is planned"},
   {TextId::SourceShortRadio, "Radio"},
   {TextId::SourceShortYandex, "Yandex"},
+  {TextId::RepeatOff, "Repeat off"},
+  {TextId::RepeatOne, "Repeat track"},
+  {TextId::RepeatFolder, "Repeat folder"},
+  {TextId::RepeatAll, "Repeat all"},
+  {TextId::ShuffleOff, "Shuffle off"},
+  {TextId::ShuffleOn, "Shuffle on"},
 }};
 
 }  // namespace i18n::locales::en

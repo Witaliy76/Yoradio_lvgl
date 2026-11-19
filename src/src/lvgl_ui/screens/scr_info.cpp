@@ -36,6 +36,7 @@
 #include "lvgl_ui.h"
 #include "../../core/config.h"
 #include "../../core/options.h"
+#include "../../platform/storage/storage_owner.h"
 
 namespace lvgl_ui {
 
@@ -90,8 +91,12 @@ static constexpr char kStrKeySd[]           = "SD";
 // State and placeholder values / Состояния и плейсхолдеры
 static constexpr char kStrPlaceholder[]     = "--";
 static constexpr char kStrWifiOffline[]     = "-- / ch -- / Offline";
-static constexpr char kStrSdActive[]        = "Active";
-static constexpr char kStrSdInactive[]      = "Inactive";
+static constexpr char kStrSdDisabled[]      = "Disabled";
+static constexpr char kStrSdAbsent[]        = "No card";
+static constexpr char kStrSdMounting[]      = "Mounting";
+static constexpr char kStrSdFault[]         = "Fault";
+static constexpr char kStrSdStopping[]      = "Stopping";
+static constexpr char kStrSdMounted[]       = "Mounted";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // UI format-string constants / Форматные строки UI
@@ -115,6 +120,10 @@ static constexpr char kFmtHeapMb[]            = "%lu MB";
 static constexpr char kFmtHeapKb[]            = "%lu KB";
 // PSRAM free / total with one decimal / PSRAM free/total с одним знаком
 static constexpr char kFmtPsram[]             = "%u.%u / %u.%u MB";
+// SD free / total from the owner's cached pair. Same shape as PSRAM.
+// Свободно / всего с кэша владельца. Та же форма, что у PSRAM.
+static constexpr char kFmtSdMb[]              = "%u.%u / %u.%u MB";
+static constexpr char kFmtSdGb[]              = "%u.%u / %u.%u GB";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Icon glyph resources / Ресурсы иконок секций
@@ -415,6 +424,18 @@ static void info_mb_one_decimal(uint32_t bytes, unsigned& out_whole, unsigned& o
     const uint64_t tenths = (static_cast<uint64_t>(bytes) * 10ull) / (1024u * 1024u);
     out_whole = static_cast<unsigned>(tenths / 10u);
     out_tenth = static_cast<unsigned>(tenths % 10u);
+}
+
+// One decimal of a 1024-based unit. Remainder math avoids bytes*10 overflow.
+// Один знак после запятой в единицах 1024. Остаток, чтобы bytes*10 не переполнялся.
+static void info_unit_one_decimal(uint64_t bytes, uint64_t unit, unsigned& out_whole, unsigned& out_tenth) {
+    if (unit == 0u) {
+        out_whole = 0u;
+        out_tenth = 0u;
+        return;
+    }
+    out_whole = static_cast<unsigned>(bytes / unit);
+    out_tenth = static_cast<unsigned>(((bytes % unit) * 10ull) / unit);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -762,15 +783,30 @@ void LvglInfoPage::_refreshMemory() {
         info_set_text_if_changed(_val_psram, s_info_format_buf);
     }
 
-#if SDC_CS == 255
-    info_set_text_if_changed(_val_sd, kStrPlaceholder);
-#else
-    if (config.getMode() == PM_SDCARD) {
-        info_set_text_if_changed(_val_sd, kStrSdActive);
-    } else {
-        info_set_text_if_changed(_val_sd, kStrSdInactive);
+    // Cached StorageOwner snapshot. No refreshSpace() and no card IO from this task.
+    // Кэш StorageOwner. Без refreshSpace() и без обращения к карте из этой задачи.
+    const auto sd = yoradio::storage::StorageOwner::instance().status();
+    const char* sd_text = kStrSdDisabled;
+    switch (sd.state) {
+        case yoradio::storage::StorageState::Absent: sd_text = kStrSdAbsent; break;
+        case yoradio::storage::StorageState::Mounting: sd_text = kStrSdMounting; break;
+        case yoradio::storage::StorageState::Fault: sd_text = kStrSdFault; break;
+        case yoradio::storage::StorageState::Quiescing: sd_text = kStrSdStopping; break;
+        case yoradio::storage::StorageState::Mounted: sd_text = kStrSdMounted; break;
+        case yoradio::storage::StorageState::Disabled: sd_text = kStrSdDisabled; break;
     }
-#endif
+    if (sd.ready && sd.total_bytes > 0u) {
+        const uint64_t gib = 1024ull * 1024ull * 1024ull;
+        const bool as_gb = sd.total_bytes >= gib;
+        const uint64_t unit = as_gb ? gib : (1024ull * 1024ull);
+        unsigned fw = 0, ft = 0, tw = 0, tt = 0;
+        info_unit_one_decimal(sd.free_bytes, unit, fw, ft);
+        info_unit_one_decimal(sd.total_bytes, unit, tw, tt);
+        snprintf(s_info_format_buf, sizeof(s_info_format_buf), as_gb ? kFmtSdGb : kFmtSdMb, fw, ft, tw, tt);
+        info_set_text_if_changed(_val_sd, s_info_format_buf);
+    } else {
+        info_set_text_if_changed(_val_sd, sd_text);
+    }
 }
 
 void LvglInfoPage::liveReapplyTheme() {

@@ -34,6 +34,14 @@ inline const char* control_glyph_utf8_chevron_left() {
 inline const char* control_glyph_utf8_volume_2() {
     return reinterpret_cast<const char*>(u8"\uEB4F");
 }
+// One repeat glyph for Off/One/Folder/All. Folder has no separate icon.
+// Один глиф повтора для Off/One/Folder/All. У папки нет отдельной иконки.
+inline const char* control_glyph_utf8_repeat() {
+    return reinterpret_cast<const char*>(u8"\uEB72");
+}
+inline const char* control_glyph_utf8_arrows_shuffle() {
+    return reinterpret_cast<const char*>(u8"\uF000");
+}
 
 // Station Page — same Tabler PUA subset (marker + bottom hint), not the bottom control bar.
 // Station Page — тот же subset Tabler (маркер и подсказка); не нижняя панель плеера.

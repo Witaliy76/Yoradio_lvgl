@@ -68,10 +68,12 @@ _screen
 │   │   │   └── list — lv_btn, text_secondary (transport-sized); routing TBD
 │   │   ├── transport_group (LV_OBJ_FLAG_OVERFLOW_VISIBLE; pad_hor inset; flex_grow)
 │   │   │   └── prev / play-stop / next — lv_btn + transport callbacks; play/stop label synced from player.status()
-│   │   └── utility_right (settings; same balanced width as utility_left)
-│   │       └── settings — lv_btn, text_secondary (transport-sized); routing TBD
+│   │   ├── utility_right (settings; same balanced width as utility_left)
+│   │   │   └── settings — lv_btn, text_secondary (transport-sized); routing TBD
+│   │   ├── _ctrl_btn_shuffle (FLOATING; center = midpoint of list and prev; not a flex child)
+│   │   └── _ctrl_btn_repeat (FLOATING; center = midpoint of next and settings; not a flex child)
 │   ├── row_meta_stream
-│   │   └── _lbl_stream_info  (compact: #N • 44.1/16 • 256k • CODEC; SR/bits only if both known; U+2022 sep)
+│   │   └── _lbl_stream_info  (compact: [#N] • 44.1/16 • 256k • CODEC; #N only for Radio; SD omits it; SR/bits only if both known; U+2022 sep)
 │   ├── col_vol
 │   │   ├── _lbl_volume
 │   │   └── _bar_volume
@@ -81,6 +83,7 @@ _screen
 │   └── _vol_gesture_guard (FLOATING)
 ├── _screen_bottom_carousel_guard (FLOATING, if gap)
 └── _lbl_vol_popup (FLOATING)
+└── _lbl_mode_tip (FLOATING; hidden; not clickable; Repeat/Shuffle hint, 1.8 s)
 ```
 
 ---
@@ -152,6 +155,8 @@ flowchart TB
     UL[utility_left list]
     TG[transport_group]
     UR[utility_right settings]
+    SH[_ctrl_btn_shuffle FLOATING]
+    RP[_ctrl_btn_repeat FLOATING]
   end
 
   subgraph rms["row_meta_stream"]
@@ -202,6 +207,10 @@ flowchart TB
 
 - **Control band (Stage 6.1E+ / S05-UI-FIX2):** Three flex children: `utility_left` (list) + `transport_group` (flex_grow) + `utility_right` (settings). The utility slots use `LV_SIZE_CONTENT`, then are equalized after layout (`LV_MAX`): this removes their accidental 130 px `lv_obj` default width, leaves enough room for the centered transport triad, and keeps all button coordinates and hit zones unchanged. No compensating transport inset is used. List/settings use the **same** icon font and `pad`/`min` hit size as transport; color `text_secondary` and softer pressed opa (utility) as before.
 **Полоса управления:** list + транспорт + settings; utility-слоты имеют ширину контента и затем выравниваются через `LV_MAX`, поэтому случайная default-ширина 130 px больше не сжимает transport group. Триада остаётся по центру без компенсирующего inset; координаты и hit-zone кнопок не меняются.
+
+Shuffle and Repeat are floating buttons on the same shelf. Their centers are the midpoints of list↔prev and next↔settings. They are not flex children, so the five original buttons keep their positions. The hint label `_lbl_mode_tip` is a non-clickable floating label on `_screen`.
+
+Shuffle и Repeat — плавающие кнопки той же полки. Их центры — середины list↔prev и next↔settings. Они не дети flex, поэтому пять исходных кнопок остаются на месте. Подсказка `_lbl_mode_tip` — некликабельный floating-label на `_screen`.
 - **Theme padding:** Base `lv_obj` containers may inherit LVGL default `card` padding; Main zeroes explicit `pad_all` where needed — see comments in `scr_main.cpp` and `wgt_status_line.cpp`.  
 **Паддинг темы:** у базового `lv_obj` может быть `card` padding; на Main явно обнуляем `pad_all` там, где нужно — см. комментарии в `scr_main.cpp` и `wgt_status_line.cpp`.
 - **Main chrome tokens (Stage 6.6R-GA):** shelf body/border, art frame, rim glow stops, and control-button pressed bg are now palette tokens (`pal.main_chrome_bg`, `main_chrome_border`, `main_chrome_glow_top`, `main_chrome_glow_bottom`, `main_chrome_pressed_bg`) instead of hardcoded colors. `_edge_glow_top` / `_edge_glow_bot` are stored as members so `liveReapplyTheme()` refreshes gradient stops on runtime theme switch (no stale glow). Geometry/opacity/radius stay local in `create()`.  

@@ -46,11 +46,18 @@
 #include "../../core/display.h"
 #include "../../core/network.h"
 #include "../../core/player.h"
+#include "../../core/source_catalog.h"
+#include "../../i18n/i18n.h"
 #include "../../core/art_key.h"  // Station Art MVP: artNormalizeKey()
 #include "../lv_img_disk_header.h"
 #include <LittleFS.h>
 
 namespace lvgl_ui {
+
+void main_file_mode_on_repeat(LvglMainScreen* self);
+void main_file_mode_on_shuffle(LvglMainScreen* self);
+void main_file_mode_on_poll(LvglMainScreen* self);
+void main_file_mode_on_tip(LvglMainScreen* self);
 
 namespace {
 
@@ -217,12 +224,35 @@ static void format_sample_rate_khz_compact(uint32_t hz, char* out, size_t out_sz
     }
 }
 
-// One composed stream-info line: #N · [SR/bits] · [Nk] · [CODEC]; omit unknown (SR/bits only if both known).
+// Append a meta field. The separator is added only when the line already has text.
+// Добавить поле. Разделитель — только если в строке уже есть текст.
+static void meta_append_field(char* buf, size_t cap, const char* piece) {
+    if (!buf || !piece || piece[0] == '\0') return;
+    if (buf[0] != '\0') meta_append_cstr(buf, cap, k_meta_field_sep);
+    meta_append_cstr(buf, cap, piece);
+}
+
+// Radio shows #station. SD has no public queue index, so the number is omitted.
+// The folder queue and lastStation are not rewritten here.
+// Radio показывает #станции. У SD нет публичного индекса очереди, номер не рисуем.
+// Очередь и lastStation здесь не меняются.
+static bool main_meta_shows_station_number() {
+    yoradio::source::SourceId selected = yoradio::source::SourceId::Radio;
+    if (player.selectedSource(selected)) {
+        return selected == yoradio::source::SourceId::Radio;
+    }
+    return player.playbackContext().source == yoradio::playback::PlaybackSource::Radio;
+}
+
+// One composed stream-info line: [#N] · [SR/bits] · [Nk] · [CODEC]; omit unknown.
 static void main_compose_stream_info_line(char* buf, size_t cap) {
     if (!buf || cap == 0u) {
         return;
     }
-    snprintf(buf, cap, "#%u", static_cast<unsigned>(config.lastStation()));
+    buf[0] = '\0';
+    if (main_meta_shows_station_number()) {
+        snprintf(buf, cap, "#%u", static_cast<unsigned>(config.lastStation()));
+    }
 
     char piece[40];
     char sr_compact[16];
@@ -234,18 +264,15 @@ static void main_compose_stream_info_line(char* buf, size_t cap) {
             "%s/%u",
             sr_compact,
             static_cast<unsigned>(config.station.stream_bits_per_sample));
-        meta_append_cstr(buf, cap, k_meta_field_sep);
-        meta_append_cstr(buf, cap, piece);
+        meta_append_field(buf, cap, piece);
     }
     if (config.station.bitrate > 0u) {
         snprintf(piece, sizeof(piece), "%uk", static_cast<unsigned>(config.station.bitrate));
-        meta_append_cstr(buf, cap, k_meta_field_sep);
-        meta_append_cstr(buf, cap, piece);
+        meta_append_field(buf, cap, piece);
     }
     const char* codec = player.getCodecname();
     if (codec != nullptr && strcmp(codec, "unknown") != 0) {
-        meta_append_cstr(buf, cap, k_meta_field_sep);
-        meta_append_cstr(buf, cap, codec);
+        meta_append_field(buf, cap, codec);
     }
 }
 
@@ -686,7 +713,293 @@ static void vol_touch_cb(lv_event_t* e) {
     }
 }
 
+// File-mode hint timers live outside the screen tree. Delete them before auto_del.
+// Таймеры подсказки не входят в дерево экрана. Удалять их до auto_del.
+lv_timer_t* s_file_mode_tip_timer = nullptr;
+lv_timer_t* s_file_mode_poll_timer = nullptr;
+uint8_t s_file_mode_poll_left = 0;
+constexpr uint32_t k_file_mode_tip_ms = 1800;
+constexpr uint32_t k_file_mode_poll_ms = 40;
+constexpr uint8_t k_file_mode_poll_ticks = 10;
+
+// Implemented directory sources own the folder queue. Planned USB/DLNA/NAS stay inactive.
+// Radio has no file queue. The Player RAM modes themselves are not cleared on a source change.
+// Очередь папки есть у реализованных Directory-источников. Planned USB/DLNA/NAS неактивны.
+// У Radio файловой очереди нет. RAM-режимы Player при смене источника не сбрасываются.
+bool main_file_modes_available() {
+    yoradio::source::SourceId id = yoradio::source::SourceId::Radio;
+    if (!player.selectedSource(id)) {
+        return player.playbackContext().source == yoradio::playback::PlaybackSource::SingleFile;
+    }
+    const yoradio::source::SourceEntry* entry = yoradio::source::find(id);
+    if (!entry || entry->status != yoradio::source::SourceStatus::Implemented) return false;
+    return entry->open_kind == yoradio::source::OpenKind::Directory;
+}
+
+const char* main_repeat_tip(yoradio::playback::SdRepeatMode mode) {
+    switch (mode) {
+        case yoradio::playback::SdRepeatMode::One: return i18n::text(i18n::TextId::RepeatOne);
+        case yoradio::playback::SdRepeatMode::Folder: return i18n::text(i18n::TextId::RepeatFolder);
+        case yoradio::playback::SdRepeatMode::All: return i18n::text(i18n::TextId::RepeatAll);
+        default: return i18n::text(i18n::TextId::RepeatOff);
+    }
+}
+
+void main_move_center_to(lv_obj_t* btn, lv_coord_t cx, lv_coord_t cy) {
+    if (!btn) return;
+    lv_area_t area;
+    lv_obj_get_coords(btn, &area);
+    const lv_coord_t cur_x = static_cast<lv_coord_t>((static_cast<int32_t>(area.x1) + area.x2) / 2);
+    const lv_coord_t cur_y = static_cast<lv_coord_t>((static_cast<int32_t>(area.y1) + area.y2) / 2);
+    lv_obj_set_pos(btn,
+                   static_cast<lv_coord_t>(lv_obj_get_x(btn) + (cx - cur_x)),
+                   static_cast<lv_coord_t>(lv_obj_get_y(btn) + (cy - cur_y)));
+}
+
+bool main_areas_overlap(const lv_area_t& a, const lv_area_t& b) {
+    return a.x1 <= b.x2 && b.x1 <= a.x2 && a.y1 <= b.y2 && b.y1 <= a.y2;
+}
+
+// Center btn on the midpoint of left and right. Shrink only btn if the hit boxes meet.
+// Центр btn — середина left и right. Ужимаем только btn, если зоны касания пересекаются.
+void main_place_between(lv_obj_t* btn, lv_obj_t* left, lv_obj_t* right) {
+    if (!btn || !left || !right) return;
+    lv_obj_update_layout(btn);
+    lv_area_t al;
+    lv_area_t ar;
+    lv_obj_get_coords(left, &al);
+    lv_obj_get_coords(right, &ar);
+    const lv_coord_t left_cx = static_cast<lv_coord_t>((static_cast<int32_t>(al.x1) + al.x2) / 2);
+    const lv_coord_t right_cx = static_cast<lv_coord_t>((static_cast<int32_t>(ar.x1) + ar.x2) / 2);
+    const lv_coord_t cx = static_cast<lv_coord_t>((static_cast<int32_t>(left_cx) + right_cx) / 2);
+    const lv_coord_t cy = static_cast<lv_coord_t>(
+        (static_cast<int32_t>(al.y1) + al.y2 + ar.y1 + ar.y2) / 4);
+    main_move_center_to(btn, cx, cy);
+    for (int step = 0; step < 6; ++step) {
+        lv_obj_update_layout(btn);
+        lv_area_t ab;
+        lv_obj_get_coords(btn, &ab);
+        if (!main_areas_overlap(ab, al) && !main_areas_overlap(ab, ar)) return;
+        const lv_coord_t width = lv_obj_get_width(btn);
+        if (width <= 40) return;
+        const lv_coord_t pad = lv_obj_get_style_pad_left(btn, LV_PART_MAIN);
+        if (pad > 12) {
+            const lv_coord_t next_pad = static_cast<lv_coord_t>(pad - 1);
+            lv_obj_set_style_pad_left(btn, next_pad, LV_PART_MAIN);
+            lv_obj_set_style_pad_right(btn, next_pad, LV_PART_MAIN);
+        }
+        lv_obj_set_width(btn, static_cast<lv_coord_t>(width - 2));
+        main_move_center_to(btn, cx, cy);
+    }
+}
+
+void main_repeat_click_cb(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    auto* self = static_cast<LvglMainScreen*>(lv_event_get_user_data(e));
+    if (self) main_file_mode_on_repeat(self);
+}
+
+void main_shuffle_click_cb(lv_event_t* e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    auto* self = static_cast<LvglMainScreen*>(lv_event_get_user_data(e));
+    if (self) main_file_mode_on_shuffle(self);
+}
+
+void main_file_mode_tip_cb(lv_timer_t* timer) {
+    auto* self = static_cast<LvglMainScreen*>(lv_timer_get_user_data(timer));
+    if (self) main_file_mode_on_tip(self);
+    lv_timer_pause(timer);
+}
+
+void main_file_mode_poll_cb(lv_timer_t* timer) {
+    auto* self = static_cast<LvglMainScreen*>(lv_timer_get_user_data(timer));
+    if (self) main_file_mode_on_poll(self);
+}
+
 } // namespace
+
+void main_file_mode_on_repeat(LvglMainScreen* self) {
+    if (self) self->_onRepeatClick();
+}
+
+void main_file_mode_on_shuffle(LvglMainScreen* self) {
+    if (self) self->_onShuffleClick();
+}
+
+void main_file_mode_on_poll(LvglMainScreen* self) {
+    if (!self) return;
+    self->_syncFileModeButtons(true);
+    if (s_file_mode_poll_left > 0) --s_file_mode_poll_left;
+    if (s_file_mode_poll_left == 0 && s_file_mode_poll_timer) lv_timer_pause(s_file_mode_poll_timer);
+}
+
+void main_file_mode_on_tip(LvglMainScreen* self) {
+    if (self && self->_lbl_mode_tip) lv_obj_add_flag(self->_lbl_mode_tip, LV_OBJ_FLAG_HIDDEN);
+}
+
+void LvglMainScreen::_stopFileModeTimers() {
+    if (s_file_mode_tip_timer) {
+        lv_timer_del(s_file_mode_tip_timer);
+        s_file_mode_tip_timer = nullptr;
+    }
+    if (s_file_mode_poll_timer) {
+        lv_timer_del(s_file_mode_poll_timer);
+        s_file_mode_poll_timer = nullptr;
+    }
+    s_file_mode_poll_left = 0;
+}
+
+void LvglMainScreen::_onRepeatClick() {
+    if (display.mode() != PLAYER) return;
+    if (!main_file_modes_available()) return;
+    player.cycleSdRepeat();
+    _file_mode_announce = true;
+    notifyPageChainActivity();
+    _armFileModePoll();
+}
+
+void LvglMainScreen::_onShuffleClick() {
+    if (display.mode() != PLAYER) return;
+    if (!main_file_modes_available()) return;
+    player.toggleSdShuffle();
+    _file_mode_announce = true;
+    notifyPageChainActivity();
+    _armFileModePoll();
+}
+
+void LvglMainScreen::_armFileModePoll() {
+    s_file_mode_poll_left = k_file_mode_poll_ticks;
+    if (!s_file_mode_poll_timer) {
+        s_file_mode_poll_timer = lv_timer_create(main_file_mode_poll_cb, k_file_mode_poll_ms, this);
+    }
+    if (!s_file_mode_poll_timer) return;
+    lv_timer_reset(s_file_mode_poll_timer);
+    lv_timer_resume(s_file_mode_poll_timer);
+}
+
+void LvglMainScreen::_showFileModeTip(lv_obj_t* anchor, const char* text) {
+    if (!_lbl_mode_tip || !anchor || !text || !_screen) return;
+    lv_label_set_text(_lbl_mode_tip, text);
+    lv_obj_clear_flag(_lbl_mode_tip, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_update_layout(_lbl_mode_tip);
+    lv_area_t tip;
+    lv_area_t button;
+    lv_obj_get_coords(_lbl_mode_tip, &tip);
+    lv_obj_get_coords(anchor, &button);
+    const lv_coord_t want_x = static_cast<lv_coord_t>((static_cast<int32_t>(button.x1) + button.x2) / 2);
+    const lv_coord_t cur_x = static_cast<lv_coord_t>((static_cast<int32_t>(tip.x1) + tip.x2) / 2);
+    const lv_coord_t want_bottom = static_cast<lv_coord_t>(button.y1 - 6);
+    lv_obj_set_pos(_lbl_mode_tip,
+                   static_cast<lv_coord_t>(lv_obj_get_x(_lbl_mode_tip) + (want_x - cur_x)),
+                   static_cast<lv_coord_t>(lv_obj_get_y(_lbl_mode_tip) + (want_bottom - tip.y2)));
+    lv_obj_update_layout(_lbl_mode_tip);
+    lv_area_t screen_area;
+    lv_obj_get_coords(_screen, &screen_area);
+    lv_obj_get_coords(_lbl_mode_tip, &tip);
+    lv_coord_t dx = 0;
+    constexpr lv_coord_t margin = 4;
+    if (tip.x1 < screen_area.x1 + margin) dx = static_cast<lv_coord_t>((screen_area.x1 + margin) - tip.x1);
+    if (tip.x2 > screen_area.x2 - margin) dx = static_cast<lv_coord_t>((screen_area.x2 - margin) - tip.x2);
+    if (dx != 0) {
+        lv_obj_set_x(_lbl_mode_tip, static_cast<lv_coord_t>(lv_obj_get_x(_lbl_mode_tip) + dx));
+    }
+    if (!s_file_mode_tip_timer) {
+        s_file_mode_tip_timer = lv_timer_create(main_file_mode_tip_cb, k_file_mode_tip_ms, this);
+    }
+    if (!s_file_mode_tip_timer) return;
+    lv_timer_set_period(s_file_mode_tip_timer, k_file_mode_tip_ms);
+    lv_timer_reset(s_file_mode_tip_timer);
+    lv_timer_resume(s_file_mode_tip_timer);
+}
+
+void LvglMainScreen::_syncFileModeButtons(bool announce) {
+    if (!_ctrl_btn_shuffle || !_ctrl_btn_repeat) return;
+    const bool available = main_file_modes_available();
+    const auto repeat = player.sdRepeatMode();
+    const bool shuffle = player.sdShuffle();
+    const YoRadioPalette& pal = yoradio_palette();
+    const lv_opa_t pressed = available
+        ? main_control_pressed_opa(yoradio_theme_active_preset(), false)
+        : LV_OPA_TRANSP;
+    auto paint = [&](lv_obj_t* btn, bool active) {
+        lv_obj_t* label = lv_obj_get_child(btn, 0);
+        if (label) {
+            lv_obj_set_style_text_color(label, active ? pal.accent : pal.text_secondary, LV_PART_MAIN);
+            lv_obj_set_style_text_opa(label, available ? LV_OPA_COVER : LV_OPA_40, LV_PART_MAIN);
+        }
+        lv_obj_set_style_bg_opa(btn, pressed,
+                                static_cast<lv_style_selector_t>(LV_PART_MAIN) | LV_STATE_PRESSED);
+    };
+    paint(_ctrl_btn_repeat, available && repeat != yoradio::playback::SdRepeatMode::Off);
+    paint(_ctrl_btn_shuffle, available && shuffle);
+    const uint8_t repeat_now = static_cast<uint8_t>(repeat);
+    const bool changed = _file_modes_seen && (repeat_now != _seen_repeat || shuffle != _seen_shuffle);
+    if (!available) _file_mode_announce = false;
+    if ((announce || _file_mode_announce) && changed && available) {
+        if (repeat_now != _seen_repeat) _showFileModeTip(_ctrl_btn_repeat, main_repeat_tip(repeat));
+        else _showFileModeTip(_ctrl_btn_shuffle, i18n::text(shuffle ? i18n::TextId::ShuffleOn
+                                                                     : i18n::TextId::ShuffleOff));
+        _file_mode_announce = false;
+    }
+    _seen_repeat = repeat_now;
+    _seen_shuffle = shuffle;
+    _file_modes_seen = true;
+}
+
+void LvglMainScreen::_placeFileModeButtons() {
+    if (!_control_band || !_ctrl_btn_shuffle || !_ctrl_btn_repeat) return;
+    if (!_ctrl_btn_list || !_ctrl_btn_prev || !_ctrl_btn_next || !_ctrl_btn_settings) return;
+    lv_obj_update_layout(_control_band);
+    main_place_between(_ctrl_btn_shuffle, _ctrl_btn_list, _ctrl_btn_prev);
+    main_place_between(_ctrl_btn_repeat, _ctrl_btn_next, _ctrl_btn_settings);
+}
+
+void LvglMainScreen::_mountFileModeControls() {
+    if (!_control_band || !_screen) return;
+    const uint16_t width = kResolvedUiMetrics.viewport_width;
+    const lv_font_t* font = FontProvider::icon((width <= 320u) ? 26 : 28);
+    const lv_coord_t pad = (width <= 320u) ? static_cast<lv_coord_t>(12) : static_cast<lv_coord_t>(16);
+    const lv_coord_t min_side = (width <= 320u) ? static_cast<lv_coord_t>(54) : static_cast<lv_coord_t>(58);
+    const YoRadioPalette& pal = yoradio_palette();
+    const lv_opa_t pressed = main_control_pressed_opa(yoradio_theme_active_preset(), false);
+    auto make = [&](const char* glyph) -> lv_obj_t* {
+        lv_obj_t* btn = main_create_control_icon_btn(
+            _control_band, glyph, font, pal.text_secondary, pad, min_side, 18, pressed,
+            pal.main_chrome_pressed_bg);
+        if (!btn) return nullptr;
+        // Floating: the flex row of the five buttons is already settled.
+        // FLOATING: flex-ряд из пяти кнопок уже собран и больше не двигается.
+        lv_obj_add_flag(btn, LV_OBJ_FLAG_FLOATING);
+        lv_obj_clear_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
+        return btn;
+    };
+    _ctrl_btn_shuffle = make(control_glyph_utf8_arrows_shuffle());
+    _ctrl_btn_repeat = make(control_glyph_utf8_repeat());
+    if (_ctrl_btn_shuffle) {
+        lv_obj_add_event_cb(_ctrl_btn_shuffle, main_shuffle_click_cb, LV_EVENT_CLICKED, this);
+    }
+    if (_ctrl_btn_repeat) {
+        lv_obj_add_event_cb(_ctrl_btn_repeat, main_repeat_click_cb, LV_EVENT_CLICKED, this);
+    }
+    _placeFileModeButtons();
+
+    _lbl_mode_tip = lv_label_create(_screen);
+    if (_lbl_mode_tip) {
+        lv_label_set_text(_lbl_mode_tip, "");
+        main_set_font(_lbl_mode_tip, FontProvider::text(16));
+        lv_obj_set_style_text_color(_lbl_mode_tip, pal.text_primary, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(_lbl_mode_tip, pal.panel_background, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(_lbl_mode_tip, LV_OPA_90, LV_PART_MAIN);
+        lv_obj_set_style_pad_hor(_lbl_mode_tip, 8, LV_PART_MAIN);
+        lv_obj_set_style_pad_ver(_lbl_mode_tip, 4, LV_PART_MAIN);
+        lv_obj_set_style_radius(_lbl_mode_tip, 8, LV_PART_MAIN);
+        lv_obj_add_flag(_lbl_mode_tip, LV_OBJ_FLAG_FLOATING);
+        lv_obj_add_flag(_lbl_mode_tip, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(_lbl_mode_tip, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_clear_flag(_lbl_mode_tip, LV_OBJ_FLAG_SCROLLABLE);
+    }
+    _syncFileModeButtons(false);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Layout builders / Строители секций Main screen
@@ -1328,6 +1641,9 @@ void LvglMainScreen::create_bottom_zone(LvglMainScreen& self, const YoRadioPalet
                     // Без доп. прямоугольников: прямой «хвост» в зону скругления визуально фигня, только два rim glow.
                 }
             }
+            // After the five buttons are measured. Shuffle/Repeat do not enter the flex row.
+            // После измерения пяти кнопок. Shuffle/Repeat не входят в flex-ряд.
+            self._mountFileModeControls();
         }
 
         // row_meta_stream: centered compact tech strip (temporary — final content TBD).
@@ -2026,6 +2342,7 @@ void LvglMainScreen::update() {
             (player.status() == PLAYING) ? control_glyph_utf8_player_stop() : control_glyph_utf8_player_play();
         main_set_text_if_changed(_lbl_transport_play_stop, play_stop_glyph);
     }
+    _syncFileModeButtons(true);
 
     // Status line: Wi‑Fi / clock / weather — delegated to wgt_status_line (Stage 6.2 Patch A).
     // Верхняя полоса — делегирование в wgt_status_line.
@@ -2162,6 +2479,11 @@ void LvglMainScreen::liveReapplyTheme() {
         lv_obj_set_style_text_color(_lbl_vol_popup, pal.text_primary,    LV_PART_MAIN);
         lv_obj_set_style_bg_color(_lbl_vol_popup,   pal.panel_background, LV_PART_MAIN);
     }
+    if (_lbl_mode_tip) {
+        lv_obj_set_style_text_color(_lbl_mode_tip, pal.text_primary, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(_lbl_mode_tip, pal.panel_background, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(_lbl_mode_tip, LV_OPA_90, LV_PART_MAIN);
+    }
 
     // Hit-layers: theme reinit reattaches CARD pad/scrollbar styles; flags survive, styles may not.
     // Hit-layer: reinit темы возвращает CARD; флаги живут, стили — нет. Повторяем sanitize.
@@ -2221,6 +2543,9 @@ void LvglMainScreen::liveReapplyTheme() {
     main_reapply_control_icon_btn(_ctrl_btn_play,     pal.text_primary,   pal.main_chrome_pressed_bg, re_pressed_transport);
     main_reapply_control_icon_btn(_ctrl_btn_next,     pal.text_primary,   pal.main_chrome_pressed_bg, re_pressed_transport);
     main_reapply_control_icon_btn(_ctrl_btn_settings, pal.text_secondary, pal.main_chrome_pressed_bg, re_pressed_utility);
+    main_reapply_control_icon_btn(_ctrl_btn_shuffle,  pal.text_secondary, pal.main_chrome_pressed_bg, re_pressed_transport);
+    main_reapply_control_icon_btn(_ctrl_btn_repeat,   pal.text_secondary, pal.main_chrome_pressed_bg, re_pressed_transport);
+    _syncFileModeButtons(false);
 
     // Status line widget colors / Цвета виджета status line
     wgt_status_line::reapplyTheme(_status_line);
@@ -2243,6 +2568,7 @@ void LvglMainScreen::destroy() {
     // Manual delete path (Stage 8 E22A): delete the presence-rail timer (NOT owned by the LVGL tree)
     // + its subtree first, then drop the full screen tree, then null handles + free non-LVGL.
     // Ручное удаление: сначала таймер rail (он не в дереве) + поддерево, затем дерево экрана, затем сброс.
+    _stopFileModeTimers();
     wgt_presence_rail::destroy(_presence_rail);
 
     if (_screen) {
@@ -2258,6 +2584,7 @@ void LvglMainScreen::prepareForAutoDelete() {
     // not part of the screen tree, so LVGL's auto-delete would leave a live timer pointing at freed
     // objects. wgt_presence_rail::destroy() is safe/idempotent (guards timer!=null, lv_obj_is_valid).
     // W2F: до auto_del гасим таймер rail (он вне дерева) — иначе он переживёт удаление экрана.
+    _stopFileModeTimers();
     wgt_presence_rail::destroy(_presence_rail);
 }
 
@@ -2297,6 +2624,13 @@ void LvglMainScreen::_nullHandlesAndFreeNonLvgl() {
     _control_band = nullptr; // deleted with _screen tree / удалено вместе с деревом
     _edge_glow_top = _edge_glow_bot = nullptr; // deleted with _screen tree / удалено вместе с деревом
     _ctrl_btn_list = _ctrl_btn_prev = _ctrl_btn_play = _ctrl_btn_next = _ctrl_btn_settings = nullptr;
+    _ctrl_btn_shuffle = _ctrl_btn_repeat = nullptr;
+    _lbl_mode_tip = nullptr;
+    _file_modes_seen = false;
+    _file_mode_announce = false;
+    _seen_repeat = 0;
+    _seen_shuffle = false;
+    _stopFileModeTimers();
     _art_slot  = nullptr;
     _art_img   = nullptr;
     _cont_mid  = nullptr;

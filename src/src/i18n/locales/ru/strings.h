@@ -71,7 +71,7 @@ inline constexpr std::array<TextEntry, textCount()> kStrings{{
   {TextId::StationEmptyList, "--  Нет доступных станций\n"},
   {TextId::StationListUnavailable, "Список станций недоступен"},
   {TextId::StationFallbackNameFormat, "Станция %u"},
-  {TextId::BrowserSourcesTitle, "ИСТОЧНИКИ"},
+  {TextId::BrowserSourcesTitle, "Медиатека"},
   {TextId::BrowserSourceRadio, "Радиостанции"},
   {TextId::BrowserSourceSd, "SD-карта"},
   {TextId::BrowserSdLoading, "--  Загрузка\n"},
@@ -166,6 +166,12 @@ inline constexpr std::array<TextEntry, textCount()> kStrings{{
   {TextId::SourcePlannedNotice, "Поддержка планируется"},
   {TextId::SourceShortRadio, "Радио"},
   {TextId::SourceShortYandex, "Яндекс"},
+  {TextId::RepeatOff, "Повтор выключен"},
+  {TextId::RepeatOne, "Повтор трека"},
+  {TextId::RepeatFolder, "Повтор папки"},
+  {TextId::RepeatAll, "Повтор всех"},
+  {TextId::ShuffleOff, "Перемешивание выключено"},
+  {TextId::ShuffleOn, "Перемешивание включено"},
 }};
 
 }  // namespace i18n::locales::ru

@@ -71,7 +71,7 @@ inline constexpr std::array<TextEntry, textCount()> kStrings{{
   {TextId::StationEmptyList, "--  Nie sú dostupné stanice\n"},
   {TextId::StationListUnavailable, "Zoznam staníc nie je dostupný"},
   {TextId::StationFallbackNameFormat, "Stanica %u"},
-  {TextId::BrowserSourcesTitle, "ZDROJE"},
+  {TextId::BrowserSourcesTitle, "Knižnica médií"},
   {TextId::BrowserSourceRadio, "Radio"},
   {TextId::BrowserSourceSd, "SD"},
   {TextId::BrowserSdLoading, "--  Načítava sa\n"},
@@ -166,6 +166,12 @@ inline constexpr std::array<TextEntry, textCount()> kStrings{{
   {TextId::SourcePlannedNotice, "Podpora sa plánuje"},
   {TextId::SourceShortRadio, "Radio"},
   {TextId::SourceShortYandex, "Yandex"},
+  {TextId::RepeatOff, "Opakovanie vypnuté"},
+  {TextId::RepeatOne, "Opakovanie skladby"},
+  {TextId::RepeatFolder, "Opakovanie priečinka"},
+  {TextId::RepeatAll, "Opakovanie všetkých"},
+  {TextId::ShuffleOff, "Náhodné poradie vypnuté"},
+  {TextId::ShuffleOn, "Náhodné poradie zapnuté"},
 }};
 
 }  // namespace i18n::locales::sk

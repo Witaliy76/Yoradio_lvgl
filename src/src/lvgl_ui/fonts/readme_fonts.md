@@ -128,11 +128,10 @@ Per-glyph miss walks `font->fallback`: user → factory same size → emergency 
 - File: `yoradio_tabler.ttf`
 - Role: embedded production Tabler subset; `FontProvider::icon(px)` via TinyTTF
 - Provenance: `@tabler/icons-webfont` **3.26.0**
-- Production subset bytes: `16564`
-- SHA256: `06022483E9A2E6F3FDB7E43AC6F1F51494ADC13A3DE05C2AF1CC69BBEBA3386C`
-- cmap: **44** codepoints (glyph/codepoint subset, **not** pixel-size-specific)
-- License: Tabler Icons MIT. The subset adds only the source-carousel glyphs
-  listed below; it is not the full Tabler webfont.
+- Production subset bytes: `17428`
+- SHA256: `F3636A0944F582010666AC109AFE33F0F4F436616AEE48E132AE8289FBEEA3C6`
+- cmap: **46** codepoints (glyph/codepoint subset, **not** pixel-size-specific)
+- License: Tabler Icons MIT. The subset is the codepoints listed below, including the source-carousel glyphs and the Main Repeat/Shuffle icons. It is not the full Tabler webfont.
 - TinyTTF provides runtime sizes. Current 480×480 eager requests: 20, 22, 26,
   28, 36, 64; 24 px remains a supported lazy product request.
 
@@ -141,15 +140,14 @@ Per-glyph miss walks `font->fallback`: user → factory same size → emergency 
 - Файл: `yoradio_tabler.ttf`
 - Роль: встроенный production-subset Tabler; `FontProvider::icon(px)` через TinyTTF
 - Происхождение: `@tabler/icons-webfont` **3.26.0**
-- Размер subset: `16564` байт
-- SHA256: `06022483E9A2E6F3FDB7E43AC6F1F51494ADC13A3DE05C2AF1CC69BBEBA3386C`
-- cmap: **44** codepoints (subset по глифам, **не** по размеру в пикселях)
-- Лицензия: Tabler Icons MIT. В subset добавлены только глифы карусели
-  источников ниже; это не полный webfont Tabler.
+- Размер subset: `17428` байт
+- SHA256: `F3636A0944F582010666AC109AFE33F0F4F436616AEE48E132AE8289FBEEA3C6`
+- cmap: **46** codepoints (subset по глифам, **не** по размеру в пикселях)
+- Лицензия: Tabler Icons MIT. Subset — кодовые точки из таблицы ниже, включая глифы карусели и иконки Repeat/Shuffle на Main. Это не полный webfont Tabler.
 - Размеры даёт TinyTTF. Текущие eager-запросы 480×480: 20, 22, 26, 28, 36, 64;
   24 px остаётся поддерживаемым lazy-запросом продукта.
 
-### 44 production codepoints / 44 production-codepoints
+### 46 production codepoints / 46 production-codepoints
 
 | Codepoint | Name | Use |
 |-----------|------|-----|
@@ -162,6 +160,8 @@ Per-glyph miss walks `font->fallback`: user → factory same size → emergency 
 | U+ED46 | player-play | Main controls |
 | U+ED4A | player-stop | Main controls |
 | U+ED49 | player-skip-forward | Main controls |
+| U+EB72 | repeat | Main Repeat (Off / One / Folder / All) |
+| U+F000 | arrows-shuffle | Main Shuffle |
 | U+EB6B | list | Main controls |
 | U+EB20 | settings | Main controls |
 | U+EA61 | chevron-right | Settings / chevron |
@@ -237,7 +237,7 @@ PUA strings live in product helper headers (`control_glyph_utf8.h`,
 
 **English**
 
-If factory coverage or the Tabler vocabulary (currently 44 codepoints) must change later,
+If factory coverage or the Tabler vocabulary (currently 46 codepoints) must change later,
 that is a **separate manual authoring operation**. Full Montserrat Medium /
 Tabler 3.26.0 sources and fontTools are local authoring inputs only; they are
 **not** part of the firmware repository tree and are **not** invoked by the
@@ -248,7 +248,7 @@ add a per-size compiled C ladder.
 
 **Русский**
 
-Если нужно изменить покрытие factory или словарь Tabler (сейчас 44 codepoints), это
+Если нужно изменить покрытие factory или словарь Tabler (сейчас 46 codepoints), это
 **отдельная ручная authoring-операция**. Полные Montserrat Medium /
 Tabler 3.26.0 и fontTools — только локальные входы authoring; они **не**
 входят в дерево репозитория прошивки и обычной сборкой **не** вызываются.
