@@ -150,9 +150,11 @@ struct StorageHardware {
     bool onboard_sd_present;
 };
 
-// USB facts. SoC capability and stock wiring are separate statements: the pins are
-// fixed by the SoC, while whether they are free depends on this board's wiring.
-// Факты USB. Возможность SoC и заводская разводка — разные утверждения.
+// USB facts. soc_has_native_usb confirms only that the SoC includes a native USB
+// controller. It does not confirm board routing, a connector, available D+/D- pins,
+// or VBUS power/control. Stock pin occupancy is recorded separately below.
+// Факты USB. soc_has_native_usb подтверждает только наличие USB-контроллера в SoC;
+// это не подтверждает разводку платы, разъём, свободные D+/D− или питание/управление VBUS.
 struct UsbHardware {
     bool    soc_has_native_usb;
     uint8_t soc_native_usb_dm_gpio;
