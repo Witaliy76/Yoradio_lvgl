@@ -176,12 +176,11 @@ function onMessage(event) {
     document.getElementById("sdpos").setAttribute('max',data.sdmax); 
     return;
   }
+  // Legacy WS key "snuffle" (NVS sdsnuffle) has no WebUI chrome after Sources/SD nav.
+  // Folder shuffle state arrives as "sdshuffle" and drives #sdshuffle.
+  // Старый ключ WS "snuffle" (NVS sdsnuffle) больше не имеет элемента в WebUI.
+  // Состояние folder shuffle приходит как "sdshuffle" и ведёт #sdshuffle.
   if(typeof data.snuffle!== 'undefined'){
-    const snuffle = document.getElementById("snuffle");
-    if(snuffle){
-      if(data.snuffle==1) snuffle.classList.add("active");
-      else snuffle.classList.remove("active");
-    }
     return;
   }
   if(typeof data.sdrepeat !== 'undefined'){
@@ -1075,18 +1074,11 @@ function buttonClick(){
     case "pldel": plRemove(); break;
     case "plsubmit": submitPlaylist(); break;
     case "sdcard": toggleSDCard(); break;
-    case "snuffle": toggleSnuffle(); break;
     case "sdrepeat": websocket.send("sdrepeat=cycle"); break;
     case "sdshuffle": websocket.send("sdshuffle=toggle"); break;
     case "webboard": window.location.href=`http://${hostname}/webboard`; break;
     default: break;
   }
-}
-function toggleSnuffle(){
-  const snuffle = document.getElementById('snuffle');
-  if(!snuffle) return;
-  snuffle.classList.toggle('active');
-  websocket.send("snuffle="+snuffle.classList.contains('active'));
 }
 function toggleSDCard(){
   if (!document.body.classList.contains('playmodes')) return;
