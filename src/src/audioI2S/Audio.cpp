@@ -491,7 +491,18 @@ bool Audio::setDefaults() {
     // reset. Any request still in flight belongs to the stream that is going away.
     // E-HO1: мир аудиозадачи сейчас заменится — декодеры освобождаются, InBuff
     // сбрасывается. Любой запрос «в полёте» относится к уходящему потоку.
-    if(!stopSong()) return false;
+    // stopSong() raises the gate immediately. Only beginDecodeEpoch() lowers it,
+    // and that runs after a completed reset. A failed stop must not leave the
+    // gate up: nothing later reaches beginDecodeEpoch on this path.
+    // m_stopFailed stays set so the owner retries STOP explicitly.
+    // stopSong() сразу поднимает затвор. Опускает его только beginDecodeEpoch()
+    // после завершённого reset. Неудачный stop не должен оставлять затвор:
+    // до beginDecodeEpoch этот путь больше не доходит.
+    // m_stopFailed остаётся: владелец повторяет STOP явно.
+    if(!stopSong()) {
+        m_f_audioTaskStopGate.store(false, std::memory_order_release);
+        return false;
+    }
     initInBuff(); // initialize InputBuffer if not already done
     InBuff.resetBuffer();
     MP3Decoder_FreeBuffers();
