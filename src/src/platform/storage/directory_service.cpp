@@ -3,7 +3,7 @@
 // Фоновое чтение одной папки. Один worker, создаётся с первым запросом.
 // Это не JPEG worker. Снимки неизменяемы и живут по счётчику ссылок.
 #include "directory_service.h"
-#if defined(YORADIO_S07_STORAGE_ENABLED) && YORADIO_S07_STORAGE_ENABLED
+#if defined(YORADIO_STORAGE_OWNER_ENABLED) && YORADIO_STORAGE_OWNER_ENABLED
 #include "directory_names.h"
 #include "storage_dir.h"
 #include "storage_owner.h"
@@ -13,7 +13,9 @@
 #if defined(YORADIO_DIRECTORY_HOST)
 #include <malloc.h>
 #include "freertos/FreeRTOS.h"
-#define S07_EXT_BSS
+#ifndef EXT_RAM_BSS_ATTR
+#define EXT_RAM_BSS_ATTR
+#endif
 #else
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -23,9 +25,8 @@
 // Large BSS (slots / in-flight path) needs EXT_RAM BSS → PSRAM.
 // Крупный BSS (слоты / путь) требует EXT_RAM BSS → PSRAM.
 #if !CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY
-#error "S07 Directory Service: CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY must be y (sdkconfig.defaults)."
+#error "Directory Service: CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY must be y (sdkconfig.defaults)."
 #endif
-#define S07_EXT_BSS EXT_RAM_BSS_ATTR
 #endif
 
 namespace yoradio { namespace storage {
@@ -36,7 +37,7 @@ static_assert(kDirectoryWorkerStackBytes >= 12u * 1024u, "reader frames need 12 
 // ESP-IDF: ulStackDepth is BYTES; StackType_t is uint8_t on Xtensa.
 // ESP-IDF: ulStackDepth — в БАЙТАХ; StackType_t на Xtensa — uint8_t.
 static_assert(sizeof(StackType_t) == 1,
-              "S07Dir stack depth is passed in bytes; StackType_t must be 1 byte");
+              "StorageDir stack depth is passed in bytes; StackType_t must be 1 byte");
 #endif
 
 struct Guard {
@@ -96,10 +97,10 @@ struct Build {
     ~Build();
 };
 
-S07_EXT_BSS Slot g_slots[kDirectoryConsumerSlots];
+EXT_RAM_BSS_ATTR Slot g_slots[kDirectoryConsumerSlots];
 size_t g_cursor = 0;
 size_t g_charged = 0;
-S07_EXT_BSS char g_inflight[kMaxMediaPathBytes + 1];
+EXT_RAM_BSS_ATTR char g_inflight[kMaxMediaPathBytes + 1];
 bool g_creating = false;
 #if defined(YORADIO_DIRECTORY_HOST)
 bool g_worker_ready = false;
@@ -112,14 +113,14 @@ HostAlloc g_host_allocs[64]{};
 bool g_host_alloc_overflow = false;
 #else
 TaskHandle_t g_task = nullptr;
-// TCB + task stack stay in internal DRAM (~12 KiB). FatFs/SPI on S07Dir was not
+// TCB + task stack stay in internal DRAM (~12 KiB). FatFs/SPI on StorageDir was not
 // separately proven safe on a PSRAM stack; large catalog data remains in PSRAM heap/BSS.
-// TCB и стек задачи — во внутреннем DRAM (~12 КиБ). FatFs/SPI на S07Dir не доказаны
+// TCB и стек задачи — во внутреннем DRAM (~12 КиБ). FatFs/SPI на StorageDir не доказаны
 // отдельно для стека в PSRAM; крупные каталоги остаются в PSRAM heap/BSS.
 static StaticTask_t g_worker_tcb;
 static StackType_t g_worker_stack[kDirectoryWorkerStackBytes / sizeof(StackType_t)];
 static_assert(sizeof(g_worker_stack) == kDirectoryWorkerStackBytes,
-              "S07Dir stack buffer must equal kDirectoryWorkerStackBytes");
+              "StorageDir stack buffer must equal kDirectoryWorkerStackBytes");
 #endif
 
 size_t align8(size_t n) { return (n + 7u) & ~size_t{7}; }
@@ -731,7 +732,7 @@ bool ensureWorker() {
     // ESP-IDF FreeRTOS: stack depth is BYTES (not vanilla FreeRTOS words).
     // ESP-IDF FreeRTOS: глубина стека — в БАЙТАХ (не в словах vanilla FreeRTOS).
     TaskHandle_t created = xTaskCreateStaticPinnedToCore(
-        workerTask, "S07Dir",
+        workerTask, "StorageDir",
         kDirectoryWorkerStackBytes,
         nullptr, 1,
         g_worker_stack, &g_worker_tcb, 0);

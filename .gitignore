@@ -28,7 +28,7 @@ SPECTRUM*.md
 !/sdkconfig.defaults
 # FATFS LFN/UTF-8 overlay for the ordinary 4848S040 Storage Owner build.
 # Overlay FATFS LFN/UTF-8 для штатной сборки Storage Owner 4848S040.
-!/sdkconfig.defaults.s07_storage_enabled
+!/sdkconfig.defaults.storage_owner
 !/partitions.csv
 !/minimal_spiffs.csv
 !/partition_16MB_ota_spiffs.csv

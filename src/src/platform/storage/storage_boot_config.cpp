@@ -3,12 +3,12 @@
 
 namespace yoradio { namespace storage { namespace sdspi {
 static_assert(kResolvedStorageConfig.enabled ==
-                  (kStorageEngineeringEnabled && kUserSdEnable &&
+                  (kStorageOwnerEnabled && kUserSdEnable &&
                    kActiveBoard.storage.onboard_sd_present),
               "Storage mounts only when the Owner build, the user flag and the slot agree.");
 static_assert(!kResolvedStorageConfig.allow_autoformat, "Storage never autoformats.");
 
-#if YORADIO_S07_STORAGE_ENABLED
+#if YORADIO_STORAGE_OWNER_ENABLED
 #if !defined(CONFIG_FATFS_LFN_HEAP) || !CONFIG_FATFS_LFN_HEAP || \
     !defined(CONFIG_FATFS_API_ENCODING_UTF_8) || !CONFIG_FATFS_API_ENCODING_UTF_8 || \
     CONFIG_FATFS_MAX_LFN != 255 || CONFIG_FATFS_CODEPAGE != 437

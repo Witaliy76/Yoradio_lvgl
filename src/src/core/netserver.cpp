@@ -78,7 +78,7 @@ void handleWebUploadComplete(AsyncWebServerRequest *request);
 void handleUpdate(AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final);
 void handleHTTPArgs(AsyncWebServerRequest * request);
 void handleSources(AsyncWebServerRequest * request);
-#if YORADIO_S07_STORAGE_ENABLED
+#if YORADIO_STORAGE_OWNER_ENABLED
 void handleSdDir(AsyncWebServerRequest * request);
 void handleSdPlay(AsyncWebServerRequest * request);
 #endif
@@ -195,7 +195,7 @@ bool NetServer::begin(bool quiet) {
   // Shared source catalog read-out for the WebUI browser. No activate / mode change.
   // Выдача общего каталога источников для браузера WebUI. Без activate / смены режима.
   webserver.on("/sources", HTTP_GET, handleSources);
-#if YORADIO_S07_STORAGE_ENABLED
+#if YORADIO_STORAGE_OWNER_ENABLED
   // Directory pages and exact-path play. Registered before the static www handler.
   // Страницы каталога и запуск по точному пути. Регистрация раньше статики www.
   webserver.on("/sd/dir", HTTP_GET, handleSdDir);
@@ -3790,7 +3790,7 @@ void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventTyp
 void handleSources(AsyncWebServerRequest* request) {
   using namespace yoradio::source;
   yoradio::storage::StorageStatus storage{};
-#if YORADIO_S07_STORAGE_ENABLED
+#if YORADIO_STORAGE_OWNER_ENABLED
   storage = yoradio::storage::StorageOwner::instance().status();
 #endif
   OpenFacts facts;
@@ -3886,7 +3886,7 @@ void handleSources(AsyncWebServerRequest* request) {
   request->send(200, "application/json", body);
 }
 
-#if YORADIO_S07_STORAGE_ENABLED
+#if YORADIO_STORAGE_OWNER_ENABLED
 // Explicit engineering input; bounded bytes go straight to the owned Player API.
 // Явный инженерный запрос: полный путь передаётся в существующий API Player.
 static yoradio::playback::PathPlayResult requestEngineeringStoragePath(const char* path,size_t bytes) {
@@ -3942,7 +3942,7 @@ void handleSdPlay(AsyncWebServerRequest* request) {
 #endif
 
 void handleHTTPArgs(AsyncWebServerRequest * request) {
-#if YORADIO_S07_STORAGE_ENABLED
+#if YORADIO_STORAGE_OWNER_ENABLED
   if(request->hasArg("s07_sd_path")) {
     if(request->method()!=HTTP_POST) { request->send(405,"text/plain","POST required");return; }
     if(!request->hasParam("s07_sd_path",true)) { request->send(400,"text/plain","form field required");return; }

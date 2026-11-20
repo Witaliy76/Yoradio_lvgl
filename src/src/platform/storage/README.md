@@ -166,11 +166,11 @@ change the audio source and does not touch the player queue. One exact path
 is played with `POST /sd/play`, which uses the existing Player path request.
 HTTP 202 means the path was queued. It does not mean sound has started.
 
-The first successful submit creates one task, `S07Dir`, priority 1 on core 0.
+The first successful submit creates one task, `StorageDir`, priority 1 on core 0.
 Audio stays priority 4 on core 1. This task is not the JPEG worker. The static
 task stack is **12 KiB in internal DRAM** (ESP-IDF depth in **bytes**);
 catalog snapshots and directory slots stay in PSRAM. External task stacks are
-allowed in sdkconfig (`CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM`), but S07Dir
+allowed in sdkconfig (`CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM`), but StorageDir
 does not use a PSRAM stack until FatFs/SPI on that path is separately proven.
 `Ok` means a worker will run the request. `NoMemory` means the request was not
 queued. The worker could not be created, or another caller is still creating it.
@@ -277,7 +277,7 @@ effective display/touch/I2S and IR/MUTE/BTN_MUTE/WAKE collisions; the intended
 
 The disposable SDSPI probe and its PlatformIO environment were removed after
 the Owner moved into `4848S040`. FATFS LFN heap, UTF-8 and `MAX_LFN=255` for
-that build come from `sdkconfig.defaults.s07_storage_enabled`. FAT12/16/32
+that build come from `sdkconfig.defaults.storage_owner`. FAT12/16/32
 only; exFAT stays off. Host tests do not prove device UTF-8 playback.
 
 Targeted tests: `test/s07_4a2_storage_owner/`, `test/s07_4a3_single_file/`
@@ -452,11 +452,11 @@ Service ниже — его асинхронный потребитель. Ин�
 существующий запрос пути Player. HTTP 202 означает, что путь поставлен в
 очередь. Это не значит, что звук уже начался.
 
-Первый успешный запрос создаёт одну задачу `S07Dir`, приоритет 1 на ядре 0.
+Первый успешный запрос создаёт одну задачу `StorageDir`, приоритет 1 на ядре 0.
 Audio остаётся приоритетом 4 на ядре 1. Эта задача не является JPEG worker.
 Статический стек задачи — **12 КиБ во внутреннем DRAM** (глубина ESP-IDF в
 **байтах**); снимки каталогов и слоты остаются в PSRAM. В sdkconfig разрешены
-внешние стеки (`CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM`), но S07Dir не
+внешние стеки (`CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM`), но StorageDir не
 использует стек в PSRAM, пока FatFs/SPI на этом пути не доказаны отдельно.
 `Ok` значит, что запрос выполнит worker. `NoMemory` значит, что запрос не
 поставлен. Worker создать не удалось, либо его ещё создаёт другой вызывающий.
@@ -566,7 +566,7 @@ IR/MUTE/BTN_MUTE/WAKE. Предполагаемое совмещение Display
 
 Одноразовый SDSPI probe и его окружение PlatformIO удалены после переноса
 Owner в `4848S040`. FATFS LFN heap, UTF-8 и `MAX_LFN=255` для этой сборки
-берутся из `sdkconfig.defaults.s07_storage_enabled`. Только FAT12/16/32;
+берутся из `sdkconfig.defaults.storage_owner`. Только FAT12/16/32;
 exFAT выключен. Host-тесты не доказывают UTF-8 playback на устройстве.
 
 Адресные тесты: `test/s07_4a2_storage_owner/`, `test/s07_4a3_single_file/`

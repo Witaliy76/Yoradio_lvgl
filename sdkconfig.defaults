@@ -45,9 +45,9 @@ CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
 # Без этого EXT_RAM_BSS_ATTR остаётся в internal DRAM (map: folder_queue ~14 KiB).
 CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y
 # Explicit: FreeRTOS may place *dynamic* task stacks in PSRAM when requested.
-# S07Dir still uses a static internal-DRAM stack (see directory_service.cpp).
+# StorageDir still uses a static internal-DRAM stack (see directory_service.cpp).
 # Явно: FreeRTOS может класть *динамические* стеки задач в PSRAM по запросу.
-# S07Dir по-прежнему использует статический стек во внутреннем DRAM.
+# StorageDir по-прежнему использует статический стек во внутреннем DRAM.
 CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM=y
 
 # Current AAC static-RX walker uses the light-poisoning block header.

@@ -43,14 +43,14 @@ constexpr size_t kDirectoryConsumerSlots = 3;
 // f_readdir runs, before DirEntry exists. The LFN workspace is heap
 // (FF_USE_LFN 3), not stack. The in-flight path lives in one static buffer.
 // Peak of those frames is about 5 KiB; 12 KiB (bytes) leaves FatFs/FreeRTOS margin.
-// S07Dir stack is internal DRAM (~12 KiB cost); snapshots/slots stay in PSRAM.
+// StorageDir stack is internal DRAM (~12 KiB cost); snapshots/slots stay in PSRAM.
 // Heapsort does not recurse. Priority 1 on core 0; Audio stays priority 4 on core 1.
 // Passed to xTaskCreateStaticPinnedToCore as BYTES (ESP-IDF), not vanilla words.
 // listDirectory одновременно держит FatReader::fat_path (1027), name[769] и
 // DirEntry (1794). FILINFO (~0.8 КиБ) живёт только внутри f_readdir, до DirEntry.
 // Рабочий буфер LFN — куча (FF_USE_LFN 3), не стек. Путь запроса — один статический
 // буфер. Пик кадров ~5 КиБ; 12 КиБ (байты) — запас FatFs/FreeRTOS.
-// Стек S07Dir — внутренний DRAM (~12 КиБ); снимки/слоты остаются в PSRAM.
+// Стек StorageDir — внутренний DRAM (~12 КиБ); снимки/слоты остаются в PSRAM.
 // Heapsort не рекурсивный. Приоритет 1 на ядре 0; Audio — приоритет 4 на ядре 1.
 // В xTaskCreateStaticPinnedToCore передаётся в БАЙТАХ (ESP-IDF), не в словах.
 constexpr uint32_t kDirectoryWorkerStackBytes = 12u * 1024u;

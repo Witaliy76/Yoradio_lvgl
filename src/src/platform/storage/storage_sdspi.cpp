@@ -229,7 +229,7 @@ const char* fatVolumePrefix() {
 }
 }}} // namespace yoradio::storage::sdspi
 
-#if defined(YORADIO_S07_STORAGE_ENABLED) && !defined(YORADIO_DIRECTORY_HOST)
+#if defined(YORADIO_STORAGE_OWNER_ENABLED) && !defined(YORADIO_DIRECTORY_HOST)
 #include "esp_log.h"
 // --wrap=sdmmc_init_sd_ssr. The real step always runs first. ESP_OK continues
 // card init into host frequency and SCR check; FAT mount stays in mount().

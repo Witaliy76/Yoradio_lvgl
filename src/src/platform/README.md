@@ -60,7 +60,7 @@ MP3/FLAC policy and command results. Player confirms stop/close before Radio↔S
 or SD↔SD transitions; `PlaybackContext` and Config mode change only on confirmed
 playback. Control runs without Wi-Fi; ordinary STOP leaves SD mounted.
 Shared UTF-8 validation is in `utils/utf8.h`. Directory Service lists one
-folder on task `S07Dir` and returns an immutable snapshot for `WebUi`,
+folder on task `StorageDir` and returns an immutable snapshot for `WebUi`,
 `Lvgl`, or `Playback`. The engineering WebUI and the folder-queue next-track
 search are the current callers; LVGL does not. Path SD Next/EOF/Prev live in
 `core/folder_queue.*` and stay independent of the browse cwd. Detail is in
@@ -192,7 +192,7 @@ epoch, правилами MP3/FLAC и результатами команд. П�
 SD↔SD Player подтверждает stop/close; источник в `PlaybackContext` и режим Config
 меняются только после успешного запуска. Управление работает без Wi-Fi; обычный
 STOP сохраняет mount SD. Общая проверка UTF-8 находится в `utils/utf8.h`.
-Directory Service читает одну папку в задаче `S07Dir` и отдаёт неизменяемый
+Directory Service читает одну папку в задаче `StorageDir` и отдаёт неизменяемый
 снимок для `WebUi`, `Lvgl` или `Playback`. Текущие вызывающие — инженерный
 WebUI и поиск следующего трека folder-queue; LVGL — нет. Path SD
 Next/EOF/Prev живут в `core/folder_queue.*` и не зависят от browse cwd.

@@ -462,10 +462,29 @@ void ticks() {
       netserver.setRSSI(WiFi.RSSI());
       netserver.requestOnChange(NRSSI, 0);
     }
-#ifdef USE_SD
-    // Block 8-E8: SDCHANGE mode removed — always allow SD check when connected.
+    // USE_SD is the token false on the ordinary build, and an empty flag when
+    // config.h redefines it because SDC_CS != 255. #ifdef is true for both.
+    // Empty legacy flag stays on; false and 0 stay off.
+    // USE_SD в штатной сборке — токен false, а при SDC_CS != 255 config.h
+    // задаёт пустой флаг. #ifdef истинен в обоих случаях.
+    // Пустой legacy-флаг остаётся включённым; false и 0 — выключены.
+#define YORADIO_SD_CHECK_false 0
+#define YORADIO_SD_CHECK_0 0
+#define YORADIO_SD_CHECK_1 1
+#define YORADIO_SD_CHECK_true 1
+#define YORADIO_SD_CHECK_ 1
+#define YORADIO_SD_CHECK_I(x) YORADIO_SD_CHECK_##x
+#define YORADIO_SD_CHECK(x) YORADIO_SD_CHECK_I(x)
+#if YORADIO_SD_CHECK(USE_SD)
     player.sendCommand({PR_CHECKSD, 0});
 #endif
+#undef YORADIO_SD_CHECK
+#undef YORADIO_SD_CHECK_I
+#undef YORADIO_SD_CHECK_false
+#undef YORADIO_SD_CHECK_0
+#undef YORADIO_SD_CHECK_1
+#undef YORADIO_SD_CHECK_true
+#undef YORADIO_SD_CHECK_
     player.sendCommand({PR_VUTONUS, 0});
   }
   

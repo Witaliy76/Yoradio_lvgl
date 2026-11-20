@@ -19,14 +19,14 @@
 #include "schematic_candidate_4848s040.h"
 #include "storage_types.h"
 
-#ifndef YORADIO_S07_STORAGE_ENABLED
-#define YORADIO_S07_STORAGE_ENABLED 0
+#ifndef YORADIO_STORAGE_OWNER_ENABLED
+#define YORADIO_STORAGE_OWNER_ENABLED 0
 #endif
-#if YORADIO_S07_STORAGE_ENABLED != 0 && YORADIO_S07_STORAGE_ENABLED != 1
-#error "YORADIO_S07_STORAGE_ENABLED must be 0 or 1."
+#if YORADIO_STORAGE_OWNER_ENABLED != 0 && YORADIO_STORAGE_OWNER_ENABLED != 1
+#error "YORADIO_STORAGE_OWNER_ENABLED must be 0 or 1."
 #endif
-#if YORADIO_S07_STORAGE_ENABLED && YORADIO_BOARD != YORADIO_BOARD_4848S040
-#error "Engineering Storage opt-in is restricted to ESP32-4848S040."
+#if YORADIO_STORAGE_OWNER_ENABLED && YORADIO_BOARD != YORADIO_BOARD_4848S040
+#error "Storage Owner is restricted to ESP32-4848S040."
 #endif
 
 // User permission. The macro lives in src/myoptions.h, which options.h includes
@@ -40,7 +40,7 @@
 #endif
 
 namespace yoradio {
-inline constexpr bool kStorageEngineeringEnabled = YORADIO_S07_STORAGE_ENABLED != 0;
+inline constexpr bool kStorageOwnerEnabled = YORADIO_STORAGE_OWNER_ENABLED != 0;
 // User asked for SD. This is not card readiness and not the board's slot fact.
 // Пользователь запросил SD. Это не готовность карты и не факт слота на плате.
 inline constexpr bool kUserSdEnable = (YORADIO_SD_ENABLE) != 0;
@@ -85,11 +85,11 @@ namespace detail {
 // Сборка Owner 4848S040 выбирает SDSPI. При макросе 0 транспорт Disabled.
 // Legacy SDC_CS!=255 по-прежнему запрещён.
 constexpr bool storagePermitted() {
-    return kStorageEngineeringEnabled && kUserSdEnable &&
+    return kStorageOwnerEnabled && kUserSdEnable &&
            kActiveBoard.storage.onboard_sd_present;
 }
 
-constexpr ResolvedStorageConfig resolveStorageConfigS07_1() {
+constexpr ResolvedStorageConfig resolveStorageOwnerConfig() {
     const bool permitted = storagePermitted();
     return ResolvedStorageConfig{
         .onboard_sd_present = kActiveBoard.storage.onboard_sd_present,
@@ -111,7 +111,7 @@ constexpr ResolvedStorageConfig resolveStorageConfigS07_1() {
 }  // namespace detail
 
 inline constexpr ResolvedStorageConfig kResolvedStorageConfig =
-    detail::resolveStorageConfigS07_1();
+    detail::resolveStorageOwnerConfig();
 
 }  // namespace yoradio
 

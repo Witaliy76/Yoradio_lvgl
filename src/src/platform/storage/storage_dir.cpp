@@ -1,7 +1,7 @@
 // Lists one directory through FatFs f_readdir, not POSIX dirent.
 // Перечисляет один каталог через FatFs f_readdir, не через POSIX dirent.
 #include "storage_dir.h"
-#if defined(YORADIO_S07_STORAGE_ENABLED) && YORADIO_S07_STORAGE_ENABLED
+#if defined(YORADIO_STORAGE_OWNER_ENABLED) && YORADIO_STORAGE_OWNER_ENABLED
 #include "storage_owner.h"
 #include "storage_sdspi.h"
 #include "storage_engineering_log.h"

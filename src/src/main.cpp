@@ -43,7 +43,7 @@ void setup() {
   if(REAL_LEDBUILTIN!=255) pinMode(REAL_LEDBUILTIN, OUTPUT);
   // Owner enters SPI mode and fully releases the bus before Type9.
   // Owner входит в SPI mode и полностью освобождает шину до Type9.
-#if YORADIO_S07_STORAGE_ENABLED
+#if YORADIO_STORAGE_OWNER_ENABLED
   const auto& sd_config=yoradio::storage::sdspi::bootConfig();
   Serial.printf("[S07-ENG] fw=%s owner=%u transport=%u CS=%d MOSI=%d MISO=%d SCK=%d LCD_CS=%d legacy_CS=%d USE_SD=%d\n",
       YOVERSION,static_cast<unsigned>(sd_config.enabled),

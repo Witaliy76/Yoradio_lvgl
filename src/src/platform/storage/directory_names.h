@@ -76,9 +76,9 @@ inline DirStatus acceptDirectoryEntry(const char* directory, const char* name,
 // иначе ошибка чтения.
 // reader.close(): 0 закрыт. Ошибка закрытия важнее предыдущей ошибки чтения.
 // Nested locals: name[769] here plus DirEntry (1794) and FatReader::fat_path (1027).
-// Directory Service sizes S07Dir to 12 KiB (bytes, internal DRAM); see directory_service.h.
+// Directory Service sizes StorageDir to 12 KiB (bytes, internal DRAM); see directory_service.h.
 // Вложенные локальные буферы: name[769], DirEntry (1794) и FatReader::fat_path (1027).
-// Directory Service задаёт S07Dir 12 КиБ (байты, внутренний DRAM); см. directory_service.h.
+// Directory Service задаёт StorageDir 12 КиБ (байты, внутренний DRAM); см. directory_service.h.
 template <typename Reader>
 DirStatus scanDirectoryNames(Reader& reader, const char* directory,
                              bool (*visit)(const DirEntry&, void*), void* user) {

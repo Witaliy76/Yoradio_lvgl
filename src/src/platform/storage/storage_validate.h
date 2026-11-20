@@ -18,8 +18,8 @@
 #endif
 // sdmanager.cpp has a legacy empty compile marker; it is not a runtime enable.
 // Legacy TU задаёт пустой маркер USE_SD; он не включает runtime SD.
-#if YORADIO_S07_STORAGE_ENABLED && defined(USE_SD) && (USE_SD + 0)
-#error "Engineering Storage requires USE_SD=false; do not activate legacy SDManager."
+#if YORADIO_STORAGE_OWNER_ENABLED && defined(USE_SD) && (USE_SD + 0)
+#error "Storage Owner requires USE_SD=false; do not activate legacy SDManager."
 #endif
 
 #ifdef __cplusplus
@@ -147,7 +147,7 @@ inline constexpr bool storagePinHasHardConflict(uint8_t pin,
 // Final permission is one formula. Card readiness is not part of it.
 // Итоговое разрешение — одна формула. Готовность карты в неё не входит.
 static_assert(kResolvedStorageConfig.enabled ==
-                  (kStorageEngineeringEnabled && kUserSdEnable &&
+                  (kStorageOwnerEnabled && kUserSdEnable &&
                    kActiveBoard.storage.onboard_sd_present),
               "SD permission must be Owner build + YORADIO_SD_ENABLE + board slot.");
 static_assert(kResolvedStorageConfig.transport ==
@@ -207,7 +207,7 @@ static_assert(!wiring_check::hasDuplicateGpio(wiring_check::withPin(
                   wiring_check::kClaims, firstUnclaimedGpio())),
               "GPIO resolver must accept one claim on a pin no active device owns.");
 
-#if YORADIO_SD_ENABLE && YORADIO_S07_STORAGE_ENABLED
+#if YORADIO_SD_ENABLE && YORADIO_STORAGE_OWNER_ENABLED
 // SD on: DAT0/CS join the real claim list. 47/48 stay display command pins.
 // SD включена: DAT0/CS входят в реальный список. 47/48 остаются командными пинами дисплея.
 static_assert(kResolvedStorageConfig.enabled,

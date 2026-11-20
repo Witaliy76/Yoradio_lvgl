@@ -822,7 +822,7 @@ void Player::loop() {
     browseUrl();
   }
 #endif
-#if YORADIO_S07_STORAGE_ENABLED
+#if YORADIO_STORAGE_OWNER_ENABLED
   // Emit only a changed transition/error snapshot, never periodic FS polling.
   // Вывод только при смене состояния/ошибки; FS дополнительно не опрашивается.
   const auto diag=playbackContext();

@@ -11,9 +11,10 @@
 #include "freertos/FreeRTOS.h"
 #if !defined(YORADIO_DIRECTORY_HOST)
 #include "esp_attr.h"
-#define S07_EXT_BSS EXT_RAM_BSS_ATTR
 #else
-#define S07_EXT_BSS
+#ifndef EXT_RAM_BSS_ATTR
+#define EXT_RAM_BSS_ATTR
+#endif
 #endif
 
 #if defined(YORADIO_DIRECTORY_HOST)
@@ -51,7 +52,7 @@ struct Slot {
     bool running = false;
     char path[kPathCap]{};
 };
-S07_EXT_BSS Slot g_slot;
+EXT_RAM_BSS_ATTR Slot g_slot;
 
 struct Media {
     bool ready = false;

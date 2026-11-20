@@ -71,14 +71,14 @@ endforeach()
 # requirement collection, where PlatformIO -D flags may not be visible on app TUs.
 # Штатный 4848S040 — сборка Storage Owner. Каталог учитывает mixed-сборку
 # без флагов PIO на TU.
-set(_yoradio_s07_storage_enabled OFF)
+set(_yoradio_storage_owner_enabled OFF)
 if("${CMAKE_BINARY_DIR}" MATCHES "/4848S040$")
-    set(_yoradio_s07_storage_enabled ON)
-elseif(YORADIO_S07_STORAGE_ENABLED)
-    message(FATAL_ERROR "Storage opt-in is only env 4848S040")
+    set(_yoradio_storage_owner_enabled ON)
+elseif(YORADIO_STORAGE_OWNER_ENABLED)
+    message(FATAL_ERROR "Storage Owner is only env 4848S040")
 endif()
-if(_yoradio_s07_storage_enabled)
-    target_compile_definitions(${COMPONENT_LIB} PRIVATE YORADIO_S07_STORAGE_ENABLED=1)
+if(_yoradio_storage_owner_enabled)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE YORADIO_STORAGE_OWNER_ENABLED=1)
     # One symbol only. The fallback itself is still gated in storage_sdspi.cpp:
     # our mount, the myoptions policy, and ESP_ERR_TIMEOUT.
     # Ровно один символ. Сам fallback дополнительно закрыт в storage_sdspi.cpp:
