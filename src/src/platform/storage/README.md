@@ -5,44 +5,49 @@ Author: Witaliy76 - https://github.com/Witaliy76
 ## English
 
 `platform/storage/` implements the compile-time contract, Storage Owner and
-read-only FS bridge used by the existing Audio MP3/FLAC path. These are production
-components awaiting authorized hardware/FATFS integration and device acceptance.
+read-only FS bridge used by the existing Audio MP3/FLAC path. On this branch
+that behavior is locally accepted and is not a published release.
 `SDC_CS` stays 255 and legacy `USE_SD` / SDManager stay off. The ordinary
-`4848S040` build compiles the Storage Owner. `YORADIO_SD_ENABLE` in
-`src/myoptions.h` is the user permission: `1` permits SD, `0` skips early and
-runtime mount and does not reserve GPIO 41/42. BoardProfile still only records
-that the slot exists. `StorageOwner::status()` reports whether the card is
-actually ready. Those three facts meet in `kResolvedStorageConfig.enabled`.
-A version string alone does not prove device playback, and this is not
-BoardProfile acceptance.
+`4848S040` build compiles the Storage Owner through the internal flag
+`YORADIO_STORAGE_OWNER_ENABLED`. The user switch is `YORADIO_SD_ENABLE` in
+`src/myoptions.h`: `1` permits SD, `0` skips early and runtime mount and does
+not reserve GPIO 41/42. BoardProfile still only records that the slot exists.
+`StorageOwner::status()` reports whether the card is actually ready. Those
+three facts meet in `kResolvedStorageConfig.enabled`. Do not turn SD on with
+`USE_SD`, `SDC_CS`, or another PlatformIO environment.
 
 ### S07 working build
 
 The Git branch stays `feature/s07-storage-shared-resources`. The working
 PlatformIO environment is ordinary `4848S040` (`default_envs`).
 
-The build output is `.pio/build/4848S040/firmware.bin`. The newest
-engineering image for WEB-NAV.1 is B052 (HW pending). B051 remains the
-SOURCES.1 acceptance image. The firmware on the device is unknown until
-it is checked.
+The build output is `.pio/build/4848S040/firmware.bin`. FATFS LFN/UTF-8 for
+this environment comes from `sdkconfig.defaults.storage_owner`.
 
 - Build: `pio run -e 4848S040`
 - Flash: `pio run -e 4848S040 -t upload`
 
 IDE Build and Upload follow the status-bar environment. It must show
-`4848S040`. B045 is an identity only: 2732960 bytes, SHA256
-`0406a7125f21de3484f6c6bffd0724a783be95d55b9f2c3d0b6fe91764c9428c`.
-That file is not on disk, so it is not a rollback image. The device image
-B046 is kept at `.pio/artifacts/s07-b046/firmware.bin` (2731392 bytes, SHA256
-`6e816f114b84ba2843282c65a8dee7abd3e336a73ce1d6096cda11dcb24f38b6`). This
-step does not use `uploadfs`.
+`4848S040`. The locally accepted image is
+`0.9.434m-r2-lvgl-beta.3.08-S07.B083` with WebUI cache tag `webnav6`.
+That acceptance is not a publication. Earlier images, including B045
+(2732960 bytes, SHA256
+`0406a7125f21de3484f6c6bffd0724a783be95d55b9f2c3d0b6fe91764c9428c`)
+and B046 (`.pio/artifacts/s07-b046/firmware.bin`, 2731392 bytes, SHA256
+`6e816f114b84ba2843282c65a8dee7abd3e336a73ce1d6096cda11dcb24f38b6`),
+remain historical records.
+
+`index.html` and `script.js` are replaced by `POST /webboard` with the form
+field `www`. A successful upload reboots the device. That path is not
+`uploadfs` and does not write a whole `littlefs.bin`. Playback is
+`POST /sd/play`. The general `POST /` does not accept `s07_sd_path`.
 
 ### Components and entry points
 
 | Component | Responsibility / entry points |
 |---|---|
 | `BoardProfile.storage.onboard_sd_present` | Factory slot-presence fact; no SD GPIO fields yet |
-| `ResolvedStorageConfig` / `storage_validate.h` | Stock enable restriction and compile-time checks; `SDC_CS != 255` is refused |
+| `ResolvedStorageConfig` / `storage_validate.h` | Owner build, `YORADIO_SD_ENABLE` and the board slot; `SDC_CS != 255` and legacy `USE_SD` are refused |
 | `storage_boot_config.cpp` | Owner binding; `kResolvedStorageConfig.enabled == false` leaves the candidate pins disconnected |
 | `storage_owner.h/.cpp` | `StorageOwner::instance()` owns mount lifecycle and operation/handle accounting |
 | `storage_sdspi.h/.cpp` | Private IDF SPI2/device/card/FAT/VFS implementation; no raw card or mount exported |
@@ -56,10 +61,12 @@ step does not use `uploadfs`.
 Boot hooks run on the setup/loop lifecycle task: `prepareBeforeDisplay()` before
 Type9, `mountAfterDisplay(display_ready)` afterwards, and `processFault()` in
 loop. The enabled implementation enters SPI mode at 400 kHz, confirms full
-release for Type9, then mounts at 20 MHz and keeps that mount. The earlier
-1 MHz runtime result remains historical evidence in the S07 stage plan; it is
-not the current engineering setting. Stock binding
-disables this IO. DisplayCommand protection is enforced by the ST7701 backend.
+release for Type9, then mounts at 20 MHz and keeps that mount. If that mount
+returns FatFs 13 (`FR_NO_FILESYSTEM`) after a clean release, it tries once at
+10 MHz. The earlier 1 MHz runtime result remains historical evidence in the
+S07 stage plan; it is not the current setting. When
+`kResolvedStorageConfig.enabled` is false this IO stays disconnected.
+DisplayCommand protection is enforced by the ST7701 backend.
 `status()` copies metadata under a short critical section; `refreshSpace()`
 samples free/total only on the lifecycle task. No driver/FS call runs under
 the metadata lock. `Absent` means no usable card response, not physical detection:
@@ -86,13 +93,14 @@ there is no card-detect GPIO.
   both zero; it does not wait for clients to drain. Teardown itself is synchronous.
   Ordinary STOP/source selection keeps SD mounted. No automatic remount exists.
 - `YORADIO_SD_SSR_TIMEOUT_FALLBACK` in `src/myoptions.h` is compiled into
-  `storage_sdspi.cpp`. The engineering env links a wrap of `sdmmc_init_sd_ssr`
-  only. The real call runs first. `1` continues our SDSPI mount after
-  `ESP_ERR_TIMEOUT` from that step, then clears the erase-timing fields.
-  `0`, any other error, and a call outside our mount keep the IDF error.
-  Later card-init checks and the real FAT mount still run. `ready` is not
-  forced. Write, erase, trim, and format are not added. The stock env does
-  not link the wrap. A kept timeout is not reported as an absent or damaged card.
+  `storage_sdspi.cpp`. The ordinary `4848S040` Owner build links
+  `--wrap=sdmmc_init_sd_ssr`. The real call runs first. `1` continues our
+  SDSPI mount after `ESP_ERR_TIMEOUT` from that step, then clears the
+  erase-timing fields. `0`, any other error, and a call outside our mount
+  keep the IDF error. This fallback is separate from the single 20 MHz to
+  10 MHz retry after FatFs 13. Later card-init checks and the real FAT mount
+  still run. `ready` is not forced. Write, erase, trim, and format are not
+  added. A kept timeout is not reported as an absent or damaged card.
 
 A successful runtime mount gets a nonzero `MediaGeneration`, a runtime mount
 incarnation rather than a card UUID. Admission checks it exactly; non-ready
@@ -132,7 +140,7 @@ decoder support.
 
 Long names are not read through POSIX `readdir`. IDF 5.5.5 hardcodes
 `FF_LFN_BUF` to 255 bytes, and `dirent.d_name` is 256 bytes; a longer UTF-8
-LFN would be replaced by its short name. The engineering build mirrors the
+LFN would be replaced by its short name. The owner build mirrors the
 fatfs sources it compiles with `configure_file(... COPYONLY)` into the build
 directory and replaces `ffconf.h` with `fatfs_lfn_override/ffconf.h`, which
 raises that byte buffer to 768 plus NUL. Changing the wrapper or the C helper
@@ -162,16 +170,20 @@ and does not scan or open the card.
 ### Directory Service
 
 `directorySubmit`, `directoryPoll` and `directoryRelease` read one directory.
-WebUI is the first caller, through `sdBrowserList` (`GET /sd/dir`) in the
-engineering storage build. LVGL does not call the service. A submit does not
-change the audio source and does not touch the player queue. One exact path
-is played with `POST /sd/play` through `requestSdPlayback` and the existing
-Player path request. HTTP 202 means the path was queued. It does not mean
-sound has started. The general `POST /` no longer accepts `s07_sd_path`.
-An ordinary build prints `[Storage]` for the runtime mount, an SSR fallback,
-the 20 to 10 MHz retry, file and directory errors, and a failed stop barrier.
-Those actions run with diagnostics off. Verbose `[S07-ENG]` lines require
-`YORADIO_STORAGE_DIAGNOSTICS=1`.
+WebUI lists through `sdBrowserList` (`GET /sd/dir`). LVGL lists through
+`DirectoryConsumer::Lvgl` in `lvgl_ui/adapters/browser_provider.cpp`.
+Folder-queue search uses `DirectoryConsumer::Playback`. A submit does not
+change the sounding source and does not touch the player queue. Browsing
+folders is not the same action as `Player::activate` on the source overlay.
+One exact path is played with `POST /sd/play` through `requestSdPlayback` and
+the existing Player path request. HTTP 202 means the path was queued. It does
+not mean sound has started. The general `POST /` does not accept
+`s07_sd_path`. An ordinary build prints `[Storage]` for the runtime mount, an
+SSR fallback, the 20 to 10 MHz retry, file and directory errors, and a failed
+stop barrier. A successful STOP does not print that line;
+`stop barrier=CONFIRMED` exists only when `YORADIO_STORAGE_DIAGNOSTICS` is 1.
+Those ordinary actions run with diagnostics off. The default is 0. Verbose
+`[S07-ENG]` lines, `s07dir` and `s07act` require the flag to be 1.
 
 The first successful submit creates one task, `StorageDir`, priority 1 on core 0.
 Audio stays priority 4 on core 1. This task is not the JPEG worker. The static
@@ -210,15 +222,16 @@ mismatch is not served as the current page.
 Packed names are the stored bytes; a full `DirEntry` is not kept per row.
 `directoryItemPath` writes the joined path into a buffer the caller owns.
 
-The 128 KiB budget (`kDirectorySnapshotBudget`) counts every PSRAM block that
+The 2 MiB budget (`kDirectorySnapshotBudget`) counts every PSRAM block that
 is allocated at the same time: snapshots callers still hold, the catalog
 being built, and the previous block while it is copied. A temporary copy is
 not free budget. A growth that cannot hold both copies returns `ResourceLimit`
 even when the finished catalog alone would fit. The worker stack is 12 KiB.
 The queue is three slots, one pending request per consumer. Crossing the budget
 does not publish a partial catalog. `ReadFailed`, `StaleMedia` and `NoMemory`
-stay distinct. There is no multi-folder cache, whole-card index, playback
-queue or automatic remount.
+stay distinct. There is no multi-folder cache, whole-card index, or
+automatic remount. The folder queue lives in Player (`core/folder_queue.*`),
+not in Directory Service.
 
 WebUI stores one identity: client, request, path and generation. `start=1`
 accepts a scan. A later poll or page does not. Two browsers that reuse the
@@ -237,7 +250,9 @@ They cover live allocator bytes, the peak copy, the dropped service
 reference, worker creation already in progress, two clients with the same
 request and different paths, a late poll after replacement, one scan for
 both pages, and a long name in a nested folder. Folders of 100/500/2000
-files and playback load on the device are still not measured.
+files and opening a returned name longer than 255 UTF-8 bytes are not
+measured on the device. A full Folder Shuffle of 4096 entries and
+cancellation races have host coverage only.
 
 The bridge opens regular files read-only on the owner's mount, serializes IO,
 counts one physical handle despite Arduino File aliases, and rejects mutation
@@ -257,8 +272,11 @@ diagnostics remain available. No recovery state machine is implemented here.
 
 `mount_timeout_ms` and `max_mount_retries` are reserved configuration fields:
 the owner/driver do not consume them. `mount_path` is bound to the owner;
-autoformat remains prohibited. There is one early and one runtime mount attempt,
-without retry. SDSPI retains SDK per-command defaults (`command_timeout_ms=0`);
+autoformat remains prohibited. There is one early 400 kHz entry, a release
+before Type9, and one runtime mount at 20 MHz. FatFs 13 after a clean release
+gets one more mount at 10 MHz. There is no further retry and no automatic
+remount. The SSR timeout fallback is a different path. SDSPI retains SDK
+per-command defaults (`command_timeout_ms=0`);
 FatFs lock timeout is a synchronization timeout, not a whole-call deadline.
 The Arduino binding mutex waits with `portMAX_DELAY`. Mount/open/read/seek/close,
 space queries and cleanup are synchronous, without a guaranteed completion time.
@@ -276,66 +294,75 @@ Path/queue size limits and zero-wait submission bound resources/admission only.
 | TF DAT3/CS | 42 | None with SD off; conflicts with MUTE when enabled |
 
 `schematic_candidate_4848s040.h` records SCHEMATIC CONFIRMED nets from
-[gys2005 sheets](https://github.com/gys2005/ESP32-4848S040). Experimental runtime
-evidence is recorded in the local S07 plan; the product hardware gate remains
-incomplete and SD GPIO are not in BoardProfile. Validators check usable GPIO,
-effective display/touch/I2S and IR/MUTE/BTN_MUTE/WAKE collisions; the intended
-47/48 DisplayCommand/TF lifecycle share is the documented exception.
+[gys2005 sheets](https://github.com/gys2005/ESP32-4848S040). SD GPIO are not
+BoardProfile fields. When `YORADIO_SD_ENABLE` is 1, `storage_validate.h`
+checks GPIO 41/42 against display, touch, I2S, IR, MUTE and WAKE. GPIO 47/48
+stay DisplayCommand lines and are shared with TF CMD/CLK only across the
+early release and the later runtime mount. The check does not prove the wire.
 
 The disposable SDSPI probe and its PlatformIO environment were removed after
 the Owner moved into `4848S040`. FATFS LFN heap, UTF-8 and `MAX_LFN=255` for
-that build come from `sdkconfig.defaults.storage_owner`. FAT12/16/32
-only; exFAT stays off. Host tests do not prove device UTF-8 playback.
+that build come from `sdkconfig.defaults.storage_owner`. The mirrored
+`ffconf.h` sets `FF_LFN_BUF` to 768 and `FF_FS_EXFAT` to 1, so the owner
+build includes FAT12/16/32 and exFAT. One successful card is not a general
+filesystem proof. Directories of 100/500/2000 entries and a listing name
+longer than 255 UTF-8 bytes are not measured on the device.
 
 Targeted tests: `test/s07_4a2_storage_owner/`, `test/s07_4a3_single_file/`
 (bridge) and `test/s07_4a4a_source_transitions/` (current Player transitions).
 Numeric IDs remain Radio-only; mode-only SD needs an explicit path. Commands,
 seek and EOF run on the Player owner without Wi-Fi or legacy SD index/scanning.
-B003–B005 suffice for subsequent limited owner bring-up on the tested board;
-instruments are diagnostic, not mandatory prerequisites. Unknown facts remain
-UNKNOWN. The WebUI browser is the first Directory Service consumer in the
-engineering storage build. LVGL is not connected. Folder Queue remains
-subsequent work. Stock enablement and device acceptance are pending.
+B003–B005 remain the early mount evidence; they are not the current image.
+WebUI, LVGL and folder-queue search are the three Directory Service consumers.
+Legacy `USE_SD` stays off. Local acceptance of this behavior is not a
+publication.
 
 ## Русский
 
 `platform/storage/` реализует контракт при сборке, Storage Owner и адаптер FS
-только для чтения существующим Audio MP3/FLAC. Это штатные компоненты, ожидающие
-разрешённой интеграции аппаратуры/FATFS и приёмки на устройстве. `SDC_CS`
-остаётся 255, legacy `USE_SD` / SDManager выключены. Штатная сборка
-`4848S040` компилирует Storage Owner. `YORADIO_SD_ENABLE` в `src/myoptions.h`
-разрешает SD (`1`) или запрещает её (`0`: без раннего и runtime mount и без
-резерва GPIO 41/42). BoardProfile по-прежнему только отмечает наличие слота.
+только для чтения существующим Audio MP3/FLAC. На этой ветке такое поведение
+принято локально и не является публикацией. `SDC_CS` остаётся 255, legacy
+`USE_SD` / SDManager выключены. Штатная сборка `4848S040` компилирует Storage
+Owner внутренним флагом `YORADIO_STORAGE_OWNER_ENABLED`. Пользовательский
+переключатель — `YORADIO_SD_ENABLE` в `src/myoptions.h`: `1` разрешает SD,
+`0` пропускает ранний и runtime mount и не резервирует GPIO 41/42.
+BoardProfile по-прежнему только отмечает наличие слота.
 `StorageOwner::status()` сообщает, готова ли карта. Эти три факта сходятся в
-`kResolvedStorageConfig.enabled`. Номер версии сам по себе не доказывает
-воспроизведение, и это не приёмка BoardProfile.
+`kResolvedStorageConfig.enabled`. Не включайте SD через `USE_SD`, `SDC_CS`
+или другое окружение PlatformIO.
 
 ### Рабочая сборка S07
 
 Ветка Git остаётся `feature/s07-storage-shared-resources`. Рабочее окружение
 PlatformIO — обычный `4848S040` (`default_envs`).
 
-Результат сборки — `.pio/build/4848S040/firmware.bin`. Новейший
-инженерный образ WEB-NAV.1 — B052 (HW pending). B051 остаётся образом
-приёмки SOURCES.1. Версия на устройстве неизвестна, пока её не проверят.
+Результат сборки — `.pio/build/4848S040/firmware.bin`. FATFS LFN/UTF-8 для
+этого окружения берётся из `sdkconfig.defaults.storage_owner`.
 
 - Сборка: `pio run -e 4848S040`
 - Прошивка: `pio run -e 4848S040 -t upload`
 
 Кнопки Build и Upload в IDE берут окружение из строки состояния. Там должно
-быть `4848S040`. B045 — только идентичность: 2732960 байт, SHA256
-`0406a7125f21de3484f6c6bffd0724a783be95d55b9f2c3d0b6fe91764c9428c`.
-Файла на диске нет, это не образ для возврата. Образ с устройства B046
-лежит в `.pio/artifacts/s07-b046/firmware.bin` (2731392 байт, SHA256
-`6e816f114b84ba2843282c65a8dee7abd3e336a73ce1d6096cda11dcb24f38b6`).
-`uploadfs` здесь не используется.
+быть `4848S040`. Локально принятый образ —
+`0.9.434m-r2-lvgl-beta.3.08-S07.B083`, метка кэша WebUI `webnav6`.
+Эта приёмка не является публикацией. Прежние образы, включая B045
+(2732960 байт, SHA256
+`0406a7125f21de3484f6c6bffd0724a783be95d55b9f2c3d0b6fe91764c9428c`)
+и B046 (`.pio/artifacts/s07-b046/firmware.bin`, 2731392 байт, SHA256
+`6e816f114b84ba2843282c65a8dee7abd3e336a73ce1d6096cda11dcb24f38b6`),
+остаются историческими записями.
+
+`index.html` и `script.js` заменяются запросом `POST /webboard` с полем
+формы `www`. Успешная загрузка перезагружает устройство. Это не `uploadfs`
+и не запись целого `littlefs.bin`. Воспроизведение — `POST /sd/play`.
+Общий `POST /` не принимает `s07_sd_path`.
 
 ### Компоненты и точки входа
 
 | Компонент | Ответственность / точки входа |
 |---|---|
 | `BoardProfile.storage.onboard_sd_present` | Заводской факт наличия слота; полей GPIO SD пока нет |
-| `ResolvedStorageConfig` / `storage_validate.h` | Запрет включения в штатной конфигурации и проверки при сборке; `SDC_CS != 255` отвергается |
+| `ResolvedStorageConfig` / `storage_validate.h` | Сборка Owner, `YORADIO_SD_ENABLE` и слот платы; `SDC_CS != 255` и legacy `USE_SD` отвергаются |
 | `storage_boot_config.cpp` | Привязка Owner; при `kResolvedStorageConfig.enabled == false` кандидатные пины отключены |
 | `storage_owner.h/.cpp` | `StorageOwner::instance()` владеет монтированием и учётом операций/дескрипторов |
 | `storage_sdspi.h/.cpp` | Внутренняя реализация IDF SPI2/device/card/FAT/VFS; сырые card/mount наружу не выдаются |
@@ -350,8 +377,11 @@ PlatformIO — обычный `4848S040` (`default_envs`).
 Type9, `mountAfterDisplay(display_ready)` после него, `processFault()` в loop.
 Включённая реализация входит в SPI mode на 400 кГц, подтверждает полное
 освобождение ресурсов для Type9, затем монтирует на 20 МГц и сохраняет mount.
-Прежний результат 1 МГц остаётся историческим свидетельством в stage-plan S07
-и не является текущей инженерной настройкой. Штатная конфигурация отключает этот IO. Защиту DisplayCommand обеспечивает
+Если этот mount возвращает FatFs 13 (`FR_NO_FILESYSTEM`) после чистого
+освобождения, выполняется одна попытка на 10 МГц. Прежний результат 1 МГц
+остаётся историческим свидетельством в stage-plan S07 и не является текущей
+настройкой. При `kResolvedStorageConfig.enabled == false` этот IO не
+занимается. Защиту DisplayCommand обеспечивает
 ST7701 backend. `status()` копирует метаданные под короткой критической секцией;
 `refreshSpace()` получает free/total только в задаче владельца. Под блокировкой
 метаданных нет драйверных/FS-вызовов. `Absent` означает отсутствие ответа
@@ -379,14 +409,15 @@ ST7701 backend. `status()` копирует метаданные под коро
   завершения клиентов. Само освобождение ресурсов синхронное. Обычный STOP и
   выбор источника сохраняют SD смонтированной. Автоматического remount нет.
 - `YORADIO_SD_SSR_TIMEOUT_FALLBACK` в `src/myoptions.h` собирается в
-  `storage_sdspi.cpp`. Инженерный env линкует подмену только
-  `sdmmc_init_sd_ssr`. Сначала выполняется настоящий вызов. `1` продолжает
-  наш SDSPI mount после `ESP_ERR_TIMEOUT` этого шага и обнуляет поля времени
-  стирания. `0`, любая другая ошибка и вызов вне нашего mount сохраняют
-  ошибку IDF. Дальнейшие проверки init и настоящий FAT mount остаются.
-  `ready` не выставляется вручную. Запись, erase, trim и формат не
-  добавляются. Штатный env подмену не линкует. Сохранённый таймаут не
-  сообщается как отсутствие или повреждение карты.
+  `storage_sdspi.cpp`. Штатная сборка Owner `4848S040` линкует
+  `--wrap=sdmmc_init_sd_ssr`. Сначала выполняется настоящий вызов. `1`
+  продолжает наш SDSPI mount после `ESP_ERR_TIMEOUT` этого шага и обнуляет
+  поля времени стирания. `0`, любая другая ошибка и вызов вне нашего mount
+  сохраняют ошибку IDF. Этот fallback отделён от единственного повтора
+  20 → 10 МГц после FatFs 13. Дальнейшие проверки init и настоящий FAT mount
+  остаются. `ready` не выставляется вручную. Запись, erase, trim и формат не
+  добавляются. Сохранённый таймаут не сообщается как отсутствие или
+  повреждение карты.
 
 Успешное runtime-монтирование получает ненулевой `MediaGeneration` — номер
 экземпляра монтирования, не UUID карты. Допуск проверяет точное поколение;
@@ -427,7 +458,7 @@ FileError доступен отдельно.
 
 Длинные имена не читаются через POSIX `readdir`. IDF 5.5.5 жёстко задаёт
 `FF_LFN_BUF` в 255 байт, а `dirent.d_name` вмещает 256 байт; более длинный
-UTF-8 LFN подменялся бы коротким именем. Инженерная сборка зеркалирует
+UTF-8 LFN подменялся бы коротким именем. Сборка Owner зеркалирует
 собираемые исходники fatfs через `configure_file(... COPYONLY)` в каталог
 сборки и заменяет `ffconf.h` на `fatfs_lfn_override/ffconf.h`, поднимая
 байтовый буфер до 768 плюс NUL. Изменение обёртки или C-helper обновляет
@@ -456,15 +487,20 @@ parser.
 ### Directory Service
 
 `directorySubmit`, `directoryPoll` и `directoryRelease` читают один каталог.
-Первый вызывающий — WebUI через `sdBrowserList` (`GET /sd/dir`) в инженерной
-сборке storage. LVGL сервис не вызывает. Запрос не меняет источник звука и не
-трогает очередь Player. Один точный путь запускается через `POST /sd/play`, `requestSdPlayback` и
-существующий запрос пути Player. HTTP 202 означает, что путь поставлен в
-очередь. Это не значит, что звук уже начался. Общий `POST /` больше не
-принимает `s07_sd_path`. Обычная прошивка печатает `[Storage]` для runtime
-mount, SSR fallback, повтора 20 → 10 МГц, ошибок файла и каталога и отказа
-барьера STOP. Эти действия выполняются и при выключенной диагностике.
-Подробные строки `[S07-ENG]` требуют `YORADIO_STORAGE_DIAGNOSTICS=1`.
+WebUI читает через `sdBrowserList` (`GET /sd/dir`). LVGL читает через
+`DirectoryConsumer::Lvgl` в `lvgl_ui/adapters/browser_provider.cpp`.
+Поиск folder-queue использует `DirectoryConsumer::Playback`. Запрос не меняет
+звучащий источник и не трогает очередь Player. Просмотр папок и
+`Player::activate` в оверлее источников — разные действия. Один точный путь
+запускается через `POST /sd/play`, `requestSdPlayback` и существующий запрос
+пути Player. HTTP 202 означает, что путь поставлен в очередь. Это не значит,
+что звук уже начался. Общий `POST /` не принимает `s07_sd_path`. Обычная
+прошивка печатает `[Storage]` для runtime mount, SSR fallback, повтора
+20 → 10 МГц, ошибок файла и каталога и отказа барьера STOP. Успешный STOP
+эту строку не печатает; `stop barrier=CONFIRMED` есть только при
+`YORADIO_STORAGE_DIAGNOSTICS=1`. Обычные действия выполняются и при
+выключенной диагностике. Значение по умолчанию — 0. Подробные строки
+`[S07-ENG]`, `s07dir` и `s07act` требуют значения 1.
 
 Первый успешный запрос создаёт одну задачу `StorageDir`, приоритет 1 на ядре 0.
 Audio остаётся приоритетом 4 на ядре 1. Эта задача не является JPEG worker.
@@ -503,7 +539,7 @@ Worker проверяет отмену между вызовами FatFs и за
 Имена упакованы; полный `DirEntry` на каждую строку не хранится.
 `directoryItemPath` записывает собранный путь в буфер вызывающего.
 
-Бюджет 128 КиБ (`kDirectorySnapshotBudget`) считает каждый блок PSRAM,
+Бюджет 2 МиБ (`kDirectorySnapshotBudget`) считает каждый блок PSRAM,
 выделенный одновременно: снимки, которые ещё держат вызывающие, собираемый
 каталог и предыдущий блок, пока он копируется. Временная копия не бесплатна.
 Рост, при котором обе копии не помещаются, даёт `ResourceLimit`, даже если
@@ -530,8 +566,9 @@ WebUI хранит одну личность: клиент, запрос, пут
 Они покрывают живые байты allocator, пик копии, снятие ссылки сервиса,
 создание worker, которое уже идёт, двух клиентов с одним req и разными
 путями, поздний poll после вытеснения, один проход на обе страницы и длинное
-имя во вложенной папке. Каталоги на 100/500/2000 файлов и нагрузка вместе с
-воспроизведением на устройстве ещё не измерялись.
+имя во вложенной папке. Каталоги на 100/500/2000 файлов и открытие
+возвращённого имени длиннее 255 байт UTF-8 на плате не измерены. Полный
+Folder Shuffle на 4096 записей и гонки отмены покрыты только host-проверками.
 
 Адаптер открывает обычные файлы только для чтения на mount владельца,
 сериализует IO, учитывает один физический дескриптор при нескольких оболочках
@@ -552,7 +589,10 @@ unmount остаются запрещены до перезапуска. Гро�
 
 `mount_timeout_ms` и `max_mount_retries` — зарезервированные поля: владелец и
 драйвер их не читают. `mount_path` передаётся владельцу; autoformat запрещён.
-Есть по одной ранней и runtime-попытке mount, без retry. SDSPI сохраняет
+Есть один ранний вход на 400 кГц, освобождение линий до Type9 и один runtime
+mount на 20 МГц. FatFs 13 после чистого освобождения даёт ещё один mount на
+10 МГц. Дальнейшего повтора и автоматического remount нет. SSR timeout
+fallback — другой путь. SDSPI сохраняет
 стандартные timeout отдельных команд SDK (`command_timeout_ms=0`); timeout
 блокировки FatFs ограничивает ожидание синхронизации, не весь FS-вызов.
 Mutex адаптера Arduino ожидает с `portMAX_DELAY`. Mount/open/read/seek/close,
@@ -571,24 +611,25 @@ control/decoder по 100 мс в Audio не ограничивают после�
 | TF DAT3/CS | 42 | Нет при выключенной SD; конфликт с MUTE при включении |
 
 `schematic_candidate_4848s040.h` хранит линии SCHEMATIC CONFIRMED из
-[схем gys2005](https://github.com/gys2005/ESP32-4848S040). Экспериментальные
-runtime-результаты записаны в локальном S07 plan; аппаратные условия включения
-штатной SD ещё не выполнены, GPIO SD не внесены в BoardProfile. Валидаторы
-проверяют пригодность GPIO, конфликты с итоговой разводкой display/touch/I2S и
-IR/MUTE/BTN_MUTE/WAKE. Предполагаемое совмещение DisplayCommand/TF на 47/48
-по жизненному циклу — документированное исключение.
+[схем gys2005](https://github.com/gys2005/ESP32-4848S040). GPIO SD не являются
+полями BoardProfile. При `YORADIO_SD_ENABLE=1` `storage_validate.h` проверяет
+GPIO 41/42 на конфликт с дисплеем, тачем, I2S, IR, MUTE и WAKE. GPIO 47/48
+остаются линиями DisplayCommand и совмещаются с TF CMD/CLK только через
+раннее освобождение и последующий runtime mount. Проверка не доказывает провод.
 
 Одноразовый SDSPI probe и его окружение PlatformIO удалены после переноса
 Owner в `4848S040`. FATFS LFN heap, UTF-8 и `MAX_LFN=255` для этой сборки
-берутся из `sdkconfig.defaults.storage_owner`. Только FAT12/16/32;
-exFAT выключен. Host-тесты не доказывают UTF-8 playback на устройстве.
+берутся из `sdkconfig.defaults.storage_owner`. Зеркальный `ffconf.h` задаёт
+`FF_LFN_BUF` 768 и `FF_FS_EXFAT` 1, поэтому сборка Owner включает
+FAT12/16/32 и exFAT. Успех одной карты не является общим доказательством
+файловой системы. Каталоги 100/500/2000 и имя из списка длиннее 255 байт
+UTF-8 на плате не измерены.
 
 Адресные тесты: `test/s07_4a2_storage_owner/`, `test/s07_4a3_single_file/`
 (адаптер FS) и `test/s07_4a4a_source_transitions/` (переходы Player). Числовые
 station IDs остаются Radio-only; для SD нужен явный путь, одного mode недостаточно.
 Управление/seek/EOF выполняет Player без зависимости от Wi-Fi и legacy SD index.
-B003–B005 достаточны для последующего ограниченного owner bring-up на испытанной
-плате. Приборы применяются для диагностики, не являются обязательным допуском;
-неизмеренные факты остаются UNKNOWN. Браузер WebUI — первый потребитель
-Directory Service в инженерной сборке storage. LVGL не подключён. Folder Queue
-остаётся последующей работой. Штатное включение SD и приёмка на устройстве ещё не выполнены.
+B003–B005 остаются ранним свидетельством mount; это не текущий образ.
+WebUI, LVGL и поиск folder-queue — три потребителя Directory Service.
+Legacy `USE_SD` выключен. Локальная приёмка этого поведения не является
+публикацией.

@@ -220,7 +220,7 @@ Factory wiring of ESP32-4848S040. The full display and touch map is in the [boar
 | Physical MUTE button (`BTN_MUTE`, optional) | 255 — unused by default |
 | Amplifier MUTE/enable output (`MUTE_PIN`, optional) | 255 — unused by default |
 
-SD pins (CS=42, SCK=48, MISO=41, MOSI=47) are unused in this configuration: SD playback is disabled in the public beta.
+In the current sources SD is switched by `YORADIO_SD_ENABLE` in `src/myoptions.h` and by the Board Profile slot. The ordinary environment is `[env:4848S040]`. `YORADIO_STORAGE_OWNER_ENABLED` is an internal build flag. Do not use `USE_SD`, `SDC_CS`, or the legacy SDManager. The lines are DAT0 41, CS 42, CMD/SDA 47, and CLK/SCK 48. GPIO 47/48 are taken for the 400 kHz entry, released before Type9, and taken again for the 20 MHz runtime mount. Details are in the [Storage Contract](src/src/platform/storage/README.md). Historical `build_bin/` packages do not contain this path.
 
 **MUTE.** `BTN_MUTE` is an optional physical button to GND with an internal pull-up. `MUTE_PIN` is an independent optional GPIO output for mute/enable of an external amplifier (not the same signal as the button). Both lines are disabled by default (`255`) on ESP32-4848S040. If the amplifier needs a hardware mute/enable line, set the GPIO in `src/myoptions.h`. The build does not check whether that GPIO collides with the display, touch, I2S, USB, BOOT, or SD. Compare the number with the profile map and your schematic. This text does not assign a free GPIO.
 

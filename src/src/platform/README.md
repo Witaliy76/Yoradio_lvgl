@@ -7,7 +7,8 @@ Author: Witaliy76 - https://github.com/Witaliy76
 `src/src/platform/` defines hardware contracts and the Storage mount lifecycle.
 It turns a selected board profile and optional wiring overrides into typed
 values for display/touch backends. Storage Owner and the read-only Audio FS
-bridge are implemented; their enabled device integration is still gated.
+bridge are implemented. On this branch that SD behavior is locally accepted
+and is not a published release.
 UI, theme and user-settings persistence belong to other modules.
 
 ### Map
@@ -19,7 +20,7 @@ src/myoptions.h
   -> DisplayPort -> direct ST7701 / esp_lcd backend
   -> platform/touch: ResolvedTouchConfig -> Gt911Backend -> TouchPort
   -> platform/storage: ResolvedStorageConfig -> StorageOwner -> StorageFsBridge / Directory Service
-  -> Audio File/decoder; Player owns path commands and epoch (stock SD disabled)
+  -> Audio File/decoder; Player owns path commands and epoch (legacy USE_SD off)
   -> lvgl_ui/lv_touch_indev.cpp -> LVGL pointer input
 ```
 
@@ -31,7 +32,7 @@ src/myoptions.h
 | Legacy-name migration errors | [board/compat/README.md](board/compat/README.md) | Why `ST7701_*` and `TS_*` names must not return |
 | Display Contract | [display/README.md](display/README.md) | Panel recipe, effective display configuration and DisplayPort |
 | Touch Contract | [touch/README.md](touch/README.md) | GT911, TouchPort and LVGL input path |
-| Storage Contract | [storage/README.md](storage/README.md) | Mount owner, Audio FS bridge, per-folder Directory Service; stock SD disabled |
+| Storage Contract | [storage/README.md](storage/README.md) | Mount owner, Audio FS bridge, per-folder Directory Service; user switch `YORADIO_SD_ENABLE` |
 | UI Contract | [LVGL UI contract](../lvgl_ui/README.md#ui-contract--ui-контракт) | Explicit `BoardDefaults.ui.profile`, resolved viewport and UI metrics |
 
 ### Layers
@@ -61,8 +62,8 @@ or SD↔SD transitions; `PlaybackContext` and Config mode change only on confirm
 playback. Control runs without Wi-Fi; ordinary STOP leaves SD mounted.
 Shared UTF-8 validation is in `utils/utf8.h`. Directory Service lists one
 folder on task `StorageDir` and returns an immutable snapshot for `WebUi`,
-`Lvgl`, or `Playback`. The engineering WebUI and the folder-queue next-track
-search are the current callers; LVGL does not. Path SD Next/EOF/Prev live in
+`Lvgl`, or `Playback`. The callers are WebUI (`GET /sd/dir`), the LVGL
+browser, and the folder-queue search. Path SD Next/EOF/Prev live in
 `core/folder_queue.*` and stay independent of the browse cwd. Detail is in
 the storage README.
 
@@ -87,10 +88,12 @@ USB, DLNA, and NAS/SMB2 are reserved Directory names. NAS means SMB2, not SMB1
 and not WebDAV. Bluetooth and the other planned panels are ControlPanel: no
 file path and no folder queue. None of them is activatable yet.
 
-The ordinary `4848S040` build enables the Storage Owner. Legacy `USE_SD` and
-SDManager stay off. The disposable SDSPI probe sources are gone. Build and flash are described in
-[S07 working build](storage/README.md#s07-working-build). Device acceptance remains pending; probe housekeeping
-follows integration. Operation accounting does not guarantee synchronous FS
+The ordinary `4848S040` build enables the Storage Owner through the internal
+flag `YORADIO_STORAGE_OWNER_ENABLED`. The user switch is `YORADIO_SD_ENABLE`
+in `src/myoptions.h`. Legacy `USE_SD` and SDManager stay off. The disposable
+SDSPI probe sources are gone. Build and flash are described in
+[S07 working build](storage/README.md#s07-working-build). Local acceptance is
+not a publication. Operation accounting does not guarantee synchronous FS
 completion time. See [Storage roles and limits](storage/README.md).
 
 ### Four common tasks
@@ -139,7 +142,8 @@ does not claim plug-and-play support for other boards.
 `src/src/platform/` описывает аппаратные контракты и жизненный цикл монтирования
 Storage. Выбранный профиль платы и необязательные изменения разводки превращаются
 в типизированные значения для драйверов дисплея и тача. Storage Owner и адаптер
-Audio FS только для чтения реализованы; включение на устройстве ещё ограничено.
+Audio FS только для чтения реализованы. На этой ветке такое поведение SD
+принято локально и не является публикацией.
 Компоновка UI, тема и хранение пользовательских настроек принадлежат другим модулям.
 
 ### Карта
@@ -151,7 +155,7 @@ src/myoptions.h
   -> DisplayPort -> прямой драйвер ST7701 / esp_lcd
   -> platform/touch: ResolvedTouchConfig -> Gt911Backend -> TouchPort
   -> platform/storage: ResolvedStorageConfig -> StorageOwner -> StorageFsBridge / Directory Service
-  -> Audio File/декодер; Player владеет командами и epoch (штатная SD выключена)
+  -> Audio File/декодер; Player владеет командами и epoch (legacy USE_SD выключен)
   -> lvgl_ui/lv_touch_indev.cpp -> ввод указателя LVGL
 ```
 
@@ -163,7 +167,7 @@ src/myoptions.h
 | Ошибки миграции старых имён | [board/compat/README.md](board/compat/README.md) | Почему имена `ST7701_*` и `TS_*` не возвращаются |
 | Display Contract | [display/README.md](display/README.md) | Параметры панели, итоговая конфигурация дисплея и DisplayPort |
 | Touch Contract | [touch/README.md](touch/README.md) | GT911, TouchPort и путь ввода LVGL |
-| Storage Contract | [storage/README.md](storage/README.md) | Владелец mount, адаптер Audio FS, Directory Service одной папки; штатная SD выключена |
+| Storage Contract | [storage/README.md](storage/README.md) | Владелец mount, адаптер Audio FS, Directory Service одной папки; переключатель `YORADIO_SD_ENABLE` |
 | UI Contract | [UI-контракт LVGL](../lvgl_ui/README.md#ui-contract--ui-контракт) | Явный `BoardDefaults.ui.profile`, физический размер экрана и UI-метрики |
 
 ### Слои
@@ -193,8 +197,8 @@ SD↔SD Player подтверждает stop/close; источник в `Playbac
 меняются только после успешного запуска. Управление работает без Wi-Fi; обычный
 STOP сохраняет mount SD. Общая проверка UTF-8 находится в `utils/utf8.h`.
 Directory Service читает одну папку в задаче `StorageDir` и отдаёт неизменяемый
-снимок для `WebUi`, `Lvgl` или `Playback`. Текущие вызывающие — инженерный
-WebUI и поиск следующего трека folder-queue; LVGL — нет. Path SD
+снимок для `WebUi`, `Lvgl` или `Playback`. Вызывающие — WebUI
+(`GET /sd/dir`), браузер LVGL и поиск folder-queue. Path SD
 Next/EOF/Prev живут в `core/folder_queue.*` и не зависят от browse cwd.
 Подробности — в README Storage.
 
@@ -219,12 +223,14 @@ USB, DLNA и NAS/SMB2 — зарезервированные имена Director
 SMB1 и не WebDAV. Bluetooth и остальные planned-панели — ControlPanel: без
 пути файла и без folder queue. Активировать их пока нельзя.
 
-Штатная сборка `4848S040` включает Storage Owner. Legacy `USE_SD` и SDManager
+Штатная сборка `4848S040` включает Storage Owner внутренним флагом
+`YORADIO_STORAGE_OWNER_ENABLED`. Пользовательский переключатель —
+`YORADIO_SD_ENABLE` в `src/myoptions.h`. Legacy `USE_SD` и SDManager
 выключены. Исходники одноразового SDSPI probe удалены.
 Сборка и прошивка описаны в
-[рабочей сборке S07](storage/README.md#рабочая-сборка-s07). Приёмка на устройстве ещё не выполнена; уборка probe следует
-после интеграции. Учёт операций не гарантирует время завершения синхронного FS.
-Подробнее: [роли и ограничения Storage](storage/README.md).
+[рабочей сборке S07](storage/README.md#рабочая-сборка-s07). Локальная приёмка
+не является публикацией. Учёт операций не гарантирует время завершения
+синхронного FS. Подробнее: [роли и ограничения Storage](storage/README.md).
 
 ### Четыре частых задачи
 

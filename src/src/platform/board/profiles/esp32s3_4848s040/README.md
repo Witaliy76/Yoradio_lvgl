@@ -45,8 +45,8 @@ uses polling. Rewire only through TOUCH_* Custom Wiring entries.
   RGB output is active can affect the image.
 - GPIO19/20 are GT911 SDA/RGB G1 and overlap native USB D-/D+ roles
   respectively; stock native USB pins are not free.
-- GPIO47/48 are the panel Type9 command bus and overlap unvalidated SD comments.
-- The onboard SD slot is only a presence fact; its pin map is not validated here.
+- GPIO47/48 are the panel Type9 command bus. With `YORADIO_SD_ENABLE=1` they are also TF CMD/CLK, released after the 400 kHz entry and claimed again for the runtime mount. See the [Storage Contract](../../../storage/README.md).
+- The onboard SD slot is a presence fact in this profile. DAT0/CS are GPIO 41/42 and are checked by `storage_validate.h` when SD is enabled. They are not BoardProfile fields.
 - The onboard mono audio path requires physical R21/R22/R23 rework and is not
   selected by software.
 
@@ -100,9 +100,8 @@ and [Touch Contract](../../../touch/README.md).
   для пробуждения; нажатие BOOT при активном выводе RGB может повлиять на изображение.
 - GPIO19/20 используются для GT911 SDA/RGB G1 и совпадают с USB D-/D+
   соответственно; заводская разводка занимает оба пина встроенного USB.
-- GPIO47/48 — шина команд Type9 панели; эти же пины указаны для SD в
-  неподтверждённых комментариях.
-- Для встроенного слота SD зафиксировано только наличие; его разводка здесь не проверена.
+- GPIO47/48 — шина команд Type9 панели. При `YORADIO_SD_ENABLE=1` это также TF CMD/CLK: линии освобождаются после входа на 400 кГц и снова занимаются для runtime mount. См. [Storage Contract](../../../storage/README.md).
+- Встроенный слот SD в этом профиле — факт наличия. DAT0/CS — GPIO 41/42; при включённой SD их проверяет `storage_validate.h`. Полями BoardProfile они не являются.
 - Встроенный монофонический аудиотракт требует аппаратной перекоммутации
   R21/R22/R23 и не выбирается программно.
 

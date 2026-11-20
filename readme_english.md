@@ -4,7 +4,7 @@
 
 YoRadio LVGL is a Wi-Fi internet radio for ESP32-S3 with a touchscreen display. The interface is built on LVGL 9.5 and includes six main screens that you switch between with a horizontal swipe, plus separate screens for Wi-Fi setup, quick access to favorite stations, and a screensaver.
 
-Besides the on-device UI there is a Web UI for playback, stations, behavior settings, and Appearance — themes, Main screen backgrounds, station artwork, and an optional user text TTF. For audio the project is designed around an external I2S DAC or amplifier.
+Besides the on-device UI there is a Web UI for playback, the Media Library (the first screen of the current sources), the Internet station list, behavior settings, and Appearance — themes, Main screen backgrounds, station artwork, and an optional user text TTF. For audio the project is designed around an external I2S DAC or amplifier.
 
 The project is based on [e2002/yoradio](https://github.com/e2002/yoradio); the current repository is [Yoradio_lvgl](https://github.com/Witaliy76/Yoradio_lvgl).
 
@@ -210,7 +210,7 @@ Wake from the GT911 touchscreen in Deep Sleep is not supported. Wake through the
 
 ## Web UI and Appearance
 
-The Web UI is available at `http://<device-IP>/` (the IP is shown on Info): playback control, station list, behavior settings, Appearance, and firmware/filesystem updates.
+The Web UI is available at `http://<device-IP>/` (the IP is shown on Info): playback control, the Media Library, the Internet station list, behavior settings, Appearance, and firmware updates. The current `index.html` and `script.js` are replaced with `POST /webboard`. Historical `build_bin/` packages still open the older page.
 
 ![Web UI: Appearance icon](readme/english/webui-appearance-entry.png)
 
