@@ -7,7 +7,7 @@ Intermediate releases inside a major Beta. Major milestones stay in `README.md`.
 - Added MP3 and FLAC playback from FAT and exFAT SD cards on the 4848S040.
 - Added a Media Library to WebUI and LVGL for browsing stations and folders without interrupting playback.
 - Added folder playback with automatic track advance, repeat modes and shuffle.
-- Fixed a reboot when connecting to the Kiss Hit HTTPS stream.
+- Increased the Arduino loop task stack from 8 KiB to 16 KiB for HTTPS radio connections.
 
 ## 0.9.434m-r2-lvgl-beta.3.08 — 2026-11-08
 
