@@ -3889,7 +3889,7 @@ void handleSources(AsyncWebServerRequest* request) {
 #if YORADIO_STORAGE_OWNER_ENABLED
 // Explicit engineering input; bounded bytes go straight to the owned Player API.
 // Явный инженерный запрос: полный путь передаётся в существующий API Player.
-static yoradio::playback::PathPlayResult requestEngineeringStoragePath(const char* path,size_t bytes) {
+static yoradio::playback::PathPlayResult requestSdPlayback(const char* path,size_t bytes) {
   using namespace yoradio::playback;
   if(bytes>yoradio::storage::kMaxMediaPathBytes) return PathPlayResult::PathTooLong;
   if(!path || strlen(path)!=bytes) return PathPlayResult::InvalidPath; // reject embedded NUL
@@ -3930,7 +3930,7 @@ void handleSdPlay(AsyncWebServerRequest* request) {
     return;
   }
   const String& path = request->getParam("path", true)->value();
-  const auto result = requestEngineeringStoragePath(path.c_str(), path.length());
+  const auto result = requestSdPlayback(path.c_str(), path.length());
   const bool queued = result == yoradio::playback::PathPlayResult::Accepted;
   char body[96];
   snprintf(body, sizeof body, "{\"state\":\"%s\",\"result\":%u}",
@@ -3942,20 +3942,6 @@ void handleSdPlay(AsyncWebServerRequest* request) {
 #endif
 
 void handleHTTPArgs(AsyncWebServerRequest * request) {
-#if YORADIO_STORAGE_OWNER_ENABLED
-  if(request->hasArg("s07_sd_path")) {
-    if(request->method()!=HTTP_POST) { request->send(405,"text/plain","POST required");return; }
-    if(!request->hasParam("s07_sd_path",true)) { request->send(400,"text/plain","form field required");return; }
-    const String& path=request->getParam("s07_sd_path",true)->value();
-    const auto result=requestEngineeringStoragePath(path.c_str(),path.length());
-    Serial.printf("[S07-ENG] path submit bytes=%u result=%u (Accepted is queued)\n",
-        static_cast<unsigned>(path.length()),static_cast<unsigned>(result));
-    char reply[64];snprintf(reply,sizeof(reply),"{\"result\":%u}",static_cast<unsigned>(result));
-    const int code=result==yoradio::playback::PathPlayResult::Accepted?202:400;
-    request->send(code,"application/json",reply);
-    return;
-  }
-#endif
   /* Fallback if HTTP_ANY "/" handled this URL first / Запасной путь если сначала сработал catch-all */
   if (request->method() == HTTP_GET && strcmp(request->url().c_str(), "/bg_status") == 0) {
     handleBgStatusHttp(request);

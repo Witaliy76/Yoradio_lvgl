@@ -1,17 +1,32 @@
-// Short event diagnostics only in the explicit enabled engineering environment.
-// Краткая диагностика событий только в явно включённой инженерной конфигурации.
+// Storage diagnostics are off unless the value is exactly 1.
+// Диагностика Storage выключена, пока значение флага не равно ровно 1.
 #pragma once
+#ifndef YORADIO_STORAGE_DIAGNOSTICS
+#define YORADIO_STORAGE_DIAGNOSTICS 0
+#endif
+#if (YORADIO_STORAGE_DIAGNOSTICS) != 0 && (YORADIO_STORAGE_DIAGNOSTICS) != 1
+#error "YORADIO_STORAGE_DIAGNOSTICS must be 0 or 1."
+#endif
+
+// Ordinary Storage lines stay when the Owner is built. Verbose snapshots do not.
+// Обычные строки Storage остаются в сборке Owner. Подробные снимки — нет.
 #if defined(YORADIO_STORAGE_OWNER_ENABLED) && YORADIO_STORAGE_OWNER_ENABLED
 #include <Arduino.h>
+#define YORADIO_STORAGE_NOTE(...) Serial.printf(__VA_ARGS__)
+#else
+#define YORADIO_STORAGE_NOTE(...) ((void)0)
+#endif
+#if defined(YORADIO_STORAGE_OWNER_ENABLED) && YORADIO_STORAGE_OWNER_ENABLED && (YORADIO_STORAGE_DIAGNOSTICS) == 1
 #define S07_STORAGE_LOG(...) Serial.printf(__VA_ARGS__)
 #else
 #define S07_STORAGE_LOG(...) ((void)0)
 #endif
 
-// GPIO48 matrix read stays on the device compiler. Host tests compile this header
-// with the engineering flag set and must not pull in ESP-IDF register headers.
-// Чтение матрицы GPIO48 только на устройстве. Хостовые тесты не тянут регистры ESP-IDF.
-#if defined(YORADIO_STORAGE_OWNER_ENABLED) && YORADIO_STORAGE_OWNER_ENABLED && defined(__XTENSA__)
+// GPIO48 matrix read stays on the device compiler, and only while diagnostics are on.
+// Host tests must not pull in ESP-IDF register headers.
+// Чтение матрицы GPIO48 только на устройстве и только при включённой диагностике.
+// Хостовые тесты не тянут регистры ESP-IDF.
+#if defined(YORADIO_STORAGE_OWNER_ENABLED) && YORADIO_STORAGE_OWNER_ENABLED && (YORADIO_STORAGE_DIAGNOSTICS) == 1 && defined(__XTENSA__)
 #include "../../core/options.h"
 #include "storage_owner.h"
 #include "soc/gpio_reg.h"
@@ -23,7 +38,7 @@ namespace storage {
 // Read-only GPIO48 output-matrix snapshot. It does not reconfigure the pin or read the card.
 // Снимок выходной матрицы GPIO48. Пин не перенастраивается, карта не читается.
 inline void g48(const char* tag) {
-#if defined(YORADIO_STORAGE_OWNER_ENABLED) && YORADIO_STORAGE_OWNER_ENABLED && defined(__XTENSA__)
+#if defined(YORADIO_STORAGE_OWNER_ENABLED) && YORADIO_STORAGE_OWNER_ENABLED && (YORADIO_STORAGE_DIAGNOSTICS) == 1 && defined(__XTENSA__)
     const uint32_t out_sel = REG_READ(GPIO_FUNC0_OUT_SEL_CFG_REG + 48 * 4) & GPIO_FUNC0_OUT_SEL_V;
     const char* kind = "other";
     int rmt_ch = -1;

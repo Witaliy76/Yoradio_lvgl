@@ -95,9 +95,11 @@ void StorageOwner::mountAfterDisplay(bool display_ready) {
     // Try an intermediate SDSPI clock after FR_NO_FILESYSTEM and clean rollback.
     // После FR_NO_FILESYSTEM и успешного освобождения пробуем промежуточную частоту SDSPI.
     if (result.error == 13 && !result.cleanup_error && !result.resources_held && !result.mounted) {
-        S07_STORAGE_LOG("[S07-ENG] SD mount failed at requested 20 MHz (FatFs 13: FR_NO_FILESYSTEM). Retrying at 10 MHz.\n");
+        YORADIO_STORAGE_NOTE("[Storage] mount failed at 20 MHz, FatFs 13 FR_NO_FILESYSTEM; retry at 10 MHz\n");
         result = sdspi::mount(10000);
     }
+    YORADIO_STORAGE_NOTE("[Storage] runtime mount real_khz=%d error=%ld mounted=%u\n",
+        result.real_khz, static_cast<long>(result.error), static_cast<unsigned>(result.mounted));
     S07_STORAGE_LOG("[S07-ENG] runtime mount=%ld cleanup=%ld mounted=%u held=%u requested_khz=%d card_max_khz=%d real_khz=%d\n",
         static_cast<long>(result.error),static_cast<long>(result.cleanup_error),
         static_cast<unsigned>(result.mounted),static_cast<unsigned>(result.resources_held),

@@ -22,9 +22,8 @@ struct Binding {
         if (!status) return;
         status->native_error.store(native);
         status->error.store(error);
-        S07_STORAGE_LOG("[S07-ENG] fs_error=%u native=%d generation=%llu handles=%u\n",
-            static_cast<unsigned>(error),native,static_cast<unsigned long long>(generation),
-            static_cast<unsigned>(status->handles.load()));
+        YORADIO_STORAGE_NOTE("[Storage] file error=%u native=%d\n",
+            static_cast<unsigned>(error), native);
         if (media) StorageOwner::instance().reportMediaFault(generation,native);
     }
 };

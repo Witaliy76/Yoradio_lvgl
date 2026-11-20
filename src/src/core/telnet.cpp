@@ -13,7 +13,8 @@
 #include "telnet.h"
 #include "sleep_timer.h"
 #include "../ai/ai_log.h"  // Для aiLogSetBootDone / For aiLogSetBootDone
-#if defined(YORADIO_STORAGE_OWNER_ENABLED) && YORADIO_STORAGE_OWNER_ENABLED
+#include "../platform/storage/storage_engineering_log.h"
+#if defined(YORADIO_STORAGE_OWNER_ENABLED) && YORADIO_STORAGE_OWNER_ENABLED && (YORADIO_STORAGE_DIAGNOSTICS) == 1
 #include "../platform/storage/storage_dir.h"
 #include "../platform/storage/storage_owner.h"
 #include "path_play_request.h"
@@ -114,7 +115,7 @@ ParsedLegacySleep parse_legacy_sleep(const char* input) {
   return parsed;
 }
 
-#if defined(YORADIO_STORAGE_OWNER_ENABLED) && YORADIO_STORAGE_OWNER_ENABLED
+#if defined(YORADIO_STORAGE_OWNER_ENABLED) && YORADIO_STORAGE_OWNER_ENABLED && (YORADIO_STORAGE_DIAGNOSTICS) == 1
 // One directory, loop task only. The played path is the bytes listDirectory returned.
 // Один каталог, только loop task. В Player уходит путь, который вернул listDirectory.
 struct S07LongFile {
@@ -441,7 +442,7 @@ void Telnet::on_input(const char* str, uint8_t clientId) {
     }
   };
 
-#if defined(YORADIO_STORAGE_OWNER_ENABLED) && YORADIO_STORAGE_OWNER_ENABLED
+#if defined(YORADIO_STORAGE_OWNER_ENABLED) && YORADIO_STORAGE_OWNER_ENABLED && (YORADIO_STORAGE_DIAGNOSTICS) == 1
   // Serial/loop task. Lists only "/" and plays a returned name longer than 255 bytes.
   // Serial/loop task. Перечисляет только "/" и играет возвращённое имя длиннее 255 байт.
   if (strcmp(str, "s07dir") == 0) {

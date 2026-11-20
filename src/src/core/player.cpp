@@ -500,7 +500,7 @@ bool Player::_stop(bool alreadyStopped){
   // Одна проверенная остановка/reset; STOPPED и callback только после barrier.
   if (!setDefaults()) {
     _reportStopFailure();
-    S07_STORAGE_LOG("[S07-ENG] stop barrier=FAILED error=%s\n",lastError());
+    YORADIO_STORAGE_NOTE("[Storage] stop barrier=FAILED error=%s\n",lastError());
     return false;
   }
   S07_STORAGE_LOG("[S07-ENG] stop barrier=CONFIRMED storage_closed=%u\n",
@@ -822,7 +822,7 @@ void Player::loop() {
     browseUrl();
   }
 #endif
-#if YORADIO_STORAGE_OWNER_ENABLED
+#if defined(YORADIO_STORAGE_OWNER_ENABLED) && YORADIO_STORAGE_OWNER_ENABLED && (YORADIO_STORAGE_DIAGNOSTICS) == 1
   // Emit only a changed transition/error snapshot, never periodic FS polling.
   // Вывод только при смене состояния/ошибки; FS дополнительно не опрашивается.
   const auto diag=playbackContext();

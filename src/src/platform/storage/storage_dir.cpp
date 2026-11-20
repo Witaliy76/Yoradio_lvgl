@@ -19,8 +19,7 @@ struct FatReader {
 
     void noteFatResult(int result, const char* where) {
         if (result == 0 || result == -1 || result == -3 || result == -4) return;
-        S07_STORAGE_LOG("[S07-ENG] dir_%s native=%d generation=%llu\n",
-            where, result, static_cast<unsigned long long>(generation));
+        YORADIO_STORAGE_NOTE("[Storage] dir %s error native=%d\n", where, result);
         // Same physical-access policy as the file bridge. Path/OOM stay local.
         // Та же политика физического доступа, что у файлового bridge. Путь/OOM локальны.
         if (yoradio_fat_is_media_error(result))
@@ -60,7 +59,14 @@ struct FatReader {
         dir = nullptr;
         // confirmClosed only after a proven close. Unknown close keeps the count.
         // confirmClosed только после доказанного close. Неизвестный close сохраняет счётчик.
-        if (result != 0 || !closing.confirmClosed()) return -1;
+        if (result != 0) {
+            YORADIO_STORAGE_NOTE("[Storage] dir close error native=%d\n", result);
+            return -1;
+        }
+        if (!closing.confirmClosed()) {
+            YORADIO_STORAGE_NOTE("[Storage] dir close error native=%d\n", result);
+            return -1;
+        }
         return 0;
     }
 };

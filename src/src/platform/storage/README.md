@@ -147,11 +147,13 @@ name, and read errors. `FR_DISK_ERR` / `FR_NOT_READY` call
 out-of-memory do not. A short name is returned only when it is the entry's own
 name; length checks do not detect an SFN already substituted by FatFs.
 `listDirectory` is the synchronous scan. Directory Service, below, is the
-asynchronous consumer of that scan. The engineering serial command `s07dir`
-runs the scan on the loop task for the root directory only, while playback
-is stopped, and may submit the returned path to Player. It is not the
-browser API. `s07act` uses that same compile gate and the same telnet/serial
-parser. `s07act radio` and `s07act sd` call `Player::activate` and print the
+asynchronous consumer of that scan. The serial commands `s07dir` and `s07act` are compiled only when Storage Owner
+is on and `YORADIO_STORAGE_DIAGNOSTICS` is exactly 1. The default is 0, so an
+ordinary build has neither command and does not read GPIO48 or collect
+`[S07-ENG]` snapshots. `s07dir` runs the scan on the loop task for the root
+directory only, while playback is stopped, and may submit the returned path to
+Player. It is not the browser API. `s07act` uses that same compile gate and
+the same telnet/serial parser. `s07act radio` and `s07act sd` call `Player::activate` and print the
 admission. `s07act status` prints `activation()`, the selected source, the
 sounding source or `None`, Playing/Stopped/StopFailed, and `pathEpoch()`.
 Status does not call `activate`. The handler does not call `Player::loop`
@@ -163,8 +165,13 @@ and does not scan or open the card.
 WebUI is the first caller, through `sdBrowserList` (`GET /sd/dir`) in the
 engineering storage build. LVGL does not call the service. A submit does not
 change the audio source and does not touch the player queue. One exact path
-is played with `POST /sd/play`, which uses the existing Player path request.
-HTTP 202 means the path was queued. It does not mean sound has started.
+is played with `POST /sd/play` through `requestSdPlayback` and the existing
+Player path request. HTTP 202 means the path was queued. It does not mean
+sound has started. The general `POST /` no longer accepts `s07_sd_path`.
+An ordinary build prints `[Storage]` for the runtime mount, an SSR fallback,
+the 20 to 10 MHz retry, file and directory errors, and a failed stop barrier.
+Those actions run with diagnostics off. Verbose `[S07-ENG]` lines require
+`YORADIO_STORAGE_DIAGNOSTICS=1`.
 
 The first successful submit creates one task, `StorageDir`, priority 1 on core 0.
 Audio stays priority 4 on core 1. This task is not the JPEG worker. The static
@@ -434,10 +441,13 @@ UTF-8 LFN подменялся бы коротким именем. Инжене�
 исходным FRESULT; отсутствие пути и нехватка памяти — нет. Короткое имя
 возвращается только когда оно и есть имя записи; проверка длины не обнаруживает
 SFN, уже подставленный FatFs. `listDirectory` — синхронный проход. Directory
-Service ниже — его асинхронный потребитель. Инженерная serial-команда `s07dir`
-выполняет проход на loop task только для корня и только при остановленном
-воспроизведении и может отдать возвращённый путь в Player. Это не API браузера.
-`s07act` использует тот же compile gate и тот же telnet/serial parser.
+Service ниже — его асинхронный потребитель. Команды `s07dir` и `s07act` компилируются только когда Storage Owner включён
+и `YORADIO_STORAGE_DIAGNOSTICS` равен ровно 1. По умолчанию флаг 0: в обычной
+прошивке этих команд нет, GPIO48 не читается и снимки `[S07-ENG]` не собираются.
+`s07dir` выполняет проход на loop task только для корня и только при
+остановленном воспроизведении и может отдать возвращённый путь в Player. Это
+не API браузера. `s07act` использует тот же compile gate и тот же telnet/serial
+parser.
 `s07act radio` и `s07act sd` вызывают `Player::activate` и печатают приём.
 `s07act status` печатает `activation()`, выбранный источник, звучащий источник
 или `None`, Playing/Stopped/StopFailed и `pathEpoch()`. Status не вызывает
@@ -448,9 +458,13 @@ Service ниже — его асинхронный потребитель. Ин�
 `directorySubmit`, `directoryPoll` и `directoryRelease` читают один каталог.
 Первый вызывающий — WebUI через `sdBrowserList` (`GET /sd/dir`) в инженерной
 сборке storage. LVGL сервис не вызывает. Запрос не меняет источник звука и не
-трогает очередь Player. Один точный путь запускается через `POST /sd/play` и
+трогает очередь Player. Один точный путь запускается через `POST /sd/play`, `requestSdPlayback` и
 существующий запрос пути Player. HTTP 202 означает, что путь поставлен в
-очередь. Это не значит, что звук уже начался.
+очередь. Это не значит, что звук уже начался. Общий `POST /` больше не
+принимает `s07_sd_path`. Обычная прошивка печатает `[Storage]` для runtime
+mount, SSR fallback, повтора 20 → 10 МГц, ошибок файла и каталога и отказа
+барьера STOP. Эти действия выполняются и при выключенной диагностике.
+Подробные строки `[S07-ENG]` требуют `YORADIO_STORAGE_DIAGNOSTICS=1`.
 
 Первый успешный запрос создаёт одну задачу `StorageDir`, приоритет 1 на ядре 0.
 Audio остаётся приоритетом 4 на ядре 1. Эта задача не является JPEG worker.

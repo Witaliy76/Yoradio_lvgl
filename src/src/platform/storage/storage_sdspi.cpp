@@ -188,7 +188,7 @@ Result mount(uint32_t frequency_khz) {
         // Это не доказательство отсутствия или повреждения карты.
         if (ssr_timed_out) {
 #if !defined(YORADIO_DIRECTORY_HOST)
-            S07_STORAGE_LOG("[S07-ENG] S07 SSR timeout kept err=0x%lx; not evidence the card is absent or damaged\n",
+            YORADIO_STORAGE_NOTE("[Storage] SSR timeout kept err=0x%lx; not evidence the card is absent or damaged\n",
                 static_cast<unsigned long>(err));
 #endif
             return rollback(err, false);
@@ -246,8 +246,8 @@ extern "C" esp_err_t __wrap_sdmmc_init_sd_ssr(sdmmc_card_t* card) {
         g_our_sdspi_mount, static_cast<int32_t>(ESP_ERR_TIMEOUT));
     if (decision.clear_ssr && card) card->ssr = {};
     if (decision.fallback_used) {
-        ESP_LOGW("S07-ENG",
-            "S07 SSR timeout fallback: sdmmc_init_sd_ssr err=0x%x; erase-timing fields cleared",
+        ESP_LOGW("Storage",
+            "SSR timeout fallback: sdmmc_init_sd_ssr err=0x%x; erase-timing fields cleared",
             err);
     }
     return static_cast<esp_err_t>(decision.error);
