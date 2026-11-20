@@ -697,8 +697,10 @@ function rememberOpenScroll() {
 function setNavPath(label) {
   const el = document.getElementById('navpath');
   if (!el) return;
-  el.textContent = label || 'Sources';
-  el.classList.toggle('at-home', !label || label === 'Sources');
+  el.textContent = label || 'Media Library';
+  // Home is the browser state, not the visible caption.
+  // Дом — состояние браузера, а не видимая подпись.
+  el.classList.toggle('at-home', navScreen === 'sources');
 }
 function applyNavVisibility() {
   const sources = document.getElementById('sourcebrowser');
@@ -715,14 +717,14 @@ function applyNavVisibility() {
 function showSources() {
   rememberOpenScroll();
   navScreen = 'sources';
-  setNavPath('Sources');
+  setNavPath('Media Library');
   applyNavVisibility();
   loadSources();
 }
 function openRadioSource() {
   rememberOpenScroll();
   navScreen = 'radio';
-  setNavPath('Radio');
+  setNavPath('Internet Stations');
   applyNavVisibility();
   ensurePlaylistLoaded(function() {
     const pl = document.getElementById('playlist');
@@ -795,7 +797,7 @@ function loadSources() {
       li.className = 'source-row source-' + kind + (src.available ? '' : ' source-unavailable');
       const title = document.createElement('span');
       title.className = 'source-title';
-      title.textContent = src.title || src.key || '?';
+      title.textContent = src.key === 'radio' ? 'Internet Radio' : (src.title || src.key || '?');
       li.appendChild(title);
       if (!src.available) {
         const why = document.createElement('span');

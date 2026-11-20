@@ -545,9 +545,11 @@ void LvglStationPage::_syncChrome() {
             lv_label_set_text(_lbl_title, i18n::text(i18n::TextId::BrowserSourcesTitle));
         } else {
             char title[48];
+            // The station header is not the source-row name.
+            // Заголовок списка станций — не название строки источника.
             const char* name = (_level == BrowserLevel::Sd)
                 ? i18n::text(i18n::TextId::BrowserSourceSd)
-                : i18n::text(i18n::TextId::BrowserSourceRadio);
+                : i18n::text(i18n::TextId::StationTitle);
             format_header_title(title, sizeof(title), name);
             lv_label_set_text(_lbl_title, title);
         }

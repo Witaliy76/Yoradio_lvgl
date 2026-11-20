@@ -435,7 +435,7 @@ inline constexpr std::array<TextSpec, textCount()> kTextSpecs{{
   makeTextSpec("%d %s %d %s", 80),  // WeatherHeroDateFullFormat
   makeTextSpec("%s %d %s", 48),     // WeatherHeroDateCompactFormat
   makeTextSpec("%s %02d.%02d", 32), // WeatherDailyDateFormat
-  makeTextSpec("", 24),       // StationTitle: uppercase page title
+  makeTextSpec("", 32),       // StationTitle: header above the station list
   makeTextSpec("%u %u", 24),  // StationCountCurrentTotalFormat: current, total
   makeTextSpec("%u", 24),     // StationCountUnknownTotalFormat: total
   makeTextSpec("", 80),       // StationFooter: fixed navigation helper, CLIP
@@ -535,7 +535,7 @@ inline constexpr std::array<TextSpec, textCount()> kTextSpecs{{
   makeTextSpec("", 24),       // SourceAux
   makeTextSpec("", 16),       // SourceI2s
   makeTextSpec("", 64),       // SourcePlannedNotice
-  makeTextSpec("", 16),       // SourceShortRadio: carousel tile label
+  makeTextSpec("", 32),       // SourceShortRadio: carousel tile label, full UTF-8 name
   makeTextSpec("", 16),       // SourceShortYandex: carousel tile label
   makeTextSpec("", 64),       // RepeatOff
   makeTextSpec("", 48),       // RepeatOne
