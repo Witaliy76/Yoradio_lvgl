@@ -8,14 +8,19 @@
 // Display consumers read kActiveBoardDefaults.display: the resolved contract
 // supplies backend/DisplayPort policy, and LVGL reads partial_draw_lines directly.
 // Touch service mode and I2C clock are read through ResolvedTouchConfig.
-// Live I2S_DOUT / I2S_BCLK / I2S_LRC and WAKE_PIN stay in myoptions.h, because
-// Audio.h and the wake-range check use them inside #if. AudioDefaults and
-// PowerDefaults in this file are not applied.
+// The raw YORADIO_BD_* macros below are the defaults options.h applies when
+// myoptions.h does not define the live macro: I2S_DOUT / I2S_BCLK / I2S_LRC,
+// USE_BUILTIN_LED, YORADIO_RGB_BOUNCE10 and YORADIO_RGB_FLASH_GUARD. The live
+// macros stay macros because Audio.h and the checkers use them inside #if.
+// PowerDefaults and WAKE_PIN are NOT applied here (S13).
 // Код дисплея читает kActiveBoardDefaults.display: ResolvedDisplayConfig
 // передаёт политику драйверу/DisplayPort, LVGL берёт partial_draw_lines напрямую.
 // Режим опроса тача и частота I2C читаются через ResolvedTouchConfig.
-// Действующие пины I2S и WAKE_PIN остаются в myoptions.h. AudioDefaults и PowerDefaults
-// из этого файла не применяются.
+// Макросы YORADIO_BD_* ниже — умолчания, которые options.h применяет, если myoptions.h
+// не задал действующий макрос: I2S_DOUT / I2S_BCLK / I2S_LRC, USE_BUILTIN_LED,
+// YORADIO_RGB_BOUNCE10 и YORADIO_RGB_FLASH_GUARD. Действующие макросы остаются макросами,
+// потому что Audio.h и проверки используют их внутри #if.
+// PowerDefaults и WAKE_PIN здесь НЕ применяются (S13).
 // Физические факты хранятся в BoardProfile. Здесь — проверенная политика дисплея
 // и тача, рекомендации I2S/пробуждения и явный выбор UI-профиля. Через myoptions.h
 // меняются только поддерживаемые настройки; проверки совместимости сохраняются.
@@ -44,9 +49,19 @@
 // and never immutable BoardProfile wiring.
 // Рекомендуемые пины внешнего I2S ЦАП: разводка заднего разъёма. Это ПРОВОДА,
 // а не дорожки платы, поэтому это рекомендация, а не заводская разводка профиля.
-#define YORADIO_BD_4848_I2S_DOUT     40
-#define YORADIO_BD_4848_I2S_BCLK      1
-#define YORADIO_BD_4848_I2S_LRCK      2
+// The names are common to all profiles; options.h reads YORADIO_BD_I2S_*.
+// Имена общие для всех профилей; options.h читает YORADIO_BD_I2S_*.
+#define YORADIO_BD_I2S_DOUT          40
+#define YORADIO_BD_I2S_BCLK           1
+#define YORADIO_BD_I2S_LRCK           2
+
+// Builtin LED default: off. On this board GPIO48 is the DisplayCommand SCK and the
+// SD SCK, while Arduino's default builtin LED is virtual pin 97 that digitalWrite
+// maps onto GPIO48 through RMT. There is no WS2812 on this board.
+// Builtin LED по умолчанию: выключен. На этой плате GPIO48 — SCK DisplayCommand и SCK SD,
+// а штатный builtin LED Arduino — виртуальный пин 97, который digitalWrite через RMT
+// уводит на GPIO48. WS2812 на плате нет.
+#define YORADIO_BD_USE_BUILTIN_LED   false
 
 // Recommended deep-sleep wake source: the stock BOOT button on GPIO0, active low.
 // Works with no extra wiring because the button provides the pull itself.
@@ -63,6 +78,12 @@
 #define YORADIO_BD_4848_PARTIAL_DRAW_LINES      160
 #define YORADIO_BD_4848_RGB_FRAMEBUFFERS        1
 #define YORADIO_BD_4848_BOUNCE_PX               0
+// Flag-form defaults that options.h applies to YORADIO_RGB_BOUNCE10 / YORADIO_RGB_FLASH_GUARD
+// (the flags stay macros for #if). Bounce 0 = off, flash guard 1 = on.
+// Умолчания в виде флагов для YORADIO_RGB_BOUNCE10 / YORADIO_RGB_FLASH_GUARD, которые
+// применяет options.h (флаги остаются макросами для #if). Bounce 0 — выкл., flash guard 1 — вкл.
+#define YORADIO_BD_RGB_BOUNCE10                 0
+#define YORADIO_BD_RGB_FLASH_GUARD              1
 #define YORADIO_BD_4848_PCLK_STARTUP_HZ         6000000u
 #define YORADIO_BD_4848_PCLK_RUNTIME_HZ         10000000u
 #define YORADIO_BD_4848_PCLK_FLASH_GUARD_HZ     6000000u
@@ -84,9 +105,9 @@ namespace yoradio {
 
 inline constexpr BoardDefaults kBoardDefaults_Esp32S3_4848S040 = {
     .audio = {
-        .i2s_dout_gpio = YORADIO_BD_4848_I2S_DOUT,
-        .i2s_bclk_gpio = YORADIO_BD_4848_I2S_BCLK,
-        .i2s_lrck_gpio = YORADIO_BD_4848_I2S_LRCK,
+        .i2s_dout_gpio = YORADIO_BD_I2S_DOUT,
+        .i2s_bclk_gpio = YORADIO_BD_I2S_BCLK,
+        .i2s_lrck_gpio = YORADIO_BD_I2S_LRCK,
         // MCLK is not used by the current output path.
         // MCLK в текущем тракте не используется.
         .i2s_mclk_gpio = kPinNotConnected,
@@ -113,6 +134,7 @@ inline constexpr BoardDefaults kBoardDefaults_Esp32S3_4848S040 = {
         .flush                = DisplayFlush::PartialBlitThenFullWriteback,
         .startup_pclk_hz      = YORADIO_BD_4848_PCLK_STARTUP_HZ,
         .runtime_pclk_hz      = YORADIO_BD_4848_PCLK_RUNTIME_HZ,
+        .flash_guard_enabled  = (YORADIO_BD_RGB_FLASH_GUARD) != 0,
         .flash_guard_pclk_hz  = YORADIO_BD_4848_PCLK_FLASH_GUARD_HZ,
         .promote_pclk_once_on_boot_to_main = true,
     },
@@ -155,6 +177,16 @@ static_assert(kBoardDefaults_Esp32S3_4848S040.display.runtime_pclk_hz == 1000000
               "display default runtime PCLK is 10 MHz");
 static_assert(kBoardDefaults_Esp32S3_4848S040.display.flash_guard_pclk_hz == 6000000u,
               "display default flash-guard PCLK is 6 MHz");
+static_assert(kBoardDefaults_Esp32S3_4848S040.display.flash_guard_enabled,
+              "display default flash guard is on");
+// The typed fields and the flag macros that options.h applies describe the same default.
+// Типизированные поля и флаговые макросы, которые применяет options.h, — одно умолчание.
+static_assert(kBoardDefaults_Esp32S3_4848S040.display.flash_guard_enabled ==
+                  ((YORADIO_BD_RGB_FLASH_GUARD) != 0),
+              "flash guard field and YORADIO_BD_RGB_FLASH_GUARD must agree");
+static_assert(((YORADIO_BD_RGB_BOUNCE10) != 0) ==
+                  (kBoardDefaults_Esp32S3_4848S040.display.bounce_buffer_px != 0),
+              "bounce field and YORADIO_BD_RGB_BOUNCE10 must agree");
 static_assert(kBoardDefaults_Esp32S3_4848S040.display.promote_pclk_once_on_boot_to_main,
               "display default promotes PCLK once at Boot to Main");
 static_assert(kBoardDefaults_Esp32S3_4848S040.touch.service_mode ==
@@ -165,9 +197,9 @@ static_assert(kBoardDefaults_Esp32S3_4848S040.touch.i2c_clock_hz == 100000u,
 static_assert(kBoardDefaults_Esp32S3_4848S040.ui.profile == UiProfile::Square480,
               "4848S040 must explicitly select the Square480 UI profile");
 
-static_assert(YORADIO_BD_4848_I2S_DOUT == 40, "audio dout recommendation unchanged");
-static_assert(YORADIO_BD_4848_I2S_BCLK == 1, "audio bclk recommendation unchanged");
-static_assert(YORADIO_BD_4848_I2S_LRCK == 2, "audio lrck recommendation unchanged");
+static_assert(YORADIO_BD_I2S_DOUT == 40, "audio dout recommendation unchanged");
+static_assert(YORADIO_BD_I2S_BCLK == 1, "audio bclk recommendation unchanged");
+static_assert(YORADIO_BD_I2S_LRCK == 2, "audio lrck recommendation unchanged");
 static_assert(kBoardDefaults_Esp32S3_4848S040.audio.i2s_dout_gpio == 40, "audio dout field unchanged");
 static_assert(kBoardDefaults_Esp32S3_4848S040.audio.i2s_bclk_gpio == 1, "audio bclk field unchanged");
 static_assert(kBoardDefaults_Esp32S3_4848S040.audio.i2s_lrck_gpio == 2, "audio lrck field unchanged");

@@ -17,12 +17,14 @@
 #include <stdint.h>
 #include "options.h"
 
-// Single product switch; set it in myoptions.h. 1 = guard active. 0 = flash is written at the
-// nominal PCLK (diagnostic comparison only).
-// Единый переключатель продукта (myoptions.h). 1 = guard активен. 0 = запись во flash на
-// номинальном PCLK (только для диагностического сравнения).
+// Single product switch, defined by options.h (included above): the board profile default,
+// overridable in myoptions.h. 1 = guard active. 0 = flash is written at the nominal PCLK
+// (diagnostic comparison only). No local fallback here.
+// Единый переключатель продукта, задаётся в options.h (подключён выше): умолчание профиля
+// платы, переопределяется в myoptions.h. 1 = guard активен. 0 = запись во flash на
+// номинальном PCLK (только для диагностического сравнения). Локального fallback нет.
 #ifndef YORADIO_RGB_FLASH_GUARD
-#define YORADIO_RGB_FLASH_GUARD 1
+#  error "rgb_flash_guard.h: YORADIO_RGB_FLASH_GUARD must come from core/options.h."
 #endif
 
 namespace rgb_flash_guard {

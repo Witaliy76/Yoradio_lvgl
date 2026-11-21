@@ -205,8 +205,10 @@ struct BoardProfile {
 //   Backend constraints — what the current driver can actually do. Not stored here.
 //
 // ResolvedDisplayConfig and ResolvedTouchConfig read the display host policy
-// and the touch service mode / I2C clock. AudioDefaults and PowerDefaults are
-// not applied: live I2S pins and wake stay the myoptions.h macros.
+// and the touch service mode / I2C clock. The I2S pins, builtin-LED switch and RGB
+// bounce / flash-guard policy are applied as defaults through options.h (profile
+// YORADIO_BD_* macros; myoptions.h overrides). PowerDefaults is not applied: WAKE
+// stays the myoptions.h macros until S13.
 // BoardDefaults.ui.profile selects the factory UI metrics through ResolvedUiMetrics;
 // physical viewport geometry remains in the display contract.
 // Several display numbers are locked by static_assert to the tested 4848S040
@@ -220,8 +222,10 @@ struct BoardProfile {
 //
 // Три разных слоя: рекомендация, пользовательская настройка, ограничение драйвера.
 // ResolvedDisplayConfig и ResolvedTouchConfig читают политику хоста дисплея
-// и режим опроса / частоту I2C тача. AudioDefaults и PowerDefaults не
-// применяются: действующие пины I2S и пробуждения остаются макросами myoptions.h.
+// и режим опроса / частоту I2C тача. Пины I2S, переключатель builtin LED и политика
+// RGB bounce / flash guard применяются как умолчания через options.h (макросы профиля
+// YORADIO_BD_*; myoptions.h переопределяет). PowerDefaults не применяется: WAKE
+// остаётся макросом myoptions.h до S13.
 // BoardDefaults.ui.profile выбирает заводские UI-метрики через ResolvedUiMetrics;
 // физический размер экрана остаётся в контракте дисплея.
 // Часть чисел дисплея зафиксирована static_assert на проверенной политике
@@ -302,6 +306,9 @@ struct DisplayDefaults {
     DisplayFlush         flush;
     uint32_t             startup_pclk_hz;
     uint32_t             runtime_pclk_hz;
+    // Tested flash-guard policy: on. Not a ban on YORADIO_RGB_FLASH_GUARD=0.
+    // Проверенная политика flash guard: включён. Это не запрет YORADIO_RGB_FLASH_GUARD=0.
+    bool                 flash_guard_enabled;
     uint32_t             flash_guard_pclk_hz;
     bool                 promote_pclk_once_on_boot_to_main;
 };

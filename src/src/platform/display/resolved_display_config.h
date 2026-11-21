@@ -69,23 +69,24 @@ constexpr uint32_t effectiveBounceBufferPixels(bool bounce10_enabled,
 
 namespace detail {
 
-// These fallbacks preserve the existing build-choice defaults; they do not
-// define macros and therefore cannot leak a second settings source.
-// Эти запасные значения сохраняют действующие умолчания, не определяя новых макросов.
-constexpr bool userBounce10Enabled() {
-#if defined(YORADIO_RGB_BOUNCE10)
-    return YORADIO_RGB_BOUNCE10 != 0;
-#else
-    return false;
+// The single source of these flags is core/options.h: the board profile default
+// (YORADIO_BD_RGB_*) unless myoptions.h overrides it. This header has no fallback of
+// its own, so a TU that includes it before options.h fails here instead of silently
+// reading a different value.
+// Единственный источник флагов — core/options.h: умолчание профиля платы
+// (YORADIO_BD_RGB_*), если myoptions.h не переопределил. Собственных запасных значений
+// у заголовка нет: TU, подключивший его раньше options.h, падает здесь, а не читает
+// тихо другое значение.
+#if !defined(YORADIO_RGB_BOUNCE10) || !defined(YORADIO_RGB_FLASH_GUARD)
+#  error "resolved_display_config.h: include core/options.h before this header; YORADIO_RGB_BOUNCE10 / YORADIO_RGB_FLASH_GUARD come from options.h (board profile default, myoptions.h override)."
 #endif
+
+constexpr bool userBounce10Enabled() {
+    return YORADIO_RGB_BOUNCE10 != 0;
 }
 
 constexpr bool userRgbFlashGuardEnabled() {
-#if defined(YORADIO_RGB_FLASH_GUARD)
     return YORADIO_RGB_FLASH_GUARD != 0;
-#else
-    return true;
-#endif
 }
 
 constexpr bool userBootOrientation180Enabled() {
@@ -189,6 +190,12 @@ static_assert(kResolvedDisplayConfig.recommended.startup_pclk_hz ==
               "ResolvedDisplayConfig: startup and flash-guard PCLK must match and the tested Boot-to-Main promotion must remain enabled; check board_defaults.h.");
 static_assert(kResolvedDisplayConfig.recommended.bounce_buffer_px == 0,
               "ResolvedDisplayConfig: tested board recommendation is bounce 0 px; this does not ban YORADIO_RGB_BOUNCE10=1.");
+// The tested recommendation is flash guard ON; it is recorded, not enforced, so a
+// supported YORADIO_RGB_FLASH_GUARD=0 override in myoptions.h keeps working.
+// Проверенная рекомендация — flash guard включён; она фиксируется, но не навязывается,
+// поэтому поддерживаемое переопределение YORADIO_RGB_FLASH_GUARD=0 продолжает работать.
+static_assert(kResolvedDisplayConfig.recommended.flash_guard_enabled,
+              "ResolvedDisplayConfig: tested board recommendation is flash guard ON; this does not ban YORADIO_RGB_FLASH_GUARD=0.");
 static_assert(effectiveBounceBufferPixels(false, panel::kSt7701Rgb565_480) == 0u &&
                   effectiveBounceBufferPixels(true, panel::kSt7701Rgb565_480) == 4800u,
               "ResolvedDisplayConfig: B10 means native panel width times 10 (4800 px), not the flag value 1; check YORADIO_RGB_BOUNCE10 in src/myoptions.h.");

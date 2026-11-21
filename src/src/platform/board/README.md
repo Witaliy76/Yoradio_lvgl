@@ -21,8 +21,11 @@ geometry remains in the Display Contract.
 
 BoardProfile is not changed by user defines. BoardDefaults is not a hardware
 truth or a complete runtime configuration. Display uses ResolvedDisplayConfig;
-touch uses ResolvedTouchConfig. External I2S and wake remain macros because
-their consumers require preprocessor values.
+touch uses ResolvedTouchConfig. External I2S, the builtin-LED flag and the RGB
+bounce / flash-guard flags remain macros because their consumers require
+preprocessor values: the profile supplies the default (`YORADIO_BD_*` in its
+`board_defaults.h`, applied by `core/options.h`) and `src/myoptions.h` overrides
+it. Wake stays a `myoptions.h` macro until the power stage.
 
 For a one-off rewiring of the same supported ST7701/GT911 board, Custom Wiring
 is sufficient for the exposed `DISP_*`/`TOUCH_*` GPIO overrides. A distinct
@@ -60,9 +63,11 @@ when SD is off. The check cannot prove a physical wire.
 
 ### External I2S DAC
 
-Change `I2S_DOUT`, `I2S_BCLK` and `I2S_LRC` in `src/myoptions.h`. Do not edit
-BoardProfile, Custom Wiring, or `BoardDefaults.audio`: the audio and wake
-fields there are recommendations and are not applied. The 4848S040 rear
+The default pins come from the board profile (`YORADIO_BD_I2S_DOUT/BCLK/LRCK`).
+To use other pins, uncomment and change `I2S_DOUT`, `I2S_BCLK` and `I2S_LRC` in
+`src/myoptions.h`; that override wins. Do not edit BoardProfile or Custom Wiring
+for this. The wake field in BoardDefaults is still a recommendation and is not
+applied. The 4848S040 rear
 connector uses DOUT 40, BCLK 1 and LRC 2. Those three signals are ESP32
 outputs in I2S master mode: DOUT to the DAC DIN/DATA pin, BCLK to BCK, LRC to
 LRCK/WS. No MCLK pin is driven. The validator checks the original I2S values,
@@ -132,8 +137,12 @@ Board Contract — источник фактов выбранной платы �
 
 Пользовательские макросы не меняют BoardProfile. BoardDefaults не описывает
 физические факты и не является полной конфигурацией работающего устройства.
-Дисплей использует ResolvedDisplayConfig, тач — ResolvedTouchConfig. Внешний I2S
-и пробуждение остаются макросами: использующий их код требует значений препроцессора.
+Дисплей использует ResolvedDisplayConfig, тач — ResolvedTouchConfig. Внешний I2S,
+флаг builtin LED и флаги bounce-буфера / защиты записи flash остаются макросами:
+использующий их код требует значений препроцессора. Умолчание задаёт профиль
+(`YORADIO_BD_*` в его `board_defaults.h`, применяется в `core/options.h`), а
+`src/myoptions.h` его переопределяет. Пробуждение остаётся макросом `myoptions.h`
+до этапа питания.
 
 Для разового переподключения той же поддерживаемой платы ST7701/GT911 достаточно
 Custom Wiring для доступных GPIO `DISP_*`/`TOUCH_*`. Отдельному заводскому
@@ -172,9 +181,11 @@ TF DAT0/CS (GPIO 41/42) и отвергает конфликт с дисплее
 
 ### Внешний I2S ЦАП
 
-Меняйте `I2S_DOUT`, `I2S_BCLK`, `I2S_LRC` в `src/myoptions.h`. Не правьте
-BoardProfile, Custom Wiring и `BoardDefaults.audio`: поля audio и wake там —
-рекомендации, и прошивка их не применяет. Задний разъём 4848S040: DOUT 40,
+Пины по умолчанию берутся из профиля платы (`YORADIO_BD_I2S_DOUT/BCLK/LRCK`).
+Чтобы использовать другие, раскомментируйте и измените `I2S_DOUT`, `I2S_BCLK`,
+`I2S_LRC` в `src/myoptions.h`: это переопределение приоритетнее. Для этого не
+правьте BoardProfile и Custom Wiring. Поле wake в BoardDefaults по-прежнему
+рекомендация и не применяется. Задний разъём 4848S040: DOUT 40,
 BCLK 1, LRC 2. Эти три сигнала — выходы ESP32 в режиме I2S master: DOUT на
 DIN/DATA ЦАП, BCLK на BCK, LRC на LRCK/WS. Пин MCLK не выводится. Валидатор
 проверяет исходные I2S-значения, зарезервированные GPIO и конфликты с итоговой

@@ -51,8 +51,9 @@
 // 2. Раскомментируйте нужную строку
 // 3. Укажите свой GPIO
 //
-// Значения ниже — штатные GPIO платы ESP32-S3 4848S040.
-// Для других плат заводские значения определяются их профилем.
+// Заводские GPIO выбранной платы смотрите в README её профиля:
+//   src/src/platform/board/profiles/<профиль>/README.md
+// Factory GPIO of the selected board are listed in its profile README (path above).
 // I2S_DOUT/BCLK/LRC, WAKE_PIN, MUTE_PIN, IR и SD здесь не дублируются —
 // они остаются в своих разделах myoptions.h.
 // ============================================================
@@ -60,51 +61,55 @@
 #define YORADIO_CUSTOM_WIRING 0
 
 // RGB DISPLAY — BLUE
-// #define DISP_B0      4
-// #define DISP_B1      5
-// #define DISP_B2      6
-// #define DISP_B3      7
-// #define DISP_B4     15
+// #define DISP_B0     <GPIO>
+// #define DISP_B1     <GPIO>
+// #define DISP_B2     <GPIO>
+// #define DISP_B3     <GPIO>
+// #define DISP_B4     <GPIO>
 
 // RGB DISPLAY — GREEN
-// #define DISP_G0      8
-// #define DISP_G1     20
-// #define DISP_G2      3
-// #define DISP_G3     46
-// #define DISP_G4      9
-// #define DISP_G5     10
+// #define DISP_G0     <GPIO>
+// #define DISP_G1     <GPIO>
+// #define DISP_G2     <GPIO>
+// #define DISP_G3     <GPIO>
+// #define DISP_G4     <GPIO>
+// #define DISP_G5     <GPIO>
 
 // RGB DISPLAY — RED
-// #define DISP_R0     11
-// #define DISP_R1     12
-// #define DISP_R2     13
-// #define DISP_R3     14
-// #define DISP_R4      0
+// #define DISP_R0     <GPIO>
+// #define DISP_R1     <GPIO>
+// #define DISP_R2     <GPIO>
+// #define DISP_R3     <GPIO>
+// #define DISP_R4     <GPIO>
 
 // RGB DISPLAY — SYNCHRONIZATION
-// #define DISP_HSYNC  16
-// #define DISP_VSYNC  17
-// #define DISP_DE     18
-// #define DISP_PCLK   21
+// #define DISP_HSYNC  <GPIO>
+// #define DISP_VSYNC  <GPIO>
+// #define DISP_DE     <GPIO>
+// #define DISP_PCLK   <GPIO>
 
 // DISPLAY — COMMAND BUS / BACKLIGHT
-// #define DISP_CS     39
-// #define DISP_SCK    48
-// #define DISP_SDA    47
-// #define DISP_BL     38
+// #define DISP_CS     <GPIO>
+// #define DISP_SCK    <GPIO>
+// #define DISP_SDA    <GPIO>
+// #define DISP_BL     <GPIO>
 
-// GT911 TOUCH
-// #define TOUCH_SDA   19
-// #define TOUCH_SCL   45
-// #define TOUCH_INT  255  // Not connected
-// #define TOUCH_RST  255  // Not connected
+// TOUCH (controller pins; 255 = not connected for INT / RST)
+// #define TOUCH_SDA   <GPIO>
+// #define TOUCH_SCL   <GPIO>
+// #define TOUCH_INT   <GPIO or 255>
+// #define TOUCH_RST   <GPIO or 255>
 
 /* ===============================================
    I2S DAC (Audio output)
    =============================================== */
-#define I2S_DOUT     40      // I2S Data Out (GPIO40)
-#define I2S_BCLK     1       // I2S Bit Clock (GPIO1)
-#define I2S_LRC      2       // I2S Left/Right Clock (GPIO2)
+// Значение по умолчанию берётся из профиля платы (YORADIO_BD_I2S_*);
+// раскомментируйте строку и укажите GPIO, чтобы переопределить.
+// Default comes from the board profile (YORADIO_BD_I2S_*);
+// uncomment a line and set a GPIO to override it.
+// #define I2S_DOUT     <GPIO>   // I2S Data Out
+// #define I2S_BCLK     <GPIO>   // I2S Bit Clock
+// #define I2S_LRC      <GPIO>   // I2S Left/Right Clock
 
 /* ===============================================
    DISABLED FEATURES
@@ -190,32 +195,34 @@
 /* ===============================================
    BUILTIN LED
    =============================================== */
-// This board has no WS2812 on GPIO48. That pin is SD SCK and the ST7701 command SCK.
-// Arduino's default builtin LED is virtual pin 97, and digitalWrite maps it through RMT onto GPIO48.
-// На этой плате нет WS2812 на GPIO48. Это SD SCK и командный SCK ST7701.
-// Штатный builtin LED Arduino — виртуальный пин 97; digitalWrite уводит его в RMT на GPIO48.
-#define USE_BUILTIN_LED false
+// Значение по умолчанию берётся из профиля платы (YORADIO_BD_USE_BUILTIN_LED);
+// раскомментируйте строку, чтобы переопределить. Почему для выбранной платы по умолчанию
+// стоит это значение и какой пин затрагивает builtin LED — в README профиля платы.
+// Default comes from the board profile (YORADIO_BD_USE_BUILTIN_LED); uncomment to override.
+// Why the selected board has this default and which pin the builtin LED touches:
+// see the board profile README.
+// #define USE_BUILTIN_LED false
 
 /* ===============================================
    SD CARD
    =============================================== */
-// 1 = SD разрешена (как в B073). 0 = не монтировать SD и не резервировать GPIO 41/42.
-// 1 = SD permitted (B073 behavior). 0 = do not mount SD or reserve GPIO 41/42.
-// GPIO 47/48 остаются командными линиями ST7701. Legacy USE_SD не используется.
-// GPIO 47/48 stay ST7701 command lines. Legacy USE_SD is not the switch.
+// 1 = SD разрешена (как в B073). 0 = не монтировать SD и не резервировать пины слота SD.
+// 1 = SD permitted (B073 behavior). 0 = do not mount SD or reserve the SD slot pins.
+// Линии команд дисплея, общие со слотом SD, остаются за дисплеем. Legacy USE_SD не используется.
+// Display command lines shared with the SD slot stay with the display. Legacy USE_SD is not the switch.
 #define YORADIO_SD_ENABLE 1
 
-// SD pins according to ESP32-4848S040 schematic:
-//   io42 - TF(D3) - Chip Select
-//   io47 - SPICLK_P - MOSI (Master Out Slave In)
-//   io48 - SPICLK_N - SCK (Clock)
-//   io41 - TF(D1) - MISO (Master In Slave Out)
-// The Owner uses this map only when YORADIO_SD_ENABLE is 1. The macros below stay unused.
+// SD slot pins come from the board profile / Storage Contract, not from this file:
+// see the board profile README and src/src/platform/storage/README.md.
+// The Owner uses that map only when YORADIO_SD_ENABLE is 1. The legacy macros below stay unused.
+// Пины слота SD задаёт профиль платы / Storage Contract, а не этот файл: см. README профиля
+// платы и src/src/platform/storage/README.md. Owner использует эту карту только при
+// YORADIO_SD_ENABLE 1. Legacy-макросы ниже остаются неиспользуемыми.
 //#define USE_SD                              // SD card support disabled
-//#define SDC_CS        42                    // Chip Select
-//#define SD_SCK        48                    // SCK pin
-//#define SD_MISO       41                    // MISO pin
-//#define SD_MOSI       47                    // MOSI pin
+//#define SDC_CS        <GPIO>                // Chip Select
+//#define SD_SCK        <GPIO>                // SCK pin
+//#define SD_MISO       <GPIO>                // MISO pin
+//#define SD_MOSI       <GPIO>                // MOSI pin
 //#define SD_HSPI       true                  // Use HSPI to avoid conflicts
 //#define SD_DEBUG_ENABLED true               // SD card debug
 //#define SDSPISPEED    20000000              // SPI speed (20 MHz)
@@ -239,7 +246,7 @@
 /* ===============================================
    TOUCHSCREEN
    =============================================== */
-// ESP32-4848S040 uses GT911 Capacitive I2C
+// GT911 capacitive I2C touch controller of the selected board (see its profile README)
 #define TS_MODEL              TS_MODEL_GT911   // GT911 Capacitive I2C
 
 // GT911 pins are owned by the BoardProfile. Re-pin them in CUSTOM WIRING below
@@ -256,9 +263,10 @@
 //       This improves scanout tolerance to short PSRAM bandwidth stalls, but
 //       reserves about 19.2 KB of INTERNAL RAM on a 480-pixel-wide panel.
 //   0 = disable bounce buffers and let RGB DMA read the framebuffer from PSRAM.
-#ifndef YORADIO_RGB_BOUNCE10
-#define YORADIO_RGB_BOUNCE10 0
-#endif
+// Значение по умолчанию берётся из профиля платы (YORADIO_BD_RGB_BOUNCE10);
+// раскомментируйте строку, чтобы переопределить.
+// Default comes from the board profile (YORADIO_BD_RGB_BOUNCE10); uncomment to override.
+// #define YORADIO_RGB_BOUNCE10 0
 
 // RGB flash guard (direct RGB without bounce buffers):
 //   1 = before SaveManager writes settings to NVS, lower the RGB pixel clock
@@ -267,9 +275,10 @@
 //       flash writes can cause. Prints [RGB-GUARD] / [SAVE] lines on Serial.
 //   0 = write NVS at 10 MHz (diagnostic comparison only).
 // Bounce buffers (YORADIO_RGB_BOUNCE10 1) bypass the guard.
-#ifndef YORADIO_RGB_FLASH_GUARD
-#define YORADIO_RGB_FLASH_GUARD 1
-#endif
+// Значение по умолчанию берётся из профиля платы (YORADIO_BD_RGB_FLASH_GUARD);
+// раскомментируйте строку, чтобы переопределить.
+// Default comes from the board profile (YORADIO_BD_RGB_FLASH_GUARD); uncomment to override.
+// #define YORADIO_RGB_FLASH_GUARD 1
 
 // DspTask stack size:
 //   1 = 12 KB stack for additional runtime headroom.

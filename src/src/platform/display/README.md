@@ -47,8 +47,9 @@ manual diagnostic/service only.
   Panel RESX is not a DISP_* line.
 - **Supported build choices:** YORADIO_RGB_BOUNCE10, YORADIO_RGB_FLASH_GUARD,
   and ST7701_BOOT_ORIENTATION_180 are resolved build choices. They are not a
-  substitute for a validated new panel. `bounce_buffer_px` in BoardDefaults
-  records the tested 0. `YORADIO_RGB_BOUNCE10` is a flag, not a pixel count:
+  substitute for a validated new panel. The first two default to the board
+  profile (`YORADIO_BD_RGB_*`); `myoptions.h` overrides them. `bounce_buffer_px`
+  in BoardDefaults records the tested 0. `YORADIO_RGB_BOUNCE10` is a flag, not a pixel count:
   `effective_bounce_buffer_px` is 0 when disabled or native width × 10 when
   enabled, so the current panel receives 480 × 10 = 4800 pixels.
 - **Another resolution/panel:** create a verified PanelMode, ensure matching
@@ -116,7 +117,9 @@ DisplayPort в DspTask с учётом VSYNC. Автоматического п�
   RESX не является строкой DISP_*.
 - **Поддерживаемые настройки сборки:** YORADIO_RGB_BOUNCE10,
   YORADIO_RGB_FLASH_GUARD, ST7701_BOOT_ORIENTATION_180. Они не заменяют проверку
-  новой панели. `bounce_buffer_px` в BoardDefaults хранит проверенный 0.
+  новой панели. Первые два по умолчанию берутся из профиля платы
+  (`YORADIO_BD_RGB_*`); `myoptions.h` их переопределяет. `bounce_buffer_px` в
+  BoardDefaults хранит проверенный 0.
   `YORADIO_RGB_BOUNCE10` — флаг, а не число пикселей: `effective_bounce_buffer_px`
   равен 0 при выключенном флаге или ширине панели × 10 при включённом.
   Для текущей панели драйвер получает 480 × 10 = 4800 пикселей.

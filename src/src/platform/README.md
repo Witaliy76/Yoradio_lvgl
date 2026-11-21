@@ -42,12 +42,12 @@ src/myoptions.h
 | `BoardProfile` / `kActiveBoard` | Factory facts of the selected board | Not changed by `myoptions.h` |
 | Custom Wiring | `DISP_*` / `TOUCH_*` in `src/myoptions.h` when `YORADIO_CUSTOM_WIRING` is 1 | Only the lines you actually define |
 | `kWiring` | Factory profile plus those overrides | Display and GT911 GPIO |
-| `BoardDefaults` | Tested recommendations and explicit UI policy | Display host policy, touch poll / I2C clock and `ui.profile` are read. `audio` and `power` pins are not applied |
-| Resolved display / touch config | Compile-time view for the backends | ST7701 480×480 recipe stays in PanelMode. Bounce, flash guard and boot orientation come from `myoptions.h` |
+| `BoardDefaults` | Tested recommendations and explicit UI policy | Display host policy, touch poll / I2C clock and `ui.profile` are read. I2S pins, builtin LED and RGB bounce / flash-guard flags are applied as defaults through `core/options.h`. `power` / wake is not applied |
+| Resolved display / touch config | Compile-time view for the backends | ST7701 480×480 recipe stays in PanelMode. Bounce and flash guard default to the board profile (`myoptions.h` may override them); boot orientation comes from `myoptions.h` |
 
-`I2S_DOUT`, `I2S_BCLK`, `I2S_LRC` and `WAKE_PIN` stay macros in `src/myoptions.h`.
-Editing `BoardDefaults.audio` or `BoardDefaults.power` does not move the DAC or
-the wake pin.
+`I2S_DOUT`, `I2S_BCLK` and `I2S_LRC` default to the board profile and are
+overridden by uncommenting them in `src/myoptions.h`. `WAKE_PIN` stays a macro in
+`src/myoptions.h`; editing `BoardDefaults.power` does not move the wake pin.
 
 ### Storage entry points
 
@@ -177,12 +177,12 @@ src/myoptions.h
 | `BoardProfile` / `kActiveBoard` | Заводские факты выбранной платы | `myoptions.h` их не меняет |
 | Custom Wiring | `DISP_*` / `TOUCH_*` в `src/myoptions.h` при `YORADIO_CUSTOM_WIRING` 1 | Только реально заданные строки |
 | `kWiring` | Заводской профиль с этими изменениями | GPIO дисплея и GT911 |
-| `BoardDefaults` | Проверенные рекомендации и явный выбор UI | Читаются политика дисплея, режим опроса / частота I2C тача и `ui.profile`. Пины `audio` и `power` не применяются |
-| ResolvedDisplayConfig / ResolvedTouchConfig | Итоговые настройки для драйверов, известные при сборке | Параметры ST7701 480×480 остаются в PanelMode. Флаги bounce-буфера, защиты записи flash и начальной ориентации берутся из `myoptions.h` |
+| `BoardDefaults` | Проверенные рекомендации и явный выбор UI | Читаются политика дисплея, режим опроса / частота I2C тача и `ui.profile`. Пины I2S, builtin LED и флаги bounce / защиты flash применяются как умолчания через `core/options.h`. `power` / пробуждение не применяются |
+| ResolvedDisplayConfig / ResolvedTouchConfig | Итоговые настройки для драйверов, известные при сборке | Параметры ST7701 480×480 остаются в PanelMode. Флаги bounce-буфера и защиты записи flash по умолчанию берутся из профиля платы (`myoptions.h` может их переопределить); начальная ориентация берётся из `myoptions.h` |
 
-`I2S_DOUT`, `I2S_BCLK`, `I2S_LRC` и `WAKE_PIN` остаются макросами в
-`src/myoptions.h`. Правка `BoardDefaults.audio` или `BoardDefaults.power` не
-переносит ЦАП и не меняет пин пробуждения.
+`I2S_DOUT`, `I2S_BCLK`, `I2S_LRC` по умолчанию берутся из профиля платы и
+переопределяются раскомментированием в `src/myoptions.h`. `WAKE_PIN` остаётся
+макросом в `src/myoptions.h`; правка `BoardDefaults.power` не меняет пин пробуждения.
 
 ### Точки входа Storage
 

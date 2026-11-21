@@ -53,7 +53,7 @@ Lines required for an external DAC:
 
 All three signals are ESP32 outputs in I2S master mode. Connect DOUT to the DAC DIN/DATA input, BCLK to BCK, and LRC to LRCK/WS. The firmware does not use an I2S data input and does not drive MCLK: there is no MCLK macro.
 
-The numbers 40 / 1 / 2 are the rear-connector wiring of this board, not a list of free GPIO. For different wiring, change only `I2S_DOUT`, `I2S_BCLK`, and `I2S_LRC` in `src/myoptions.h`. That is not Custom Wiring, and the firmware does not apply `BoardDefaults.audio`. Take the new numbers from your DAC schematic. The build rejects a collision with display or touch pins. It does not range-check GPIO 22–37 or numbers above 48 on these three macros, and it does not prove that a pin is free of USB, BOOT, or SD.
+The numbers 40 / 1 / 2 are the rear-connector wiring of this board, not a list of free GPIO. They are the board profile defaults. For different wiring, uncomment and change only `I2S_DOUT`, `I2S_BCLK`, and `I2S_LRC` in `src/myoptions.h`. That is not Custom Wiring. Take the new numbers from your DAC schematic. The build rejects a collision with display or touch pins. It does not range-check GPIO 22–37 or numbers above 48 on these three macros, and it does not prove that a pin is free of USB, BOOT, or SD.
 
 Build the `[env:4848S040]` environment and flash your own `firmware.bin`. A `build_bin/` package does not contain `myoptions.h` edits. After boot, Serial prints `i2s-dout`, `i2s-bclk`, and `i2s-lrc` inside `[HARDWARE CONFIG]`. Those are the values compiled into the firmware. That log does not include a successful reply from the I2S driver.
 

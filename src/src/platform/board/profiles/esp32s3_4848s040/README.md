@@ -16,7 +16,7 @@ how this differs from physical panel geometry.
 | Display | ST7701, RGB565 parallel-16, 480x480 |
 | Touch | GT911 at I2C address 0x5D; polling, 100 kHz |
 | Panel reset | Not routed to SoC; Custom Wiring cannot assign RESX |
-| External I2S recommendation | DOUT 40, BCLK 1, LRC 2. These are ESP32 outputs. The live macros are `I2S_DOUT`, `I2S_BCLK`, `I2S_LRC` in `src/myoptions.h`. `BoardDefaults.audio` is not applied |
+| External I2S recommendation | DOUT 40, BCLK 1, LRC 2. These are ESP32 outputs. These are the profile defaults (`YORADIO_BD_I2S_*`), applied through `core/options.h`; override them with `I2S_DOUT`, `I2S_BCLK`, `I2S_LRC` in `src/myoptions.h` |
 | Wake recommendation | GPIO0, active low. The live macros are `WAKE_PIN` and `WAKE_LEVEL` |
 
 ### Factory display GPIO
@@ -71,7 +71,7 @@ and [Touch Contract](../../../touch/README.md).
 | Дисплей | ST7701, 16-битная параллельная шина RGB565, 480x480 |
 | Тач | GT911 по адресу I2C 0x5D; периодический опрос, 100 кГц |
 | Сброс панели | Не подключён к SoC; Custom Wiring не назначает RESX |
-| Рекомендация внешнего I2S | DOUT 40, BCLK 1, LRC 2. Это выходы ESP32. Действующие макросы — `I2S_DOUT`, `I2S_BCLK`, `I2S_LRC` в `src/myoptions.h`. `BoardDefaults.audio` не применяется |
+| Рекомендация внешнего I2S | DOUT 40, BCLK 1, LRC 2. Это выходы ESP32. Это умолчания профиля (`YORADIO_BD_I2S_*`), применяются через `core/options.h`; переопределяйте их макросами `I2S_DOUT`, `I2S_BCLK`, `I2S_LRC` в `src/myoptions.h` |
 | Рекомендация пробуждения | GPIO0, активный ноль. Действующие макросы — `WAKE_PIN` и `WAKE_LEVEL` |
 
 ### Заводские GPIO дисплея

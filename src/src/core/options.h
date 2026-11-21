@@ -110,14 +110,43 @@ The connection tables are located here https://github.com/e2002/yoradio#connecti
 #endif
 
 /*        I2S DAC                 */
+/* Defaults come from the board profile (YORADIO_BD_I2S_*); myoptions.h overrides them.
+   There is no board-independent fallback: a profile must provide all three.
+   Умолчания берутся из профиля платы (YORADIO_BD_I2S_*); myoptions.h их переопределяет.
+   Общего запасного значения нет: профиль обязан задать все три пина. */
 #ifndef I2S_DOUT
-  #define I2S_DOUT      27  // DIN connection
+  #ifndef YORADIO_BD_I2S_DOUT
+    #error "YoRadio Board Contract: the selected board profile does not define YORADIO_BD_I2S_DOUT. Define I2S_DOUT in src/myoptions.h or add it to the profile."
+  #endif
+  #define I2S_DOUT      YORADIO_BD_I2S_DOUT  // DIN connection
 #endif
 #ifndef I2S_BCLK
-  #define I2S_BCLK      26  // BCLK Bit clock
+  #ifndef YORADIO_BD_I2S_BCLK
+    #error "YoRadio Board Contract: the selected board profile does not define YORADIO_BD_I2S_BCLK. Define I2S_BCLK in src/myoptions.h or add it to the profile."
+  #endif
+  #define I2S_BCLK      YORADIO_BD_I2S_BCLK  // BCLK Bit clock
 #endif
 #ifndef I2S_LRC
-  #define I2S_LRC       25  // WSEL Left Right Clock
+  #ifndef YORADIO_BD_I2S_LRCK
+    #error "YoRadio Board Contract: the selected board profile does not define YORADIO_BD_I2S_LRCK. Define I2S_LRC in src/myoptions.h or add it to the profile."
+  #endif
+  #define I2S_LRC       YORADIO_BD_I2S_LRCK  // WSEL Left Right Clock
+#endif
+
+/*        RGB DISPLAY POLICY      */
+/* Flag defaults from the board profile; myoptions.h overrides them. Read through #if.
+   Умолчания флагов из профиля платы; myoptions.h их переопределяет. Читаются через #if. */
+#ifndef YORADIO_RGB_BOUNCE10
+  #ifndef YORADIO_BD_RGB_BOUNCE10
+    #error "YoRadio Board Contract: the selected board profile does not define YORADIO_BD_RGB_BOUNCE10. Define YORADIO_RGB_BOUNCE10 in src/myoptions.h or add it to the profile."
+  #endif
+  #define YORADIO_RGB_BOUNCE10 YORADIO_BD_RGB_BOUNCE10
+#endif
+#ifndef YORADIO_RGB_FLASH_GUARD
+  #ifndef YORADIO_BD_RGB_FLASH_GUARD
+    #error "YoRadio Board Contract: the selected board profile does not define YORADIO_BD_RGB_FLASH_GUARD. Define YORADIO_RGB_FLASH_GUARD in src/myoptions.h or add it to the profile."
+  #endif
+  #define YORADIO_RGB_FLASH_GUARD YORADIO_BD_RGB_FLASH_GUARD
 #endif
 
 /*        SDCARD                  */
@@ -279,6 +308,16 @@ The connection tables are located here https://github.com/e2002/yoradio#connecti
 #endif
 #ifndef RTC_SCL
   #define RTC_SCL               255
+#endif
+
+/* Builtin LED: default from the board profile, myoptions.h overrides. Applied BEFORE the
+   S3 default below, which therefore only serves a profile without this macro.
+   Builtin LED: умолчание из профиля платы, myoptions.h переопределяет. Применяется ДО
+   S3-умолчания ниже, которое остаётся только для профиля без этого макроса. */
+#ifndef USE_BUILTIN_LED
+  #ifdef YORADIO_BD_USE_BUILTIN_LED
+    #define USE_BUILTIN_LED YORADIO_BD_USE_BUILTIN_LED
+  #endif
 #endif
 
 /*        ESP DEVBOARD            */
