@@ -9,6 +9,10 @@
 .fontwork/
 compile_commands.json
 
+# --- Python caches / кэши Python ---
+__pycache__/
+*.pyc
+
 # --- Archives / архивы ---
 *.zip
 *.7z
@@ -77,3 +81,5 @@ SPECTRUM*.md
 /old/
 /panel_vendor_files/
 /STAGE0_STEP1_ANALYSIS.md
+# Local dummy art blob, not referenced by firmware / локальная заглушка обложки, прошивкой не используется
+/data/logo/art_dummy.bin
