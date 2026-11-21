@@ -18,6 +18,7 @@
 
 #include "board_select.h"
 #include "sdkconfig.h"
+#include "../family/family_select.h"
 
 // ---------------------------------------------------------------------------
 // Legacy display-selector consistency (preprocessor level)
@@ -102,9 +103,8 @@ static_assert(kActiveBoard.identity.build.psram_mode == PsramMode::Any
 // Проверки итоговой разводки (S02-5 / S02-6)
 // ---------------------------------------------------------------------------
 #if YORADIO_BOARD == YORADIO_BOARD_4848S040
-#if defined(CONFIG_LCD_RGB_RESTART_IN_VSYNC) && CONFIG_LCD_RGB_RESTART_IN_VSYNC
-#  error "4848S040 display contract: CONFIG_LCD_RGB_RESTART_IN_VSYNC must remain disabled in sdkconfig.4848S040 and sdkconfig.defaults."
-#endif
+// CONFIG_LCD_RGB_RESTART_IN_VSYNC rule now lives in the S3 family rules (RGB transport).
+// Правило CONFIG_LCD_RGB_RESTART_IN_VSYNC теперь в правилах семейства S3 (RGB-транспорт).
 
 // Factory profile numbers stay the accepted S02-4 / S02-5 baseline always.
 // Заводской профиль сохраняет принятую разводку S02-4 / S02-5.
@@ -224,22 +224,11 @@ static_assert(kWiring.touch.i2c_scl_gpio != kPinNotConnected, "TOUCH_SCL cannot 
 
 namespace wiring_check {
 
-// ESP32-S3 N16R8 with octal PSRAM: GPIO 22-25 do not exist; 26-37 serve the
-// flash/PSRAM bus on the N16R8 module. 255 means not connected.
-// ESP32-S3 N16R8 с восьмилинейной PSRAM: GPIO 22-25 нет; 26-37 заняты flash/PSRAM.
-// 255 означает, что сигнал не подключён.
-inline constexpr bool isUsableGpio(uint8_t pin) {
-    if (pin == kPinNotConnected) {
-        return true;
-    }
-    if (pin > 48u) {
-        return false;
-    }
-    if (pin >= 22u && pin <= 37u) {
-        return false;
-    }
-    return true;
-}
+// The usable-GPIO rule is a build-family fact (platform/family/); call sites below
+// are unchanged and resolve to the family function.
+// Правило допустимых GPIO — факт семейства (platform/family/); вызовы ниже не менялись
+// и обращаются к функции семейства.
+using family::isUsableGpio;
 
 static_assert(isUsableGpio(kWiring.display.data_gpio[0]),  "DISP_B0 uses an invalid ESP32-S3 GPIO");
 static_assert(isUsableGpio(kWiring.display.data_gpio[1]),  "DISP_B1 uses an invalid ESP32-S3 GPIO");

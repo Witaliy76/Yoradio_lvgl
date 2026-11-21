@@ -8,6 +8,7 @@
 #define YORADIO_PLATFORM_STORAGE_STORAGE_VALIDATE_H
 
 #include "resolved_storage_config.h"
+#include "../family/family_select.h"
 
 // ---------------------------------------------------------------------------
 // Legacy SDFS is never an enable mechanism, including engineering builds.
@@ -27,20 +28,9 @@
 namespace yoradio {
 namespace storage_validate {
 
-// ESP32-S3 usable GPIO — same rule as board_validate wiring_check::isUsableGpio.
-// Допустимый GPIO ESP32-S3 — то же правило, что в board_validate.
-inline constexpr bool isUsableGpio(uint8_t pin) {
-    if (pin == kPinNotConnected) {
-        return true;
-    }
-    if (pin > 48u) {
-        return false;
-    }
-    if (pin >= 22u && pin <= 37u) {
-        return false;
-    }
-    return true;
-}
+// Usable-GPIO rule comes from the build family (platform/family/); no local copy.
+// Правило допустимых GPIO берётся из семейства (platform/family/); локальной копии нет.
+using family::isUsableGpio;
 
 inline constexpr bool pinsEqual(uint8_t a, uint8_t b) {
     return a != kPinNotConnected && a == b;
