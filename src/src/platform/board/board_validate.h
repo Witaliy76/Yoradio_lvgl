@@ -1,6 +1,12 @@
 // Compile-time resolver/validator of the selected board against the build family.
 // Проверка совместимости выбранной платы с конфигурацией сборки при компиляции.
 // Ownership: platform/board.
+// COMMON validator: [build] family/build requirements and [common] wiring checks run for
+// every board and name no concrete board. Board-specific checks (factory GPIO, panel,
+// lifecycle-shared pins) live in profiles/<profile>/board_validate_profile.h.
+// ОБЩИЙ валидатор: [build] и [common] выполняются для любой платы и не называют конкретную
+// плату. Проверки конкретной платы (заводские GPIO, панель, общие по жизненному циклу
+// пины) — в profiles/<профиль>/board_validate_profile.h.
 // Included from src/src/core/options.h at the END of that file, because the legacy
 // display-selector check below needs DSP_MODEL and DSP_ST7701, and options.h defines
 // them itself after myoptions.h. Checks that need user/default values must not run
@@ -30,9 +36,10 @@
 #if !defined(DSP_ST7701)
 #  error "YoRadio Board Contract: DSP_ST7701 is not defined. board_validate.h must be included from src/src/core/options.h after the legacy display defaults."
 #endif
-#if (YORADIO_BOARD == YORADIO_BOARD_4848S040) && (DSP_MODEL != DSP_ST7701)
-#  error "YoRadio Board Contract: board/display selector mismatch. YORADIO_BOARD selects the 4848S040, whose panel is ST7701 RGB, but DSP_MODEL is not DSP_ST7701. Fix DSP_MODEL in src/myoptions.h or select the matching board."
-#endif
+// The board/display selector agreement is a profile fact: see the profile validator
+// included at the end of this file.
+// Соответствие платы и селектора дисплея — факт профиля: см. профильный валидатор,
+// включаемый в конце файла.
 
 #ifdef __cplusplus
 #include <stdint.h>
@@ -99,100 +106,33 @@ static_assert(kActiveBoard.identity.build.psram_mode == PsramMode::Any
     "YoRadio Board Contract: the board selected by YORADIO_BOARD requires a different PSRAM mode than this build configures (see CONFIG_SPIRAM_MODE_OCT and board_build.arduino.memory_type).");
 
 // ---------------------------------------------------------------------------
+// Display transport vs build family (S07_bis-3a)
+// Транспорт дисплея и семейство сборки (S07_bis-3a)
+// ---------------------------------------------------------------------------
+// Build/transport facts come from the family layer; the board's transport is read from
+// its descriptor. No board id is consulted here: these checks run for every board.
+// Факты сборки/транспорта берутся из слоя семейства; транспорт платы читается из её
+// дескриптора. Идентификатор платы не используется: проверки работают для любой платы.
+
+// supportsTransport is a real check since S07_bis-3a (it was an unused helper before).
+// supportsTransport стала настоящей проверкой в S07_bis-3a (раньше это был неиспользуемый хелпер).
+static_assert(family::supportsTransport(kActiveBoard.display.transport),
+    "YoRadio Board Contract: the display transport of the selected board is not supported by this build family.");
+
+// Automatic RGB restart/resync recovery is removed (accepted at beta.3.03). The rule is
+// keyed on the board's transport; the family only reports the sdkconfig fact.
+// Автоматическое восстановление RGB (restart/resync) удалено (принято в beta.3.03).
+// Правило привязано к транспорту платы; семейство лишь сообщает факт из sdkconfig.
+static_assert(!(family::kRgbRestartInVsyncEnabled &&
+                kActiveBoard.display.transport == DisplayTransport::Rgb565Parallel16),
+    "ESP32-S3 RGB transport rule: CONFIG_LCD_RGB_RESTART_IN_VSYNC must remain disabled "
+    "for a board with the RGB565 parallel display transport "
+    "(check the env sdkconfig and sdkconfig.defaults).");
+
+// ---------------------------------------------------------------------------
 // Effective wiring checks (S02-5 / S02-6)
 // Проверки итоговой разводки (S02-5 / S02-6)
 // ---------------------------------------------------------------------------
-#if YORADIO_BOARD == YORADIO_BOARD_4848S040
-// CONFIG_LCD_RGB_RESTART_IN_VSYNC rule now lives in the S3 family rules (RGB transport).
-// Правило CONFIG_LCD_RGB_RESTART_IN_VSYNC теперь в правилах семейства S3 (RGB-транспорт).
-
-// Factory profile numbers stay the accepted S02-4 / S02-5 baseline always.
-// Заводской профиль сохраняет принятую разводку S02-4 / S02-5.
-static_assert(kActiveBoard.display.data_gpio[0]  == 4,  "factory B0 is GPIO4");
-static_assert(kActiveBoard.display.data_gpio[1]  == 5,  "factory B1 is GPIO5");
-static_assert(kActiveBoard.display.data_gpio[2]  == 6,  "factory B2 is GPIO6");
-static_assert(kActiveBoard.display.data_gpio[3]  == 7,  "factory B3 is GPIO7");
-static_assert(kActiveBoard.display.data_gpio[4]  == 15, "factory B4 is GPIO15");
-static_assert(kActiveBoard.display.data_gpio[5]  == 8,  "factory G0 is GPIO8");
-static_assert(kActiveBoard.display.data_gpio[6]  == 20, "factory G1 is GPIO20");
-static_assert(kActiveBoard.display.data_gpio[7]  == 3,  "factory G2 is GPIO3");
-static_assert(kActiveBoard.display.data_gpio[8]  == 46, "factory G3 is GPIO46");
-static_assert(kActiveBoard.display.data_gpio[9]  == 9,  "factory G4 is GPIO9");
-static_assert(kActiveBoard.display.data_gpio[10] == 10, "factory G5 is GPIO10");
-static_assert(kActiveBoard.display.data_gpio[11] == 11, "factory R0 is GPIO11");
-static_assert(kActiveBoard.display.data_gpio[12] == 12, "factory R1 is GPIO12");
-static_assert(kActiveBoard.display.data_gpio[13] == 13, "factory R2 is GPIO13");
-static_assert(kActiveBoard.display.data_gpio[14] == 14, "factory R3 is GPIO14");
-static_assert(kActiveBoard.display.data_gpio[15] == 0,  "factory R4 is GPIO0");
-static_assert(kActiveBoard.display.hsync_gpio     == 16, "factory HSYNC is GPIO16");
-static_assert(kActiveBoard.display.vsync_gpio     == 17, "factory VSYNC is GPIO17");
-static_assert(kActiveBoard.display.de_gpio        == 18, "factory DE is GPIO18");
-static_assert(kActiveBoard.display.pclk_gpio      == 21, "factory PCLK is GPIO21");
-static_assert(kActiveBoard.display.cmd_cs_gpio    == 39, "factory command CS is GPIO39");
-static_assert(kActiveBoard.display.cmd_sck_gpio   == 48, "factory command SCK is GPIO48");
-static_assert(kActiveBoard.display.cmd_sda_gpio   == 47, "factory command SDA is GPIO47");
-static_assert(kActiveBoard.display.backlight_gpio == 38, "factory backlight is GPIO38");
-static_assert(kActiveBoard.touch.i2c_sda_gpio == 19, "factory touch SDA is GPIO19");
-static_assert(kActiveBoard.touch.i2c_scl_gpio == 45, "factory touch SCL is GPIO45");
-static_assert(kActiveBoard.touch.int_gpio   == kPinNotConnected, "factory touch INT is not connected");
-static_assert(kActiveBoard.touch.reset_gpio == kPinNotConnected, "factory touch RST is not connected");
-static_assert(kPinNotConnected == 255, "the not-connected sentinel stays 255");
-
-#if !YORADIO_CUSTOM_WIRING
-// Factory mode: effective wiring is identical to the accepted baseline.
-// Штатный режим: итоговая разводка совпадает с принятой заводской.
-static_assert(kWiring.display.data_gpio[0]  == 4,  "S02-5 B0 is GPIO4");
-static_assert(kWiring.display.data_gpio[1]  == 5,  "S02-5 B1 is GPIO5");
-static_assert(kWiring.display.data_gpio[2]  == 6,  "S02-5 B2 is GPIO6");
-static_assert(kWiring.display.data_gpio[3]  == 7,  "S02-5 B3 is GPIO7");
-static_assert(kWiring.display.data_gpio[4]  == 15, "S02-5 B4 is GPIO15");
-static_assert(kWiring.display.data_gpio[5]  == 8,  "S02-5 G0 is GPIO8");
-static_assert(kWiring.display.data_gpio[6]  == 20, "S02-5 G1 is GPIO20");
-static_assert(kWiring.display.data_gpio[7]  == 3,  "S02-5 G2 is GPIO3");
-static_assert(kWiring.display.data_gpio[8]  == 46, "S02-5 G3 is GPIO46");
-static_assert(kWiring.display.data_gpio[9]  == 9,  "S02-5 G4 is GPIO9");
-static_assert(kWiring.display.data_gpio[10] == 10, "S02-5 G5 is GPIO10");
-static_assert(kWiring.display.data_gpio[11] == 11, "S02-5 R0 is GPIO11");
-static_assert(kWiring.display.data_gpio[12] == 12, "S02-5 R1 is GPIO12");
-static_assert(kWiring.display.data_gpio[13] == 13, "S02-5 R2 is GPIO13");
-static_assert(kWiring.display.data_gpio[14] == 14, "S02-5 R3 is GPIO14");
-static_assert(kWiring.display.data_gpio[15] == 0,  "S02-5 R4 is GPIO0");
-static_assert(kWiring.display.hsync_gpio     == 16, "S02-5 HSYNC is GPIO16");
-static_assert(kWiring.display.vsync_gpio     == 17, "S02-5 VSYNC is GPIO17");
-static_assert(kWiring.display.de_gpio        == 18, "S02-5 DE is GPIO18");
-static_assert(kWiring.display.pclk_gpio      == 21, "S02-5 PCLK is GPIO21");
-static_assert(kWiring.display.cmd_cs_gpio    == 39, "S02-5 command CS is GPIO39");
-static_assert(kWiring.display.cmd_sck_gpio   == 48, "S02-5 command SCK is GPIO48");
-static_assert(kWiring.display.cmd_sda_gpio   == 47, "S02-5 command SDA is GPIO47");
-static_assert(kWiring.display.backlight_gpio == 38, "S02-5 backlight is GPIO38");
-static_assert(kWiring.touch.i2c_sda_gpio == 19, "S02-5 touch SDA is GPIO19");
-static_assert(kWiring.touch.i2c_scl_gpio == 45, "S02-5 touch SCL is GPIO45");
-static_assert(kWiring.touch.int_gpio == kPinNotConnected,
-              "S02-5 touch INT is not connected");
-static_assert(kWiring.touch.reset_gpio == kPinNotConnected,
-              "S02-5 touch RST is not connected");
-#endif  // !YORADIO_CUSTOM_WIRING
-
-static_assert(kActiveBoard.display.native_width  == 480, "4848S040 panel is 480 wide");
-static_assert(kActiveBoard.display.native_height == 480, "4848S040 panel is 480 high");
-static_assert(kActiveBoard.display.panel_reset_gpio == kPinNotConnected,
-              "4848S040 panel RESX is not routed to the SoC");
-static_assert(kActiveBoard.touch.i2c_address == 0x5D, "GT911 primary address");
-// Factory lifecycle share: BOOT button and RGB R4 are the same physical pin.
-// Custom Wiring may move R4; the button fact stays on the factory profile.
-// Заводское совпадение BOOT и R4. Custom Wiring может перенести R4; кнопка
-// остаётся фактом заводского профиля.
-static_assert(kActiveBoard.power.boot_button_gpio == kActiveBoard.display.data_gpio[15],
-              "on this board the BOOT button and RGB R4 are the same lifecycle-shared pin");
-static_assert(kActiveBoard.usb.soc_native_usb_dm_gpio == kActiveBoard.touch.i2c_sda_gpio,
-              "stock: native USB DM and touch SDA share GPIO19; USB stays unused");
-static_assert(kActiveBoard.usb.soc_native_usb_dp_gpio == kActiveBoard.display.data_gpio[6],
-              "stock: native USB DP and RGB G1 share GPIO20; USB stays unused");
-static_assert(!kActiveBoard.usb.native_usb_pins_free_in_stock_wiring,
-              "stock wiring uses both native-USB pins (touch SDA and RGB G1)");
-static_assert(kActiveBoard.audio.onboard_output_requires_hw_rework,
-              "the onboard mono path is strap-selected, so it is never software-selectable");
-
 // ---- Required lines may not be disconnected; INT/RST may stay at 255 ----
 // ---- Обязательные линии нельзя отключать; INT/RST могут остаться 255 ----
 static_assert(kWiring.display.data_gpio[0]  != kPinNotConnected, "DISP_B0 cannot be disconnected");
@@ -362,9 +302,16 @@ inline constexpr ClaimList withPin(ClaimList base, uint8_t pin) {
 
 }  // namespace wiring_check
 
-#endif  // YORADIO_BOARD == YORADIO_BOARD_4848S040
-
 }  // namespace yoradio
 #endif  // __cplusplus
+
+// Profile-specific checks of the selected board. The file name is chosen by the single
+// YORADIO_BOARD dispatch in board_select.h; nothing here names a concrete board.
+// Профильные проверки выбранной платы. Имя файла выбирает единственная диспетчеризация
+// по YORADIO_BOARD в board_select.h; здесь конкретная плата не упоминается.
+#ifndef YORADIO_BOARD_PROFILE_VALIDATE_HEADER
+#  error "YoRadio Board Contract: board_select.h did not define YORADIO_BOARD_PROFILE_VALIDATE_HEADER for the selected board."
+#endif
+#include YORADIO_BOARD_PROFILE_VALIDATE_HEADER
 
 #endif  // YORADIO_PLATFORM_BOARD_VALIDATE_H

@@ -125,8 +125,9 @@ completion time. See [Storage roles and limits](storage/README.md).
    add an ID, a profile/defaults directory, a `board_select.h` branch and
    validation/build support. The same ST7701 RGB565 480×480 and GT911 do not
    need a new backend. A profile alone does not make another panel or touch
-   controller supported. GPIO range and duplicate checks currently live inside
-   the 4848S040 branch of `board_validate.h`.
+   controller supported. GPIO range and duplicate checks are common
+   (`board_validate.h`) and apply to any board; factory-specific checks go into
+   the profile's `board_validate_profile.h`.
 4. **Use another panel or touch controller.** This needs a new tested backend
    and contract-compatible descriptor. No second backend is in the tree.
    Screen code stays behind DisplayPort; controller-specific touch code stays
@@ -262,8 +263,8 @@ SMB1 и не WebDAV. Bluetooth и остальные planned-панели — Co
    и совместимая конфигурация сборки. Те же ST7701 RGB565 480×480 и GT911
    нового драйвера не требуют. Профиль сам по себе не добавляет поддержку
    другой панели или контроллера тача. Проверки
-   диапазона GPIO и дубликатов сейчас живут внутри ветки 4848S040 в
-   `board_validate.h`.
+   диапазона GPIO и дубликатов — общие (`board_validate.h`) и действуют для любой
+   платы; заводские проверки платы пишутся в `board_validate_profile.h` её профиля.
 4. **Использовать другую панель или контроллер тача.** Нужны новый проверенный
    драйвер и совместимое с контрактом описание оборудования. Второго драйвера
    панели или тача в дереве нет. Код экранов обращается к DisplayPort, код

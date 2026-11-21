@@ -100,14 +100,17 @@ Adding a board is programming work:
 1. Allocate a stable BoardId in board_id.h.
 2. Add profiles/<board>/board_profile.h and board_defaults.h.
 3. Add the selection branch in board_select.h.
-4. Extend board_validate.h and add a real PlatformIO build environment if the
+4. Add profiles/<board>/board_validate_profile.h (factory checks) and name it in
+   board_select.h through YORADIO_BOARD_PROFILE_VALIDATE_HEADER; the common
+   board_validate.h needs no edit. Add a real PlatformIO build environment if the
    SoC/flash/PSRAM family differs.
 5. Supply/qualify matching display and touch implementations, then perform
    hardware validation.
 
 The same ST7701 RGB565 480×480 and GT911 keep the current backends. A
 BoardProfile cannot by itself add a new panel, resolution, or controller.
-The current GPIO range and duplicate checks sit inside the 4848S040 branch.
+The GPIO range and duplicate checks are common and run for every board; the
+4848S040 factory assertions live in its profile's `board_validate_profile.h`.
 See [profiles README](profiles/README.md) and [display README](../display/README.md).
 
 ### Compatibility
@@ -217,14 +220,17 @@ GPIO дисплея и GT911 задаются `DISP_*` и `TOUCH_*` через C
 1. Выделите стабильный BoardId в board_id.h.
 2. Добавьте profiles/<board>/board_profile.h и board_defaults.h.
 3. Добавьте ветку выбора в board_select.h.
-4. Расширьте board_validate.h и добавьте отдельное окружение PlatformIO,
-   если отличается семейство SoC/flash/PSRAM.
+4. Добавьте profiles/<board>/board_validate_profile.h (заводские проверки) и
+   укажите его в board_select.h через YORADIO_BOARD_PROFILE_VALIDATE_HEADER;
+   общий board_validate.h править не нужно. Добавьте отдельное окружение
+   PlatformIO, если отличается семейство SoC/flash/PSRAM.
 5. Подключите и проверьте соответствующие драйверы дисплея/тача, затем
    проведите проверку на устройстве.
 
 Те же ST7701 RGB565 480×480 и GT911 используют текущие драйверы.
 BoardProfile сам по себе не добавляет новую панель, разрешение или контроллер.
-Текущие проверки диапазона GPIO и дубликатов находятся внутри ветки 4848S040.
+Проверки диапазона GPIO и дубликатов — общие и выполняются для любой платы;
+заводские проверки 4848S040 находятся в `board_validate_profile.h` её профиля.
 См. [profiles README](profiles/README.md) и [display README](../display/README.md).
 
 ### Совместимость

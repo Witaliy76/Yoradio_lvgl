@@ -28,6 +28,11 @@
 #if YORADIO_BOARD == YORADIO_BOARD_4848S040
 #  include "profiles/esp32s3_4848s040/board_profile.h"
 #  include "profiles/esp32s3_4848s040/board_defaults.h"
+// Profile-specific validator, named here and included by board_validate.h, so this
+// #if chain stays the only place that maps YORADIO_BOARD to profile files.
+// Профильный валидатор: имя задаётся здесь, включает его board_validate.h; эта цепочка
+// #if остаётся единственным местом, сопоставляющим YORADIO_BOARD и файлы профиля.
+#  define YORADIO_BOARD_PROFILE_VALIDATE_HEADER "profiles/esp32s3_4848s040/board_validate_profile.h"
 #  ifdef __cplusplus
 namespace yoradio {
 // Stable aliases consumers and the validator read, so that no file outside
