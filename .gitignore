@@ -33,6 +33,9 @@ SPECTRUM*.md
 # FATFS LFN/UTF-8 overlay for the ordinary 4848S040 Storage Owner build.
 # Overlay FATFS LFN/UTF-8 для штатной сборки Storage Owner 4848S040.
 !/sdkconfig.defaults.storage_owner
+# ESP-IDF component lock for reproducible builds (Freeze §8).
+# Lock компонентов ESP-IDF для воспроизводимой сборки (Freeze §8).
+!/dependencies.lock
 !/partitions.csv
 !/minimal_spiffs.csv
 !/partition_16MB_ota_spiffs.csv
