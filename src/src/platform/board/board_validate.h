@@ -211,32 +211,116 @@ static_assert(isUsableGpio(kWiring.touch.reset_gpio),   "TOUCH_RST uses an inval
 // 16 RGB + синхро/команды/подсветка + тач + I2S и ещё пара SD DAT0/CS.
 struct ClaimList {
     uint8_t pin[40];
+    PinRole role[40];
     uint8_t count;
 };
 
+// True if the board declares that `a` and `b` may hold `gpio` together: one of
+// them is the listed owner and the other is in its followers. Exclusive entries
+// and untyped (None) claims never share; the order of a/b does not matter.
+// True, если плата объявила, что `a` и `b` могут занимать `gpio` вместе: одна роль —
+// владелец записи, другая — среди followers. None и Exclusive не делятся никогда.
+inline constexpr bool sharingDeclared(const SharedResources& shared, uint8_t gpio,
+                                      PinRole a, PinRole b) {
+    if (a == PinRole::None || b == PinRole::None) {
+        return false;
+    }
+    for (uint8_t i = 0; i < shared.count && i < kMaxSharedPins; ++i) {
+        const SharedPin& e = shared.pins[i];
+        if (e.gpio != gpio || e.kind == ResourceShare::Exclusive) {
+            continue;
+        }
+        if ((e.owner == a && (e.followers & pinRoleBit(b)) != 0u) ||
+            (e.owner == b && (e.followers & pinRoleBit(a)) != 0u)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// GPIO the board wires to a single-pin role, or NC when the role is not a
+// single board line (RGB data, I2S, SD are not BoardProfile pin fields).
+// GPIO, разведённый платой под роль с одним пином, иначе NC.
+inline constexpr uint8_t boardPinOf(const BoardProfile& p, PinRole role) {
+    switch (role) {
+        case PinRole::DisplayHsync:      return p.display.hsync_gpio;
+        case PinRole::DisplayVsync:      return p.display.vsync_gpio;
+        case PinRole::DisplayDe:         return p.display.de_gpio;
+        case PinRole::DisplayPclk:       return p.display.pclk_gpio;
+        case PinRole::DisplayCommandCs:  return p.display.cmd_cs_gpio;
+        case PinRole::DisplayCommandSck: return p.display.cmd_sck_gpio;
+        case PinRole::DisplayCommandSda: return p.display.cmd_sda_gpio;
+        case PinRole::DisplayBacklight:  return p.display.backlight_gpio;
+        case PinRole::TouchSda:          return p.touch.i2c_sda_gpio;
+        case PinRole::TouchScl:          return p.touch.i2c_scl_gpio;
+        case PinRole::TouchInt:          return p.touch.int_gpio;
+        case PinRole::TouchRst:          return p.touch.reset_gpio;
+        default:                         return kPinNotConnected;
+    }
+}
+
+// Table sanity for any board: real shared kinds only, no untyped or CS roles,
+// one entry per GPIO, and the owner really sits on that GPIO in the factory profile.
+// Проверка таблицы для любой платы: только реальные виды разделения, без None и CS,
+// одна запись на GPIO, и владелец действительно стоит на этом GPIO в заводском профиле.
+inline constexpr bool sharedTableValid(const BoardProfile& p) {
+    constexpr uint32_t kForbiddenFollowers =
+        (1u << static_cast<uint8_t>(PinRole::None)) | (1u << static_cast<uint8_t>(PinRole::DisplayCommandCs));
+    if (p.shared.count > kMaxSharedPins) {
+        return false;
+    }
+    for (uint8_t i = 0; i < p.shared.count; ++i) {
+        const SharedPin& e = p.shared.pins[i];
+        if (e.kind == ResourceShare::Exclusive || e.owner == PinRole::None ||
+            e.owner == PinRole::DisplayCommandCs || e.followers == 0u ||
+            (e.followers & kForbiddenFollowers) != 0u ||
+            (e.followers & pinRoleBit(e.owner)) != 0u) {
+            return false;
+        }
+        if (e.gpio == kPinNotConnected || !isUsableGpio(e.gpio) ||
+            boardPinOf(p, e.owner) != e.gpio) {
+            return false;
+        }
+        for (uint8_t j = static_cast<uint8_t>(i + 1u); j < p.shared.count; ++j) {
+            if (p.shared.pins[j].gpio == e.gpio) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+static_assert(static_cast<uint8_t>(PinRole::BuiltinLed) < 32u,
+              "PinRole ordinals are bit positions in SharedPin::followers; keep them below 32.");
+static_assert(sharedTableValid(kActiveBoard),
+              "YoRadio Board Contract: BoardProfile.shared is invalid. Each entry needs a "
+              "non-Exclusive kind, a typed owner sitting on that GPIO in the factory profile, "
+              "non-empty followers without None/command CS, and one entry per GPIO.");
+
 inline constexpr ClaimList buildClaims() {
     ClaimList c{};
-    auto push = [&](uint8_t pin) {
+    auto push = [&](uint8_t pin, PinRole role) {
         if (pin == kPinNotConnected) {
             return;
         }
-        c.pin[c.count++] = pin;
+        c.pin[c.count] = pin;
+        c.role[c.count] = role;
+        ++c.count;
     };
     for (uint8_t i = 0; i < 16; ++i) {
-        push(kWiring.display.data_gpio[i]);
+        push(kWiring.display.data_gpio[i], PinRole::DisplayData);
     }
-    push(kWiring.display.hsync_gpio);
-    push(kWiring.display.vsync_gpio);
-    push(kWiring.display.de_gpio);
-    push(kWiring.display.pclk_gpio);
-    push(kWiring.display.cmd_cs_gpio);
-    push(kWiring.display.cmd_sck_gpio);
-    push(kWiring.display.cmd_sda_gpio);
-    push(kWiring.display.backlight_gpio);
-    push(kWiring.touch.i2c_sda_gpio);
-    push(kWiring.touch.i2c_scl_gpio);
-    push(kWiring.touch.int_gpio);
-    push(kWiring.touch.reset_gpio);
+    push(kWiring.display.hsync_gpio,     PinRole::DisplayHsync);
+    push(kWiring.display.vsync_gpio,     PinRole::DisplayVsync);
+    push(kWiring.display.de_gpio,        PinRole::DisplayDe);
+    push(kWiring.display.pclk_gpio,      PinRole::DisplayPclk);
+    push(kWiring.display.cmd_cs_gpio,    PinRole::DisplayCommandCs);
+    push(kWiring.display.cmd_sck_gpio,   PinRole::DisplayCommandSck);
+    push(kWiring.display.cmd_sda_gpio,   PinRole::DisplayCommandSda);
+    push(kWiring.display.backlight_gpio, PinRole::DisplayBacklight);
+    push(kWiring.touch.i2c_sda_gpio,     PinRole::TouchSda);
+    push(kWiring.touch.i2c_scl_gpio,     PinRole::TouchScl);
+    push(kWiring.touch.int_gpio,         PinRole::TouchInt);
+    push(kWiring.touch.reset_gpio,       PinRole::TouchRst);
 #if defined(I2S_DOUT) && (I2S_DOUT != 255)
     // Validate original values before narrowing; explicit 255 keeps its NC policy.
     // Проверяем исходные значения до преобразования в uint8_t; 255 не занимает GPIO.
@@ -244,29 +328,34 @@ inline constexpr ClaimList buildClaims() {
                   "YoRadio Board Contract: I2S_DOUT must be GPIO 0..48 or explicit 255 (NC) before uint8_t conversion.");
     static_assert(isUsableGpio(static_cast<uint8_t>(I2S_DOUT)),
                   "I2S_DOUT uses an invalid ESP32-S3 GPIO");
-    push(static_cast<uint8_t>(I2S_DOUT));
+    push(static_cast<uint8_t>(I2S_DOUT), PinRole::I2sDout);
 #endif
 #if defined(I2S_BCLK) && (I2S_BCLK != 255)
     static_assert((I2S_BCLK) >= 0 && (I2S_BCLK) <= 48,
                   "YoRadio Board Contract: I2S_BCLK must be GPIO 0..48 or explicit 255 (NC) before uint8_t conversion.");
     static_assert(isUsableGpio(static_cast<uint8_t>(I2S_BCLK)),
                   "I2S_BCLK uses an invalid ESP32-S3 GPIO");
-    push(static_cast<uint8_t>(I2S_BCLK));
+    push(static_cast<uint8_t>(I2S_BCLK), PinRole::I2sBclk);
 #endif
 #if defined(I2S_LRC) && (I2S_LRC != 255)
     static_assert((I2S_LRC) >= 0 && (I2S_LRC) <= 48,
                   "YoRadio Board Contract: I2S_LRC must be GPIO 0..48 or explicit 255 (NC) before uint8_t conversion.");
     static_assert(isUsableGpio(static_cast<uint8_t>(I2S_LRC)),
                   "I2S_LRC uses an invalid ESP32-S3 GPIO");
-    push(static_cast<uint8_t>(I2S_LRC));
+    push(static_cast<uint8_t>(I2S_LRC), PinRole::I2sWs);
 #endif
     return c;
 }
 
+// Two claims on one GPIO are a conflict unless BoardProfile.shared declares
+// exactly that owner/follower pair on that GPIO.
+// Два требования на один GPIO — конфликт, если BoardProfile.shared не объявил
+// именно эту пару владелец/follower на этом GPIO.
 inline constexpr bool hasDuplicateGpio(const ClaimList& claims) {
     for (uint8_t i = 0; i < claims.count; ++i) {
         for (uint8_t j = static_cast<uint8_t>(i + 1u); j < claims.count; ++j) {
-            if (claims.pin[i] == claims.pin[j]) {
+            if (claims.pin[i] == claims.pin[j] &&
+                !sharingDeclared(kWiring.shared, claims.pin[i], claims.role[i], claims.role[j])) {
                 return true;
             }
         }
@@ -276,8 +365,9 @@ inline constexpr bool hasDuplicateGpio(const ClaimList& claims) {
 
 inline constexpr ClaimList kClaims = buildClaims();
 static_assert(!hasDuplicateGpio(kClaims),
-              "YoRadio Custom Wiring: two active signals share the same GPIO. "
-              "Check DISP_*/TOUCH_* overrides against each other and against I2S_DOUT/BCLK/LRC in src/myoptions.h.");
+              "YoRadio Custom Wiring: two active signals share the same GPIO and the board does not "
+              "declare that pair in BoardProfile.shared. Check DISP_*/TOUCH_* overrides against each "
+              "other and against I2S_DOUT/BCLK/LRC in src/myoptions.h.");
 static_assert(kClaims.count < 40, "YoRadio GPIO resolver: claim list is full.");
 
 inline constexpr bool containsPin(const ClaimList& claims, uint8_t pin) {
@@ -289,15 +379,21 @@ inline constexpr bool containsPin(const ClaimList& claims, uint8_t pin) {
     return false;
 }
 
-// One extra claim. The caller checks hasDuplicateGpio; this does not drop a pin
-// that still fits. 255 is not a claim.
-// Одно дополнительное требование. Повторы проверяет hasDuplicateGpio. 255 не занимает пин.
-inline constexpr ClaimList withPin(ClaimList base, uint8_t pin) {
+// One extra claim with a role. The caller checks hasDuplicateGpio; 255 is not a claim.
+// Одно дополнительное требование с ролью. Повторы проверяет hasDuplicateGpio.
+inline constexpr ClaimList withPin(ClaimList base, uint8_t pin, PinRole role) {
     if (pin != kPinNotConnected && base.count < 40) {
         base.pin[base.count] = pin;
+        base.role[base.count] = role;
         base.count = static_cast<uint8_t>(base.count + 1u);
     }
     return base;
+}
+
+// Untyped extra claim (PinRole::None): never shares with anything.
+// Требование без роли (PinRole::None): ни с чем не делится.
+inline constexpr ClaimList withPin(ClaimList base, uint8_t pin) {
+    return withPin(base, pin, PinRole::None);
 }
 
 }  // namespace wiring_check

@@ -182,6 +182,72 @@ struct PowerHardware {
     bool    boot_button_active_low;
 };
 
+// ---------------------------------------------------------------------------
+// SharedResources — pins the board wires to more than one signal (Freeze §21)
+// SharedResources — пины, которые плата разводит на несколько сигналов (Freeze §21)
+// ---------------------------------------------------------------------------
+// Default for every GPIO is Exclusive: one active role per pin. A board lists
+// only the exceptions it physically has. The common validator lets two claims
+// share a GPIO only if the board lists that GPIO with that owner role and the
+// other role in its followers. Nothing here schedules access at runtime; the
+// owning backend and its followers coordinate (no ResourceManager, D9).
+// По умолчанию каждый GPIO Exclusive: одна активная роль на пин. Плата перечисляет
+// только реально существующие исключения. Общий валидатор разрешает двум требованиям
+// делить GPIO, только если плата указала этот GPIO с этой ролью-владельцем и вторую
+// роль среди followers. Доступ во время работы здесь не планируется (D9).
+enum class ResourceShare : uint8_t {
+    Exclusive = 0,    // one role only; never listed, the default
+    SharedBus,        // roles use the line at the same time on one bus protocol
+    LifecycleShared,  // owner uses it in one lifecycle phase, followers after release
+};
+
+// Signal roles a GPIO claim can carry. Ordinals are bit positions in
+// SharedPin::followers, so keep them below 32 and append only.
+// Роли сигналов в требовании GPIO. Порядковый номер — бит в SharedPin::followers,
+// поэтому значения < 32 и только добавление в конец.
+enum class PinRole : uint8_t {
+    None = 0,             // untyped claim; never shares
+    DisplayData,
+    DisplayHsync,
+    DisplayVsync,
+    DisplayDe,
+    DisplayPclk,
+    DisplayCommandCs,     // never shares: a CS must stay exclusive
+    DisplayCommandSck,
+    DisplayCommandSda,
+    DisplayBacklight,
+    TouchSda,
+    TouchScl,
+    TouchInt,
+    TouchRst,
+    I2sDout,
+    I2sBclk,
+    I2sWs,
+    SdClk,
+    SdCmd,
+    SdDat0,
+    SdCs,
+    BuiltinLed,
+};
+
+constexpr uint32_t pinRoleBit(PinRole role) {
+    return 1u << static_cast<uint8_t>(role);
+}
+
+struct SharedPin {
+    uint8_t       gpio;
+    ResourceShare kind;
+    PinRole       owner;
+    uint32_t      followers;  // OR of pinRoleBit(...)
+};
+
+constexpr uint8_t kMaxSharedPins = 8;
+
+struct SharedResources {
+    SharedPin pins[kMaxSharedPins];
+    uint8_t   count;
+};
+
 struct BoardProfile {
     BoardIdentity   identity;
     DisplayWiring   display;
@@ -191,6 +257,7 @@ struct BoardProfile {
     UsbHardware     usb;
     NetworkHardware network;
     PowerHardware   power;
+    SharedResources shared;
 };
 
 // ---------------------------------------------------------------------------

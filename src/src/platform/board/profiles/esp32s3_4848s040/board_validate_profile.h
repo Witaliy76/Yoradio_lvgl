@@ -128,6 +128,16 @@ static_assert(!kActiveBoard.usb.native_usb_pins_free_in_stock_wiring,
               "stock wiring uses both native-USB pins (touch SDA and RGB G1)");
 static_assert(kActiveBoard.audio.onboard_output_requires_hw_rework,
               "the onboard mono path is strap-selected, so it is never software-selectable");
+// S07: TF CMD/CLK are the ST7701 command SDA/SCK lines; the profile must declare it.
+// S07: TF CMD/CLK — это линии SDA/SCK команд ST7701; профиль обязан это объявить.
+static_assert(kActiveBoard.shared.count == 2,
+              "4848S040 declares exactly two shared pins: GPIO47 and GPIO48");
+static_assert(wiring_check::sharingDeclared(kActiveBoard.shared, 47,
+                                            PinRole::DisplayCommandSda, PinRole::SdCmd),
+              "4848S040: GPIO47 is DisplayCommand SDA with TF CMD as lifecycle follower");
+static_assert(wiring_check::sharingDeclared(kActiveBoard.shared, 48,
+                                            PinRole::DisplayCommandSck, PinRole::SdClk),
+              "4848S040: GPIO48 is DisplayCommand SCK with TF CLK as lifecycle follower");
 
 }  // namespace yoradio
 #endif  // __cplusplus

@@ -185,6 +185,24 @@ inline constexpr BoardProfile kBoardProfile_Esp32S3_4848S040 = {
         .boot_button_gpio       = YORADIO_BP_4848_BOOT_BTN_GPIO,
         .boot_button_active_low = true,
     },
+
+    // Only the exceptions to "one role per GPIO". TF CMD/CLK are routed to the same
+    // lines as the ST7701 command SDA/SCK (S07): the panel owns them during init,
+    // SD may use them after the panel has released the 3-wire bus. Command CS (39)
+    // is never shared. BOOT=R4 and USB=touch/G1 stay profile facts checked in
+    // board_validate_profile.h; they are not run-time role pairs.
+    // Только исключения из «одна роль на GPIO». TF CMD/CLK разведены на те же линии,
+    // что SDA/SCK команд ST7701 (S07): панель владеет ими при инициализации, SD
+    // использует после освобождения 3-wire шины. CS команд (39) не делится никогда.
+    .shared = {
+        .pins = {
+            { .gpio = 47, .kind = ResourceShare::LifecycleShared,
+              .owner = PinRole::DisplayCommandSda, .followers = pinRoleBit(PinRole::SdCmd) },
+            { .gpio = 48, .kind = ResourceShare::LifecycleShared,
+              .owner = PinRole::DisplayCommandSck, .followers = pinRoleBit(PinRole::SdClk) },
+        },
+        .count = 2,
+    },
 };
 
 }  // namespace yoradio
