@@ -102,16 +102,6 @@ CONFIG_MBEDTLS_DYNAMIC_FREE_CA_CERT=y
 CONFIG_MBEDTLS_ASYMMETRIC_CONTENT_LEN=y
 CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=16384
 CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=4096
-# Default allocator (not INTERNAL/EXTERNAL/CUSTOM): buffers larger than
-# CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096 go to PSRAM; smaller ones stay in internal RAM.
-# Needed so a second TLS context (AI HTTPS during radio TLS) does not fail with
-# "Dynamic Impl: alloc(52563) failed" — see AUDIO_LIB_FIXES.md §8; S07_bis-INS1.
-# Аллокатор по умолчанию (не INTERNAL/EXTERNAL/CUSTOM): буферы больше
-# CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096 уходят в PSRAM; мелкие остаются во внутренней RAM.
-# Нужен, чтобы второй TLS-контекст (AI HTTPS поверх TLS-радио) не падал с
-# "Dynamic Impl: alloc(52563) failed" — см. AUDIO_LIB_FIXES.md п.8; S07_bis-INS1.
-CONFIG_MBEDTLS_DEFAULT_MEM_ALLOC=y
-
 # Former qio_opi header enables these PSK modes. Arduino NetworkClientSecure
 # compiles ssl_client.cpp only when MBEDTLS_KEY_EXCHANGE_SOME_PSK_ENABLED is set.
 # Бывший заголовок qio_opi включает эти PSK-режимы. Arduino NetworkClientSecure
