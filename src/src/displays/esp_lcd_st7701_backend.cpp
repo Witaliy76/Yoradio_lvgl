@@ -5,7 +5,6 @@
 // Author: Witaliy76 - https://github.com/Witaliy76
 
 #include "../core/options.h"
-#if DSP_MODEL == DSP_ST7701
 
 #include "esp_lcd_st7701_backend.h"
 #include "st7701_type9_ops.h"
@@ -729,4 +728,3 @@ bool requestRgbPclkHz(uint32_t hz) {
 
 }  // namespace yoradio_esp_lcd_st7701
 
-#endif  // DSP_ST7701

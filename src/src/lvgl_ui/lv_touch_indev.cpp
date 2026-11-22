@@ -4,7 +4,7 @@
 #include "lv_touch_indev_feed.h"
 #include "lvgl.h"
 
-#if (TS_MODEL!=TS_MODEL_UNDEFINED)
+#if YORADIO_HAS_TOUCH
 #include <Arduino.h>
 #include "../core/touchscreen.h"
 #include "../core/display.h"
@@ -17,7 +17,7 @@
 // BASE-LVGL9-MIGRATION C3: no lv_indev_drv_t in LVGL 9 — lv_indev_t is created/configured directly.
 static lv_indev_t* s_touch_indev = nullptr;
 
-#if (TS_MODEL!=TS_MODEL_UNDEFINED)
+#if YORADIO_HAS_TOUCH
 // Stage 6.4C: touch state for indev-level polling (top-edge swipe detection).
 // Tracks exactly what is fed to LVGL — after screensaver suppress.
 // Состояние тача, реально переданное LVGL (после suppress при пробуждении saver).
@@ -60,7 +60,7 @@ static lvgl_ui::ScreensaverTouchDecision apply_screensaver_wake_policy(
 }
 #endif
 
-#if TS_MODEL==TS_MODEL_GT911
+#if YORADIO_HAS_TOUCH
 static const char* touch_status_name(yoradio::TouchSampleStatus status) {
     switch (status) {
         case yoradio::TouchSampleStatus::Valid: return "Valid";
@@ -147,7 +147,7 @@ static void lv_touch_debug_on_feed(const lvgl_ui::LvglTouchFrame& frame,
 
 static void lv_touch_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
     (void)indev;
-#if (TS_MODEL!=TS_MODEL_UNDEFINED)
+#if YORADIO_HAS_TOUCH
     static bool s_prev_touch_down = false;
     const lvgl_ui::LvglTouchFrame frame = s_touch_adapter.read();
     const lvgl_ui::ScreensaverTouchDecision wake =
@@ -169,7 +169,7 @@ static void lv_touch_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
         }
     }
     s_prev_touch_down = touch_down;
-#if TS_MODEL==TS_MODEL_GT911
+#if YORADIO_HAS_TOUCH
     lv_touch_debug_on_feed(frame, data->state, data->point);
 #endif
 #else
@@ -177,23 +177,23 @@ static void lv_touch_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
 #endif
 }
 
-// Stage 6.4C: getters — safe for all TS_MODEL configurations / безопасны при любом TS_MODEL.
+// Stage 6.4C: getters — safe with and without touch (YORADIO_HAS_TOUCH) / безопасны с тачем и без.
 bool lvgl_ui::touchIndevIsDown() {
-#if (TS_MODEL!=TS_MODEL_UNDEFINED)
+#if YORADIO_HAS_TOUCH
     return s_touch_is_down;
 #else
     return false;
 #endif
 }
 int16_t lvgl_ui::touchIndevX() {
-#if (TS_MODEL!=TS_MODEL_UNDEFINED)
+#if YORADIO_HAS_TOUCH
     return s_touch_last_x;
 #else
     return 0;
 #endif
 }
 int16_t lvgl_ui::touchIndevY() {
-#if (TS_MODEL!=TS_MODEL_UNDEFINED)
+#if YORADIO_HAS_TOUCH
     return s_touch_last_y;
 #else
     return 0;
@@ -201,7 +201,7 @@ int16_t lvgl_ui::touchIndevY() {
 }
 
 void lvgl_ui::prepareTouchPolling() {
-#if (TS_MODEL!=TS_MODEL_UNDEFINED)
+#if YORADIO_HAS_TOUCH
     static bool initialized = false;
     if (!initialized) {
         touchscreen.init();
@@ -218,7 +218,7 @@ void lvgl_ui::initTouchIndev() {
     if (!lv_display_get_default()) {
         return;
     }
-#if (TS_MODEL!=TS_MODEL_UNDEFINED)
+#if YORADIO_HAS_TOUCH
     s_touch_indev = lv_indev_create();
     if (!s_touch_indev) {
         return;

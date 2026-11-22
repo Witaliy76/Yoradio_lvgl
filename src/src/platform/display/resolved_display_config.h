@@ -90,11 +90,10 @@ constexpr bool userRgbFlashGuardEnabled() {
 }
 
 constexpr bool userBootOrientation180Enabled() {
-#if defined(ST7701_BOOT_ORIENTATION_180)
-    return ST7701_BOOT_ORIENTATION_180 != 0;
-#else
-    return false;
+#if !defined(DISPLAY_BOOT_ORIENTATION_180)
+#  error "resolved_display_config.h: DISPLAY_BOOT_ORIENTATION_180 must come from core/options.h."
 #endif
+    return DISPLAY_BOOT_ORIENTATION_180 != 0;
 }
 
 }  // namespace detail

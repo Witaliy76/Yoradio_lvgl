@@ -7,6 +7,7 @@
 #include "beocord_segment_a8.h"
 #include "lvgl.h"
 #include "../theme/lv_theme_yoradio.h"
+#include "../profiles/resolved_ui_metrics.h"
 
 // E1+E2+E6B: compile-time Beocord museum asset boundary — theme paths, canvas, mask, window rects.
 // E1+E2+E6B: граница Beocord pack — пути тем, холст, маска, координаты окон.
@@ -20,8 +21,6 @@ struct BeocordVuAssetPack {
     lv_area_t           overlay_rect[2][8]; // E6B: shared central-scale inclusive windows / общие окна
 };
 
-#if DSP_MODEL == DSP_ST7701
-
 static constexpr const char kBeocordBgPathDark[] =
     "/visual/beocord9000/480x480/base_off_scale_mid_dark.bin";
 static constexpr const char kBeocordBgPathLight[] =
@@ -31,7 +30,7 @@ static constexpr const char kBeocordBgPathCustom[] =
 
 // E6B: canonical theme → LittleFS background path; unknown → Dark.
 // E6B: каноническая тема → путь фона LittleFS; неизвестная → Dark.
-inline const char* beocord_background_path_for_preset(ThemePreset preset) {
+inline const char* beocord_square480_background_path(ThemePreset preset) {
     switch (preset) {
         case ThemePreset::Light:
             return kBeocordBgPathLight;
@@ -43,9 +42,9 @@ inline const char* beocord_background_path_for_preset(ThemePreset preset) {
     }
 }
 
-// Sunton 4848S040 — 480×480 museum background + E6B central-scale segment geometry (L/R × 8).
-// Sunton 4848S040 — музейный фон 480×480 + геометрия E6B central-scale (L/R × 8).
-static constexpr BeocordVuAssetPack kBeocordVuAssetPack{
+// UiProfile::Square480 — 480×480 museum background + E6B central-scale segment geometry (L/R × 8).
+// UiProfile::Square480 — музейный фон 480×480 + геометрия E6B central-scale (L/R × 8).
+static constexpr BeocordVuAssetPack kBeocordVuAssetPackSquare480{
     480u,
     480u,
     &img_beocord_segment_a8,
@@ -74,21 +73,38 @@ static constexpr BeocordVuAssetPack kBeocordVuAssetPack{
         },
     },
 };
-#else
-// Other boards: no museum asset in E1/E2 — Visual falls back to theme device_background.
-// Другие платы: без музейного ассета в E1/E2 — fallback на device_background темы.
-static constexpr BeocordVuAssetPack kBeocordVuAssetPack{
-    0u,
-    0u,
-    nullptr,
-    {},
-};
 
-inline const char* beocord_background_path_for_preset(ThemePreset) {
-    return nullptr;
+// Profiles without a museum asset: Visual falls back to the theme device_background.
+// Профили без музейного ассета: Visual использует device_background темы.
+static constexpr BeocordVuAssetPack kBeocordVuAssetPackNone{0u, 0u, nullptr, {}};
+
+// Raster variant is chosen by UiProfile (Freeze §25), not by the display model.
+// Растровый вариант выбирается по UiProfile (Freeze §25), а не по модели дисплея.
+constexpr const BeocordVuAssetPack& beocordPackFor(yoradio::UiProfile profile) {
+    switch (profile) {
+        case yoradio::UiProfile::Square480: return kBeocordVuAssetPackSquare480;
+        default:                            return kBeocordVuAssetPackNone;
+    }
 }
 
-#endif
+static constexpr const BeocordVuAssetPack& kBeocordVuAssetPack =
+    beocordPackFor(kResolvedUiMetrics.profile);
+
+// design_width 0 marks "no museum pack" for this profile.
+// design_width 0 означает «нет музейного пакета» для профиля.
+static_assert(kBeocordVuAssetPack.design_width == 0u ||
+                  (kBeocordVuAssetPack.design_width == kResolvedUiMetrics.viewport_width &&
+                   kBeocordVuAssetPack.design_height == kResolvedUiMetrics.viewport_height),
+              "Beocord asset pack design size must equal the UI profile viewport.");
+
+// E6B: canonical theme → LittleFS background path; unknown → Dark; no pack → nullptr.
+// E6B: тема → путь фона LittleFS; неизвестная → Dark; нет пакета → nullptr.
+inline const char* beocord_background_path_for_preset(ThemePreset preset) {
+    switch (kResolvedUiMetrics.profile) {
+        case yoradio::UiProfile::Square480: return beocord_square480_background_path(preset);
+        default:                            return nullptr;
+    }
+}
 
 } // namespace lvgl_ui
 

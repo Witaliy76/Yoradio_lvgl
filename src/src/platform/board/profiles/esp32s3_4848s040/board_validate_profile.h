@@ -30,18 +30,16 @@
 
 #include "../../board_select.h"
 
-// Legacy display selector must agree with this board's ST7701 panel (preprocessor level;
-// DSP_MODEL / DSP_ST7701 existence is checked by board_validate.h before inclusion).
-// Старый селектор дисплея должен соответствовать ST7701 этой платы (уровень препроцессора;
-// наличие DSP_MODEL / DSP_ST7701 проверяет board_validate.h до включения).
-#if (DSP_MODEL != DSP_ST7701)
-#  error "YoRadio Board Contract: board/display selector mismatch. YORADIO_BOARD selects the 4848S040, whose panel is ST7701 RGB, but DSP_MODEL is not DSP_ST7701. Fix DSP_MODEL in src/myoptions.h or select the matching board."
-#endif
-
 #ifdef __cplusplus
 #include <stdint.h>
 
 namespace yoradio {
+// This board's panel and touch controllers (replace the retired DSP_MODEL/TS_MODEL check).
+// Контроллеры панели и тача этой платы (вместо выведенной проверки DSP_MODEL/TS_MODEL).
+static_assert(kActiveBoard.display.controller == PanelController::St7701,
+              "4848S040 panel controller is ST7701");
+static_assert(kActiveBoard.touch.controller == TouchController::Gt911,
+              "4848S040 touch controller is GT911");
 // Factory profile numbers stay the accepted S02-4 / S02-5 baseline always.
 // Заводской профиль сохраняет принятую разводку S02-4 / S02-5.
 static_assert(kActiveBoard.display.data_gpio[0]  == 4,  "factory B0 is GPIO4");

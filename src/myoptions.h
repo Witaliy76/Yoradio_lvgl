@@ -1,12 +1,12 @@
 // ===============================================
-// CONFIGURATION FOR ESP32-4848S040
+// YoRadio user options / Пользовательские настройки YoRadio
 // ===============================================
-// Config for ESP32-4848S040 (ST7701 RGB 480x480 4.0")
-// Display: 4.0" IPS LCD 480x480 ST7701S (square)
-// Features:
-// - ST7701S RGB Panel
-// - Standard backlight (GPIO38)
-// - I2S pins: DOUT=40, BCLK=1, LRC=2
+// Board facts (panel, touch, GPIO, default I2S pins, SD map) come from the board
+// profile selected below: see src/src/platform/board/profiles/<board>/README.md.
+// This file holds only user choices and overrides.
+// Факты платы (панель, тач, GPIO, пины I2S по умолчанию, карта SD) берутся из
+// профиля, выбранного ниже: src/src/platform/board/profiles/<плата>/README.md.
+// Здесь только пользовательский выбор и переопределения.
 //   Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef myoptions_h
 #define myoptions_h
@@ -28,17 +28,18 @@
 /* ===============================================
    DISPLAY
    =============================================== */
-#define DSP_MODEL DSP_ST7701              // Display model ST7701
+// The panel is a board fact (BoardProfile): DSP_MODEL is retired and rejected.
+// Панель — факт платы (BoardProfile): DSP_MODEL выведен и отвергается.
 
 // Display / touch GPIO of the selected board come from its BoardProfile.
 // To re-pin any of the 28 lines, use the CUSTOM WIRING section below.
 // GPIO дисплея/тача выбранной платы задаёт BoardProfile.
 // Переназначение любого из 28 линий — в разделе CUSTOM WIRING ниже.
 
-// Fixed panel orientation applied during ST7701 init, before the RGB stream starts.
+// Fixed panel orientation applied during panel init, before the RGB stream starts.
 // Runtime WebUI flip is not reliable on this panel; touch remains configured separately.
 // This is display POLICY, not one of the 24 physical GPIO, so it stays a user option.
-#define ST7701_BOOT_ORIENTATION_180 false
+#define DISPLAY_BOOT_ORIENTATION_180 false   // former name ST7701_BOOT_ORIENTATION_180 is still accepted
 
 // ============================================================
 // CUSTOM WIRING — GPIO overrides
@@ -246,14 +247,16 @@
 /* ===============================================
    TOUCHSCREEN
    =============================================== */
-// GT911 capacitive I2C touch controller of the selected board (see its profile README)
-#define TS_MODEL              TS_MODEL_GT911   // GT911 Capacitive I2C
+// The touch controller is a board fact (BoardProfile): TS_MODEL is retired and rejected.
+// Uncomment to run without touch on a board that has one:
+// Контроллер тача — факт платы (BoardProfile): TS_MODEL выведен и отвергается.
+// Раскомментируйте, чтобы работать без тача на плате, где он есть:
+// #define YORADIO_HAS_TOUCH 0
 
-// GT911 pins are owned by the BoardProfile. Re-pin them in CUSTOM WIRING below
-// with TOUCH_SDA / TOUCH_SCL / TOUCH_INT / TOUCH_RST. Do not redefine TS_* here.
-// TS_MODEL stays the touch-driver selector (not wiring).
-// Пины GT911 принадлежат BoardProfile. Переназначение — в CUSTOM WIRING ниже
-// именами TOUCH_*. Не определяйте TS_* здесь. TS_MODEL — селектор драйвера.
+// Touch pins are owned by the BoardProfile. Re-pin them in CUSTOM WIRING below
+// with TOUCH_SDA / TOUCH_SCL / TOUCH_INT / TOUCH_RST. Do not define TS_* here.
+// Пины тача принадлежат BoardProfile. Переназначение — в CUSTOM WIRING ниже
+// именами TOUCH_*. Не определяйте TS_* здесь.
 
 /* ===============================================
    DISPLAY OPTIONS

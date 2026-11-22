@@ -224,7 +224,7 @@ After `create()` completes successfully:
 | Chip | `ESP.getChipModel()` + `ESP.getChipRevision()` |
 | CPU | `ESP.getCpuFreqMHz()` + `ESP.getChipCores()` |
 | Uptime | `millis()` → HH:MM:SS |
-| Display | compile-time `DSP_MODEL` via `info_format_display_product_line()` |
+| Display | compile-time `BoardProfile.display.controller` via `info_format_display_product_line()` |
 | LVGL | `LVGL_VERSION_MAJOR/MINOR/PATCH` |
 | Heap | `ESP.getFreeHeap()` → MB or KB |
 | PSRAM | `ESP.getFreePsram()` / `ESP.getPsramSize()` |

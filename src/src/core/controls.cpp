@@ -43,7 +43,7 @@ constexpr uint8_t nrOfButtons = sizeof(button) / sizeof(button[0]);
   #endif
 #endif
 
-#if (TS_MODEL!=TS_MODEL_UNDEFINED)
+#if YORADIO_HAS_TOUCH
   #include "touchscreen.h"
   TouchScreen touchscreen;
 #endif
@@ -116,7 +116,7 @@ void initControls() {
     button[i].setPressTicks(BTN_PRESS_TICKS);
   }
 #endif
-#if (TS_MODEL!=TS_MODEL_UNDEFINED)
+#if YORADIO_HAS_TOUCH
   // Defer touch init to first loop() — avoids LoadProhibited/IWDT when GT911 I2C init runs in setup (e.g. 4848S040)
   // Инициализация тача в loop(), чтобы не падать в setup
 #endif
@@ -589,7 +589,7 @@ void setEncAcceleration(uint16_t acc){
 #endif
 }
 void flipTS(bool flipped){
-#if (TS_MODEL!=TS_MODEL_UNDEFINED)
+#if YORADIO_HAS_TOUCH
   touchscreen.requestFlip(flipped);
 #else
   (void)flipped;

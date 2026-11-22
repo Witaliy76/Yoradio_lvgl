@@ -33,6 +33,9 @@
 // Профильный валидатор: имя задаётся здесь, включает его board_validate.h; эта цепочка
 // #if остаётся единственным местом, сопоставляющим YORADIO_BOARD и файлы профиля.
 #  define YORADIO_BOARD_PROFILE_VALIDATE_HEADER "profiles/esp32s3_4848s040/board_validate_profile.h"
+// Preprocessor-visible board facts that gate whole translation units.
+// Факты платы, видимые препроцессору: ими гейтятся целые единицы трансляции.
+#  define YORADIO_BOARD_HAS_TOUCH YORADIO_BP_4848_HAS_TOUCH
 #  ifdef __cplusplus
 namespace yoradio {
 // Stable aliases consumers and the validator read, so that no file outside

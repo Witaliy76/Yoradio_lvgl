@@ -42,6 +42,9 @@
 #define YORADIO_BP_4848_DISP_W         480
 #define YORADIO_BP_4848_DISP_H         480
 #define YORADIO_BP_4848_TOUCH_ADDR     0x5D
+// A touch controller is fitted (preprocessor-visible for YORADIO_BOARD_HAS_TOUCH).
+// Контроллер тача установлен (видно препроцессору для YORADIO_BOARD_HAS_TOUCH).
+#define YORADIO_BP_4848_HAS_TOUCH      1
 
 // --- Power: stock BOOT button, hardwired to GND ---
 #define YORADIO_BP_4848_BOOT_BTN_GPIO   0

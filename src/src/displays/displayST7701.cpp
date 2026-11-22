@@ -5,7 +5,6 @@
 
 // Adaptation: Witaliy76 - https://github.com/Witaliy76
 #include "../core/options.h"
-#if DSP_MODEL == DSP_ST7701
 
 #include "displayST7701.h"
 #include "display_port.h"
@@ -306,12 +305,12 @@ void DspCore::loop(bool force) {
 
 // Inversion is live on the direct backend. This panel
 // accepts its 180-degree scan commands only before the RGB stream starts, so
-// direct orientation is the fixed ST7701_BOOT_ORIENTATION_180 board option.
+// direct orientation is the fixed DISPLAY_BOOT_ORIENTATION_180 option.
 // Touch orientation remains an independent runtime option.
 void DspCore::flip() {
     TAKE_MUTEX();
     (void)config.store.flipscreen;
-    Serial.println("[ST7701] Runtime flip unavailable; use ST7701_BOOT_ORIENTATION_180");
+    Serial.println("[ST7701] Runtime flip unavailable; use DISPLAY_BOOT_ORIENTATION_180");
     GIVE_MUTEX();
 }
 
@@ -428,4 +427,3 @@ void DspCore::readBattery() {
 }
 #endif
 
-#endif

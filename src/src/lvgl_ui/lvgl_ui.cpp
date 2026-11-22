@@ -35,9 +35,7 @@
 #include "../core/display.h"
 #include "../core/config.h"
 #include "../core/options.h"
-#if DSP_MODEL == DSP_ST7701
 #include "../displays/display_port.h"
-#endif
 #include "../core/network.h"
 #include "../core/wifi_ops_adapter.h"
 #include "../i18n/i18n.h"
@@ -330,18 +328,15 @@ static esp_timer_handle_t s_lv_tick_timer = nullptr;
 static uint8_t*       s_disp_buf1 = nullptr;
 static lv_display_t*  s_disp = nullptr;
 
-#if DSP_MODEL == DSP_ST7701
 // Block 8-E5: partial PSRAM stripe height for diag (0 until initDisplayDriver).
 // Block 8-E5: высота полосы partial-буфера для diag (0 до init).
 static uint16_t s_disp_buf_partial_h = 0;
-#endif
 
 // Block 8-E1: flush stats for one-shot diag only (no Serial in hot path).
 // Block 8-E1: счётчики flush только для diag по запросу.
 static uint32_t s_lvgl_flush_count = 0;
 static uint32_t s_lvgl_last_flush_ms = 0;
 
-#if DSP_MODEL == DSP_ST7701
 // LVGL clip/pointer prep → DisplayPort::flush → active physical backend.
 // The callback is backend-agnostic and must stay that way.
 // clip/pointer LVGL → DisplayPort::flush → активный физический backend.
@@ -404,20 +399,11 @@ static void lvgl_flush_direct_panel(lv_display_t *disp, const lv_area_t *area, u
     // Стабильный ctx: lv_display_t* (не stack-local). Backend пока синхронный.
     DisplayPort::flush(port_area, px, lvgl_display_port_flush_done, disp);
 }
-#endif
 
 // Flush callback: LVGL → DisplayPort (E5C topology unchanged). Canvas fallback removed (E18D).
 // Flush callback: LVGL → DisplayPort (топология E5C без изменений). Canvas fallback удалён (E18D).
 static void lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
-#if DSP_MODEL == DSP_ST7701
     lvgl_flush_direct_panel(disp, area, px_map);
-#else
-    // Non-ST7701 envs: legacy Canvas LVGL flush not supported on this fork (E18D).
-    // Иные env: Canvas LVGL flush не поддерживается на этом форке (E18D).
-    (void)area;
-    (void)px_map;
-    lv_display_flush_ready(disp);
-#endif
 }
 
 // Periodic page refresh policy: no Main/Info/stub updates under saver or blank (any carousel slot).
@@ -735,7 +721,6 @@ void lvgl_ui::initDisplayDriver(uint16_t hor_res, uint16_t ver_res) {
 
     // BASE-LVGL9-MIGRATION C2: lv_display_t owns buffer + flush registration directly —
     // no separate lv_disp_draw_buf_t / lv_disp_drv_t. E5C topology unchanged: one PSRAM buffer.
-#if DSP_MODEL == DSP_ST7701
     // BoardDefaults owns the tested LVGL host recommendation. Panel geometry comes
     // through hor_res/ver_res from DisplayPort; UI profile selection remains S06.
     // BoardDefaults хранит рекомендацию LVGL; размеры приходят от DisplayPort.
@@ -758,26 +743,6 @@ void lvgl_ui::initDisplayDriver(uint16_t hor_res, uint16_t ver_res) {
     lv_display_set_color_format(s_disp, LV_COLOR_FORMAT_RGB565);
     lv_display_set_flush_cb(s_disp, lvgl_flush_cb);
     lv_display_set_buffers(s_disp, s_disp_buf1, nullptr, buf_bytes, LV_DISPLAY_RENDER_MODE_PARTIAL);
-#else
-    // Full-frame draw buffer + FULL render mode: partial stripes on a shared Arduino_Canvas caused
-    // visible "black rectangles" / tearing during Boot->Main (M0 Canvas path; not ST7701 post-8-E3).
-    // Полный кадр + FULL: на старом Canvas-пути полосы давали артефакты (не ST7701 после 8-E3).
-    const uint32_t buf_bytes = static_cast<uint32_t>(hor_res) * ver_res * sizeof(uint16_t);
-    s_disp_buf1 = static_cast<uint8_t*>(ps_malloc(buf_bytes));
-    if (!s_disp_buf1) {
-        Serial.println("[LVGL] draw buffer PSRAM alloc failed, LVGL display disabled");
-        return;
-    }
-
-    s_disp = lv_display_create(hor_res, ver_res);
-    if (!s_disp) {
-        Serial.println("[LVGL] lv_display_create failed, LVGL display disabled");
-        return;
-    }
-    lv_display_set_color_format(s_disp, LV_COLOR_FORMAT_RGB565);
-    lv_display_set_flush_cb(s_disp, lvgl_flush_cb);
-    lv_display_set_buffers(s_disp, s_disp_buf1, nullptr, buf_bytes, LV_DISPLAY_RENDER_MODE_FULL);
-#endif
 
     // Stage 6.6A: LVGL base theme + YoRadio palette — single init point after valid display.
     // Этап 6.6A: базовая тема LVGL + палитра YoRadio — одна точка после валидного дисплея.
@@ -1386,25 +1351,15 @@ size_t lvgl_ui::appendDisplayDiag(char* out, size_t len, size_t offset, bool* tr
     const lv_display_render_mode_t render_mode = lv_display_get_render_mode(s_disp);
     append_line("lvgl.flush.full_refresh: %d\n", render_mode == LV_DISPLAY_RENDER_MODE_FULL ? 1 : 0);
     append_line("lvgl.flush.direct_mode: %d\n", render_mode == LV_DISPLAY_RENDER_MODE_DIRECT ? 1 : 0);
-#if DSP_MODEL == DSP_ST7701
     append_line("lvgl.flush_target: physical_display_direct\n");
-#else
-    append_line("lvgl.flush_target: canvas_mark_dirty\n");
-#endif
     const int32_t disp_hor_res = lv_display_get_horizontal_resolution(s_disp);
-    const int32_t disp_ver_res = lv_display_get_vertical_resolution(s_disp);
     if (s_disp_buf1 && disp_hor_res > 0) {
-#if DSP_MODEL == DSP_ST7701
         if (s_disp_buf_partial_h > 0) {
             append_line("lvgl.draw_buf: partial_psram_single (%ux%u)\n",
                         (unsigned)disp_hor_res, (unsigned)s_disp_buf_partial_h);
         } else {
             append_line("lvgl.draw_buf: partial_psram_single (uninitialized)\n");
         }
-#else
-        append_line("lvgl.draw_buf: full_frame_psram_single (%ux%u)\n",
-                    (unsigned)disp_hor_res, (unsigned)disp_ver_res);
-#endif
     } else {
         append_line("lvgl.draw_buf: unknown\n");
     }

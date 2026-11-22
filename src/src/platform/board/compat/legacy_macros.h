@@ -1,5 +1,5 @@
-// Reject retired ST7701_* and TS_* GPIO names. They are not aliases.
-// Отвергаем старые GPIO-имена ST7701_* и TS_*. Это не псевдонимы новых имён.
+// Reject retired selectors (DSP_MODEL, TS_MODEL) and ST7701_* / TS_* GPIO names.
+// They are not aliases. Отвергаем выведенные селекторы и старые GPIO-имена; это не псевдонимы.
 // Ownership: platform/board.
 //
 // Display and touch runtime read typed resolved configuration. User GPIO
@@ -9,8 +9,10 @@
 // GPIO задаются через DISP_*/TOUCH_* в myoptions.h. Старое имя останавливает
 // сборку и называет замену.
 //
-// ST7701_BOOT_ORIENTATION_180 is deliberately NOT here: it is display policy.
-// ST7701_BOOT_ORIENTATION_180 намеренно отсутствует: это политика дисплея.
+// ST7701_BOOT_ORIENTATION_180 is deliberately NOT here: it is the former name of the
+// display policy DISPLAY_BOOT_ORIENTATION_180 and options.h accepts it as a synonym.
+// ST7701_BOOT_ORIENTATION_180 намеренно отсутствует: это старое имя политики
+// DISPLAY_BOOT_ORIENTATION_180, options.h принимает его как синоним.
 //
 // Included from options.h after board_select.h.
 // Подключается из options.h после board_select.h.
@@ -24,7 +26,19 @@
 // неизвестном id и включает нужный профиль. Делает этот заголовок самодостаточным.
 #include "../board_select.h"
 
-#if YORADIO_BOARD == YORADIO_BOARD_4848S040
+// Retired names are rejected for every board: no board gate (S07_bis-4).
+// Старые имена отвергаются для любой платы: без гейта по плате (S07_bis-4).
+
+// ---------------------------------------------------------------------------
+// Section 0 — retired selectors. The board profile chooses panel and touch.
+// Секция 0 — выведенные селекторы. Панель и тач выбирает профиль платы.
+// ---------------------------------------------------------------------------
+#ifdef DSP_MODEL
+#  error "YoRadio Board Contract: DSP_MODEL is retired. The display comes from the board profile selected by YORADIO_BOARD. Remove DSP_MODEL from src/myoptions.h."
+#endif
+#ifdef TS_MODEL
+#  error "YoRadio Board Contract: TS_MODEL is retired. The touch controller comes from the board profile. Remove TS_MODEL from src/myoptions.h; use YORADIO_HAS_TOUCH 0 to run without touch."
+#endif
 
 // ---------------------------------------------------------------------------
 // Section 1 — migration guards for retired display names and touch overrides
@@ -122,7 +136,5 @@
 #ifdef TS_RST
 #  error "YoRadio Board Contract: do not define TS_RST in myoptions.h. Use TOUCH_RST under YORADIO_CUSTOM_WIRING=1."
 #endif
-
-#endif  // YORADIO_BOARD == YORADIO_BOARD_4848S040
 
 #endif  // YORADIO_PLATFORM_BOARD_COMPAT_LEGACY_MACROS_H

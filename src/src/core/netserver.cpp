@@ -584,7 +584,7 @@ void NetServer::processQueue(){
                                                                 act += F("\"group_brightness\",");
             #endif
             if (DSP_CAN_FLIPPED || dbgact)                      act += F("\"group_tft\",");
-            if (TS_MODEL != TS_MODEL_UNDEFINED || dbgact)       act += F("\"group_touch\",");
+            if (YORADIO_HAS_TOUCH || dbgact)       act += F("\"group_touch\",");
                                                                 act += F("\"group_timezone\",");
             if (SHOW_WEATHER || dbgact)                         act += F("\"group_weather\",");
                                                                 act += F("\"group_ai\",");

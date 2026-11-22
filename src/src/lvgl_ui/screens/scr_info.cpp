@@ -488,20 +488,17 @@ static void info_reapply_tree_colors(lv_obj_t* obj, const YoRadioPalette& pal, l
 // Display formatting helpers / Вспомогательные функции форматирования дисплея
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Compile-time display product-line string — determined by DSP_MODEL and panel resolution.
-// Hardware identifiers ("ST7701", …) are not localizable user-facing text.
-// Compile-time строка панели — определяется DSP_MODEL и разрешением.
+// Compile-time display product-line string — panel controller of the board profile
+// plus the UI viewport. Hardware identifiers ("ST7701", …) are not localizable text.
+// Compile-time строка панели — контроллер панели из профиля платы и viewport UI.
 static void info_format_display_product_line(char* buf, size_t cap) {
     if (!buf || cap == 0u) {
         return;
     }
     const unsigned rw = static_cast<unsigned>(kResolvedUiMetrics.viewport_width);
     const unsigned rh = static_cast<unsigned>(kResolvedUiMetrics.viewport_height);
-#if DSP_MODEL == DSP_ST7701
-    snprintf(buf, cap, "ST7701 %ux%u", rw, rh);
-#else
-    snprintf(buf, cap, "Panel %ux%u", rw, rh);
-#endif
+    snprintf(buf, cap, "%s %ux%u",
+             yoradio::panelControllerName(yoradio::kActiveBoard.display.controller), rw, rh);
 }
 
 // Shared formatting scratch buffer — used by all _refresh*() methods sequentially.

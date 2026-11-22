@@ -7,12 +7,10 @@
 // ОБЩИЙ валидатор: [build] и [common] выполняются для любой платы и не называют конкретную
 // плату. Проверки конкретной платы (заводские GPIO, панель, общие по жизненному циклу
 // пины) — в profiles/<профиль>/board_validate_profile.h.
-// Included from src/src/core/options.h at the END of that file, because the legacy
-// display-selector check below needs DSP_MODEL and DSP_ST7701, and options.h defines
-// them itself after myoptions.h. Checks that need user/default values must not run
-// before those values exist.
-// Включается из src/src/core/options.h в КОНЦЕ файла: проверке старого селектора
-// нужны DSP_MODEL и DSP_ST7701, которые options.h определяет сам после myoptions.h.
+// Included from src/src/core/options.h at the END of that file: checks that need
+// user/default values (I2S, touch) must not run before those values exist.
+// Включается из src/src/core/options.h в КОНЦЕ файла: проверкам пользовательских
+// значений и умолчаний (I2S, тач) нужны уже определённые значения.
 //
 // sdkconfig.h is the authoritative build-family description. It is included here
 // explicitly and not assumed: options.h is sometimes parsed before Arduino.h, so the
@@ -26,18 +24,9 @@
 #include "sdkconfig.h"
 #include "../family/family_select.h"
 
-// ---------------------------------------------------------------------------
-// Legacy display-selector consistency (preprocessor level)
-// Согласованность старого селектора дисплея (уровень препроцессора)
-// ---------------------------------------------------------------------------
-#if !defined(DSP_MODEL)
-#  error "YoRadio Board Contract: DSP_MODEL is not defined. board_validate.h must be included from src/src/core/options.h after the legacy display defaults."
+#if !defined(YORADIO_BOARD_HAS_TOUCH) || !defined(YORADIO_HAS_TOUCH)
+#  error "YoRadio Board Contract: YORADIO_BOARD_HAS_TOUCH / YORADIO_HAS_TOUCH missing. Include board_validate.h from src/src/core/options.h."
 #endif
-#if !defined(DSP_ST7701)
-#  error "YoRadio Board Contract: DSP_ST7701 is not defined. board_validate.h must be included from src/src/core/options.h after the legacy display defaults."
-#endif
-// The board/display selector agreement is a profile fact: see the profile validator
-// included at the end of this file.
 // Соответствие платы и селектора дисплея — факт профиля: см. профильный валидатор,
 // включаемый в конце файла.
 
@@ -113,6 +102,12 @@ static_assert(kActiveBoard.identity.build.psram_mode == PsramMode::Any
 // its descriptor. No board id is consulted here: these checks run for every board.
 // Факты сборки/транспорта берутся из слоя семейства; транспорт платы читается из её
 // дескриптора. Идентификатор платы не используется: проверки работают для любой платы.
+
+// The preprocessor touch fact must agree with the typed profile.
+// Факт тача для препроцессора должен совпадать с типизированным профилем.
+static_assert((YORADIO_BOARD_HAS_TOUCH != 0) ==
+                  (kActiveBoard.touch.controller != TouchController::Unknown),
+              "YoRadio Board Contract: YORADIO_BOARD_HAS_TOUCH disagrees with BoardProfile.touch.controller.");
 
 // supportsTransport is a real check since S07_bis-3a (it was an unused helper before).
 // supportsTransport стала настоящей проверкой в S07_bis-3a (раньше это был неиспользуемый хелпер).

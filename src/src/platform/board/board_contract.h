@@ -152,6 +152,16 @@ struct AudioHardware {
 // Насколько надёжно известна разводка. SchematicCandidate: по схеме и
 // функциональной проверке, без измерений. DeviceVerified — только по итогам
 // аппаратной проверки.
+// Short hardware name of the panel controller for diagnostics and the Info page.
+// Not localizable text; Unknown has no name of its own.
+// Короткое аппаратное имя контроллера панели для диагностики и страницы Info.
+constexpr const char* panelControllerName(PanelController c) {
+    switch (c) {
+        case PanelController::St7701: return "ST7701";
+        default:                      return "Panel";
+    }
+}
+
 enum class PinEvidence : uint8_t { None = 0, SchematicCandidate = 1, DeviceVerified = 2 };
 
 // Onboard microSD slot. SPI-mode lines; NC when the slot is absent. The pins are
@@ -290,7 +300,7 @@ struct BoardProfile {
 // Three different layers, not one switch:
 //   BoardDefaults.display / .touch — tested host and touch-service recommendations.
 //   User overrides — myoptions.h (YORADIO_RGB_BOUNCE10, YORADIO_RGB_FLASH_GUARD,
-//     ST7701_BOOT_ORIENTATION_180, I2S_* , WAKE_PIN). This struct does not read them.
+//     DISPLAY_BOOT_ORIENTATION_180, I2S_* , WAKE_PIN). This struct does not read them.
 //   Backend constraints — what the current driver can actually do. Not stored here.
 //
 // ResolvedDisplayConfig and ResolvedTouchConfig read the display host policy

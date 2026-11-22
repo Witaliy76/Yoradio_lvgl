@@ -1,10 +1,10 @@
 /**
  * @file touchscreen.cpp
- * @brief Production TouchPort owner for the official GT911 backend.
+ * @brief Production TouchPort owner; GT911 is the only backend (board profile, S07_bis-5 composition).
  */
 
 #include "options.h"
-#if (TS_MODEL != TS_MODEL_UNDEFINED)
+#if YORADIO_HAS_TOUCH
 
 #include "touchscreen.h"
 
@@ -14,7 +14,7 @@ void TouchScreen::init() {
     const yoradio::ResolvedTouchConfig touch =
         yoradio::resolveTouchConfig(_requestedFlip.load(std::memory_order_acquire));
     _appliedFlip = touch.flip_touch;
-#if TS_MODEL == TS_MODEL_GT911
+#if YORADIO_HAS_TOUCH
     _hwReady = _gt911.begin(touch);
 #else
     _hwReady = false;
@@ -24,7 +24,7 @@ void TouchScreen::init() {
 }
 
 bool TouchScreen::available() const {
-#if TS_MODEL == TS_MODEL_GT911
+#if YORADIO_HAS_TOUCH
     return _hwReady && _gt911.available();
 #else
     return false;
@@ -37,7 +37,7 @@ yoradio::TouchSample TouchScreen::read() {
         return yoradio::makeTouchUnavailable();
     }
 
-#if TS_MODEL == TS_MODEL_GT911
+#if YORADIO_HAS_TOUCH
     const yoradio::TouchSample sample = _gt911.read();
     switch (sample.status) {
         case yoradio::TouchSampleStatus::Valid:
@@ -62,7 +62,7 @@ void TouchScreen::requestFlip(bool flipped) {
 }
 
 void TouchScreen::applyPendingFlip() {
-#if TS_MODEL == TS_MODEL_GT911
+#if YORADIO_HAS_TOUCH
     if (!_flipAllowed || !available()) {
         return;
     }
@@ -80,4 +80,4 @@ void TouchScreen::applyPendingFlip() {
 #endif
 }
 
-#endif  // TS_MODEL != TS_MODEL_UNDEFINED
+#endif  // YORADIO_HAS_TOUCH
