@@ -1,7 +1,7 @@
 # S01-1 native defaults for env:4848S040.
-# Values reproduce the current qio_opi / overlay effective behavior.
+# Values were inherited from the former qio_opi / C1 overlay effective behavior.
 # They are not a copy of an ESP-IDF example.
-# Значения повторяют текущее поведение qio_opi и overlay, не пример ESP-IDF.
+# Значения унаследованы от бывшего оверлея qio_opi / C1. Это не пример ESP-IDF.
 
 # Arduino core starts setup()/loop(). The Kconfig default is off.
 # Ядро Arduino запускает setup()/loop(). В Kconfig по умолчанию это выключено.
@@ -12,14 +12,14 @@ CONFIG_ARDUINO_EVENT_RUN_CORE1=y
 # Arduino-ESP32 refuses to build unless the tick is 1000 Hz.
 # Arduino-ESP32 не собирается, если тик не 1000 Гц.
 CONFIG_FREERTOS_HZ=1000
-# Current qio_opi sdkconfig keeps FreeRTOS typedef aliases such as xQueueHandle.
-# AsyncTCP still uses those names. This is the current header, not an API edit.
-# Текущий qio_opi sdkconfig сохраняет алиасы FreeRTOS вроде xQueueHandle.
-# AsyncTCP по-прежнему использует эти имена. Это текущий заголовок, не правка API.
+# Inherited from the former qio_opi header: FreeRTOS typedef aliases such as xQueueHandle.
+# AsyncTCP still uses those names. This is the inherited header, not an API edit.
+# Унаследовано от бывшего заголовка qio_opi: алиасы FreeRTOS вроде xQueueHandle.
+# AsyncTCP по-прежнему использует эти имена. Это унаследованный заголовок, не правка API.
 CONFIG_FREERTOS_ENABLE_BACKWARD_COMPATIBILITY=y
 
-# Current N16R8 qio_opi image: 16 MB QIO flash, 80 MHz, 240 MHz CPU, size opt.
-# Текущий образ N16R8 qio_opi: 16 МБ QIO, 80 МГц, CPU 240 МГц, оптимизация по размеру.
+# Inherited N16R8 qio_opi image: 16 MB QIO flash, 80 MHz, 240 MHz CPU, size opt.
+# Унаследованный образ N16R8 qio_opi: 16 МБ QIO, 80 МГц, CPU 240 МГц, оптимизация по размеру.
 CONFIG_IDF_TARGET="esp32s3"
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
@@ -28,8 +28,8 @@ CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 CONFIG_COMPILER_OPTIMIZATION_SIZE=y
 CONFIG_BOOTLOADER_COMPILER_OPTIMIZATION_SIZE=y
 
-# Octal PSRAM is the current qio_opi header (SPIRAM_MODE_OCT), not the quad template.
-# Octal PSRAM — это текущий заголовок qio_opi, не quad-шаблон.
+# Octal PSRAM inherited from the former qio_opi header (SPIRAM_MODE_OCT), not the quad template.
+# Octal PSRAM унаследован от бывшего заголовка qio_opi (SPIRAM_MODE_OCT), не quad-шаблон.
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_TYPE_AUTO=y
@@ -82,16 +82,18 @@ CONFIG_LWIP_TCP_RTO_TIME=3000
 CONFIG_LWIP_TCP_OOSEQ_MAX_PBUFS=4
 # CONFIG_LWIP_WND_SCALE is not set
 
-# Current Wi-Fi buffer counts from the qio_opi header. Not a retune.
-# Текущие счётчики буферов Wi-Fi из заголовка qio_opi. Это не перенастройка.
+# Wi-Fi buffer counts inherited from the former qio_opi header. Not a retune.
+# Счётчики буферов Wi-Fi унаследованы от бывшего заголовка qio_opi. Это не перенастройка.
 CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=8
 CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=32
 CONFIG_ESP_WIFI_RX_BA_WIN=8
 CONFIG_ESP_WIFI_STATIC_TX_BUFFER=y
 CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM=8
 
-# Overlay mbedTLS profile. DTLS off is the prerequisite of the dynamic buffer.
-# Профиль mbedTLS из overlay. DTLS выключен — это условие dynamic buffer.
+# mbedTLS profile inherited from the former qio_opi / C1 overlay; values kept as-is.
+# Профиль mbedTLS унаследован от бывшего оверлея qio_opi / C1; значения сохранены.
+# DTLS off is the prerequisite of the dynamic buffer.
+# DTLS выключен — это условие dynamic buffer.
 # CONFIG_MBEDTLS_SSL_PROTO_DTLS is not set
 CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
 CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA=y
@@ -110,9 +112,9 @@ CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=4096
 # "Dynamic Impl: alloc(52563) failed" — см. AUDIO_LIB_FIXES.md п.8; S07_bis-INS1.
 CONFIG_MBEDTLS_DEFAULT_MEM_ALLOC=y
 
-# Current qio_opi header enables these PSK modes. Arduino NetworkClientSecure
+# Former qio_opi header enables these PSK modes. Arduino NetworkClientSecure
 # compiles ssl_client.cpp only when MBEDTLS_KEY_EXCHANGE_SOME_PSK_ENABLED is set.
-# Текущий заголовок qio_opi включает эти PSK-режимы. Arduino NetworkClientSecure
+# Бывший заголовок qio_opi включает эти PSK-режимы. Arduino NetworkClientSecure
 # собирает ssl_client.cpp только при MBEDTLS_KEY_EXCHANGE_SOME_PSK_ENABLED.
 CONFIG_MBEDTLS_PSK_MODES=y
 CONFIG_MBEDTLS_KEY_EXCHANGE_PSK=y
@@ -127,8 +129,8 @@ CONFIG_MBEDTLS_KEY_EXCHANGE_RSA_PSK=y
 # защищает RGB flash guard (S01-5B), а не restart.
 # CONFIG_LCD_RGB_RESTART_IN_VSYNC is not set
 
-# LittleFS numbers from the current qio_opi sdkconfig.h.
-# Числа LittleFS из текущего qio_opi sdkconfig.h.
+# LittleFS numbers inherited from the former qio_opi sdkconfig.h.
+# Числа LittleFS унаследованы от бывшего qio_opi sdkconfig.h.
 CONFIG_LITTLEFS_MAX_PARTITIONS=3
 CONFIG_LITTLEFS_PAGE_SIZE=256
 CONFIG_LITTLEFS_OBJ_NAME_LEN=64

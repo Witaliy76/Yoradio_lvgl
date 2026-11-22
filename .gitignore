@@ -1,5 +1,6 @@
 # YoRadio RGB Panel — .gitignore policy (see repo migration discussion)
-# Политика: IDE/build локально; docs/test/tools/bg — never; data/src/library!/ai — track.
+# Политика: IDE/build локально; docs/test/tools/bg — never; data/src/ai — track.
+# Policy: keep IDE/build local; never track docs/test/tools/bg; track data/src/ai.
 
 # --- IDE, CI, build artifacts / IDE, сборка ---
 .pio/
@@ -63,7 +64,6 @@ SPECTRUM*.md
 !/src/src/i18n/LOCALIZATION.md
 !/src/src/i18n/README.md
 !/src/src/i18n/WORKFLOW.md
-!/library!/
 !/boards/
 # RELEASE-FOUNDATION-C: public release binaries tree — tracked / публичный каталог релизных бинарников — трекается
 !/build_bin/

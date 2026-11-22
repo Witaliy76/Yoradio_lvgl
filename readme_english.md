@@ -316,23 +316,19 @@ Nothing else is required. Manually replacing ESP-IDF archives inside `.platformi
 
 PlatformIO downloads the package pinned in [platformio.ini](platformio.ini) itself — PIOArduino `55.03.312` (Arduino-ESP32 `3.3.12`, ESP-IDF `5.5.5`). The shared PlatformIO package stays untouched: YoRadio does not modify or overwrite it.
 
-YoRadio keeps its own overrides in the repository under `library!/esp-idf-5.5.5/s3/`. For S3 that directory holds a matched set of **seven** local ESP-IDF archives (LwIP, Wi-Fi, mbedTLS, and related network/TLS libraries), rebuilt from stock Espressif sources with YoRadio configuration, plus a `manifest.txt` with versions, commits, and SHA256. Graphics `libesp_lcd` is **not** part of that set — the stock ESP-IDF 5.5.5 library is used. This is **not** a normal Arduino library: the files do not need to be copied, installed, or linked individually.
+The build is mixed (Arduino + ESP-IDF): network and TLS libraries are compiled from ESP-IDF sources using the project settings. The main knobs live in [sdkconfig.defaults](sdkconfig.defaults); storage adds [sdkconfig.defaults.storage_owner](sdkconfig.defaults.storage_owner). There is no longer a directory of prebuilt `.a` archives or a build helper script.
 
-Everything else is done by the build helper `yoradio_build.py`. PlatformIO runs it automatically on every build (`extra_scripts` in `platformio.ini`) — **you do not run it by hand**. The helper checks platform, core, and ESP-IDF versions, verifies the local set’s SHA256, and only then puts it on the linker search path together with the required mbedTLS options.
-
-Validation is all-or-nothing: if the whole set matches, the optimized YoRadio profile is used; if anything fails, the build does not stop — the helper prints a warning and builds against fully stock ESP-IDF libraries. That is a fallback mode, not an error, but it does not give the optimized profile characteristics.
-
-Why the set exists:
+Why those defaults exist:
 
 - **LwIP** profile — for more resilient long playback of heavy network streams (including FLAC and high bitrate); unbroken playback is not guaranteed — much depends on the station and the link;
-- **mbedTLS** profile — so AI Layer HTTPS requests can run during playback while LVGL and the audio decoder are active; the archives are matched as a whole and must not be replaced individually;
-- **Wi-Fi** and **LwIP** builds prefer PSRAM for their buffers to keep internal memory for audio and TLS.
+- **mbedTLS** profile — so AI Layer HTTPS requests can run during playback while LVGL and the audio decoder are active; large TLS buffers go to PSRAM (`CONFIG_MBEDTLS_DEFAULT_MEM_ALLOC`);
+- **Wi-Fi** and **LwIP** prefer PSRAM for their buffers to keep internal memory for audio and TLS.
 
 Additional notes:
 
-- ESP32-S3 and ESP32-P4 are independent profiles. A custom archive set is currently adopted only for S3; a P4 build uses stock ESP-IDF libraries entirely and does not inherit the S3 archives.
-- The Windows build is device-verified. Building with the local set on Linux/macOS has not been verified yet — that is a deferred portability task, not a known firmware bug.
-- Everything above applies only to building from source. Ready-to-flash files in `build_bin/` are already built with the intended library set.
+- ESP32-S3 and ESP32-P4 are independent build profiles. The current `sdkconfig.defaults` are adopted for S3 (`4848S040`); a P4 build needs its own defaults and does not inherit them silently.
+- The Windows build is device-verified. Building on Linux/macOS has not been verified yet — that is a deferred portability task, not a known firmware bug.
+- Everything above applies only to building from source. Ready-to-flash files in `build_bin/` are already built with the intended profile.
 - Interface language is set in `src/myoptions.h` via `L10N_LANGUAGE`: `RU`, `EN`, `PL`, or `SK`. There is no runtime language switch.
 - A normal build embeds two ready TTF files from [src/src/lvgl_ui/fonts/](src/src/lvgl_ui/fonts/) (`readme_fonts.md`) into application Flash. You do not need to generate fonts by hand, install fontTools, or upload a factory TTF through LittleFS. Optional user text is uploaded separately through the Web UI to the device (`/fonts/user.ttf`); samples in [fonts/samples/](fonts/samples/) are not part of the firmware.
 - The sources support RU, EN, PL, and SK. Ready language packages and flashing instructions are in [build_bin/4848S040/](build_bin/4848S040/) and [build_bin/4848S040/README.md](build_bin/4848S040/README.md).
