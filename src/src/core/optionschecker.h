@@ -57,25 +57,26 @@ static_assert(!yoradio::builtin_led_check::hitsAnyClaim(),
               "YoRadio: builtin LED physical GPIO overlaps an active display, touch or I2S pin. "
               "Set USE_BUILTIN_LED false in src/myoptions.h or move the conflicting signal.");
 
-// SD lines are not in the claim list yet (S07_bis-3c moves them into the profile).
-// Until then the 4848 TF map is checked here by name.
-// Линии SD пока не в списке требований (S07_bis-3c перенесёт их в профиль).
-// До этого карта TF 4848 проверяется здесь по имени.
-#if YORADIO_BOARD == YORADIO_BOARD_4848S040
-#include "../platform/storage/schematic_candidate_4848s040.h"
-static_assert(!yoradio::builtin_led_check::hits(static_cast<int>(yoradio::storage_schematic_4848s040::kTfClkGpio)),
-              "YoRadio 4848S040: builtin LED physical GPIO overlaps SD SCK.");
-static_assert(!yoradio::builtin_led_check::hits(static_cast<int>(yoradio::storage_schematic_4848s040::kTfCmdGpio)),
-              "YoRadio 4848S040: builtin LED physical GPIO overlaps SD MOSI.");
+// Builtin LED vs the board SD lines (BoardProfile.storage). CLK/CMD are checked
+// whenever the board has a slot; DAT0/CS only when SD is actually permitted.
+// Встроенный LED против линий SD платы. CLK/CMD — при наличии слота;
+// DAT0/CS — только когда SD действительно разрешена.
+static_assert(!yoradio::kActiveBoard.storage.onboard_sd_present ||
+                  (!yoradio::builtin_led_check::hits(static_cast<int>(yoradio::kActiveBoard.storage.sd_clk_gpio)) &&
+                   !yoradio::builtin_led_check::hits(static_cast<int>(yoradio::kActiveBoard.storage.sd_cmd_gpio))),
+              "YoRadio: builtin LED physical GPIO overlaps SD CLK or CMD.");
+static_assert(!yoradio::kResolvedStorageConfig.enabled ||
+                  (!yoradio::builtin_led_check::hits(static_cast<int>(yoradio::kActiveBoard.storage.sd_dat0_gpio)) &&
+                   !yoradio::builtin_led_check::hits(static_cast<int>(yoradio::kActiveBoard.storage.sd_cs_gpio))),
+              "YoRadio: builtin LED physical GPIO overlaps SD DAT0 or CS while SD is enabled.");
 #ifdef SD_SCK
 static_assert(!yoradio::builtin_led_check::hits(static_cast<int>(SD_SCK)),
-              "YoRadio 4848S040: builtin LED physical GPIO overlaps SD_SCK.");
+              "YoRadio: builtin LED physical GPIO overlaps SD_SCK.");
 #endif
 #ifdef SD_MOSI
 static_assert(!yoradio::builtin_led_check::hits(static_cast<int>(SD_MOSI)),
-              "YoRadio 4848S040: builtin LED physical GPIO overlaps SD_MOSI.");
+              "YoRadio: builtin LED physical GPIO overlaps SD_MOSI.");
 #endif
-#endif  // YORADIO_BOARD_4848S040
 #endif  // __cplusplus
 
 #endif

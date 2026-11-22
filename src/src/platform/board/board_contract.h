@@ -146,8 +146,30 @@ struct AudioHardware {
 // is deferred to S07. Encoding them here would make unverified data authoritative.
 // Наличие встроенного накопителя. Назначение пинов намеренно НЕ поле: линии SD
 // известны только из комментариев/документации; проверка на устройстве отложена до S07.
+// How strongly a board pin map is known. SchematicCandidate: read from the
+// schematic and functionally exercised, not electrically measured. Only a
+// hardware gate may raise a profile to DeviceVerified.
+// Насколько надёжно известна разводка. SchematicCandidate: по схеме и
+// функциональной проверке, без измерений. DeviceVerified — только по итогам
+// аппаратной проверки.
+enum class PinEvidence : uint8_t { None = 0, SchematicCandidate = 1, DeviceVerified = 2 };
+
+// Onboard microSD slot. SPI-mode lines; NC when the slot is absent. The pins are
+// recorded with their evidence level, and storage permission stays a separate
+// decision (Owner build + YORADIO_SD_ENABLE). Sharing with display command lines,
+// if any, is declared in BoardProfile.shared, not here.
+// Слот microSD. Линии режима SPI; NC, если слота нет. Пины записаны вместе с
+// уровнем доказанности, разрешение SD — отдельное решение. Совмещение с командными
+// линиями дисплея объявляется в BoardProfile.shared.
 struct StorageHardware {
-    bool onboard_sd_present;
+    bool        onboard_sd_present;
+    PinEvidence sd_pin_evidence;
+    uint8_t     sd_clk_gpio;    // CLK / SPI SCK
+    uint8_t     sd_cmd_gpio;    // CMD / SPI MOSI
+    uint8_t     sd_dat0_gpio;   // DAT0 / SPI MISO
+    uint8_t     sd_cs_gpio;     // DAT3 / SPI CS
+    bool        sd_card_detect_present;
+    bool        sd_supports_sdmmc_4bit;
 };
 
 // USB facts. soc_has_native_usb confirms only that the SoC includes a native USB

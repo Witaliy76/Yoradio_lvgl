@@ -144,10 +144,21 @@ inline constexpr BoardProfile kBoardProfile_Esp32S3_4848S040 = {
     },
 
     .storage = {
-        // Onboard microSD slot exists. Its pin assignment is deliberately not a
-        // field of this profile: see StorageHardware and S07.
-        // Слот microSD на плате есть. Назначение пинов намеренно не поле профиля.
-        .onboard_sd_present = true,
+        // TF slot from the schematic (Photo_02/03, S07-0A/S07-1), functionally
+        // exercised in S07 B003-B005, not electrically measured: SchematicCandidate.
+        // CMD/CLK are the ST7701 command SDA/SCK lines (see .shared). DAT1/DAT2 are
+        // pull-ups only, so no 4-bit SDMMC; card detect is tied to GND, no CD GPIO.
+        // Слот TF по схеме, функционально проверен в S07 B003-B005, без измерений:
+        // SchematicCandidate. CMD/CLK — линии SDA/SCK команд ST7701 (см. .shared).
+        // DAT1/DAT2 только на подтяжках — 4-bit нет; CD на GND — CD GPIO нет.
+        .onboard_sd_present     = true,
+        .sd_pin_evidence        = PinEvidence::SchematicCandidate,
+        .sd_clk_gpio            = 48,
+        .sd_cmd_gpio            = 47,
+        .sd_dat0_gpio           = 41,
+        .sd_cs_gpio             = 42,
+        .sd_card_detect_present = false,
+        .sd_supports_sdmmc_4bit = false,
     },
 
     .usb = {

@@ -128,6 +128,22 @@ static_assert(!kActiveBoard.usb.native_usb_pins_free_in_stock_wiring,
               "stock wiring uses both native-USB pins (touch SDA and RGB G1)");
 static_assert(kActiveBoard.audio.onboard_output_requires_hw_rework,
               "the onboard mono path is strap-selected, so it is never software-selectable");
+// S07 TF map (moved from storage/schematic_candidate_4848s040.h in S07_bis-3c).
+// Карта TF S07 (перенесена из schematic_candidate_4848s040.h в S07_bis-3c).
+static_assert(kActiveBoard.storage.onboard_sd_present, "4848S040 has an onboard microSD slot");
+static_assert(kActiveBoard.storage.sd_clk_gpio == 48 && kActiveBoard.storage.sd_cmd_gpio == 47 &&
+                  kActiveBoard.storage.sd_dat0_gpio == 41 && kActiveBoard.storage.sd_cs_gpio == 42,
+              "4848S040 TF map: CLK 48, CMD 47, DAT0 41, CS 42");
+static_assert(kActiveBoard.storage.sd_pin_evidence == PinEvidence::SchematicCandidate,
+              "4848S040 TF map is SchematicCandidate; DeviceVerified needs the hardware gate");
+static_assert(!kActiveBoard.storage.sd_card_detect_present,
+              "4848S040 ties card detect to GND: no CD GPIO");
+static_assert(!kActiveBoard.storage.sd_supports_sdmmc_4bit,
+              "4848S040 has no MCU DAT1/DAT2: 4-bit SDMMC is unavailable");
+static_assert(kActiveBoard.storage.sd_cmd_gpio == kActiveBoard.display.cmd_sda_gpio &&
+                  kActiveBoard.storage.sd_clk_gpio == kActiveBoard.display.cmd_sck_gpio,
+              "4848S040: TF CMD/CLK are the display command SDA/SCK lines");
+
 // S07: TF CMD/CLK are the ST7701 command SDA/SCK lines; the profile must declare it.
 // S07: TF CMD/CLK — это линии SDA/SCK команд ST7701; профиль обязан это объявить.
 static_assert(kActiveBoard.shared.count == 2,

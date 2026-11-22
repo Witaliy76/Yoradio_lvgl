@@ -293,9 +293,10 @@ Path/queue size limits and zero-wait submission bound resources/admission only.
 | TF DAT0 | 41 | None with SD off; conflicts with IR when enabled |
 | TF DAT3/CS | 42 | None with SD off; conflicts with MUTE when enabled |
 
-`schematic_candidate_4848s040.h` records SCHEMATIC CONFIRMED nets from
-[gys2005 sheets](https://github.com/gys2005/ESP32-4848S040). SD GPIO are not
-BoardProfile fields. When `YORADIO_SD_ENABLE` is 1, `storage_validate.h`
+The TF map (SCHEMATIC CONFIRMED nets from
+[gys2005 sheets](https://github.com/gys2005/ESP32-4848S040)) lives in
+`BoardProfile.storage` with evidence level `SchematicCandidate` (S07_bis-3c);
+the 47/48 share is declared in `BoardProfile.shared`. When `YORADIO_SD_ENABLE` is 1, `storage_validate.h`
 checks GPIO 41/42 against display, touch, I2S, IR, MUTE and WAKE. GPIO 47/48
 stay DisplayCommand lines and are shared with TF CMD/CLK only across the
 early release and the later runtime mount. The check does not prove the wire.
@@ -610,9 +611,10 @@ control/decoder по 100 мс в Audio не ограничивают после�
 | TF DAT0 | 41 | Нет при выключенной SD; конфликт с IR при включении |
 | TF DAT3/CS | 42 | Нет при выключенной SD; конфликт с MUTE при включении |
 
-`schematic_candidate_4848s040.h` хранит линии SCHEMATIC CONFIRMED из
-[схем gys2005](https://github.com/gys2005/ESP32-4848S040). GPIO SD не являются
-полями BoardProfile. При `YORADIO_SD_ENABLE=1` `storage_validate.h` проверяет
+Карта TF (линии SCHEMATIC CONFIRMED из
+[схем gys2005](https://github.com/gys2005/ESP32-4848S040)) хранится в
+`BoardProfile.storage` с уровнем `SchematicCandidate` (S07_bis-3c);
+совмещение 47/48 объявлено в `BoardProfile.shared`. При `YORADIO_SD_ENABLE=1` `storage_validate.h` проверяет
 GPIO 41/42 на конфликт с дисплеем, тачем, I2S, IR, MUTE и WAKE. GPIO 47/48
 остаются линиями DisplayCommand и совмещаются с TF CMD/CLK только через
 раннее освобождение и последующий runtime mount. Проверка не доказывает провод.

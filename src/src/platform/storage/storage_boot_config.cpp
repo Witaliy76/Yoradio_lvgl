@@ -17,20 +17,22 @@ static_assert(!kResolvedStorageConfig.allow_autoformat, "Storage never autoforma
 #endif
 
 const BootConfig& bootConfig() {
-    // One candidate map for the tested board. The Owner build uses it; macro 0
-    // leaves the pins disconnected. No BoardProfile evidence upgrade.
-    // Единая карта кандидата проверенной платы. Сборка Owner её использует;
-    // при макросе 0 пины отключены. BoardProfile не повышается.
-    using namespace storage_schematic_4848s040;
+    // SD lines come from BoardProfile.storage; the display command CS is the
+    // effective one (storage_validate requires it unchanged while SD is on).
     // Pins follow the one permission. Off leaves every SD GPIO disconnected.
+    // Линии SD берутся из BoardProfile.storage, CS команд дисплея — итоговый
+    // (storage_validate требует его неизменным при включённой SD).
     // Пины следуют одному разрешению. В выключенном состоянии линии SD не задаются.
-    static const BootConfig config{kResolvedStorageConfig.enabled,
-        kResolvedStorageConfig.enabled ? kTfDat3CsGpio : -1,
-        kResolvedStorageConfig.enabled ? kTfCmdGpio : -1,
-        kResolvedStorageConfig.enabled ? kTfDat0Gpio : -1,
-        kResolvedStorageConfig.enabled ? kTfClkGpio : -1,
-        kResolvedStorageConfig.enabled ? kLcdCmdCsGpio : -1,
-        kResolvedStorageConfig.mount_path};
+    // Values only (no reference to the profile object), so nothing extra lands in .rodata.
+    // Только значения (без ссылки на объект профиля), чтобы не добавлять .rodata.
+    constexpr bool on = kResolvedStorageConfig.enabled;
+    constexpr int cs     = on ? static_cast<int>(kActiveBoard.storage.sd_cs_gpio) : -1;
+    constexpr int mosi   = on ? static_cast<int>(kActiveBoard.storage.sd_cmd_gpio) : -1;
+    constexpr int miso   = on ? static_cast<int>(kActiveBoard.storage.sd_dat0_gpio) : -1;
+    constexpr int sck    = on ? static_cast<int>(kActiveBoard.storage.sd_clk_gpio) : -1;
+    constexpr int lcd_cs = on ? static_cast<int>(kWiring.display.cmd_cs_gpio) : -1;
+    static const BootConfig config{on, cs, mosi, miso, sck, lcd_cs,
+                                   kResolvedStorageConfig.mount_path};
     return config;
 }
 }}}

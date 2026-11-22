@@ -7,6 +7,8 @@
 
 #include <stdint.h>
 
+#include "../board/board_contract.h"
+
 namespace yoradio {
 
 // Product transport selection. Disabled is the accepted 4848 default until a later
@@ -21,15 +23,12 @@ enum class StorageTransport : uint8_t {
     SdMmc1Bit = 3,
 };
 
-// How strongly the pin map is known. SchematicCandidate is planning evidence only;
-// DeviceVerified is required before BoardProfile may encode SD GPIO.
-// Насколько надёжно известна разводка. SchematicCandidate — только планирование;
-// DeviceVerified обязателен до записи SD GPIO в BoardProfile.
-enum class StoragePinEvidence : uint8_t {
-    None = 0,
-    SchematicCandidate = 1,
-    DeviceVerified = 2,
-};
+// Pin-map evidence is a board fact (BoardProfile.storage.sd_pin_evidence, S07_bis-3c).
+// SD GPIO live in the profile together with that level; only a hardware gate may
+// raise it to DeviceVerified. The storage name stays as an alias.
+// Уровень доказанности — факт платы (S07_bis-3c). SD GPIO хранятся в профиле вместе
+// с этим уровнем; повысить до DeviceVerified может только аппаратная проверка.
+using StoragePinEvidence = PinEvidence;
 
 }  // namespace yoradio
 
