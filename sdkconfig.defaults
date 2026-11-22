@@ -1,4 +1,4 @@
-# S01-1 native defaults for env:4848S040.
+# S01-1 native defaults for the ESP32-S3 N16R8 family env (env:S3_N16R8; was env:4848S040).
 # Values were inherited from the former qio_opi / C1 overlay effective behavior.
 # They are not a copy of an ESP-IDF example.
 # Значения унаследованы от бывшего оверлея qio_opi / C1. Это не пример ESP-IDF.

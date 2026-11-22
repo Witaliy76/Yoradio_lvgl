@@ -326,7 +326,7 @@ Why those defaults exist:
 
 Additional notes:
 
-- ESP32-S3 and ESP32-P4 are independent build profiles. The current `sdkconfig.defaults` are adopted for S3 (`4848S040`); a P4 build needs its own defaults and does not inherit them silently.
+- ESP32-S3 and ESP32-P4 are independent build profiles. The current `sdkconfig.defaults` are adopted for the S3 family (`env:S3_N16R8`); a P4 build needs its own defaults and does not inherit them silently.
 - The Windows build is device-verified. Building on Linux/macOS has not been verified yet — that is a deferred portability task, not a known firmware bug.
 - Everything above applies only to building from source. Ready-to-flash files in `build_bin/` are already built with the intended profile.
 - Interface language is set in `src/myoptions.h` via `L10N_LANGUAGE`: `RU`, `EN`, `PL`, or `SK`. There is no runtime language switch.

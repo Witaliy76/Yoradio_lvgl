@@ -41,8 +41,8 @@ YoRadio поддерживает четыре compile-time языка:
 После изменения только selector-строки выполните чистую сборку существующей среды:
 
 ```bash
-pio run -e 4848S040 -t clean
-pio run -e 4848S040
+pio run -e S3_N16R8 -t clean
+pio run -e S3_N16R8
 ```
 
 Отдельные PlatformIO environments или build flags для языков не нужны. Перед commit восстановите согласованный selector `RU`, выполните финальную чистую RU-сборку и убедитесь, что `src/myoptions.h` не имеет diff.
@@ -159,8 +159,8 @@ If the selector is absent, core uses the guarded `EN` fallback. Any explicit val
 After changing only the selector line, clean and build the existing environment:
 
 ```bash
-pio run -e 4848S040 -t clean
-pio run -e 4848S040
+pio run -e S3_N16R8 -t clean
+pio run -e S3_N16R8
 ```
 
 Language-specific PlatformIO environments and build flags are not required. Before committing, restore the agreed `RU` selector, run a final clean RU build, and verify that `src/myoptions.h` has no diff.

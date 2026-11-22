@@ -55,7 +55,7 @@ All three signals are ESP32 outputs in I2S master mode. Connect DOUT to the DAC 
 
 The numbers 40 / 1 / 2 are the rear-connector wiring of this board, not a list of free GPIO. They are the board profile defaults. For different wiring, uncomment and change only `I2S_DOUT`, `I2S_BCLK`, and `I2S_LRC` in `src/myoptions.h`. That is not Custom Wiring. Take the new numbers from your DAC schematic. The build rejects a collision with display or touch pins. It does not range-check GPIO 22–37 or numbers above 48 on these three macros, and it does not prove that a pin is free of USB, BOOT, or SD.
 
-Build the `[env:4848S040]` environment and flash your own `firmware.bin`. A `build_bin/` package does not contain `myoptions.h` edits. After boot, Serial prints `i2s-dout`, `i2s-bclk`, and `i2s-lrc` inside `[HARDWARE CONFIG]`. Those are the values compiled into the firmware. That log does not include a successful reply from the I2S driver.
+Build the `[env:S3_N16R8]` environment and flash your own `firmware.bin`. A `build_bin/` package does not contain `myoptions.h` edits. After boot, Serial prints `i2s-dout`, `i2s-bclk`, and `i2s-lrc` inside `[HARDWARE CONFIG]`. Those are the values compiled into the firmware. That log does not include a successful reply from the I2S driver.
 
 Layer details: [src/src/platform/README.md](src/src/platform/README.md), [Board Contract](src/src/platform/board/README.md), [Display Contract](src/src/platform/display/README.md), [Touch Contract](src/src/platform/touch/README.md).
 
@@ -83,7 +83,7 @@ Confirm the exact electrical details of your board revision against its marking 
 
 1. Open `src/myoptions.h`. The build reads this file through `src/src/core/options.h`. There is no separate template to copy.
 2. Set `L10N_LANGUAGE`: `RU`, `EN`, `PL`, or `SK`.
-3. In PlatformIO select the `[env:4848S040]` environment. It sets the SoC, flash, and PSRAM. The board is selected by `YORADIO_BOARD` in `src/myoptions.h`.
+3. In PlatformIO select the `[env:S3_N16R8]` environment. It sets the SoC, flash, and PSRAM. The board is selected by `YORADIO_BOARD` in `src/myoptions.h`.
 4. Wi-Fi and the station list are configured on first start and through the Web UI / files in `data/`.
 
 Build-from-source details, including the matched ESP-IDF library set, are in the [main English README](readme_english.md#note-on-building-from-source) and in `platformio.ini`.
@@ -220,7 +220,7 @@ Factory wiring of ESP32-4848S040. The full display and touch map is in the [boar
 | Physical MUTE button (`BTN_MUTE`, optional) | 255 — unused by default |
 | Amplifier MUTE/enable output (`MUTE_PIN`, optional) | 255 — unused by default |
 
-In the current sources SD is switched by `YORADIO_SD_ENABLE` in `src/myoptions.h` and by the Board Profile slot. The ordinary environment is `[env:4848S040]`. `YORADIO_STORAGE_OWNER_ENABLED` is an internal build flag. Do not use `USE_SD`, `SDC_CS`, or the legacy SDManager. The lines are DAT0 41, CS 42, CMD/SDA 47, and CLK/SCK 48. GPIO 47/48 are taken for the 400 kHz entry, released before Type9, and taken again for the 20 MHz runtime mount. Details are in the [Storage Contract](src/src/platform/storage/README.md). Historical `build_bin/` packages do not contain this path.
+In the current sources SD is switched by `YORADIO_SD_ENABLE` in `src/myoptions.h` and by the Board Profile slot. The ordinary environment is `[env:S3_N16R8]`. `YORADIO_STORAGE_OWNER_ENABLED` is an internal build flag. Do not use `USE_SD`, `SDC_CS`, or the legacy SDManager. The lines are DAT0 41, CS 42, CMD/SDA 47, and CLK/SCK 48. GPIO 47/48 are taken for the 400 kHz entry, released before Type9, and taken again for the 20 MHz runtime mount. Details are in the [Storage Contract](src/src/platform/storage/README.md). Historical `build_bin/` packages do not contain this path.
 
 **MUTE.** `BTN_MUTE` is an optional physical button to GND with an internal pull-up. `MUTE_PIN` is an independent optional GPIO output for mute/enable of an external amplifier (not the same signal as the button). Both lines are disabled by default (`255`) on ESP32-4848S040. If the amplifier needs a hardware mute/enable line, set the GPIO in `src/myoptions.h`. The build does not check whether that GPIO collides with the display, touch, I2S, USB, BOOT, or SD. Compare the number with the profile map and your schematic. This text does not assign a free GPIO.
 

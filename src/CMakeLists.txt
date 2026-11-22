@@ -43,17 +43,25 @@ idf_component_register(
         sdmmc
 )
 
-# Mixed CMake builds the app component; PlatformIO -D flags do not reach these TUs.
-# Audio.cpp AAC / static-RX still requires this compile gate.
-# Mixed CMake собирает app-компонент; флаги -D из PlatformIO сюда не доходят.
-# AAC / static-RX в Audio.cpp по-прежнему требует этот compile-gate.
+# This component is built only by the mixed Arduino + ESP-IDF family env (S3_N16R8).
+# Nothing below depends on the env or build-directory name, and no board is named:
+# the board comes from YORADIO_BOARD in myoptions.h (S07_bis-6).
+# Компонент собирается только mixed-env семейства (S3_N16R8). Ничего ниже не зависит
+# от имени env или каталога сборки и не называет плату: её задаёт YORADIO_BOARD.
+
+# Audio.cpp AAC / static-RX compile gate of the mixed IDF build. PlatformIO -D flags
+# do reach these TUs (verified in S07_bis-1, N11); the gate stays here as the one
+# place that describes this component's IDF configuration.
+# Compile-gate AAC / static-RX для mixed-сборки IDF. Флаги -D из PlatformIO до этих TU
+# доходят (проверено в S07_bis-1, N11); gate остаётся здесь как единое место
+# описания IDF-конфигурации компонента.
 target_compile_definitions(${COMPONENT_LIB} PRIVATE YORADIO_IDF_C1_CONFIG=1)
 
 # HTTPS connects synchronously on loopTask; use the Arduino Core stack-size hook.
+# A family need (TLS on loopTask), not a board fact.
 # HTTPS подключается синхронно на loopTask; размер задаёт штатный hook Arduino Core.
-if("${CMAKE_BINARY_DIR}" MATCHES "/4848S040$")
-    target_compile_definitions(${COMPONENT_LIB} PRIVATE YORADIO_ARDUINO_LOOP_STACK_BYTES=16384)
-endif()
+# Это потребность семейства (TLS на loopTask), а не факт платы.
+target_compile_definitions(${COMPONENT_LIB} PRIVATE YORADIO_ARDUINO_LOOP_STACK_BYTES=16384)
 
 # This component is compiled with the unscanned ninja rule, so a changed
 # myoptions.h would not rebuild the TUs that include it. The user SD switch
@@ -67,24 +75,25 @@ foreach(_src ${app_sources})
         "${CMAKE_CURRENT_LIST_DIR}/myoptions.h")
 endforeach()
 
-# Ordinary 4848S040 is the Storage Owner build. Directory detection covers mixed
-# requirement collection, where PlatformIO -D flags may not be visible on app TUs.
-# Штатный 4848S040 — сборка Storage Owner. Каталог учитывает mixed-сборку
-# без флагов PIO на TU.
-set(_yoradio_storage_owner_enabled OFF)
-if("${CMAKE_BINARY_DIR}" MATCHES "/4848S040$")
-    set(_yoradio_storage_owner_enabled ON)
-elseif(YORADIO_STORAGE_OWNER_ENABLED)
-    message(FATAL_ERROR "Storage Owner is only env 4848S040")
-endif()
-if(_yoradio_storage_owner_enabled)
+# Storage Owner build: on for the family env. Whether SD may actually run is decided
+# at compile time from the board profile (resolved_storage_config.h: the board must
+# declare its SD map) and the user switch YORADIO_SD_ENABLE. To build without the
+# Owner (no FatFs mirror, no SSR wrap) pass -DYORADIO_STORAGE_OWNER=OFF in
+# board_build.cmake_extra_args. Read only in the real configure step, not during
+# IDF early requirement expansion.
+# Сборка Storage Owner: включена для env семейства. Может ли SD работать, решается
+# при компиляции по профилю платы (карта SD обязана быть объявлена) и переключателю
+# YORADIO_SD_ENABLE. Без Owner (без зеркала FatFs и SSR wrap) — передайте
+# -DYORADIO_STORAGE_OWNER=OFF в board_build.cmake_extra_args.
+option(YORADIO_STORAGE_OWNER "Build the SD Storage Owner (FatFs mirror, SSR wrap)" ON)
+if(YORADIO_STORAGE_OWNER)
     target_compile_definitions(${COMPONENT_LIB} PRIVATE YORADIO_STORAGE_OWNER_ENABLED=1)
     # One symbol only. The fallback itself is still gated in storage_sdspi.cpp:
     # our mount, the myoptions policy, and ESP_ERR_TIMEOUT.
     # Ровно один символ. Сам fallback дополнительно закрыт в storage_sdspi.cpp:
     # наш mount, политика из myoptions и ESP_ERR_TIMEOUT.
     target_link_options(${COMPONENT_LIB} INTERFACE "LINKER:--wrap=sdmmc_init_sd_ssr")
-    message(STATUS "YoRadio Storage Owner ENABLED for 4848S040")
+    message(STATUS "YoRadio Storage Owner ENABLED")
     # IDF 5.5.5 hardcodes FF_LFN_BUF 255 next to ff.h. Quoted includes prefer
     # that sibling, so the fatfs sources are compiled from a build-tree copy
     # whose ffconf.h is the project wrapper. The installed SDK is not edited.

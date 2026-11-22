@@ -1,5 +1,5 @@
-# Single FATFS overlay for ordinary 4848S040 and its alias. Same LFN policy as B005.
-# Единственный FATFS overlay для штатного 4848S040 и его alias. Та же политика LFN, что в B005.
+# Single FATFS overlay for the Storage Owner of the S3_N16R8 family env. Same LFN policy as B005.
+# Единственный FATFS overlay для Storage Owner env семейства S3_N16R8. Та же политика LFN, что в B005.
 # CONFIG_FATFS_LFN_NONE is not set
 CONFIG_FATFS_LFN_HEAP=y
 # CONFIG_FATFS_LFN_STACK is not set

@@ -213,8 +213,8 @@ RU → restore → final clean build
 Команды для каждой строки:
 
 ```bash
-pio run -e 4848S040 -t clean
-pio run -e 4848S040
+pio run -e S3_N16R8 -t clean
+pio run -e S3_N16R8
 ```
 
 Запишите:
@@ -243,10 +243,10 @@ git diff -- src/myoptions.h
 Для каждого языка выберите существующую уникальную фразу, не добавляя test-only literals. Проверьте `firmware.bin` или ELF:
 
 ```bash
-rg -a -F "Не удалось обновить пароль" .pio/build/4848S040/firmware.bin
-rg -a -F "Could not update password" .pio/build/4848S040/firmware.bin
-rg -a -F "Nie udało się zaktualizować hasła" .pio/build/4848S040/firmware.bin
-rg -a -F "Heslo sa nepodarilo aktualizovať" .pio/build/4848S040/firmware.bin
+rg -a -F "Не удалось обновить пароль" .pio/build/S3_N16R8/firmware.bin
+rg -a -F "Could not update password" .pio/build/S3_N16R8/firmware.bin
+rg -a -F "Nie udało się zaktualizować hasła" .pio/build/S3_N16R8/firmware.bin
+rg -a -F "Heslo sa nepodarilo aktualizovať" .pio/build/S3_N16R8/firmware.bin
 ```
 
 В каждой build должна присутствовать только selected phrase.
@@ -254,7 +254,7 @@ rg -a -F "Heslo sa nepodarilo aktualizovať" .pio/build/4848S040/firmware.bin
 Проверьте symbols через toolchain `nm`:
 
 ```bash
-<toolchain>/xtensa-esp-elf-gcc-nm -C .pio/build/4848S040/firmware.elf
+<toolchain>/xtensa-esp-elf-gcc-nm -C .pio/build/S3_N16R8/firmware.elf
 ```
 
 Ищите `i18n::locales::<selected>::`; namespaces двух других packages и legacy aliases должны отсутствовать. Не используйте общий substring `dow` как symbol proof — он может относиться к theme field или debug text.
@@ -462,8 +462,8 @@ RU → restore/final clean build
 For each row:
 
 ```bash
-pio run -e 4848S040 -t clean
-pio run -e 4848S040
+pio run -e S3_N16R8 -t clean
+pio run -e S3_N16R8
 ```
 
 Record result, RAM, Flash, ELF, BIN, warnings, and same-language delta. At the end, `git diff -- src/myoptions.h` must be empty and the selector must be `RU`.
@@ -473,16 +473,16 @@ Record result, RAM, Flash, ELF, BIN, warnings, and same-language delta. At the e
 Use existing unique phrases; do not add test-only UI strings:
 
 ```bash
-rg -a -F "Не удалось обновить пароль" .pio/build/4848S040/firmware.bin
-rg -a -F "Could not update password" .pio/build/4848S040/firmware.bin
-rg -a -F "Nie udało się zaktualizować hasła" .pio/build/4848S040/firmware.bin
-rg -a -F "Heslo sa nepodarilo aktualizovať" .pio/build/4848S040/firmware.bin
+rg -a -F "Не удалось обновить пароль" .pio/build/S3_N16R8/firmware.bin
+rg -a -F "Could not update password" .pio/build/S3_N16R8/firmware.bin
+rg -a -F "Nie udało się zaktualizować hasła" .pio/build/S3_N16R8/firmware.bin
+rg -a -F "Heslo sa nepodarilo aktualizovať" .pio/build/S3_N16R8/firmware.bin
 ```
 
 Only the selected phrase should be present in each build. Then inspect symbols:
 
 ```bash
-<toolchain>/xtensa-esp-elf-gcc-nm -C .pio/build/4848S040/firmware.elf
+<toolchain>/xtensa-esp-elf-gcc-nm -C .pio/build/S3_N16R8/firmware.elf
 ```
 
 The selected locale namespace must be present; the other locale namespaces and legacy aliases must be absent.
