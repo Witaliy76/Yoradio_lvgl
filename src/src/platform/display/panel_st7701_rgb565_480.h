@@ -4,14 +4,13 @@
 // Владелец: platform/display. Только данные. Инициализация и вывод остаются у драйвера.
 //
 // This header does not include st7701_type9_ops.h. That array is static constexpr,
-// so every includer would get its own copy. The only production includer remains
-// esp_lcd_st7701_backend.cpp, which replays the bytes. It connects the two by
-// comparing InitRecipeId counts with kType9GfxEncodedBytes / kType9GfxHighLevelOps
-// inside that backend TU. The existing replay remains the only interpreter.
+// so every includer would get its own copy. The only production includer is
+// rgb_3wire_backend.cpp: its recipe table maps InitRecipe::St7701Type9 to the bytes
+// and checks InitRecipeId counts against them (D11).
 // Этот заголовок не включает st7701_type9_ops.h. Массив там static constexpr,
-// и каждый включающий его файл получил бы свою копию. В рабочем коде его включает только
-// esp_lcd_st7701_backend.cpp. Счётчики InitRecipeId сверяются с константами
-// массива внутри единицы трансляции драйвера; команды выполняет прежний интерпретатор.
+// и каждый включающий его файл получил бы свою копию. Его включает только
+// rgb_3wire_backend.cpp: таблица рецептов сопоставляет InitRecipe::St7701Type9 с
+// байтами и сверяет счётчики InitRecipeId (D11).
 //
 // LVGL may read native_width, native_height, and pixel_format from this descriptor.
 // It must not include the Type9 header or any esp_lcd header to do that.
@@ -55,6 +54,7 @@ inline constexpr PanelMode kSt7701Rgb565_480 = {
         .pclk_idle_high   = 0,
     },
     .init = {
+        .recipe               = InitRecipe::St7701Type9,
         .name                 = "st7701-type9-rgb565-480",
         .provenance           = "Arduino_GFX 00dcd684 st7701_type9_init_operations",
         .encoded_bytes        = 271,
@@ -91,6 +91,7 @@ static_assert(kSt7701Rgb565_480.timing.vsync.esp_lcd_idle_low ==
 static_assert(kSt7701Rgb565_480.timing.de_idle_high == 0, "DE idle");
 static_assert(kSt7701Rgb565_480.timing.pclk_active_neg == 0, "PCLK active edge");
 static_assert(kSt7701Rgb565_480.timing.pclk_idle_high == 0, "PCLK idle");
+static_assert(kSt7701Rgb565_480.init.recipe == InitRecipe::St7701Type9, "Type9 recipe id");
 static_assert(kSt7701Rgb565_480.init.encoded_bytes == 271, "Type9 encoded size");
 static_assert(kSt7701Rgb565_480.init.high_level_ops == 55, "Type9 op count");
 static_assert(kSt7701Rgb565_480.init.in_stream_delay_ms == 120, "Type9 in-stream delay");

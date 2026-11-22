@@ -49,15 +49,13 @@ constexpr ResolvedTouchConfig resolveTouchConfig(bool flip_touch) {
             kResolvedDisplayConfig.panel.native_height),
         yoradio_touch_orientation(flip_touch),
         flip_touch,
-        kWiring.touch.controller == TouchController::Gt911,
+        composition::kTouchBackend != composition::TouchBackend::None,
     };
 }
 
-static_assert(resolveTouchConfig(false).geometry.panel_width == 480 &&
-                  resolveTouchConfig(false).geometry.panel_height == 480,
-              "ResolvedTouchConfig: 4848S040 touch geometry must follow the display contract.");
-static_assert(resolveTouchConfig(false).service_mode == TouchServiceMode::Polling,
-              "ResolvedTouchConfig: 4848S040 touch service remains polling.");
+static_assert(resolveTouchConfig(false).geometry.panel_width == kResolvedDisplayConfig.panel.native_width &&
+                  resolveTouchConfig(false).geometry.panel_height == kResolvedDisplayConfig.panel.native_height,
+              "ResolvedTouchConfig: touch geometry must follow the display contract.");
 static_assert(!resolveTouchConfig(false).orientation.swap_xy &&
                   !resolveTouchConfig(false).orientation.mirror_x &&
                   !resolveTouchConfig(false).orientation.mirror_y,
@@ -66,9 +64,9 @@ static_assert(!resolveTouchConfig(true).orientation.swap_xy &&
                   resolveTouchConfig(true).orientation.mirror_x &&
                   resolveTouchConfig(true).orientation.mirror_y,
               "ResolvedTouchConfig: Flip ON is official 180-degree mirroring.");
-static_assert(resolveTouchConfig(false).wiring.controller == TouchController::Gt911 &&
-                  resolveTouchConfig(false).available,
-              "ResolvedTouchConfig: selected 4848S040 touch controller must be GT911.");
+static_assert(resolveTouchConfig(false).available ==
+                  (composition::kTouchBackend != composition::TouchBackend::None),
+              "ResolvedTouchConfig: availability follows the composition touch backend.");
 
 }  // namespace yoradio
 

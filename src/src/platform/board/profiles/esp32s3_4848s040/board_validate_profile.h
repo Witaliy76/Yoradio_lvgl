@@ -126,6 +126,35 @@ static_assert(!kActiveBoard.usb.native_usb_pins_free_in_stock_wiring,
               "stock wiring uses both native-USB pins (touch SDA and RGB G1)");
 static_assert(kActiveBoard.audio.onboard_output_requires_hw_rework,
               "the onboard mono path is strap-selected, so it is never software-selectable");
+// Tested host recommendation of this board (TEST1 topology; moved from
+// resolved_display_config.h in S07_bis-5). Records the recommendation; user
+// overrides (YORADIO_RGB_BOUNCE10, YORADIO_RGB_FLASH_GUARD) remain allowed.
+// Проверенная рекомендация хоста этой платы (топология TEST1; перенесено из
+// resolved_display_config.h в S07_bis-5). Пользовательские переопределения разрешены.
+static_assert(kActiveBoardDefaults.display.render_mode == DisplayRenderMode::Partial &&
+                  kActiveBoardDefaults.display.partial_draw_lines == 160,
+              "4848S040 tested default is PARTIAL rendering at 160 lines; check board_defaults.h.");
+static_assert(kActiveBoardDefaults.display.draw_buffer_count == 1 &&
+                  kActiveBoardDefaults.display.draw_buffer_memory == DisplayBufferMemory::Psram,
+              "4848S040 tested default is one PSRAM draw buffer; check board_defaults.h.");
+static_assert(kActiveBoardDefaults.display.rgb_framebuffer_count == 1 &&
+                  kActiveBoardDefaults.display.rgb_framebuffer_memory == DisplayBufferMemory::Psram &&
+                  kActiveBoardDefaults.display.rgb_framebuffer_owner == RgbFramebufferOwner::PanelDriver &&
+                  !kActiveBoardDefaults.display.double_framebuffer,
+              "4848S040 tested default is one panel-driver PSRAM framebuffer; check board_defaults.h.");
+static_assert(kActiveBoardDefaults.display.startup_pclk_hz == 6000000u &&
+                  kActiveBoardDefaults.display.runtime_pclk_hz == 10000000u &&
+                  kActiveBoardDefaults.display.flash_guard_pclk_hz == 6000000u,
+              "4848S040 tested PCLK policy is startup 6 MHz, runtime 10 MHz, flash guard 6 MHz; check board_defaults.h.");
+static_assert(kActiveBoardDefaults.display.promote_pclk_once_on_boot_to_main,
+              "4848S040 tested policy promotes PCLK once on Boot-to-Main; check board_defaults.h.");
+static_assert(kActiveBoardDefaults.display.bounce_buffer_px == 0,
+              "4848S040 tested recommendation is bounce 0 px; this does not ban YORADIO_RGB_BOUNCE10=1.");
+static_assert(kActiveBoardDefaults.display.flash_guard_enabled,
+              "4848S040 tested recommendation is flash guard ON; this does not ban YORADIO_RGB_FLASH_GUARD=0.");
+static_assert(kActiveBoardDefaults.touch.service_mode == TouchServiceMode::Polling,
+              "4848S040 GT911 has no INT line: touch service is polling.");
+
 // S07 TF map (moved from storage/schematic_candidate_4848s040.h in S07_bis-3c).
 // Карта TF S07 (перенесена из schematic_candidate_4848s040.h в S07_bis-3c).
 static_assert(kActiveBoard.storage.onboard_sd_present, "4848S040 has an onboard microSD slot");

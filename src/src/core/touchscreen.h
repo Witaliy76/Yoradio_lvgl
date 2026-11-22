@@ -6,13 +6,14 @@
 #include <atomic>
 
 #if YORADIO_HAS_TOUCH
-// The board profile names the touch controller; GT911 is the only backend until
-// S07_bis-5 moves the choice into platform/composition.h.
-// Контроллер тача задаёт профиль платы; до S07_bis-5 (platform/composition.h)
-// единственный backend — GT911.
+// platform/composition.h chooses the touch backend from the board profile.
+// GT911 is the only implemented backend; another choice must add its member here.
+// Backend тача выбирает platform/composition.h по профилю платы. Реализован
+// только GT911; другой выбор должен добавить здесь свой член класса.
+#include "../platform/composition.h"
 #include "../platform/touch/gt911_backend.h"
-static_assert(yoradio::kActiveBoard.touch.controller == yoradio::TouchController::Gt911,
-              "YoRadio: the selected board's touch controller has no backend yet (S07_bis-5 composition).");
+static_assert(yoradio::composition::kTouchBackend == yoradio::composition::TouchBackend::Gt911,
+              "YoRadio: TouchScreen implements only the GT911 backend chosen by platform/composition.h.");
 #endif
 
 class TouchScreen

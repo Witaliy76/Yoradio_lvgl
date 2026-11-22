@@ -1,12 +1,13 @@
 #pragma once
 #include "../core/options.h"
 
-// The display host is chosen by the board profile, not by a user selector.
-// Only the ST7701 RGB host exists until S07_bis-5 adds platform/composition.h.
-// Хост дисплея выбирает профиль платы, а не пользовательский селектор.
-// До S07_bis-5 (platform/composition.h) существует только хост ST7701 RGB.
+// platform/composition.h chooses the display host from the board profile.
+// DspCore (displayST7701.*) drives the Rgb3Wire host (rgb_3wire_backend.*).
+// Хост дисплея выбирает platform/composition.h по профилю платы.
+// DspCore (displayST7701.*) работает с хостом Rgb3Wire (rgb_3wire_backend.*).
+#include "../platform/composition.h"
 #include "displayST7701.h"
 #ifdef __cplusplus
-static_assert(yoradio::kActiveBoard.display.controller == yoradio::PanelController::St7701,
-              "YoRadio: the selected board's panel has no display host yet (S07_bis-5 composition).");
+static_assert(yoradio::composition::kDisplayHost == yoradio::composition::DisplayHost::Rgb3Wire,
+              "YoRadio: DspCore implements only the Rgb3Wire display host chosen by platform/composition.h.");
 #endif

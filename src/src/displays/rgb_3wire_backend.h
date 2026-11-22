@@ -1,9 +1,12 @@
-// Direct esp_lcd ST7701 RGB backend behind DisplayPort.
-// Прямой esp_lcd ST7701 RGB backend за интерфейсом DisplayPort.
-// Ownership: display TU; active 4848S040 DisplayPort backend.
-// Владелец: display TU; активный backend DisplayPort для 4848S040.
-// Hardware: ESP32-S3 4848S040; historical Arduino_GFX behavior is parity provenance only.
-// Железо: ESP32-S3 4848S040; поведение Arduino_GFX сохранено только как provenance паритета.
+// Rgb3Wire display host behind DisplayPort: esp_lcd RGB565 parallel scanout plus a
+// 9-bit 3-wire command bus that replays the PanelMode init recipe (S07_bis-5, M10).
+// Хост дисплея Rgb3Wire за DisplayPort: RGB565 через esp_lcd плюс 9-битная 3-wire
+// шина команд, исполняющая рецепт инициализации PanelMode (S07_bis-5, M10).
+// Ownership: display TU; selected by platform/composition.h (DisplayHost::Rgb3Wire).
+// Panel, pins and PCLK policy come from ResolvedDisplayConfig; no board is named here.
+// Владелец: display TU; выбирается platform/composition.h. Панель, пины и политика
+// PCLK берутся из ResolvedDisplayConfig; плата здесь не называется.
+// Parity provenance: Arduino_GFX ESP32RGBPanel + batchOperation (00dcd684).
 // Author: Witaliy76 - https://github.com/Witaliy76
 #ifndef YORADIO_ESP_LCD_ST7701_BACKEND_H
 #define YORADIO_ESP_LCD_ST7701_BACKEND_H
@@ -12,21 +15,15 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-namespace yoradio_esp_lcd_st7701 {
+namespace yoradio_rgb_3wire {
 
-constexpr uint16_t kWidth = 480;
-constexpr uint16_t kHeight = 480;
-constexpr size_t kFramebufferBytes = static_cast<size_t>(kWidth) * kHeight * sizeof(uint16_t);  // 460800
+// Geometry and PCLK values are not public constants: callers read ResolvedDisplayConfig
+// (panel.native_*, recommended.*_pclk_hz) or the runtime getters below.
+// Геометрия и PCLK не публикуются константами: их берут из ResolvedDisplayConfig
+// или из функций ниже.
 
-// RGB pixel clock. Nominal is the panel clock at creation. Flash-guard is the clock held
-// while flash is written (S01-4X-P, S01-5B). These are the only two PCLK values in the product.
-// Пиксельная частота RGB. Nominal — частота при создании панели. Flash-guard — частота,
-// которая держится во время записи во flash (S01-4X-P, S01-5B). Других значений PCLK нет.
-constexpr uint32_t kPclkNominalHz = 10000000u;
-constexpr uint32_t kPclkFlashGuardHz = 6000000u;
-
-// Direct panel bring-up: Type9 + esp_lcd RGB + single PSRAM FB.
-// Прямой bring-up: Type9 + esp_lcd RGB + один PSRAM FB.
+// Panel bring-up: init recipe over the 3-wire bus + esp_lcd RGB + single PSRAM FB.
+// Bring-up: рецепт инициализации по 3-wire + esp_lcd RGB + один PSRAM FB.
 // Sole owner of the RGB peripheral + physical framebuffer once selected.
 // Единственный владелец RGB-периферии и физического FB после выбора.
 bool begin();
@@ -101,11 +98,11 @@ uint16_t bounceBufferPx();
 uint32_t vsyncSeq();
 bool vsyncCounterReady();
 
-// Effective nominal PCLK: the startup value (kPclkFlashGuardHz) during the Boot phase, then
-// kPclkNominalHz after promotePclkToRuntimeNominal(). The flash guard reads this as its UP
+// Effective nominal PCLK: the startup value (recommended.startup_pclk_hz) during the Boot
+// phase, then recommended.runtime_pclk_hz after promotePclkToRuntimeNominal(). The flash guard reads this as its UP
 // target, so a guarded boot write cannot promote the clock before the startup phase ends.
-// Действующий номинальный PCLK: стартовое значение (kPclkFlashGuardHz) в фазе Boot, затем
-// kPclkNominalHz после promotePclkToRuntimeNominal(). Guard читает это как цель UP.
+// Действующий номинальный PCLK: стартовое значение (recommended.startup_pclk_hz) в фазе Boot,
+// затем recommended.runtime_pclk_hz после promotePclkToRuntimeNominal(). Guard читает это как цель UP.
 uint32_t nominalPclkHz();
 
 // Ask the driver to record the runtime nominal. True = accepted now, or already accepted.
@@ -122,6 +119,6 @@ bool promotePclkToRuntimeNominal();
 // следующих VSYNC ISR, после on_vsync. True = «записано», а не «применено». Без restart.
 bool requestRgbPclkHz(uint32_t hz);
 
-}  // namespace yoradio_esp_lcd_st7701
+}  // namespace yoradio_rgb_3wire
 
 #endif

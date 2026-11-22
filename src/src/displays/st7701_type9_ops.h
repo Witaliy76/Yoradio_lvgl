@@ -17,7 +17,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-namespace yoradio_esp_lcd_st7701 {
+namespace yoradio_init_recipes {
 
 // Opcode IDs match Arduino_DataBus::spi_operation_type_t exactly.
 // ID опкодов совпадают с Arduino_DataBus::spi_operation_type_t.
@@ -56,6 +56,6 @@ static constexpr uint8_t kType9GfxEncoded[271] = {
     0x00, 0x00, 0x00, 0x07, 0x3A, 0x60, 0x01, 0x11, 0x0B, 0x0C, 0x78, 0x00, 0x01, 0x29, 0x0B,
 };
 
-}  // namespace yoradio_esp_lcd_st7701
+}  // namespace yoradio_init_recipes
 
 #endif

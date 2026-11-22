@@ -1,12 +1,12 @@
-// Direct esp_lcd ST7701 RGB backend implementation behind DisplayPort.
-// Реализация прямого esp_lcd ST7701 RGB backend за интерфейсом DisplayPort.
-// Parity authority: Arduino_GFX @ 00dcd684 (type9 + ESP32RGBPanel config).
-// Эталон паритета: Arduino_GFX @ 00dcd684 (type9 + конфиг ESP32RGBPanel).
+// Rgb3Wire display host implementation behind DisplayPort (S07_bis-5, M10).
+// Реализация хоста дисплея Rgb3Wire за DisplayPort (S07_bis-5, M10).
+// Parity authority: Arduino_GFX @ 00dcd684 (batchOperation + ESP32RGBPanel config).
+// Эталон паритета: Arduino_GFX @ 00dcd684 (batchOperation + конфиг ESP32RGBPanel).
 // Author: Witaliy76 - https://github.com/Witaliy76
 
 #include "../core/options.h"
 
-#include "esp_lcd_st7701_backend.h"
+#include "rgb_3wire_backend.h"
 #include "st7701_type9_ops.h"
 #include "../platform/display/resolved_display_config.h"
 #include "../platform/storage/storage_owner.h"
@@ -21,7 +21,7 @@
 #include "esp_memory_utils.h"
 #include "esp_err.h"
 
-namespace yoradio_esp_lcd_st7701 {
+namespace yoradio_rgb_3wire {
 namespace {
 
 // The backend adapts one accepted contract to esp_lcd. PanelMode owns physical
@@ -35,32 +35,61 @@ constexpr size_t kResolvedFramebufferBytes =
     static_cast<size_t>(kDisplayConfig.panel.native_width) *
     kDisplayConfig.panel.native_height * sizeof(uint16_t);
 
-// Keep the public header constants until S04-3B2 checks its remaining consumers.
-// They are compatibility names, not a second backend source.
-// Публичные константы сохраняются до S04-3B2 как compatibility-имена, а не
-// как второй источник параметров backend.
-static_assert(kWidth == kDisplayConfig.panel.native_width,
-              "ST7701 compatibility kWidth must match ResolvedDisplayConfig.panel");
-static_assert(kHeight == kDisplayConfig.panel.native_height,
-              "ST7701 compatibility kHeight must match ResolvedDisplayConfig.panel");
-static_assert(kFramebufferBytes == kResolvedFramebufferBytes,
-              "ST7701 compatibility framebuffer size must match resolved geometry");
-static_assert(kPclkNominalHz == kDisplayConfig.recommended.runtime_pclk_hz,
-              "ST7701 compatibility nominal PCLK must match resolved runtime PCLK");
-static_assert(kPclkFlashGuardHz == kDisplayConfig.recommended.flash_guard_pclk_hz,
-              "ST7701 compatibility guard PCLK must match resolved flash-guard PCLK");
+// PCLK policy D6: startup and flash-guard PCLK are the same value (one promotion to runtime).
+// Политика PCLK D6: стартовый PCLK и PCLK flash guard совпадают (одно повышение до runtime).
 static_assert(kDisplayConfig.recommended.startup_pclk_hz ==
                   kDisplayConfig.recommended.flash_guard_pclk_hz,
-              "ST7701 accepted startup and flash-guard PCLK must remain equal");
+              "Rgb3Wire: startup and flash-guard PCLK must remain equal (PCLK policy D6)");
 static_assert(kDisplayConfig.effective_bounce_buffer_px <= UINT16_MAX,
-              "ST7701 effective bounce must fit the public uint16_t status field");
+              "Rgb3Wire: effective bounce must fit the public uint16_t status field");
 static_assert(kDisplayConfig.wiring.panel_reset_gpio == yoradio::kPinNotConnected,
-              "ST7701 backend expects the 4848S040 panel RESX line to be not connected");
+              "Rgb3Wire: driving a panel RESX GPIO is not implemented; the board must leave it NC "
+              "(the init recipe starts with a soft reset).");
+// Boot orientation uses ST7701 Command2 SDIR + MADCTL.ML; other controllers need their own.
+// Ориентация при старте — это ST7701 Command2 SDIR + MADCTL.ML; другим контроллерам нужна своя.
+static_assert(!kDisplayConfig.boot_orientation_180 ||
+                  kDisplayConfig.panel.controller == yoradio::panel::Controller::St7701,
+              "Rgb3Wire: DISPLAY_BOOT_ORIENTATION_180 is implemented only for ST7701 panels.");
+
+// Init recipe table (D11): PanelMode names the recipe, this TU owns the bytes and the
+// interpreter. Counts in PanelMode are checked against the table entry.
+// Таблица рецептов (D11): PanelMode называет рецепт, байты и интерпретатор — здесь.
+struct InitRecipeBytes {
+    yoradio::panel::InitRecipe id;
+    const uint8_t* bytes;
+    size_t encoded_bytes;
+    size_t high_level_ops;
+};
+
+constexpr InitRecipeBytes kInitRecipes[] = {
+    {yoradio::panel::InitRecipe::St7701Type9, yoradio_init_recipes::kType9GfxEncoded,
+     yoradio_init_recipes::kType9GfxEncodedBytes, yoradio_init_recipes::kType9GfxHighLevelOps},
+};
+
+constexpr size_t kInitRecipeCount = sizeof(kInitRecipes) / sizeof(kInitRecipes[0]);
+
+constexpr size_t findInitRecipeIndex(yoradio::panel::InitRecipe id) {
+    for (size_t i = 0; i < kInitRecipeCount; ++i) {
+        if (kInitRecipes[i].id == id) {
+            return i;
+        }
+    }
+    return kInitRecipeCount;
+}
+
+constexpr size_t kInitRecipeIndex = findInitRecipeIndex(kDisplayConfig.panel.init.recipe);
+static_assert(kInitRecipeIndex < kInitRecipeCount,
+              "Rgb3Wire: no init byte stream for the PanelMode recipe; add it to kInitRecipes.");
+constexpr const InitRecipeBytes& kInitRecipe = kInitRecipes[kInitRecipeIndex];
+static_assert(kDisplayConfig.panel.init.encoded_bytes == kInitRecipe.encoded_bytes,
+              "Rgb3Wire: PanelMode init byte count does not match the recipe table.");
+static_assert(kDisplayConfig.panel.init.high_level_ops == kInitRecipe.high_level_ops,
+              "Rgb3Wire: PanelMode init op count does not match the recipe table.");
 
 esp_lcd_panel_handle_t s_panel = nullptr;
 uint16_t* s_fb = nullptr;
 bool s_ready = false;
-// Type9 does not write MADCTL; ST7701S reset default is 0x00. Track the full
+// The ST7701 Type9 recipe does not write MADCTL; ST7701S reset default is 0x00. Track the full
 // value so changing ML never clobbers BGR or another unrelated MADCTL bit.
 // Type9 не пишет MADCTL; reset default ST7701S = 0x00. Храним весь байт,
 // чтобы изменение ML не затронуло BGR и прочие биты.
@@ -222,22 +251,12 @@ bool applyPanelOrientation180(bool flipped) {
     return writeControlCommand(kCmdMadctl, &s_madctl, 1);
 }
 
-// Mirror Arduino_DataBus::batchOperation for the Type9 opcode subset used here.
-// Зеркало Arduino_DataBus::batchOperation для подмножества опкодов Type9.
-bool replayType9Ops() {
-    // The backend reads resolved metadata, while the accepted Type9 byte stream and
-    // its interpreter remain local here. These checks bind identity, not ownership.
-    // Backend читает resolved metadata, а Type9-байты и интерпретатор
-    // остаются локальными; проверки связывают идентичность, а не владение.
-    static_assert(yoradio::kResolvedDisplayConfig.panel.init.encoded_bytes ==
-                      kType9GfxEncodedBytes,
-                  "ResolvedDisplayConfig: PanelMode Type9 byte count does not match st7701_type9_ops.h; check both metadata owners.");
-    static_assert(yoradio::kResolvedDisplayConfig.panel.init.high_level_ops ==
-                      kType9GfxHighLevelOps,
-                  "ResolvedDisplayConfig: PanelMode Type9 operation count does not match st7701_type9_ops.h; check both metadata owners.");
-
-    const uint8_t* operations = kType9GfxEncoded;
-    const size_t len = kType9GfxEncodedBytes;
+// Mirror Arduino_DataBus::batchOperation for the opcode subset used by init recipes.
+// Зеркало Arduino_DataBus::batchOperation для подмножества опкодов рецептов.
+bool replayInitRecipe() {
+    using namespace yoradio_init_recipes;
+    const uint8_t* operations = kInitRecipe.bytes;
+    const size_t len = kInitRecipe.encoded_bytes;
     for (size_t i = 0; i < len; ++i) {
         uint8_t l = 0;
         switch (operations[i]) {
@@ -263,7 +282,7 @@ bool replayType9Ops() {
                 delay(operations[++i]);
                 break;
             default:
-                Serial.printf("[esp_lcd_st7701] Unknown Type9 opcode at %u: %u\n",
+                Serial.printf("[rgb_3wire] Unknown init opcode at %u: %u\n",
                               static_cast<unsigned>(i), static_cast<unsigned>(operations[i]));
                 return false;
         }
@@ -285,7 +304,7 @@ bool softResetPanel() {
 }
 
 bool createRgbPanel() {
-    // Panel geometry/timing belong to PanelMode: the same ST7701 glass may be routed
+    // Panel geometry/timing belong to PanelMode: the same panel glass may be routed
     // by another board without changing its 480x480 recipe. esp_lcd-only flags remain
     // adapter details here. Геометрия/timing принадлежат PanelMode; разводка — плате.
     const auto& panel = kDisplayConfig.panel;
@@ -379,19 +398,19 @@ bool createRgbPanel() {
 
     esp_err_t err = esp_lcd_new_rgb_panel(&panel_config, &s_panel);
     if (err != ESP_OK || !s_panel) {
-        Serial.printf("[esp_lcd_st7701] esp_lcd_new_rgb_panel failed: %s\n", esp_err_to_name(err));
+        Serial.printf("[rgb_3wire] esp_lcd_new_rgb_panel failed: %s\n", esp_err_to_name(err));
         s_panel = nullptr;
         return false;
     }
 
     err = esp_lcd_panel_reset(s_panel);
     if (err != ESP_OK) {
-        Serial.printf("[esp_lcd_st7701] esp_lcd_panel_reset failed: %s\n", esp_err_to_name(err));
+        Serial.printf("[rgb_3wire] esp_lcd_panel_reset failed: %s\n", esp_err_to_name(err));
         return false;
     }
     err = esp_lcd_panel_init(s_panel);
     if (err != ESP_OK) {
-        Serial.printf("[esp_lcd_st7701] esp_lcd_panel_init failed: %s\n", esp_err_to_name(err));
+        Serial.printf("[rgb_3wire] esp_lcd_panel_init failed: %s\n", esp_err_to_name(err));
         return false;
     }
 
@@ -399,16 +418,16 @@ bool createRgbPanel() {
     err = esp_lcd_rgb_panel_get_frame_buffer(s_panel, policy.rgb_framebuffer_count,
                                              &frame_buffer);
     if (err != ESP_OK || frame_buffer == nullptr) {
-        Serial.printf("[esp_lcd_st7701] get_frame_buffer failed: %s\n", esp_err_to_name(err));
+        Serial.printf("[rgb_3wire] get_frame_buffer failed: %s\n", esp_err_to_name(err));
         return false;
     }
     s_fb = static_cast<uint16_t*>(frame_buffer);
 
     if (!esp_ptr_external_ram(s_fb)) {
-        Serial.println("[esp_lcd_st7701] framebuffer is NOT in external/PSRAM");
+        Serial.println("[rgb_3wire] framebuffer is NOT in external/PSRAM");
         return false;
     }
-    Serial.printf("[esp_lcd_st7701] FB ok addr=%p bytes=%u PSRAM=yes\n",
+    Serial.printf("[rgb_3wire] FB ok addr=%p bytes=%u PSRAM=yes\n",
                   static_cast<void*>(s_fb),
                   static_cast<unsigned>(kResolvedFramebufferBytes));
 
@@ -422,9 +441,9 @@ bool createRgbPanel() {
     err = esp_lcd_rgb_panel_register_event_callbacks(s_panel, &callbacks, nullptr);
     s_vsync_cb_ok = (err == ESP_OK);
     if (!s_vsync_cb_ok) {
-        Serial.printf("[esp_lcd_st7701] vsync callback register FAIL: %s\n", esp_err_to_name(err));
+        Serial.printf("[rgb_3wire] vsync callback register FAIL: %s\n", esp_err_to_name(err));
     }
-    Serial.printf("[esp_lcd_st7701] pclk=%lu bounce_px=%u vsync_cb=%s\n",
+    Serial.printf("[rgb_3wire] pclk=%lu bounce_px=%u vsync_cb=%s\n",
                   static_cast<unsigned long>(panel_config.timings.pclk_hz),
                   static_cast<unsigned>(s_bounce_px), s_vsync_cb_ok ? "ok" : "FAIL");
     return true;
@@ -433,41 +452,43 @@ bool createRgbPanel() {
 }  // namespace
 
 bool begin() {
-    Serial.println("[esp_lcd_st7701] begin enter");
+    Serial.println("[rgb_3wire] begin enter");
     if (s_ready) {
         return true;
     }
     if (!yoradio::storage::StorageOwner::instance().displayCommandPinsAvailable()) {
-        Serial.println("[esp_lcd_st7701] Type9 blocked by Storage GPIO ownership");
+        Serial.println("[rgb_3wire] init blocked by Storage GPIO ownership");
         return false;
     }
     end();  // clear any half state / очистить полусостояние
 
     if (!initControlBusPins()) {
-        Serial.println("[esp_lcd_st7701] control bus pin init FAIL");
+        Serial.println("[rgb_3wire] control bus pin init FAIL");
         return false;
     }
-    Serial.println("[esp_lcd_st7701] soft reset 0x01 + 120ms");
+    Serial.printf("[rgb_3wire] soft reset 0x%02X + %ums\n",
+                  static_cast<unsigned>(kDisplayConfig.panel.init.soft_reset_command),
+                  static_cast<unsigned>(kDisplayConfig.panel.init.soft_reset_delay_ms));
     if (!softResetPanel()) {
         end();
         return false;
     }
-    Serial.println("[esp_lcd_st7701] Type9 replay");
-    if (!replayType9Ops()) {
-        Serial.println("[esp_lcd_st7701] Type9 replay FAIL");
+    Serial.printf("[rgb_3wire] init recipe %s replay\n", kDisplayConfig.panel.init.name);
+    if (!replayInitRecipe()) {
+        Serial.println("[rgb_3wire] init recipe replay FAIL");
         end();
         return false;
     }
-    Serial.println("[esp_lcd_st7701] Type9 replay PASS");
+    Serial.println("[rgb_3wire] init recipe replay PASS");
 
-    // Some 4848S040 panels accept orientation commands only before the RGB pixel
-    // stream starts. The resolver carries the existing user choice; touch is separate.
+    // PanelMode quirk: this panel accepts orientation commands only before the RGB
+    // pixel stream starts. The resolver carries the existing user choice; touch is separate.
     // Некоторые панели принимают orientation только до RGB stream. Resolver передаёт
     // существующий выбор пользователя; настройка тача остаётся отдельной.
     if (kDisplayConfig.boot_orientation_180) {
-        Serial.println("[esp_lcd_st7701] applying fixed boot orientation 180");
+        Serial.println("[rgb_3wire] applying fixed boot orientation 180");
         if (!applyPanelOrientation180(true)) {
-            Serial.println("[esp_lcd_st7701] fixed boot orientation FAIL");
+            Serial.println("[rgb_3wire] fixed boot orientation FAIL");
             end();
             return false;
         }
@@ -479,13 +500,13 @@ bool begin() {
     }
 
     if (!fillRgb565(0x0000)) {
-        Serial.println("[esp_lcd_st7701] initial clear FAIL");
+        Serial.println("[rgb_3wire] initial clear FAIL");
         end();
         return false;
     }
 
     s_ready = true;
-    Serial.println("[esp_lcd_st7701] begin PASS (active DisplayPort backend)");
+    Serial.println("[rgb_3wire] begin PASS (active DisplayPort backend)");
     return true;
 }
 
@@ -508,7 +529,7 @@ bool setInverted(bool inverted) {
     // framebuffer и принятый flush/cache path.
     const esp_err_t err = esp_lcd_panel_invert_color(s_panel, inverted);
     if (err != ESP_OK) {
-        Serial.printf("[esp_lcd_st7701] RGB output inversion failed: %s\n",
+        Serial.printf("[rgb_3wire] RGB output inversion failed: %s\n",
                       esp_err_to_name(err));
         return false;
     }
@@ -533,7 +554,7 @@ bool cacheWritebackFull() {
         s_fb, kResolvedFramebufferBytes,
         ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
     if (err != ESP_OK) {
-        Serial.printf("[esp_lcd_st7701] esp_cache_msync FAIL: %s\n", esp_err_to_name(err));
+        Serial.printf("[rgb_3wire] esp_cache_msync FAIL: %s\n", esp_err_to_name(err));
         return false;
     }
     return true;
@@ -642,7 +663,7 @@ bool restartRgbScanout() {
     ++s_restart_exec;
     const esp_err_t err = esp_lcd_rgb_panel_restart(s_panel);
     if (err != ESP_OK) {
-        Serial.printf("[esp_lcd_st7701] rgb_panel_restart failed: %s\n", esp_err_to_name(err));
+        Serial.printf("[rgb_3wire] rgb_panel_restart failed: %s\n", esp_err_to_name(err));
         return false;
     }
     return true;
@@ -686,14 +707,14 @@ bool promotePclkToRuntimeNominal() {
         static uint32_t s_promote_reject = 0;
         ++s_promote_reject;
         if (s_promote_reject == 1u || (s_promote_reject % 10u) == 0u) {
-            Serial.printf("[esp_lcd_st7701] pclk promote not_accepted err=%s count=%lu\n",
+            Serial.printf("[rgb_3wire] pclk promote not_accepted err=%s count=%lu\n",
                           esp_err_to_name(err), (unsigned long)s_promote_reject);
         }
         return false;
     }
     s_pclk_nominal_hz = kDisplayConfig.recommended.runtime_pclk_hz;
     s_pclk_promoted = true;
-    Serial.printf("[esp_lcd_st7701] pclk promote driver_accepted startup=%lu runtime=%lu "
+    Serial.printf("[rgb_3wire] pclk promote driver_accepted startup=%lu runtime=%lu "
                   "divider=vsync_later hardware_hz=not_confirmed vsyncSeq=%lu\n",
                   (unsigned long)kDisplayConfig.recommended.startup_pclk_hz,
                   (unsigned long)kDisplayConfig.recommended.runtime_pclk_hz,
@@ -720,11 +741,11 @@ bool requestRgbPclkHz(uint32_t hz) {
     }
     const esp_err_t err = esp_lcd_rgb_panel_set_pclk(s_panel, hz);
     if (err != ESP_OK) {
-        Serial.printf("[esp_lcd_st7701] set_pclk failed: %s\n", esp_err_to_name(err));
+        Serial.printf("[rgb_3wire] set_pclk failed: %s\n", esp_err_to_name(err));
         return false;
     }
     return true;
 }
 
-}  // namespace yoradio_esp_lcd_st7701
+}  // namespace yoradio_rgb_3wire
 

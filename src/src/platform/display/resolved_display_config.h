@@ -2,7 +2,7 @@
 // ResolvedDisplayConfig — итоговая конфигурация выбранного дисплея при сборке (S04-3A).
 //
 // Four sources keep four different meanings:
-//   panel       — physical ST7701 recipe: geometry, RGB565 timing and init identity;
+//   panel       — PanelMode recipe chosen by platform/composition.h: geometry, timing, init id;
 //   wiring      — effective board pins, including Custom Wiring from src/myoptions.h;
 //   recommended — device-tested host policy from BoardDefaults.display;
 //   user fields — build choices the user may override in src/myoptions.h.
@@ -10,9 +10,9 @@
 // проверенная рекомендация хоста и разрешённые пользовательские настройки.
 //
 // This is data composition, not a driver. esp_lcd, LVGL, Arduino, FreeRTOS and the
-// Type9 byte table stay out of this generic header. The real GPIO come through
-// kWiring.display; frequencies come from kActiveBoardDefaults.display. Type9 stays
-// in the backend because that translation unit owns the byte stream and its replay.
+// init byte tables stay out of this generic header. The real GPIO come through
+// kWiring.display; frequencies come from kActiveBoardDefaults.display. Init bytes stay
+// in the display host because that translation unit owns the byte stream and its replay.
 // Это композиция данных, а не драйвер. Реальные GPIO приходят из kWiring.display,
 // частоты — из kActiveBoardDefaults.display. Команды Type9 остаются в драйвере.
 #ifndef YORADIO_PLATFORM_DISPLAY_RESOLVED_DISPLAY_CONFIG_H
@@ -21,7 +21,7 @@
 #include <stdint.h>
 
 #include "../board/board_select.h"
-#include "panel_st7701_rgb565_480.h"
+#include "../composition.h"
 
 namespace yoradio {
 
@@ -114,22 +114,22 @@ struct ResolvedDisplayConfig {
 };
 
 inline constexpr ResolvedDisplayConfig kResolvedDisplayConfig = {
-    .panel = panel::kSt7701Rgb565_480,
+    .panel = composition::kPanelMode,
     .wiring = kWiring.display,
     .recommended = kActiveBoardDefaults.display,
     .bounce10_enabled = detail::userBounce10Enabled(),
     .effective_bounce_buffer_px =
-        effectiveBounceBufferPixels(detail::userBounce10Enabled(), panel::kSt7701Rgb565_480),
+        effectiveBounceBufferPixels(detail::userBounce10Enabled(), composition::kPanelMode),
     .rgb_flash_guard_enabled = detail::userRgbFlashGuardEnabled(),
     .boot_orientation_180 = detail::userBootOrientation180Enabled(),
 };
 
 // Mandatory compatibility checks. Failures name the owner a new user should inspect.
 // Обязательные проверки совместимости; сообщение называет файл-владелец настройки.
-static_assert(kResolvedDisplayConfig.panel.controller == panel::Controller::St7701 &&
+static_assert(composition::kDisplayHost == composition::DisplayHost::Rgb3Wire &&
                   kResolvedDisplayConfig.panel.interface_kind ==
                       panel::Interface::Rgb565Parallel16,
-              "ResolvedDisplayConfig: supported 4848S040 panel is ST7701 RGB565 parallel 16-bit; check panel_st7701_rgb565_480.h.");
+              "ResolvedDisplayConfig: the only display host is RGB565 parallel 16-bit + 3-wire command bus; check platform/composition.h.");
 static_assert(panelControllerMatches(kResolvedDisplayConfig.panel.controller,
                                     kResolvedDisplayConfig.wiring.controller),
               "ResolvedDisplayConfig: PanelMode controller does not match kWiring.display; check platform/display/panel_st7701_rgb565_480.h and src/myoptions.h Custom Wiring.");
@@ -155,57 +155,28 @@ static_assert(rgb565DataSlotIndex(Rgb565DataSlot::B0) == 0 &&
 static_assert(&kResolvedDisplayConfig.wiring == &kWiring.display,
               "ResolvedDisplayConfig: wiring must reference effective kWiring.display so Custom Wiring is preserved.");
 
-static_assert(kResolvedDisplayConfig.panel.timing.hsync.source_polarity == 1 &&
-                  kResolvedDisplayConfig.panel.timing.hsync.esp_lcd_idle_low == 0 &&
-                  kResolvedDisplayConfig.panel.timing.vsync.source_polarity == 1 &&
-                  kResolvedDisplayConfig.panel.timing.vsync.esp_lcd_idle_low == 0,
-              "ResolvedDisplayConfig: source sync polarity 1 must map to esp_lcd idle_low 0; check panel_mode.h polarity mapping.");
+static_assert(kResolvedDisplayConfig.panel.timing.hsync.esp_lcd_idle_low ==
+                  panel::espLcdIdleLowFromSourcePolarity(
+                      kResolvedDisplayConfig.panel.timing.hsync.source_polarity) &&
+                  kResolvedDisplayConfig.panel.timing.vsync.esp_lcd_idle_low ==
+                  panel::espLcdIdleLowFromSourcePolarity(
+                      kResolvedDisplayConfig.panel.timing.vsync.source_polarity),
+              "ResolvedDisplayConfig: esp_lcd idle_low must be the complement of the source sync polarity; check panel_mode.h polarity mapping.");
 
-// Recommendation checks describe TEST1's proven topology. They intentionally do
-// not compare user choices against the recommendation or reject supported overrides.
-// Проверки рекомендаций описывают проверенную топологию TEST1 и не запрещают
-// поддерживаемые пользовательские настройки.
-static_assert(kResolvedDisplayConfig.recommended.render_mode == DisplayRenderMode::Partial &&
-                  kResolvedDisplayConfig.recommended.partial_draw_lines == 160,
-              "ResolvedDisplayConfig: tested board default is PARTIAL rendering at 160 lines; check board_defaults.h.");
-static_assert(kResolvedDisplayConfig.recommended.draw_buffer_count == 1 &&
-                  kResolvedDisplayConfig.recommended.draw_buffer_memory ==
-                      DisplayBufferMemory::Psram,
-              "ResolvedDisplayConfig: tested board default is one PSRAM draw buffer; check board_defaults.h.");
-static_assert(kResolvedDisplayConfig.recommended.rgb_framebuffer_count == 1 &&
-                  kResolvedDisplayConfig.recommended.rgb_framebuffer_memory ==
-                      DisplayBufferMemory::Psram &&
-                  kResolvedDisplayConfig.recommended.rgb_framebuffer_owner ==
-                      RgbFramebufferOwner::PanelDriver &&
-                  !kResolvedDisplayConfig.recommended.double_framebuffer,
-              "ResolvedDisplayConfig: tested board default is one panel-driver PSRAM framebuffer, not double framebuffer; check board_defaults.h.");
-static_assert(kResolvedDisplayConfig.recommended.startup_pclk_hz == 6000000u &&
-                  kResolvedDisplayConfig.recommended.runtime_pclk_hz == 10000000u &&
-                  kResolvedDisplayConfig.recommended.flash_guard_pclk_hz == 6000000u,
-              "ResolvedDisplayConfig: tested PCLK policy is startup 6 MHz, runtime 10 MHz and flash-guard 6 MHz; check board_defaults.h.");
-static_assert(kResolvedDisplayConfig.recommended.startup_pclk_hz ==
-                  kResolvedDisplayConfig.recommended.flash_guard_pclk_hz &&
-                  kResolvedDisplayConfig.recommended.promote_pclk_once_on_boot_to_main,
-              "ResolvedDisplayConfig: startup and flash-guard PCLK must match and the tested Boot-to-Main promotion must remain enabled; check board_defaults.h.");
-static_assert(kResolvedDisplayConfig.recommended.bounce_buffer_px == 0,
-              "ResolvedDisplayConfig: tested board recommendation is bounce 0 px; this does not ban YORADIO_RGB_BOUNCE10=1.");
-// The tested recommendation is flash guard ON; it is recorded, not enforced, so a
-// supported YORADIO_RGB_FLASH_GUARD=0 override in myoptions.h keeps working.
-// Проверенная рекомендация — flash guard включён; она фиксируется, но не навязывается,
-// поэтому поддерживаемое переопределение YORADIO_RGB_FLASH_GUARD=0 продолжает работать.
-static_assert(kResolvedDisplayConfig.recommended.flash_guard_enabled,
-              "ResolvedDisplayConfig: tested board recommendation is flash guard ON; this does not ban YORADIO_RGB_FLASH_GUARD=0.");
-static_assert(effectiveBounceBufferPixels(false, panel::kSt7701Rgb565_480) == 0u &&
-                  effectiveBounceBufferPixels(true, panel::kSt7701Rgb565_480) == 4800u,
-              "ResolvedDisplayConfig: B10 means native panel width times 10 (4800 px), not the flag value 1; check YORADIO_RGB_BOUNCE10 in src/myoptions.h.");
+// The tested host recommendation of a board (render mode, PCLK 6/10/6, bounce 0,
+// flash guard) is a board fact: asserted in profiles/<board>/board_validate_profile.h.
+// Проверенная рекомендация хоста платы — факт платы: проверяется в профильном валидаторе.
+static_assert(effectiveBounceBufferPixels(false, kResolvedDisplayConfig.panel) == 0u &&
+                  effectiveBounceBufferPixels(true, kResolvedDisplayConfig.panel) ==
+                      kResolvedDisplayConfig.panel.native_width * 10u,
+              "ResolvedDisplayConfig: B10 means native panel width times 10, not the flag value 1; check YORADIO_RGB_BOUNCE10 in src/myoptions.h.");
 static_assert(kResolvedDisplayConfig.effective_bounce_buffer_px ==
                   effectiveBounceBufferPixels(kResolvedDisplayConfig.bounce10_enabled,
                                               kResolvedDisplayConfig.panel),
               "ResolvedDisplayConfig: effective bounce must be derived from YORADIO_RGB_BOUNCE10 and panel native width.");
 
-static_assert(kResolvedDisplayConfig.panel.init.encoded_bytes == 271u &&
-                  kResolvedDisplayConfig.panel.init.high_level_ops == 55u,
-              "ResolvedDisplayConfig: PanelMode Type9 metadata must stay 271 bytes / 55 operations; check panel_st7701_rgb565_480.h.");
+static_assert(kResolvedDisplayConfig.panel.init.recipe != panel::InitRecipe::None,
+              "ResolvedDisplayConfig: the selected PanelMode names no init recipe.");
 
 }  // namespace yoradio
 

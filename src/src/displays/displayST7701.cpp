@@ -8,7 +8,7 @@
 
 #include "displayST7701.h"
 #include "display_port.h"
-#include "esp_lcd_st7701_backend.h"
+#include "rgb_3wire_backend.h"
 #include "../platform/display/resolved_display_config.h"
 #include <cstring>
 #include "../core/spidog.h"
@@ -29,7 +29,7 @@
 // Physical panel state for the log-only lifecycle paths below.
 // Состояние физической панели для log-only путей ниже.
 static inline bool physicalBackendReady() {
-    return yoradio_esp_lcd_st7701::isReady();
+    return yoradio_rgb_3wire::isReady();
 }
 
 #ifndef BATTERY_OFF
@@ -105,11 +105,11 @@ bool DisplayPort::begin() {
     // never continue with a null/uninitialized framebuffer.
     // Сбой прямой инициализации возвращается через существующий путь init;
     // работа с null/неинициализированным FB запрещена.
-    if (!yoradio_esp_lcd_st7701::begin()) {
+    if (!yoradio_rgb_3wire::begin()) {
         Serial.println("[ST7701] Direct esp_lcd backend begin FAILED");
         return false;
     }
-    if (!yoradio_esp_lcd_st7701::isReady() || !yoradio_esp_lcd_st7701::framebuffer()) {
+    if (!yoradio_rgb_3wire::isReady() || !yoradio_rgb_3wire::framebuffer()) {
         Serial.println("[ST7701] Direct esp_lcd backend not ready / no framebuffer!");
         return false;
     }
@@ -118,7 +118,7 @@ bool DisplayPort::begin() {
     // orientation is a fixed board option applied before the RGB stream starts.
     // Инверсия применяется до подсветки; orientation direct-backend фиксируется
     // board-опцией до запуска RGB stream.
-    if (!yoradio_esp_lcd_st7701::setInverted(config.store.invertdisplay)) {
+    if (!yoradio_rgb_3wire::setInverted(config.store.invertdisplay)) {
         Serial.println("[ST7701] Failed to apply saved display inversion");
         return false;
     }
@@ -177,8 +177,8 @@ void DisplayPort::flush(const DisplayArea& area, const uint16_t* pixels,
     // the accepted conservative full-FB C2M writeback.
     // CPU-блит только изменённого прямоугольника в FB esp_lcd, затем принятый
     // консервативный полный C2M writeback.
-    yoradio_esp_lcd_st7701::blitRgb565(area.x1, area.y1, pixels, w, h);
-    yoradio_esp_lcd_st7701::cacheWritebackFull();
+    yoradio_rgb_3wire::blitRgb565(area.x1, area.y1, pixels, w, h);
+    yoradio_rgb_3wire::cacheWritebackFull();
     GIVE_MUTEX();
 
     if (done) {
@@ -226,39 +226,39 @@ void DisplayPort::restartRgbScanout() {
     // MANUAL / SERVICE ONLY (S01-5D): reached only from the diagnostic CLI. Backend owns the
     // panel handle; this layer only forwards the request.
     // ТОЛЬКО РУЧНОЙ / СЕРВИСНЫЙ ВЫЗОВ (S01-5D): доступен только из диагностического CLI.
-    if (!yoradio_esp_lcd_st7701::isReady()) {
+    if (!yoradio_rgb_3wire::isReady()) {
         return;  // panel not up yet / панель ещё не поднята
     }
     TAKE_MUTEX();
-    (void)yoradio_esp_lcd_st7701::restartRgbScanout();
+    (void)yoradio_rgb_3wire::restartRgbScanout();
     GIVE_MUTEX();
 }
 
 DisplayPort::RgbScanoutStatus DisplayPort::rgbScanoutStatus() {
     RgbScanoutStatus st{};
-    st.panelReady = yoradio_esp_lcd_st7701::isReady();
-    st.vsyncCounterReady = yoradio_esp_lcd_st7701::vsyncCounterReady();
-    st.bounceBufferPx = yoradio_esp_lcd_st7701::bounceBufferPx();
-    st.vsyncSeq = yoradio_esp_lcd_st7701::vsyncSeq();
-    st.nominalPclkHz = yoradio_esp_lcd_st7701::nominalPclkHz();  // startup value until promoted
+    st.panelReady = yoradio_rgb_3wire::isReady();
+    st.vsyncCounterReady = yoradio_rgb_3wire::vsyncCounterReady();
+    st.bounceBufferPx = yoradio_rgb_3wire::bounceBufferPx();
+    st.vsyncSeq = yoradio_rgb_3wire::vsyncSeq();
+    st.nominalPclkHz = yoradio_rgb_3wire::nominalPclkHz();  // startup value until promoted
     st.flashGuardPclkHz = yoradio::kResolvedDisplayConfig.recommended.flash_guard_pclk_hz;
-    st.restartExec = yoradio_esp_lcd_st7701::restartExecCount();
-    st.restartRejectedBounce = yoradio_esp_lcd_st7701::restartRejectedBounceCount();
+    st.restartExec = yoradio_rgb_3wire::restartExecCount();
+    st.restartRejectedBounce = yoradio_rgb_3wire::restartRejectedBounceCount();
     return st;
 }
 
 uint32_t DisplayPort::rgbVsyncSeq() {
-    return yoradio_esp_lcd_st7701::vsyncSeq();
+    return yoradio_rgb_3wire::vsyncSeq();
 }
 
 bool DisplayPort::promoteRgbPclkToRuntimeNominal() {
     // Same ownership as requestRgbPclkHz(): the panel handle stays in the backend.
     // То же владение, что и у requestRgbPclkHz(): panel handle остаётся в backend.
-    if (!yoradio_esp_lcd_st7701::isReady()) {
+    if (!yoradio_rgb_3wire::isReady()) {
         return false;
     }
     TAKE_MUTEX();
-    const bool ok = yoradio_esp_lcd_st7701::promotePclkToRuntimeNominal();
+    const bool ok = yoradio_rgb_3wire::promotePclkToRuntimeNominal();
     GIVE_MUTEX();
     return ok;
 }
@@ -266,11 +266,11 @@ bool DisplayPort::promoteRgbPclkToRuntimeNominal() {
 bool DisplayPort::requestRgbPclkHz(uint32_t hz) {
     // Same owner as the scanout restart: the panel handle stays in the backend.
     // Тот же владелец, что и у restart scanout: panel handle остаётся в backend.
-    if (!yoradio_esp_lcd_st7701::isReady()) {
+    if (!yoradio_rgb_3wire::isReady()) {
         return false;
     }
     TAKE_MUTEX();
-    const bool ok = yoradio_esp_lcd_st7701::requestRgbPclkHz(hz);
+    const bool ok = yoradio_rgb_3wire::requestRgbPclkHz(hz);
     GIVE_MUTEX();
     return ok;
 }
@@ -316,7 +316,7 @@ void DspCore::flip() {
 
 void DspCore::invert() {
     TAKE_MUTEX();
-    if (!yoradio_esp_lcd_st7701::setInverted(config.store.invertdisplay)) {
+    if (!yoradio_rgb_3wire::setInverted(config.store.invertdisplay)) {
         Serial.println("[ST7701] Runtime inversion command FAILED");
     }
     GIVE_MUTEX();

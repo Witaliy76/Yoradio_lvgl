@@ -10,7 +10,7 @@ policy, and the backend boundary. The supported production path is:
     BoardDefaults.display + supported user choices
       -> ResolvedDisplayConfig
       -> DisplayPort
-      -> direct esp_lcd ST7701 backend
+      -> Rgb3Wire display host (rgb_3wire_backend, chosen by platform/composition.h)
       -> LVGL flush
 
 ### Responsibilities
@@ -23,9 +23,10 @@ policy, and the backend boundary. The supported production path is:
 | board_defaults.h | Tested host recommendation: partial 160-line PSRAM draw buffer, one panel-driver PSRAM framebuffer, bounce 0, PCLK 6/10/6 MHz |
 | ResolvedDisplayConfig | Compile-time composition plus compatibility assertions and supported build choices |
 | DisplayPort | Backend-neutral begin, geometry, flush, brightness, sleep/wake and RGB-PCLK seam |
-| esp_lcd_st7701_backend.cpp | Active backend; Type9 byte stream, esp_lcd RGB panel, physical framebuffer and scanout |
+| ../composition.h | The only board → PanelMode / display host / touch backend mapping (S07_bis-5) |
+| ../../displays/rgb_3wire_backend.cpp | Rgb3Wire host: init recipe table (InitRecipe → bytes), 3-wire replay, esp_lcd RGB panel, physical framebuffer and scanout |
 
-The Type9 command bytes stay in the ST7701 backend translation unit; PanelMode
+The init command bytes stay in the rgb_3wire_backend translation unit; PanelMode
 stores only their verified identity/counts. DisplayPort owns no raw panel handle.
 The active backend owns the RGB peripheral and one physical PSRAM framebuffer.
 LVGL submits flush rectangles through DisplayPort; it does not program RGB GPIO
@@ -46,7 +47,7 @@ manual diagnostic/service only.
   effective wiring, not panel timing, 480×480 geometry, or controller support.
   Panel RESX is not a DISP_* line.
 - **Supported build choices:** YORADIO_RGB_BOUNCE10, YORADIO_RGB_FLASH_GUARD,
-  and ST7701_BOOT_ORIENTATION_180 are resolved build choices. They are not a
+  and DISPLAY_BOOT_ORIENTATION_180 are resolved build choices. They are not a
   substitute for a validated new panel. The first two default to the board
   profile (`YORADIO_BD_RGB_*`); `myoptions.h` overrides them. `bounce_buffer_px`
   in BoardDefaults records the tested 0. `YORADIO_RGB_BOUNCE10` is a flag, not a pixel count:
@@ -80,7 +81,7 @@ Display Contract разделяет параметры панели, итого�
     BoardDefaults.display + поддерживаемые пользовательские настройки
       -> ResolvedDisplayConfig
       -> DisplayPort
-      -> прямой драйвер ST7701 на esp_lcd
+      -> хост дисплея Rgb3Wire (rgb_3wire_backend, выбирается platform/composition.h)
       -> передача обновляемой области LVGL (flush)
 
 ### Ответственность
@@ -93,9 +94,10 @@ Display Contract разделяет параметры панели, итого�
 | board_defaults.h | Проверенная политика: частичный буфер отрисовки в PSRAM на 160 строк, один кадровый буфер драйвера панели в PSRAM, bounce 0, PCLK 6/10/6 МГц |
 | ResolvedDisplayConfig | Объединение данных при сборке, проверки совместимости и поддерживаемые настройки |
 | DisplayPort | Независимый от драйвера интерфейс: begin, geometry, flush, brightness, sleep/wake и управление RGB-PCLK |
-| esp_lcd_st7701_backend.cpp | Активный драйвер: байты команд Type9, панель RGB esp_lcd, физический кадровый буфер и вывод изображения |
+| ../composition.h | Единственное сопоставление платы с PanelMode / хостом дисплея / backend тача (S07_bis-5) |
+| ../../displays/rgb_3wire_backend.cpp | Хост Rgb3Wire: таблица рецептов (InitRecipe → байты), 3-wire, панель RGB esp_lcd, кадровый буфер и вывод |
 
-Байты команд Type9 остаются в единице трансляции драйвера ST7701; PanelMode хранит
+Байты команд инициализации остаются в единице трансляции rgb_3wire_backend; PanelMode хранит
 только проверенное описание последовательности и число команд/байтов.
 DisplayPort не раскрывает дескриптор панели. Активный драйвер владеет RGB-периферией
 и одним физическим кадровым буфером в PSRAM. LVGL отправляет обновляемые области
@@ -116,7 +118,7 @@ DisplayPort в DspTask с учётом VSYNC. Автоматического п�
   разводку, но не тайминги панели, геометрию 480×480 и не поддержку контроллера.
   RESX не является строкой DISP_*.
 - **Поддерживаемые настройки сборки:** YORADIO_RGB_BOUNCE10,
-  YORADIO_RGB_FLASH_GUARD, ST7701_BOOT_ORIENTATION_180. Они не заменяют проверку
+  YORADIO_RGB_FLASH_GUARD, DISPLAY_BOOT_ORIENTATION_180. Они не заменяют проверку
   новой панели. Первые два по умолчанию берутся из профиля платы
   (`YORADIO_BD_RGB_*`); `myoptions.h` их переопределяет. `bounce_buffer_px` в
   BoardDefaults хранит проверенный 0.

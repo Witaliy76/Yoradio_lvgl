@@ -43,7 +43,7 @@ enum class PixelFormat : uint8_t {
 // esp_lcd stores the complementary idle-low flag. They are not the same number:
 //   source polarity 1 -> esp_lcd idle_low 0
 //   source polarity 0 -> esp_lcd idle_low 1
-// This is the mapping in esp_lcd_st7701_backend.cpp createRgbPanel().
+// This is the mapping in rgb_3wire_backend.cpp createRgbPanel().
 // Исходная полярность — значение продукта / Arduino_GFX (1 = активный высокий).
 // esp_lcd хранит противоположный флаг idle_low. Это не одно и то же число.
 constexpr uint8_t espLcdIdleLowFromSourcePolarity(uint8_t source_polarity) {
@@ -71,11 +71,21 @@ struct Timing {
     uint8_t pclk_idle_high;
 };
 
+// Which init byte stream a host replays (D11). The host maps the id to its bytes in
+// its own constexpr table; PanelMode never points at the bytes.
+// Какой поток команд инициализации исполняет хост (D11). Хост сопоставляет id с байтами
+// в своей constexpr-таблице; PanelMode на байты не указывает.
+enum class InitRecipe : uint8_t {
+    None        = 0,
+    St7701Type9 = 1,  // Arduino_GFX st7701_type9_init_operations
+};
+
 // Identity of a checked vendor init stream. Not the stream, and not a pointer to it.
 // The encoded bytes stay in the backend translation unit that already replays them.
 // Описание проверенной последовательности команд производителя, без самих байтов.
 // Байты остаются в единице трансляции драйвера, которая выполняет эти команды.
 struct InitRecipeId {
+    InitRecipe recipe;
     const char* name;
     const char* provenance;
     uint16_t encoded_bytes;
