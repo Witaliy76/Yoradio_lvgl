@@ -10,7 +10,8 @@
 //     pclk_inverted false.
 //   Sync polarity: same esp_lcd idle levels as the official driver defaults
 //     (flags zero: idle_low 0, pclk_active_neg 0, de_idle_high 0).
-//   Init recipe: espressif/esp_lcd_gc9503 3.0.1 (gc9503_ops.h, D10 step 2).
+//   Init recipe: espressif/esp_lcd_gc9503 3.0.1 (gc9503_ops.h, D10 step 2), with
+//     COLMOD 0x60 (18-bit panel interface) instead of 0x50: device evidence S07_bis-8b.
 // PCLK is host policy (BoardDefaults: 6 MHz first scanout, 10 MHz runtime, D6), not here.
 // Первая плата: VIEWE UEDX48480040E-WB-A. Доказательства: DOCUMENTED, на нашей
 // прошивке ещё не проверено. Порчи — из рабочего конфига espcontrol #2140; полярности —
@@ -54,7 +55,7 @@ inline constexpr PanelMode kGc9503Rgb565_480 = {
     .init = {
         .recipe               = InitRecipe::Gc9503Default,
         .name                 = "gc9503-default-rgb565-480",
-        .provenance           = "espressif/esp_lcd_gc9503 3.0.1 vendor_specific_init_default (esp-bsp fb5714e)",
+        .provenance           = "espressif/esp_lcd_gc9503 3.0.1 vendor_specific_init_default (esp-bsp fb5714e); COLMOD 0x60",
         .encoded_bytes        = 721,
         .high_level_ops       = 161,
         // Sum of in-table delays: SLPOUT 120 ms + DISPON 20 ms.

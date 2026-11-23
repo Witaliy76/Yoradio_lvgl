@@ -49,4 +49,5 @@ transcribed from `espressif/esp_lcd_gc9503` 3.0.1 (`vendor_specific_init_default
 esp-bsp `fb5714e`) and replayed by the Rgb3Wire host (D10 step 2). Porches from the
 working ESPHome config for this board (espcontrol #2140). PCLK policy D6:
 6 MHz first scanout, one promotion to 10 MHz, flash guard 6 MHz.
-Open on device: colour order (Q2), boot orientation 180° is not offered for GC9503 (Q3).
+Colour: COLMOD 0x60 (18-bit panel interface), not the official 0x50 (S07_bis-8b).
+Open on device: boot orientation 180° is not offered for GC9503 (Q3).
