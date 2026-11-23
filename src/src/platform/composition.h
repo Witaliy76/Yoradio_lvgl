@@ -21,6 +21,7 @@
 
 #include "board/board_select.h"
 #include "display/panel_st7701_rgb565_480.h"
+#include "display/panel_gc9503_rgb565_480.h"
 
 #ifndef YORADIO_HAS_TOUCH
 #  error "platform/composition.h: include core/options.h first (YORADIO_HAS_TOUCH)."
@@ -37,7 +38,7 @@ namespace composition {
 // рецепт инициализации PanelMode (displays/rgb_3wire_backend.*).
 enum class DisplayHost : uint8_t { None = 0, Rgb3Wire };
 
-enum class TouchBackend : uint8_t { None = 0, Gt911 };
+enum class TouchBackend : uint8_t { None = 0, Gt911, Ft5x06 };
 
 // Panel recipe for a controller. Unknown controllers have no recipe.
 // Рецепт панели для контроллера. Для неизвестного контроллера рецепта нет.
@@ -46,6 +47,7 @@ inline constexpr panel::PanelMode kNoPanelMode = {};
 constexpr const panel::PanelMode& panelModeFor(PanelController controller) {
     switch (controller) {
         case PanelController::St7701: return panel::kSt7701Rgb565_480;
+        case PanelController::Gc9503: return panel::kGc9503Rgb565_480;
         default:                      return kNoPanelMode;
     }
 }
@@ -68,7 +70,8 @@ constexpr TouchBackend touchBackendFor(const BoardProfile& board, bool touch_ena
         return TouchBackend::None;
     }
     switch (board.touch.controller) {
-        case TouchController::Gt911: return TouchBackend::Gt911;
+        case TouchController::Gt911:  return TouchBackend::Gt911;
+        case TouchController::Ft5x06: return TouchBackend::Ft5x06;
         default:                     return TouchBackend::None;
     }
 }

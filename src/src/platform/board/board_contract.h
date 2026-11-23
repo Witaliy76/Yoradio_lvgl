@@ -68,9 +68,11 @@ struct BoardIdentity {
     BuildRequirements build;
 };
 
-enum class PanelController  : uint8_t { Unknown = 0, St7701 };
+enum class PanelController  : uint8_t { Unknown = 0, St7701, Gc9503 };
 enum class DisplayTransport : uint8_t { Unknown = 0, Rgb565Parallel16 };
-enum class TouchController  : uint8_t { Unknown = 0, Gt911 };
+// Ft5x06 covers the FocalTech FT5x06 family register map, FT6336U included.
+// Ft5x06 — карта регистров семейства FocalTech FT5x06, включая FT6336U.
+enum class TouchController  : uint8_t { Unknown = 0, Gt911, Ft5x06 };
 
 // Factory display wiring and controller/geometry compatibility facts. The panel
 // recipe (timings, blanking intervals, init identity) belongs to PanelMode.
@@ -158,6 +160,7 @@ struct AudioHardware {
 constexpr const char* panelControllerName(PanelController c) {
     switch (c) {
         case PanelController::St7701: return "ST7701";
+        case PanelController::Gc9503: return "GC9503";
         default:                      return "Panel";
     }
 }

@@ -6,14 +6,11 @@
 #include <atomic>
 
 #if YORADIO_HAS_TOUCH
-// platform/composition.h chooses the touch backend from the board profile.
-// GT911 is the only implemented backend; another choice must add its member here.
-// Backend тача выбирает platform/composition.h по профилю платы. Реализован
-// только GT911; другой выбор должен добавить здесь свой член класса.
-#include "../platform/composition.h"
-#include "../platform/touch/gt911_backend.h"
-static_assert(yoradio::composition::kTouchBackend == yoradio::composition::TouchBackend::Gt911,
-              "YoRadio: TouchScreen implements only the GT911 backend chosen by platform/composition.h.");
+// platform/composition.h chooses the touch backend from the board profile;
+// touch_backend_select.h maps that choice to a class (GT911 or FT5x06).
+// Backend тача выбирает platform/composition.h по профилю платы;
+// touch_backend_select.h сопоставляет выбор с классом (GT911 или FT5x06).
+#include "../platform/touch/touch_backend_select.h"
 #endif
 
 class TouchScreen
@@ -47,7 +44,7 @@ class TouchScreen
     bool _flipAllowed;
 #endif
 #if YORADIO_HAS_TOUCH
-    yoradio::Gt911Backend _gt911;
+    yoradio::ActiveTouchBackend _backend;
 #endif
 };
 

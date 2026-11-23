@@ -1,6 +1,6 @@
 /**
  * @file touchscreen.cpp
- * @brief Production TouchPort owner; GT911 is the only backend (board profile, S07_bis-5 composition).
+ * @brief Production TouchPort owner; backend chosen by platform/composition.h (GT911 or FT5x06).
  */
 
 #include "options.h"
@@ -15,7 +15,7 @@ void TouchScreen::init() {
         yoradio::resolveTouchConfig(_requestedFlip.load(std::memory_order_acquire));
     _appliedFlip = touch.flip_touch;
 #if YORADIO_HAS_TOUCH
-    _hwReady = _gt911.begin(touch);
+    _hwReady = _backend.begin(touch);
 #else
     _hwReady = false;
 #endif
@@ -25,7 +25,7 @@ void TouchScreen::init() {
 
 bool TouchScreen::available() const {
 #if YORADIO_HAS_TOUCH
-    return _hwReady && _gt911.available();
+    return _hwReady && _backend.available();
 #else
     return false;
 #endif
@@ -38,7 +38,7 @@ yoradio::TouchSample TouchScreen::read() {
     }
 
 #if YORADIO_HAS_TOUCH
-    const yoradio::TouchSample sample = _gt911.read();
+    const yoradio::TouchSample sample = _backend.read();
     switch (sample.status) {
         case yoradio::TouchSampleStatus::Valid:
         case yoradio::TouchSampleStatus::Error:
@@ -70,7 +70,7 @@ void TouchScreen::applyPendingFlip() {
     if (flipped == _appliedFlip) {
         return;
     }
-    if (_gt911.setOrientation(yoradio_touch_orientation(flipped))) {
+    if (_backend.setOrientation(yoradio_touch_orientation(flipped))) {
         _appliedFlip = flipped;
     } else {
         // Never expose coordinates with partially applied setter flags.

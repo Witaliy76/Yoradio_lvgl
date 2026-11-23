@@ -1266,6 +1266,7 @@ static void bootLogDisplay(const yoradio::DisplayWiring& disp) {
   const char* panel = nullptr;
   switch (disp.controller) {
     case yoradio::PanelController::St7701:  panel = "ST7701"; break;
+    case yoradio::PanelController::Gc9503:  panel = "GC9503"; break;
     case yoradio::PanelController::Unknown: panel = "unknown"; break;
     default: break;
   }

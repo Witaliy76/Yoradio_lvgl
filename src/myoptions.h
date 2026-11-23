@@ -18,6 +18,11 @@
    Known ids: src/src/platform/board/board_id.h
    Идентичность конкретной платы. Окружение PlatformIO задаёт build family
    (SoC, класс flash/PSRAM, тулчейн, разделы); эта строка задаёт плату.
+   Boards of the S3_N16R8 family / Платы семейства S3_N16R8:
+     YORADIO_BOARD_4848S040     — ESP32-4848S040 (ST7701 480x480, GT911)
+     YORADIO_BOARD_UEDX48480040 — VIEWE UEDX48480040E-WB-A (GC9503 480x480, FT6336U);
+                                  external I2S DAC: BCLK 19, WS 48, DOUT 20; logs and
+                                  flashing through the CH340 "UART" port.
    =============================================== */
 #define YORADIO_BOARD YORADIO_BOARD_4848S040
 

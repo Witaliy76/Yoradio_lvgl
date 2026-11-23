@@ -16,6 +16,7 @@
 // в #if равен 0, поэтому резерв 0 превращает опечатку в явную ошибку.
 #define YORADIO_BOARD_NONE       0
 #define YORADIO_BOARD_4848S040   1
+#define YORADIO_BOARD_UEDX48480040 2   // VIEWE UEDX48480040E-WB-A (GC9503 480x480, FT6336U)
 
 #ifdef __cplusplus
 #include <stdint.h>
@@ -25,6 +26,7 @@ namespace yoradio {
 enum class BoardId : uint16_t {
     None             = YORADIO_BOARD_NONE,
     Esp32S3_4848S040 = YORADIO_BOARD_4848S040,
+    Esp32S3_Uedx48480040 = YORADIO_BOARD_UEDX48480040,
 };
 
 }  // namespace yoradio

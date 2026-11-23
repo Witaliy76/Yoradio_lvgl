@@ -3,3 +3,7 @@ dependencies:
     version: "==1.2.1"
   espressif/esp_lcd_touch_gt911:
     version: "==1.2.1"
+  # FT5x06 family (FT6336U on VIEWE UEDX48480040E-WB-A). 1.1.1 requires esp_lcd_touch ^1.2.0.
+  # Семейство FT5x06 (FT6336U на VIEWE). 1.1.1 требует esp_lcd_touch ^1.2.0.
+  espressif/esp_lcd_touch_ft5x06:
+    version: "==1.1.1"

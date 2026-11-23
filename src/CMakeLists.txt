@@ -26,6 +26,7 @@ idf_component_register(
         esp_lcd
         esp_lcd_touch
         esp_lcd_touch_gt911
+        esp_lcd_touch_ft5x06
         esp_timer
         mbedtls
         freertos

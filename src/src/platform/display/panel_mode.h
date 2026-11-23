@@ -24,6 +24,7 @@ namespace panel {
 enum class Controller : uint8_t {
     Unknown = 0,
     St7701  = 1,
+    Gc9503  = 2,
 };
 
 enum class Interface : uint8_t {
@@ -77,7 +78,8 @@ struct Timing {
 // в своей constexpr-таблице; PanelMode на байты не указывает.
 enum class InitRecipe : uint8_t {
     None        = 0,
-    St7701Type9 = 1,  // Arduino_GFX st7701_type9_init_operations
+    St7701Type9   = 1,  // Arduino_GFX st7701_type9_init_operations
+    Gc9503Default = 2,  // espressif/esp_lcd_gc9503 3.0.1 vendor_specific_init_default
 };
 
 // Identity of a checked vendor init stream. Not the stream, and not a pointer to it.

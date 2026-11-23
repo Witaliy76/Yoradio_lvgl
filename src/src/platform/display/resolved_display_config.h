@@ -47,6 +47,8 @@ constexpr bool panelControllerMatches(panel::Controller panel_controller,
             return board_controller == PanelController::Unknown;
         case panel::Controller::St7701:
             return board_controller == PanelController::St7701;
+        case panel::Controller::Gc9503:
+            return board_controller == PanelController::Gc9503;
     }
     return false;
 }
@@ -132,18 +134,18 @@ static_assert(composition::kDisplayHost == composition::DisplayHost::Rgb3Wire &&
               "ResolvedDisplayConfig: the only display host is RGB565 parallel 16-bit + 3-wire command bus; check platform/composition.h.");
 static_assert(panelControllerMatches(kResolvedDisplayConfig.panel.controller,
                                     kResolvedDisplayConfig.wiring.controller),
-              "ResolvedDisplayConfig: PanelMode controller does not match kWiring.display; check platform/display/panel_st7701_rgb565_480.h and src/myoptions.h Custom Wiring.");
+              "ResolvedDisplayConfig: PanelMode controller does not match kWiring.display; check panelModeFor() in platform/composition.h and the board profile.");
 static_assert(panelInterfaceMatches(kResolvedDisplayConfig.panel.interface_kind,
                                    kResolvedDisplayConfig.wiring.transport),
               "ResolvedDisplayConfig: PanelMode interface does not match kWiring.display; check the selected board profile and panel descriptor.");
 static_assert(kResolvedDisplayConfig.panel.pixel_format == panel::PixelFormat::Rgb565 &&
                   kResolvedDisplayConfig.panel.rgb_bus_width_bits == 16,
-              "ResolvedDisplayConfig: this panel contract requires RGB565 on a 16-bit parallel bus; check platform/display/panel_st7701_rgb565_480.h.");
+              "ResolvedDisplayConfig: this panel contract requires RGB565 on a 16-bit parallel bus; check the selected PanelMode.");
 static_assert(kResolvedDisplayConfig.panel.native_width ==
                       kResolvedDisplayConfig.wiring.native_width &&
                   kResolvedDisplayConfig.panel.native_height ==
                       kResolvedDisplayConfig.wiring.native_height,
-              "ResolvedDisplayConfig: PanelMode native geometry does not match BoardProfile; check panel_st7701_rgb565_480.h and the selected board profile.");
+              "ResolvedDisplayConfig: PanelMode native geometry does not match BoardProfile; check the selected PanelMode and board profile.");
 
 static_assert(rgb565DataSlotIndex(Rgb565DataSlot::B0) == 0 &&
                   rgb565DataSlotIndex(Rgb565DataSlot::B4) == 4 &&

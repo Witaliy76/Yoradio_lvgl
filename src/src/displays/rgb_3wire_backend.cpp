@@ -8,6 +8,7 @@
 
 #include "rgb_3wire_backend.h"
 #include "st7701_type9_ops.h"
+#include "gc9503_ops.h"
 #include "../platform/display/resolved_display_config.h"
 #include "../platform/storage/storage_owner.h"
 
@@ -64,6 +65,8 @@ struct InitRecipeBytes {
 constexpr InitRecipeBytes kInitRecipes[] = {
     {yoradio::panel::InitRecipe::St7701Type9, yoradio_init_recipes::kType9GfxEncoded,
      yoradio_init_recipes::kType9GfxEncodedBytes, yoradio_init_recipes::kType9GfxHighLevelOps},
+    {yoradio::panel::InitRecipe::Gc9503Default, yoradio_init_recipes::kGc9503DefaultEncoded,
+     yoradio_init_recipes::kGc9503DefaultEncodedBytes, yoradio_init_recipes::kGc9503DefaultHighLevelOps},
 };
 
 constexpr size_t kInitRecipeCount = sizeof(kInitRecipes) / sizeof(kInitRecipes[0]);

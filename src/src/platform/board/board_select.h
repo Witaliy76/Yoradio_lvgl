@@ -48,6 +48,17 @@ inline constexpr const BoardProfile&  kActiveBoard         = kBoardProfile_Esp32
 inline constexpr const BoardDefaults& kActiveBoardDefaults = kBoardDefaults_Esp32S3_4848S040;
 }  // namespace yoradio
 #  endif  // __cplusplus
+#elif YORADIO_BOARD == YORADIO_BOARD_UEDX48480040
+#  include "profiles/esp32s3_uedx48480040/board_profile.h"
+#  include "profiles/esp32s3_uedx48480040/board_defaults.h"
+#  define YORADIO_BOARD_PROFILE_VALIDATE_HEADER "profiles/esp32s3_uedx48480040/board_validate_profile.h"
+#  define YORADIO_BOARD_HAS_TOUCH YORADIO_BP_UEDX_HAS_TOUCH
+#  ifdef __cplusplus
+namespace yoradio {
+inline constexpr const BoardProfile&  kActiveBoard         = kBoardProfile_Esp32S3_Uedx48480040;
+inline constexpr const BoardDefaults& kActiveBoardDefaults = kBoardDefaults_Esp32S3_Uedx48480040;
+}  // namespace yoradio
+#  endif  // __cplusplus
 #else
 #  error "YoRadio Board Contract: unknown YORADIO_BOARD. Known ids are listed in src/src/platform/board/board_id.h."
 #endif
