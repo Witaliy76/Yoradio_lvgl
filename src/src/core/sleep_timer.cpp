@@ -278,7 +278,7 @@ const char* wakeup_cause_name(esp_sleep_wakeup_cause_t cause) {
 
 void sleep_wakeup_early_init() {
   // After any real deep-sleep wake GPIO0 may still belong to RTC IO. Release it before the
-  // shared ST7701 RGB line is initialized, for both EXT0 and TIMER wake causes.
+  // shared RGB panel line (R4) is initialized, for both EXT0 and TIMER wake causes.
   // После любого deep-sleep wake GPIO0 ещё может принадлежать RTC IO. Освобождаем его до RGB.
   const esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
   const char* cause_name = wakeup_cause_name(cause);

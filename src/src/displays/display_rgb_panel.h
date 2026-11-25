@@ -1,6 +1,6 @@
 // Adaptation: Witaliy76 - https://github.com/Witaliy76
-#ifndef displayST7701_h
-#define displayST7701_h
+#ifndef display_rgb_panel_h
+#define display_rgb_panel_h
 #include "../core/options.h"
 
 #include "Arduino.h"

@@ -183,7 +183,7 @@ bool isLvglBootMinDwellElapsed();
 // Block 8 / 8-E1: append LVGL mem + flush model lines to diag buffer (DspTask/telnet only).
 // Block 8 / 8-E1: дописать в буфер diag строки LVGL (только по запросу, не из hot path).
 size_t appendDisplayDiag(char* out, size_t len, size_t offset, bool* truncated_out = nullptr);
-// Block 8-E3: ST7701 direct panel flush stats (called from lvgl_flush_cb; DspTask only).
+// Block 8-E3: RGB panel direct flush stats (called from lvgl_flush_cb; DspTask only).
 // Block 8-E3: учёт panel flush при прямом выводе LVGL (только DspTask).
 void recordLvglDirectPanelFlush();
 

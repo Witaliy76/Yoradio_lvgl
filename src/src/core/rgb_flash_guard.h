@@ -5,7 +5,7 @@
 //   storage code   -> acquire() / release()        ("I need a protected flash episode")
 //   Boot->Main     -> requestRuntimePclkPromotion() (pending only, no set_pclk)
 //   Display::loop  -> poll() on DspTask              (sole issuer of runtime set_pclk)
-//   DisplayPort    -> ST7701 backend -> esp_lcd_rgb_panel_set_pclk()
+//   DisplayPort    -> Rgb3Wire backend -> esp_lcd_rgb_panel_set_pclk()
 // The guard knows no setting names, no NVS/Preferences details and no audio state.
 // Guard не знает имён настроек, деталей NVS/Preferences и состояния аудио.
 //
