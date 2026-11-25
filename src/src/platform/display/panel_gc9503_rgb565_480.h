@@ -4,7 +4,7 @@
 // Владелец: platform/display. Только данные: без esp_lcd и байтов инициализации.
 //
 // First board: VIEWE UEDX48480040E-WB-A (panel UE040WV-RH40-A044C).
-// Evidence (S07_bis-8): DOCUMENTED, not device-verified on our firmware yet.
+// Evidence: DOCUMENTED, device-verified on our firmware (S07_bis-8/8b, PCLK 12 MHz).
 //   Porches/pulses: working ESPHome config for this board (espcontrol #2140):
 //     HSYNC pulse 32 / back 10 / front 16, VSYNC pulse 12 / back 15 / front 3,
 //     pclk_inverted false.
@@ -12,9 +12,9 @@
 //     (flags zero: idle_low 0, pclk_active_neg 0, de_idle_high 0).
 //   Init recipe: espressif/esp_lcd_gc9503 3.0.1 (gc9503_ops.h, D10 step 2), with
 //     COLMOD 0x60 (18-bit panel interface) instead of 0x50: device evidence S07_bis-8b.
-// PCLK is host policy (BoardDefaults: 6 MHz first scanout, 10 MHz runtime, D6), not here.
-// Первая плата: VIEWE UEDX48480040E-WB-A. Доказательства: DOCUMENTED, на нашей
-// прошивке ещё не проверено. Порчи — из рабочего конфига espcontrol #2140; полярности —
+// PCLK is host policy (BoardDefaults: 6 MHz first scanout, 12 MHz runtime, D6), not here.
+// Первая плата: VIEWE UEDX48480040E-WB-A. Доказательства: DOCUMENTED, проверено на
+// устройстве (S07_bis-8/8b, PCLK 12 МГц). Порчи — из рабочего конфига espcontrol #2140; полярности —
 // значения по умолчанию официального драйвера; рецепт — esp_lcd_gc9503 3.0.1.
 #ifndef YORADIO_PLATFORM_DISPLAY_PANEL_GC9503_RGB565_480_H
 #define YORADIO_PLATFORM_DISPLAY_PANEL_GC9503_RGB565_480_H

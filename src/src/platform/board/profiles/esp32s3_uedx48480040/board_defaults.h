@@ -5,10 +5,18 @@
 // Владелец: platform/board. Структура и имена макросов как у 4848S040; options.h
 // применяет YORADIO_BD_*, если myoptions.h не задал действующие макросы.
 //
-// Display host policy is the D6 policy of the RGB3Wire host (6 MHz first scanout, one
-// promotion to 10 MHz, flash guard at 6 MHz), not yet device-verified on this panel.
-// Политика хоста — D6 (6 МГц первый scanout, одно повышение до 10 МГц, flash guard 6 МГц);
-// на этой панели ещё не проверена на устройстве.
+// Display host policy: D6 structure of the RGB3Wire host with a 12 MHz runtime clock
+// (6 MHz first scanout, one promotion to 12 MHz, flash guard at 6 MHz), device-verified.
+// Why 12 MHz: the panel datasheet asks for DCLK >= 16 MHz (>= 54 fps). At 10 MHz (36.4 fps)
+// the frame flickered intermittently; 16 MHz with bounce 0 shifted the image under load
+// (PSRAM bandwidth), and bounce buffers cost too much CPU. 12 MHz (43.7 fps) is the
+// compromise: no flicker and no shift with Radio + HTTPS + NVS writes, cold start clean.
+// Политика хоста: структура D6 с рабочей частотой 12 МГц (6 МГц первый scanout, одно
+// повышение до 12 МГц, flash guard 6 МГц), проверена на устройстве. Почему 12 МГц: паспорт
+// панели требует DCLK >= 16 МГц (>= 54 кадр/с). На 10 МГц (36.4 кадр/с) кадр иногда мерцал;
+// 16 МГц без bounce сдвигали картинку под нагрузкой (полоса PSRAM), а bounce слишком дорог
+// по CPU. 12 МГц (43.7 кадр/с) — компромисс: без мерцания и сдвига при Radio + HTTPS +
+// записи NVS, холодный старт чистый.
 #ifndef YORADIO_PLATFORM_BOARD_DEFAULTS_ESP32S3_UEDX48480040_H
 #define YORADIO_PLATFORM_BOARD_DEFAULTS_ESP32S3_UEDX48480040_H
 
@@ -20,10 +28,14 @@
 // ---------------------------------------------------------------------------
 
 // External I2S DAC wiring (UEDX-0 decision): BCLK 19 and DOUT 20 on the native USB
-// pins (J1-9/10), WS 48 shared with the panel command SCK after init. The SD card
-// keeps 47/45/42/46. These are WIRES, so they are defaults, not profile wiring.
+// pins (J1-9/10), WS 48 (J1-19) shared with the panel command SCK after init. The SD
+// card keeps 47/45/42/46. These are WIRES, so they are defaults, not profile wiring.
+// The header silkscreen prints GPIO numbers ("19", "20", "48"), not J1 pin numbers.
+// Device-verified with a PCM5102 (S07_bis-9).
 // Проводка внешнего ЦАП (решение UEDX-0): BCLK 19 и DOUT 20 на пинах нативного USB
-// (J1-9/10), WS 48 — общий с SCK команд панели после init. SD остаётся на 47/45/42/46.
+// (J1-9/10), WS 48 (J1-19) — общий с SCK команд панели после init. SD остаётся на
+// 47/45/42/46. На шелкографии разъёма напечатаны номера GPIO («19», «20», «48»), а не
+// номера контактов J1. Проверено на устройстве с PCM5102 (S07_bis-9).
 #define YORADIO_BD_I2S_DOUT          20
 #define YORADIO_BD_I2S_BCLK          19
 #define YORADIO_BD_I2S_LRCK          48
@@ -45,7 +57,7 @@
 #define YORADIO_BD_RGB_BOUNCE10                 0
 #define YORADIO_BD_RGB_FLASH_GUARD              1
 #define YORADIO_BD_UEDX_PCLK_STARTUP_HZ         6000000u
-#define YORADIO_BD_UEDX_PCLK_RUNTIME_HZ         10000000u
+#define YORADIO_BD_UEDX_PCLK_RUNTIME_HZ         12000000u
 #define YORADIO_BD_UEDX_PCLK_FLASH_GUARD_HZ     6000000u
 
 // FT6336U polling clock: conservative 100 kHz, as on GT911 (the part supports 400 kHz).

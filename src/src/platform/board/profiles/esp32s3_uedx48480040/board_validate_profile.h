@@ -90,10 +90,10 @@ static_assert(kActiveBoardDefaults.audio.i2s_dout_gpio == 20 &&
                   kActiveBoardDefaults.audio.i2s_lrck_gpio == 48,
               "UEDX48480040 default external DAC wiring: DOUT 20, BCLK 19, WS 48");
 static_assert(kActiveBoardDefaults.display.startup_pclk_hz == 6000000u &&
-                  kActiveBoardDefaults.display.runtime_pclk_hz == 10000000u &&
+                  kActiveBoardDefaults.display.runtime_pclk_hz == 12000000u &&
                   kActiveBoardDefaults.display.flash_guard_pclk_hz == 6000000u &&
                   kActiveBoardDefaults.display.promote_pclk_once_on_boot_to_main,
-              "UEDX48480040 uses the D6 PCLK policy (6 / 10 / 6 MHz, one promotion)");
+              "UEDX48480040 uses the D6 structure at 6 / 12 / 6 MHz (one promotion; see board_defaults.h)");
 static_assert(kActiveBoardDefaults.touch.service_mode == TouchServiceMode::Polling,
               "UEDX48480040 FT6336U INT is not routed: touch service is polling");
 static_assert(kActiveBoardDefaults.ui.profile == UiProfile::Square480,
