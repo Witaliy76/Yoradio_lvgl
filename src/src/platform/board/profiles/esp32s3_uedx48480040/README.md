@@ -1,6 +1,8 @@
 # VIEWE UEDX48480040E-WB-A — board profile
 
 ESP32-S3 N16R8, 4" square IPS 480×480, GC9503 RGB panel (UE040WV-RH40-A044C), FT6336U touch.
+User guide (wiring, build, flashing): [README_UEDX48480040_english.md](../../../../../../README_UEDX48480040_english.md),
+[Russian](../../../../../../README_UEDX48480040.md).
 Build family: `env:S3_N16R8`. Select with `#define YORADIO_BOARD YORADIO_BOARD_UEDX48480040`
 in `src/myoptions.h`.
 

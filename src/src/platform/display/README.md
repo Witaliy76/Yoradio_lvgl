@@ -6,7 +6,7 @@ The Display Contract separates panel facts, effective board wiring, tested host
 policy, and the backend boundary. The supported production path is:
 
     BoardProfile + Custom Wiring -> kWiring.display
-    PanelMode (ST7701 RGB565 480x480 recipe)
+    PanelMode (ST7701 or GC9503 RGB565 480x480 recipe)
     BoardDefaults.display + supported user choices
       -> ResolvedDisplayConfig
       -> DisplayPort
@@ -17,10 +17,10 @@ policy, and the backend boundary. The supported production path is:
 
 | Component | Responsibility |
 |---|---|
-| panel_mode.h / panel_st7701_rgb565_480.h | Panel-intrinsic controller, 480x480 geometry, RGB565/16-bit interface, timing, Type9 recipe identity and panel quirks |
+| panel_mode.h / panel_st7701_rgb565_480.h / panel_gc9503_rgb565_480.h | Panel-intrinsic controller, 480x480 geometry, RGB565/16-bit interface, timing, init recipe identity and panel quirks |
 | board_profile.h | Factory display GPIO and compatible controller/transport facts |
 | kWiring.display | Effective GPIO after Custom Wiring |
-| board_defaults.h | Tested host recommendation: partial 160-line PSRAM draw buffer, one panel-driver PSRAM framebuffer, bounce 0, PCLK 6/10/6 MHz |
+| board_defaults.h | Tested host recommendation: partial 160-line PSRAM draw buffer, one panel-driver PSRAM framebuffer, bounce 0, PCLK 6/10/6 MHz (4848S040) or 6/12/6 MHz (VIEWE) |
 | ResolvedDisplayConfig | Compile-time composition plus compatibility assertions and supported build choices |
 | DisplayPort | Backend-neutral begin, geometry, flush, brightness, sleep/wake and RGB-PCLK seam |
 | ../composition.h | The only board → PanelMode / display host / touch backend mapping (S07_bis-5) |
@@ -35,7 +35,8 @@ or timings directly.
 ### PCLK and flash writes
 
 The tested policy starts scanout at 6 MHz, performs one Boot-to-Main promotion
-to 10 MHz, and lowers PCLK to 6 MHz during YoRadio-controlled physical flash
+to the profile's runtime clock (10 MHz on 4848S040, 12 MHz on VIEWE; the VIEWE
+profile README explains the choice), and lowers PCLK to 6 MHz during YoRadio-controlled physical flash
 writes. rgb_flash_guard coordinates this through DisplayPort on DspTask and
 VSYNC. Automatic RGB restart is not a recovery policy; the exposed restart is
 manual diagnostic/service only.
@@ -54,20 +55,21 @@ manual diagnostic/service only.
   `effective_bounce_buffer_px` is 0 when disabled or native width × 10 when
   enabled, so the current panel receives 480 × 10 = 4800 pixels.
 - **Another resolution/panel:** create a verified PanelMode, ensure matching
-  BoardProfile wiring and add/qualify a backend behind DisplayPort. No second
-  panel backend is in the tree. LVGL layout for another resolution is not
+  BoardProfile wiring and add/qualify a backend behind DisplayPort. A panel on
+  the same RGB + 3-wire bus needs a PanelMode and an `InitRecipe` entry on the
+  Rgb3Wire host; another bus needs a new host. LVGL layout for another resolution is not
   built yet.
 
 ### Current limits and evidence
 
-Only ST7701 RGB565 parallel-16 at 480x480 is implemented. The factory panel
-reset is not wired to the SoC, and the backend requires
-`panel_reset_gpio` to stay disconnected. The 6/10/6 MHz policy is 4848S040
-evidence. Those frequencies and the 160-line partial buffer are read by the
+Implemented: ST7701 and GC9503, RGB565 parallel-16 at 480x480, on the Rgb3Wire
+host. The factory panel reset is not wired to the SoC on either board, and the
+backend requires `panel_reset_gpio` to stay disconnected. PCLK policies are
+device evidence per profile: 6/10/6 MHz on 4848S040, 6/12/6 MHz on VIEWE. Those frequencies and the 160-line partial buffer are read by the
 backend and LVGL, and `static_assert` locks them to the tested numbers.
 `render_mode`, `draw_buffer_count`, `draw_buffer_memory`, `flush` and
 `promote_pclk_once_on_boot_to_main` are checked the same way; the running
-path is the ST7701 backend and the LVGL partial init. Hardware validation is
+path is the Rgb3Wire backend and the LVGL partial init. Hardware validation is
 required after changing panel wiring, timing, resolution, framebuffer topology,
 or controller.
 
@@ -77,7 +79,7 @@ Display Contract разделяет параметры панели, итого�
 проверенную политику обслуживания дисплея и интерфейс драйвера. Рабочий путь:
 
     BoardProfile + Custom Wiring -> kWiring.display
-    PanelMode (рецепт ST7701 RGB565 480x480)
+    PanelMode (рецепт ST7701 или GC9503 RGB565 480x480)
     BoardDefaults.display + поддерживаемые пользовательские настройки
       -> ResolvedDisplayConfig
       -> DisplayPort
@@ -88,10 +90,10 @@ Display Contract разделяет параметры панели, итого�
 
 | Компонент | Ответственность |
 |---|---|
-| panel_mode.h / panel_st7701_rgb565_480.h | Параметры панели: контроллер, геометрия 480x480, 16-битный RGB565, тайминги, описание последовательности Type9 и особенности панели |
+| panel_mode.h / panel_st7701_rgb565_480.h / panel_gc9503_rgb565_480.h | Параметры панели: контроллер, геометрия 480x480, 16-битный RGB565, тайминги, описание рецепта инициализации и особенности панели |
 | board_profile.h | Заводские GPIO дисплея, тип контроллера и интерфейса |
 | kWiring.display | Итоговые GPIO после Custom Wiring |
-| board_defaults.h | Проверенная политика: частичный буфер отрисовки в PSRAM на 160 строк, один кадровый буфер драйвера панели в PSRAM, bounce 0, PCLK 6/10/6 МГц |
+| board_defaults.h | Проверенная политика: частичный буфер отрисовки в PSRAM на 160 строк, один кадровый буфер драйвера панели в PSRAM, bounce 0, PCLK 6/10/6 МГц (4848S040) или 6/12/6 МГц (VIEWE) |
 | ResolvedDisplayConfig | Объединение данных при сборке, проверки совместимости и поддерживаемые настройки |
 | DisplayPort | Независимый от драйвера интерфейс: begin, geometry, flush, brightness, sleep/wake и управление RGB-PCLK |
 | ../composition.h | Единственное сопоставление платы с PanelMode / хостом дисплея / backend тача (S07_bis-5) |
@@ -106,7 +108,8 @@ DisplayPort не раскрывает дескриптор панели. Акт�
 ### PCLK и запись flash
 
 Проверенная политика запускает вывод на 6 МГц, один раз поднимает PCLK до
-10 МГц при переходе Boot → Main и опускает его до 6 МГц во время физических
+рабочей частоты профиля (10 МГц на 4848S040, 12 МГц на VIEWE; выбор объяснён в
+README профиля VIEWE) при переходе Boot → Main и опускает его до 6 МГц во время физических
 записей flash, контролируемых YoRadio. rgb_flash_guard координирует это через
 DisplayPort в DspTask с учётом VSYNC. Автоматического перезапуска RGB для
 восстановления нет; доступный перезапуск предназначен для ручной диагностики.
@@ -127,17 +130,19 @@ DisplayPort в DspTask с учётом VSYNC. Автоматического п�
   Для текущей панели драйвер получает 480 × 10 = 4800 пикселей.
 - **Другое разрешение или панель:** создайте проверенный PanelMode, согласуйте
   с ним разводку BoardProfile и подключите/проверьте драйвер за DisplayPort.
-  Второго драйвера панели в дереве нет. Компоновка LVGL под другое разрешение
+  Панели на той же шине RGB + 3-wire нужны PanelMode и запись `InitRecipe` в
+  хосте Rgb3Wire; другой шине нужен новый хост. Компоновка LVGL под другое разрешение
   ещё не реализована.
 
 ### Текущие ограничения и подтверждённые параметры
 
-Реализован только ST7701 с 16-битной параллельной шиной RGB565 и геометрией 480x480.
-Сброс панели не подключён к SoC, и драйвер требует, чтобы `panel_reset_gpio`
-оставался неподключённым. Политика 6/10/6 МГц проверена на 4848S040. Эти частоты
+Реализованы ST7701 и GC9503 с 16-битной параллельной шиной RGB565 и геометрией
+480x480 на хосте Rgb3Wire. Сброс панели ни на одной из плат не подключён к SoC, и
+драйвер требует, чтобы `panel_reset_gpio` оставался неподключённым. Политики PCLK
+проверены на устройствах по профилям: 6/10/6 МГц на 4848S040, 6/12/6 МГц на VIEWE. Эти частоты
 и частичный буфер в 160 строк читают драйвер и LVGL, а `static_assert` фиксирует
 их на проверенных числах. `render_mode`, `draw_buffer_count`,
 `draw_buffer_memory`, `flush` и `promote_pclk_once_on_boot_to_main`
-проверяются так же; рабочий путь — драйвер ST7701 и инициализация LVGL с частичным
+проверяются так же; рабочий путь — драйвер Rgb3Wire и инициализация LVGL с частичным
 буфером. После изменения разводки, таймингов, разрешения, организации кадровых
 буферов или контроллера требуется проверка на устройстве.

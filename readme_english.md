@@ -11,7 +11,7 @@ The project is based on [e2002/yoradio](https://github.com/e2002/yoradio); the c
 > **Stable version on `main`:** `0.9.434m-r2-lvgl-beta.3.01`
 > **`night_build` sources:** `0.9.434m-r2-lvgl-beta.3.08` (`YOVERSION`; this is not a GitHub Release)
 > **Ready packages in `build_bin/`:** historical beta.3 line packages, not a build of the current sources
-> **Validated board:** ESP32-4848S040
+> **Validated boards:** ESP32-4848S040; VIEWE UEDX48480040E-WB-A (build from source only)
 
 **Open observation `WEBUI-STALL`:** serving HTTP static files sometimes takes
 several seconds, including in STOP. Audio-buffer depletion and one transition
@@ -72,7 +72,7 @@ Earlier alpha builds were used for internal development and were not published s
 
 ## Supported hardware
 
-ESP32-4848S040 is currently the only fully supported and verified board. Support for other modules and hardware profiles is in development. Each supported board has a dedicated guide with wiring, binaries, and hardware specifics.
+Two boards are supported. ESP32-4848S040 is the main one and has ready-to-flash packages. VIEWE UEDX48480040E-WB-A is verified on the device and is built from source. Each board has a dedicated guide with wiring and hardware specifics.
 
 
 | Item | Value |
@@ -86,6 +86,16 @@ ESP32-4848S040 is currently the only fully supported and verified board. Support
 
 
 → **[README_4848S040_english.md](README_4848S040_english.md)** — specifications, audio wiring, configuration, ready-to-flash packages, and board-specific details.
+
+| Item | Value |
+| -------- | ----------------------------------------- |
+| Board | VIEWE UEDX48480040E-WB-A (revision V1.3) |
+| MCU | ESP32-S3, 16 MB flash, 8 MB PSRAM (Octal) |
+| Display | GC9503, 4" 480×480 |
+| Touch | FT6336U (I2C) |
+| Audio | external I2S DAC only |
+
+→ **[README_UEDX48480040_english.md](README_UEDX48480040_english.md)** — specifications, external DAC wiring by the connector labels, build and flashing, and board notes.
 
 ## Interface
 
@@ -270,7 +280,7 @@ This fork develops YoRadio as a project with a full LVGL touchscreen interface a
 - optional AI Layer as a quiet information layer in the lower Main line;
 - emphasis on an external I2S DAC as the primary everyday audio option.
 
-Other board profiles may remain in the sources, but the public beta covers only verified ESP32-4848S040 scenarios.
+The public beta packages are built only for ESP32-4848S040. VIEWE UEDX48480040E-WB-A is verified on the device and is built from source.
 
 ## AI Layer
 
@@ -285,7 +295,7 @@ More detail:
 
 ## Beta limitations
 
-- Only ESP32-4848S040 is publicly supported.
+- Ready-to-flash packages exist only for ESP32-4848S040; VIEWE UEDX48480040E-WB-A is built from source.
 - Interface language (RU / EN / PL / SK) is chosen at compile time; there is no runtime switch.
 - Exit from Deep Sleep is via the configured `WAKE_PIN` (on ESP32-4848S040 — BOOT / GPIO0), the `WAKE AFTER SLEEP` RTC timer, or Reset/power. The touchscreen is not a wake source.
 - The Web UI works on the local network, without HTTPS.
@@ -301,6 +311,10 @@ More detail:
 Hardware guide for ESP32-4848S040 — DAC wiring, configuration, first start, and control notes:
 
 → **[README_4848S040_english.md](README_4848S040_english.md)**
+
+Hardware guide for VIEWE UEDX48480040E-WB-A — external DAC wiring, building and flashing from source:
+
+→ **[README_UEDX48480040_english.md](README_UEDX48480040_english.md)**
 
 The hardware boundary in the sources is [src/src/platform/README.md](src/src/platform/README.md): board selection and GPIO ([Board Contract](src/src/platform/board/README.md)), display ([Display Contract](src/src/platform/display/README.md)), and touch ([Touch Contract](src/src/platform/touch/README.md)). External DAC pins and Custom Wiring are set in `src/myoptions.h`. A package from `build_bin/` does not contain those edits: build and flash your own firmware.
 

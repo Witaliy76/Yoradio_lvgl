@@ -2,12 +2,15 @@
 
 ## English
 
-The production touch path for 4848S040 is deliberately short:
+The touch path is deliberately short (GT911 on 4848S040, FT6336U on VIEWE
+UEDX48480040; `platform/composition.h` picks the backend):
 
     BoardProfile + Custom Wiring
       -> kWiring.touch + BoardDefaults.touch
       -> ResolvedTouchConfig
       -> Gt911Backend (esp_lcd_touch_gt911 1.2.1)
+         или Ft5x06Backend (esp_lcd_touch_ft5x06 1.1.1)
+         or Ft5x06Backend (esp_lcd_touch_ft5x06 1.1.1)
       -> TouchPort
       -> LvglTouchAdapter / lv_touch_indev.cpp
       -> LVGL 9.5
@@ -16,12 +19,13 @@ The production touch path for 4848S040 is deliberately short:
 
 | Component | Owns / does | Does not own |
 |---|---|---|
-| board_profile.h | Factory GT911 controller, GPIO and I2C address | Display geometry, gestures, calibration |
+| board_profile.h | Factory touch controller (GT911 or FT5x06 family), GPIO and I2C address | Display geometry, gestures, calibration |
 | kWiring.touch | Effective GPIO after Custom Wiring | A second controller table |
 | BoardDefaults.touch | Polling recommendation and 100 kHz I2C policy | Physical pins or address |
 | ResolvedTouchConfig | Wiring, display-derived logical geometry, Flip orientation | Vendor handles or UI policy |
 | Gt911Backend | Official panel-I/O and GT911 handles, read transaction, range-safety clamp | I2C controller, smoothing, debounce, gestures |
 | Gt911ReportIo | Observes the vendor driver's existing synchronous status/acknowledgement transactions | Extra I2C transactions or ownership of the underlying transport |
+| Ft5x06Backend | Official panel-I/O and FT5x06 handles (FT6336U included), read, range-safety clamp | I2C controller, smoothing, debounce, gestures |
 | TouchPort | LVGL-neutral Valid, Released, NoData, Error, Unavailable sample contract | LVGL objects or screensaver logic |
 | TouchScreen | Production TouchPort owner, latest Flip request and safe application on DspTask | Persistence writes or a second transform |
 | LVGL adapter | Fault rearm, release feed and screensaver wake-only policy | GT911 registers or wiring |
@@ -87,6 +91,10 @@ held/cached point from becoming a false post-fault press. For a point-less LVGL 
 frame, the adapter leaves LVGL's preloaded last point intact; it never injects
 (0,0).
 
+FT5x06 has no report acknowledgement register. For `Ft5x06Backend`, Released
+means a successful read of the touch status with zero points; a failed I2C read
+is Error. The release-before-rearm rule above is the same for both backends.
+
 The screensaver/blank first touch wakes the screen but is not forwarded as a
 widget press. The next stroke is normal. WebUI Debug Touch is permanent and is
 controlled by config.store.dbgtouch; OFF emits no detailed trace, and MOVE
@@ -94,8 +102,10 @@ logging is rate-limited to about 10 messages per second.
 
 ### Add another controller
 
-Add a small backend that implements TouchPort semantics, then connect it in
-TouchScreen/controller selection without changing the LVGL adapter or UI. It
+Add a small backend that implements TouchPort semantics, add it to
+`composition::TouchBackend` and `touch_backend_select.h`, and map the board to it
+in `platform/composition.h`, without changing the LVGL adapter or UI.
+`Ft5x06Backend` (VIEWE, S07_bis-8) is the worked example. It
 must supply logical display-space coordinates, distinguish hardware errors from
 a release, preserve release-before-rearm behavior, and have device tests. This
 is implementation work, not a profile-only change.
@@ -104,16 +114,17 @@ is implementation work, not a profile-only change.
 
 - Controller raw range is still coupled to panel logical dimensions.
 - Rotation 90/270 needs an explicit contract extension.
-- Only GT911 is implemented.
+- GT911 and the FT5x06 family (FT6336U) are implemented.
 - Custom Wiring does not override the I2C address. A new BoardProfile can set
-  `touch.i2c_address`; the GT911 backend reads that field.
+  `touch.i2c_address`; both backends read that field.
 - Assigning `TOUCH_INT` does not leave polling mode.
 - GPIO/geometry changes and a new controller require hardware validation; host
   checks do not prove a new board.
 
 ## Русский
 
-Рабочий путь тача 4848S040 намеренно короткий:
+Путь тача намеренно короткий (GT911 на 4848S040, FT6336U на VIEWE
+UEDX48480040; backend выбирает `platform/composition.h`):
 
     BoardProfile + Custom Wiring
       -> kWiring.touch + BoardDefaults.touch
@@ -127,12 +138,13 @@ is implementation work, not a profile-only change.
 
 | Компонент | Чем владеет / что делает | Чем не владеет |
 |---|---|---|
-| board_profile.h | Заводскими данными GT911: контроллер, GPIO и адрес I2C | Геометрией дисплея, жестами, калибровкой |
+| board_profile.h | Заводскими данными тача (GT911 или семейство FT5x06): контроллер, GPIO и адрес I2C | Геометрией дисплея, жестами, калибровкой |
 | kWiring.touch | Итоговыми GPIO после Custom Wiring | Второй таблицей контроллера |
 | BoardDefaults.touch | Рекомендацией опроса и частотой I2C 100 кГц | Физическими пинами и адресом |
 | ResolvedTouchConfig | Разводкой, геометрией из контракта дисплея и ориентацией Flip | Дескрипторами драйвера и политикой UI |
 | Gt911Backend | Дескрипторами официального драйвера GT911 и panel IO, чтением отчёта, ограничением диапазона координат | Контроллером I2C, сглаживанием, подавлением дребезга, жестами |
 | Gt911ReportIo | Наблюдением за существующими синхронными транзакциями чтения и подтверждения отчёта | Дополнительными транзакциями I2C или временем жизни транспорта |
+| Ft5x06Backend | Дескрипторами официального драйвера FT5x06 (включая FT6336U) и panel IO, чтением, ограничением диапазона координат | Контроллером I2C, сглаживанием, подавлением дребезга, жестами |
 | TouchPort | Независимым от LVGL контрактом отчётов Valid, Released, NoData, Error, Unavailable | Объектами LVGL и логикой заставки |
 | TouchScreen | Реализацией TouchPort, последним запросом Flip и его безопасным применением в DspTask | Записью настроек или вторым преобразованием координат |
 | Адаптер LVGL | Допуском новых нажатий после ошибки, передачей отпускания и пробуждением без нажатия | Регистрами GT911 и разводкой |
@@ -200,6 +212,10 @@ Error или Unavailable передаёт отпускание в LVGL; ново
 ложным нажатием после ошибки. При передаче RELEASED без точки адаптер сохраняет
 последнюю точку, предварительно установленную LVGL, и не подставляет (0,0).
 
+У FT5x06 нет регистра подтверждения отчёта. Для `Ft5x06Backend` Released —
+успешное чтение статуса касаний с нулём точек; ошибка чтения I2C — Error.
+Правило «новое нажатие только после отпускания» одинаково для обоих драйверов.
+
 Первое касание при заставке или погашенном экране будит устройство, но не
 передаётся виджету как нажатие. Следующее касание обрабатывается обычно.
 Debug Touch в WebUI управляется config.store.dbgtouch; OFF отключает подробную
@@ -207,8 +223,10 @@ Debug Touch в WebUI управляется config.store.dbgtouch; OFF откл�
 
 ### Добавление другого контроллера
 
-Добавьте небольшой драйвер с семантикой TouchPort и подключите его в TouchScreen
-при выборе контроллера, сохранив адаптер LVGL и UI. Он должен отдавать логические
+Добавьте небольшой драйвер с семантикой TouchPort, внесите его в
+`composition::TouchBackend` и `touch_backend_select.h` и сопоставьте плате в
+`platform/composition.h`, сохранив адаптер LVGL и UI. Рабочий пример —
+`Ft5x06Backend` (VIEWE, S07_bis-8). Он должен отдавать логические
 координаты экрана, отличать аппаратную ошибку от отпускания и допускать новое
 нажатие после ошибки только после подтверждённого отпускания. Требуется
 проверка на устройстве. Это изменение реализации, а не только замена профиля.
@@ -217,9 +235,9 @@ Debug Touch в WebUI управляется config.store.dbgtouch; OFF откл�
 
 - Исходный диапазон координат контроллера пока связан с логическими размерами панели.
 - Поворот на 90/270 градусов требует явного расширения контракта.
-- Реализован только GT911.
+- Реализованы GT911 и семейство FT5x06 (FT6336U).
 - Custom Wiring не переопределяет адрес I2C. Новый BoardProfile может задать
-  `touch.i2c_address`; драйвер GT911 читает это поле.
+  `touch.i2c_address`; оба драйвера читают это поле.
 - Назначение `TOUCH_INT` не выключает периодический опрос.
 - Изменение GPIO/геометрии и новый контроллер требуют проверки на устройстве;
   проверки на компьютере не подтверждают работоспособность новой платы.

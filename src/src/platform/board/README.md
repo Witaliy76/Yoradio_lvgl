@@ -3,7 +3,8 @@
 ## English
 
 Board Contract is the compile-time source of selected-board facts and effective
-display/touch wiring. The current production board is ESP32-S3 4848S040.
+display/touch wiring. Supported boards: ESP32-S3 4848S040 and VIEWE
+UEDX48480040E-WB-A (see [profiles](profiles/README.md)).
 
 ### Core model
 
@@ -37,10 +38,10 @@ their own supported contracts/backends. External I2S pins remain user macros.
 
 In src/myoptions.h:
 
-    #define YORADIO_BOARD YORADIO_BOARD_4848S040
+    #define YORADIO_BOARD YORADIO_BOARD_4848S040   // or YORADIO_BOARD_UEDX48480040
     #define YORADIO_CUSTOM_WIRING 0
 
-The PlatformIO environment (for example, 4848S040) selects build-family
+The PlatformIO environment (`S3_N16R8` for both boards) selects build-family
 properties such as SoC, flash, PSRAM and partitions; it does not select a
 BoardProfile. board_validate.h checks that the profile agrees with that build.
 
@@ -68,7 +69,8 @@ To use other pins, uncomment and change `I2S_DOUT`, `I2S_BCLK` and `I2S_LRC` in
 `src/myoptions.h`; that override wins. Do not edit BoardProfile or Custom Wiring
 for this. The wake field in BoardDefaults is still a recommendation and is not
 applied. The 4848S040 rear
-connector uses DOUT 40, BCLK 1 and LRC 2. Those three signals are ESP32
+connector uses DOUT 40, BCLK 1 and LRC 2. The VIEWE UEDX48480040 rear header uses
+DOUT 20, BCLK 19 and LRC 48; its silkscreen prints GPIO numbers, not J1 pin numbers. Those three signals are ESP32
 outputs in I2S master mode: DOUT to the DAC DIN/DATA pin, BCLK to BCK, LRC to
 LRCK/WS. No MCLK pin is driven. The validator checks the original I2S values,
 reserved GPIO and collisions with effective display/touch and other I2S pins.
@@ -104,13 +106,15 @@ Adding a board is programming work:
    board_select.h through YORADIO_BOARD_PROFILE_VALIDATE_HEADER; the common
    board_validate.h needs no edit. Add a real PlatformIO build environment if the
    SoC/flash/PSRAM family differs.
-5. Supply/qualify matching display and touch implementations, then perform
-   hardware validation.
+5. Map the board to its PanelMode, display host and touch backend in
+   `platform/composition.h`; supply/qualify any missing implementation, then
+   perform hardware validation.
 
-The same ST7701 RGB565 480×480 and GT911 keep the current backends. A
+ST7701 or GC9503 RGB565 480×480 on the Rgb3Wire host and GT911 or FT5x06-family
+touch reuse the current backends (VIEWE UEDX48480040 was added this way). A
 BoardProfile cannot by itself add a new panel, resolution, or controller.
 The GPIO range and duplicate checks are common and run for every board; the
-4848S040 factory assertions live in its profile's `board_validate_profile.h`.
+factory assertions of each board live in its profile's `board_validate_profile.h`.
 See [profiles README](profiles/README.md) and [display README](../display/README.md).
 
 ### Compatibility
@@ -122,7 +126,8 @@ policy choice, not a GPIO alias. See [compat README](compat/README.md).
 ## Русский
 
 Board Contract — источник фактов выбранной платы и итоговой разводки дисплея/тача,
-проверяемых при сборке. Текущая поддерживаемая плата — ESP32-S3 4848S040.
+проверяемых при сборке. Поддерживаемые платы: ESP32-S3 4848S040 и VIEWE
+UEDX48480040E-WB-A (см. [профили](profiles/README.md)).
 
 ### Основная модель
 
@@ -157,10 +162,10 @@ Custom Wiring для доступных GPIO `DISP_*`/`TOUCH_*`. Отдельн�
 
 В src/myoptions.h:
 
-    #define YORADIO_BOARD YORADIO_BOARD_4848S040
+    #define YORADIO_BOARD YORADIO_BOARD_4848S040   // или YORADIO_BOARD_UEDX48480040
     #define YORADIO_CUSTOM_WIRING 0
 
-Окружение PlatformIO (например, 4848S040) задаёт параметры сборки: SoC, flash,
+Окружение PlatformIO (`S3_N16R8` для обеих плат) задаёт параметры сборки: SoC, flash,
 PSRAM и таблицу разделов; оно не выбирает BoardProfile. board_validate.h
 проверяет, что профиль соответствует этой сборке.
 
@@ -189,7 +194,8 @@ TF DAT0/CS (GPIO 41/42) и отвергает конфликт с дисплее
 `I2S_LRC` в `src/myoptions.h`: это переопределение приоритетнее. Для этого не
 правьте BoardProfile и Custom Wiring. Поле wake в BoardDefaults по-прежнему
 рекомендация и не применяется. Задний разъём 4848S040: DOUT 40,
-BCLK 1, LRC 2. Эти три сигнала — выходы ESP32 в режиме I2S master: DOUT на
+BCLK 1, LRC 2. Задний разъём VIEWE UEDX48480040: DOUT 20, BCLK 19, LRC 48; на его
+шелкографии напечатаны номера GPIO, а не номера контактов J1. Эти три сигнала — выходы ESP32 в режиме I2S master: DOUT на
 DIN/DATA ЦАП, BCLK на BCK, LRC на LRCK/WS. Пин MCLK не выводится. Валидатор
 проверяет исходные I2S-значения, зарезервированные GPIO и конфликты с итоговой
 разводкой дисплея/тача и другими I2S-пинами. Явный 255 исключает сигнал из
@@ -224,13 +230,15 @@ GPIO дисплея и GT911 задаются `DISP_*` и `TOUCH_*` через C
    укажите его в board_select.h через YORADIO_BOARD_PROFILE_VALIDATE_HEADER;
    общий board_validate.h править не нужно. Добавьте отдельное окружение
    PlatformIO, если отличается семейство SoC/flash/PSRAM.
-5. Подключите и проверьте соответствующие драйверы дисплея/тача, затем
+5. Сопоставьте плату с PanelMode, хостом дисплея и backend тача в
+   `platform/composition.h`; добавьте и проверьте недостающий драйвер, затем
    проведите проверку на устройстве.
 
-Те же ST7701 RGB565 480×480 и GT911 используют текущие драйверы.
+ST7701 или GC9503 RGB565 480×480 на хосте Rgb3Wire и тач GT911 или семейства
+FT5x06 используют текущие драйверы (так добавлена VIEWE UEDX48480040).
 BoardProfile сам по себе не добавляет новую панель, разрешение или контроллер.
 Проверки диапазона GPIO и дубликатов — общие и выполняются для любой платы;
-заводские проверки 4848S040 находятся в `board_validate_profile.h` её профиля.
+заводские проверки каждой платы находятся в `board_validate_profile.h` её профиля.
 См. [profiles README](profiles/README.md) и [display README](../display/README.md).
 
 ### Совместимость

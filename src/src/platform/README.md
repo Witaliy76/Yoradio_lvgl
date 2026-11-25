@@ -17,8 +17,9 @@ UI, theme and user-settings persistence belong to other modules.
 src/myoptions.h
   -> platform/board: BoardProfile + BoardDefaults + kWiring
   -> platform/display: PanelMode + ResolvedDisplayConfig
-  -> DisplayPort -> direct ST7701 / esp_lcd backend
-  -> platform/touch: ResolvedTouchConfig -> Gt911Backend -> TouchPort
+  -> platform/composition.h: board -> PanelMode / display host / touch backend
+  -> DisplayPort -> Rgb3Wire host (ST7701 or GC9503 init recipe) / esp_lcd
+  -> platform/touch: ResolvedTouchConfig -> Gt911Backend or Ft5x06Backend -> TouchPort
   -> platform/storage: ResolvedStorageConfig -> StorageOwner -> StorageFsBridge / Directory Service
   -> Audio File/decoder; Player owns path commands and epoch (legacy USE_SD off)
   -> lvgl_ui/lv_touch_indev.cpp -> LVGL pointer input
@@ -29,9 +30,10 @@ src/myoptions.h
 | Board selection and GPIO overrides | [board/README.md](board/README.md) | `YORADIO_BOARD`, `kActiveBoard`, `kWiring`, validation |
 | Existing board profiles | [board/profiles/README.md](board/profiles/README.md) | How a new profile is registered and what must be proven |
 | 4848S040 wiring | [board profile](board/profiles/esp32s3_4848s040/README.md) | Factory GPIO tables and known board-specific constraints |
+| VIEWE UEDX48480040 wiring | [board profile](board/profiles/esp32s3_uedx48480040/README.md) | Factory GPIO, external DAC wiring by silkscreen labels, PCLK choice |
 | Legacy-name migration errors | [board/compat/README.md](board/compat/README.md) | Why `ST7701_*` and `TS_*` names must not return |
 | Display Contract | [display/README.md](display/README.md) | Panel recipe, effective display configuration and DisplayPort |
-| Touch Contract | [touch/README.md](touch/README.md) | GT911, TouchPort and LVGL input path |
+| Touch Contract | [touch/README.md](touch/README.md) | GT911 / FT5x06, TouchPort and LVGL input path |
 | Storage Contract | [storage/README.md](storage/README.md) | Mount owner, Audio FS bridge, per-folder Directory Service; user switch `YORADIO_SD_ENABLE` |
 | UI Contract | [LVGL UI contract](../lvgl_ui/README.md#ui-contract--ui-контракт) | Explicit `BoardDefaults.ui.profile`, resolved viewport and UI metrics |
 
@@ -41,9 +43,9 @@ src/myoptions.h
 |---|---|---|
 | `BoardProfile` / `kActiveBoard` | Factory facts of the selected board | Not changed by `myoptions.h` |
 | Custom Wiring | `DISP_*` / `TOUCH_*` in `src/myoptions.h` when `YORADIO_CUSTOM_WIRING` is 1 | Only the lines you actually define |
-| `kWiring` | Factory profile plus those overrides | Display and GT911 GPIO |
+| `kWiring` | Factory profile plus those overrides | Display and touch GPIO |
 | `BoardDefaults` | Tested recommendations and explicit UI policy | Display host policy, touch poll / I2C clock and `ui.profile` are read. I2S pins, builtin LED and RGB bounce / flash-guard flags are applied as defaults through `core/options.h`. `power` / wake is not applied |
-| Resolved display / touch config | Compile-time view for the backends | ST7701 480×480 recipe stays in PanelMode. Bounce and flash guard default to the board profile (`myoptions.h` may override them); boot orientation comes from `myoptions.h` |
+| Resolved display / touch config | Compile-time view for the backends | The panel recipe (ST7701 or GC9503, 480×480) stays in PanelMode. Bounce and flash guard default to the board profile (`myoptions.h` may override them); boot orientation comes from `myoptions.h` |
 
 `I2S_DOUT`, `I2S_BCLK` and `I2S_LRC` default to the board profile and are
 overridden by uncommenting them in `src/myoptions.h`. `WAKE_PIN` stays a macro in
@@ -88,7 +90,7 @@ USB, DLNA, and NAS/SMB2 are reserved Directory names. NAS means SMB2, not SMB1
 and not WebDAV. Bluetooth and the other planned panels are ControlPanel: no
 file path and no folder queue. None of them is activatable yet.
 
-The ordinary `4848S040` build enables the Storage Owner through the internal
+The ordinary `S3_N16R8` build enables the Storage Owner through the internal
 flag `YORADIO_STORAGE_OWNER_ENABLED`. The user switch is `YORADIO_SD_ENABLE`
 in `src/myoptions.h`. Legacy `USE_SD` and SDManager stay off. The disposable
 SDSPI probe sources are gone. Build and flash are described in
@@ -99,7 +101,7 @@ completion time. See [Storage roles and limits](storage/README.md).
 ### Four common tasks
 
 1. **Change an external I2S DAC.** Edit `I2S_DOUT`, `I2S_BCLK`, and `I2S_LRC`
-   in `src/myoptions.h`, then build `[env:4848S040]` and flash that firmware.
+   in `src/myoptions.h`, then build `[env:S3_N16R8]` and flash that firmware.
    Packages in `build_bin/` ignore these edits. All three signals are ESP32
    outputs in I2S master mode: DOUT goes to the DAC DIN/DATA input, BCLK to
    BCK, LRC to LRCK/WS. The firmware does not drive an I2S data input or an
@@ -122,19 +124,24 @@ completion time. See [Storage roles and limits](storage/README.md).
    mode; the supported path stays polling. Serial prints `wiring: custom` and
    `backlight-gpio`. It does not print the RGB map or SDA/SCL.
 3. **Add a board based on an existing profile.** This is implementation work:
-   add an ID, a profile/defaults directory, a `board_select.h` branch and
-   validation/build support. The same ST7701 RGB565 480×480 and GT911 do not
-   need a new backend. A profile alone does not make another panel or touch
+   add an ID, a profile/defaults directory, a `board_select.h` branch,
+   validation, and the board → backend choice in `composition.h`. Boards with
+   ST7701 or GC9503 RGB565 480×480 on a 3-wire command bus and GT911 or
+   FT5x06-family touch reuse the existing backends; VIEWE UEDX48480040 is the
+   worked example. A profile alone does not make another panel or touch
    controller supported. GPIO range and duplicate checks are common
    (`board_validate.h`) and apply to any board; factory-specific checks go into
    the profile's `board_validate_profile.h`.
 4. **Use another panel or touch controller.** This needs a new tested backend
-   and contract-compatible descriptor. No second backend is in the tree.
-   Screen code stays behind DisplayPort; controller-specific touch code stays
+   and contract-compatible descriptor. A new init recipe for a panel on the same
+   Rgb3Wire host is a PanelMode plus an `InitRecipe` entry; a different bus
+   (SPI, MIPI-DSI, QSPI) needs a new display host. Screen code stays behind DisplayPort; controller-specific touch code stays
    behind TouchPort. LVGL layout for another resolution is not built yet.
 
-Only ESP32-S3 4848S040 with ST7701 RGB565 480x480 and GT911 is production
-supported today. `YOVERSION` in `core/options.h` identifies the current local
+Two boards are supported on the `S3_N16R8` family: ESP32-S3 4848S040 (ST7701
+RGB565 480x480, GT911), which also has release packages, and VIEWE
+UEDX48480040E-WB-A (GC9503 RGB565 480x480, FT6336U), device-verified and built
+from source. `YOVERSION` in `core/options.h` identifies the current local
 engineering build, not a GitHub Release or device acceptance. This documentation
 does not claim plug-and-play support for other boards.
 
@@ -153,8 +160,9 @@ Audio FS только для чтения реализованы. На этой 
 src/myoptions.h
   -> platform/board: BoardProfile + BoardDefaults + kWiring
   -> platform/display: PanelMode + ResolvedDisplayConfig
-  -> DisplayPort -> прямой драйвер ST7701 / esp_lcd
-  -> platform/touch: ResolvedTouchConfig -> Gt911Backend -> TouchPort
+  -> platform/composition.h: плата -> PanelMode / хост дисплея / backend тача
+  -> DisplayPort -> хост Rgb3Wire (рецепт ST7701 или GC9503) / esp_lcd
+  -> platform/touch: ResolvedTouchConfig -> Gt911Backend или Ft5x06Backend -> TouchPort
   -> platform/storage: ResolvedStorageConfig -> StorageOwner -> StorageFsBridge / Directory Service
   -> Audio File/декодер; Player владеет командами и epoch (legacy USE_SD выключен)
   -> lvgl_ui/lv_touch_indev.cpp -> ввод указателя LVGL
@@ -165,9 +173,10 @@ src/myoptions.h
 | Выбор платы и изменение GPIO | [board/README.md](board/README.md) | `YORADIO_BOARD`, `kActiveBoard`, `kWiring`, проверки |
 | Существующие профили плат | [board/profiles/README.md](board/profiles/README.md) | Регистрация профиля и необходимое подтверждение |
 | Разводка 4848S040 | [профиль платы](board/profiles/esp32s3_4848s040/README.md) | Заводские GPIO и известные ограничения платы |
+| Разводка VIEWE UEDX48480040 | [профиль платы](board/profiles/esp32s3_uedx48480040/README.md) | Заводские GPIO, подключение ЦАП по шелкографии, выбор PCLK |
 | Ошибки миграции старых имён | [board/compat/README.md](board/compat/README.md) | Почему имена `ST7701_*` и `TS_*` не возвращаются |
 | Display Contract | [display/README.md](display/README.md) | Параметры панели, итоговая конфигурация дисплея и DisplayPort |
-| Touch Contract | [touch/README.md](touch/README.md) | GT911, TouchPort и путь ввода LVGL |
+| Touch Contract | [touch/README.md](touch/README.md) | GT911 / FT5x06, TouchPort и путь ввода LVGL |
 | Storage Contract | [storage/README.md](storage/README.md) | Владелец mount, адаптер Audio FS, Directory Service одной папки; переключатель `YORADIO_SD_ENABLE` |
 | UI Contract | [UI-контракт LVGL](../lvgl_ui/README.md#ui-contract--ui-контракт) | Явный `BoardDefaults.ui.profile`, физический размер экрана и UI-метрики |
 
@@ -177,9 +186,9 @@ src/myoptions.h
 |---|---|---|
 | `BoardProfile` / `kActiveBoard` | Заводские факты выбранной платы | `myoptions.h` их не меняет |
 | Custom Wiring | `DISP_*` / `TOUCH_*` в `src/myoptions.h` при `YORADIO_CUSTOM_WIRING` 1 | Только реально заданные строки |
-| `kWiring` | Заводской профиль с этими изменениями | GPIO дисплея и GT911 |
+| `kWiring` | Заводской профиль с этими изменениями | GPIO дисплея и тача |
 | `BoardDefaults` | Проверенные рекомендации и явный выбор UI | Читаются политика дисплея, режим опроса / частота I2C тача и `ui.profile`. Пины I2S, builtin LED и флаги bounce / защиты flash применяются как умолчания через `core/options.h`. `power` / пробуждение не применяются |
-| ResolvedDisplayConfig / ResolvedTouchConfig | Итоговые настройки для драйверов, известные при сборке | Параметры ST7701 480×480 остаются в PanelMode. Флаги bounce-буфера и защиты записи flash по умолчанию берутся из профиля платы (`myoptions.h` может их переопределить); начальная ориентация берётся из `myoptions.h` |
+| ResolvedDisplayConfig / ResolvedTouchConfig | Итоговые настройки для драйверов, известные при сборке | Рецепт панели (ST7701 или GC9503, 480×480) остаётся в PanelMode. Флаги bounce-буфера и защиты записи flash по умолчанию берутся из профиля платы (`myoptions.h` может их переопределить); начальная ориентация берётся из `myoptions.h` |
 
 `I2S_DOUT`, `I2S_BCLK`, `I2S_LRC` по умолчанию берутся из профиля платы и
 переопределяются раскомментированием в `src/myoptions.h`. `WAKE_PIN` остаётся
@@ -224,7 +233,7 @@ USB, DLNA и NAS/SMB2 — зарезервированные имена Director
 SMB1 и не WebDAV. Bluetooth и остальные planned-панели — ControlPanel: без
 пути файла и без folder queue. Активировать их пока нельзя.
 
-Штатная сборка `4848S040` включает Storage Owner внутренним флагом
+Штатная сборка `S3_N16R8` включает Storage Owner внутренним флагом
 `YORADIO_STORAGE_OWNER_ENABLED`. Пользовательский переключатель —
 `YORADIO_SD_ENABLE` в `src/myoptions.h`. Legacy `USE_SD` и SDManager
 выключены. Исходники одноразового SDSPI probe удалены.
@@ -236,7 +245,7 @@ SMB1 и не WebDAV. Bluetooth и остальные planned-панели — Co
 ### Четыре частых задачи
 
 1. **Сменить внешний I2S ЦАП.** Измените `I2S_DOUT`, `I2S_BCLK`, `I2S_LRC` в
-   `src/myoptions.h`, соберите `[env:4848S040]` и прошейте эту прошивку.
+   `src/myoptions.h`, соберите `[env:S3_N16R8]` и прошейте эту прошивку.
    Пакеты в `build_bin/` эти правки игнорируют. Все три сигнала — выходы ESP32
    в режиме I2S master: DOUT идёт на DIN/DATA ЦАП, BCLK на BCK, LRC на
    LRCK/WS. Прошивка не использует вход данных I2S и не выводит MCLK. Это
@@ -260,18 +269,23 @@ SMB1 и не WebDAV. Bluetooth и остальные planned-панели — Co
    SDA/SCL этот лог не печатает.
 3. **Добавить плату по образцу профиля.** Нужна реализация: ID, каталог
    профиля с заводскими фактами и настройками, ветка `board_select.h`, проверки
-   и совместимая конфигурация сборки. Те же ST7701 RGB565 480×480 и GT911
-   нового драйвера не требуют. Профиль сам по себе не добавляет поддержку
-   другой панели или контроллера тача. Проверки
+   и выбор backend'ов для платы в `composition.h`. Платам с ST7701 или GC9503
+   RGB565 480×480 на 3-wire шине команд и тачем GT911 или семейства FT5x06
+   новый драйвер не нужен; рабочий пример — VIEWE UEDX48480040. Профиль сам по
+   себе не добавляет поддержку другой панели или контроллера тача. Проверки
    диапазона GPIO и дубликатов — общие (`board_validate.h`) и действуют для любой
    платы; заводские проверки платы пишутся в `board_validate_profile.h` её профиля.
 4. **Использовать другую панель или контроллер тача.** Нужны новый проверенный
-   драйвер и совместимое с контрактом описание оборудования. Второго драйвера
-   панели или тача в дереве нет. Код экранов обращается к DisplayPort, код
+   драйвер и совместимое с контрактом описание оборудования. Новый рецепт
+   инициализации для панели на том же хосте Rgb3Wire — это PanelMode и запись
+   `InitRecipe`; другая шина (SPI, MIPI-DSI, QSPI) требует нового хоста дисплея.
+   Код экранов обращается к DisplayPort, код
    конкретного контроллера тача скрыт за TouchPort. Компоновка LVGL под другое
    разрешение ещё не реализована.
 
-Сейчас рабочая прошивка поддерживает только ESP32-S3 4848S040 со ST7701 RGB565
-480x480 и GT911. `YOVERSION` в `core/options.h` обозначает текущую локальную
+На семействе `S3_N16R8` поддерживаются две платы: ESP32-S3 4848S040 (ST7701
+RGB565 480x480, GT911), для неё есть и готовые пакеты, и VIEWE
+UEDX48480040E-WB-A (GC9503 RGB565 480x480, FT6336U), проверенная на устройстве
+и собираемая из исходников. `YOVERSION` в `core/options.h` обозначает текущую локальную
 инженерную сборку, не GitHub Release или приёмку на устройстве. Документ не
 заявляет plug-and-play поддержку других плат.
