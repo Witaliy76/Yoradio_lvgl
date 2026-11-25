@@ -7,9 +7,9 @@ Author: Witaliy76 - https://github.com/Witaliy76
 `src/src/platform/` defines hardware contracts and the Storage mount lifecycle.
 It turns a selected board profile and optional wiring overrides into typed
 values for display/touch backends. Storage Owner and the read-only Audio FS
-bridge are implemented. On this branch that SD behavior is locally accepted
-and is not a published release.
-UI, theme and user-settings persistence belong to other modules.
+bridge are implemented and published on `night_build` as part of beta.3.10
+(SD playback from FAT/exFAT). UI, theme and user-settings persistence belong
+to other modules.
 
 ### Map
 
@@ -94,9 +94,10 @@ The ordinary `S3_N16R8` build enables the Storage Owner through the internal
 flag `YORADIO_STORAGE_OWNER_ENABLED`. The user switch is `YORADIO_SD_ENABLE`
 in `src/myoptions.h`. Legacy `USE_SD` and SDManager stay off. The disposable
 SDSPI probe sources are gone. Build and flash are described in
-[S07 working build](storage/README.md#s07-working-build). Local acceptance is
-not a publication. Operation accounting does not guarantee synchronous FS
-completion time. See [Storage roles and limits](storage/README.md).
+[Working build (beta.3.10)](storage/README.md#working-build-beta-310).
+Operation accounting does not guarantee synchronous FS completion time. See
+[Storage roles and limits](storage/README.md). Historical S07/B083 engineering
+notes remain in the storage README.
 
 ### Four common tasks
 
@@ -141,18 +142,18 @@ completion time. See [Storage roles and limits](storage/README.md).
 Two boards are supported on the `S3_N16R8` family: ESP32-S3 4848S040 (ST7701
 RGB565 480x480, GT911), which also has release packages, and VIEWE
 UEDX48480040E-WB-A (GC9503 RGB565 480x480, FT6336U), device-verified and built
-from source. `YOVERSION` in `core/options.h` identifies the current local
-engineering build, not a GitHub Release or device acceptance. This documentation
-does not claim plug-and-play support for other boards.
+from source. `YOVERSION` in `core/options.h` is the published `night_build`
+version string (beta.3.10), not a GitHub Release. This documentation does not
+claim plug-and-play support for other boards.
 
 ## Русский
 
 `src/src/platform/` описывает аппаратные контракты и жизненный цикл монтирования
 Storage. Выбранный профиль платы и необязательные изменения разводки превращаются
 в типизированные значения для драйверов дисплея и тача. Storage Owner и адаптер
-Audio FS только для чтения реализованы. На этой ветке такое поведение SD
-принято локально и не является публикацией.
-Компоновка UI, тема и хранение пользовательских настроек принадлежат другим модулям.
+Audio FS только для чтения реализованы и опубликованы на `night_build` в составе
+beta.3.10 (воспроизведение с SD FAT/exFAT). Компоновка UI, тема и хранение
+пользовательских настроек принадлежат другим модулям.
 
 ### Карта
 
@@ -238,9 +239,10 @@ SMB1 и не WebDAV. Bluetooth и остальные planned-панели — Co
 `YORADIO_SD_ENABLE` в `src/myoptions.h`. Legacy `USE_SD` и SDManager
 выключены. Исходники одноразового SDSPI probe удалены.
 Сборка и прошивка описаны в
-[рабочей сборке S07](storage/README.md#рабочая-сборка-s07). Локальная приёмка
-не является публикацией. Учёт операций не гарантирует время завершения
-синхронного FS. Подробнее: [роли и ограничения Storage](storage/README.md).
+[рабочей сборке (beta.3.10)](storage/README.md#рабочая-сборка-beta-310).
+Учёт операций не гарантирует время завершения синхронного FS. Подробнее:
+[роли и ограничения Storage](storage/README.md). Исторические заметки S07/B083
+остаются в README Storage.
 
 ### Четыре частых задачи
 
@@ -286,6 +288,6 @@ SMB1 и не WebDAV. Bluetooth и остальные planned-панели — Co
 На семействе `S3_N16R8` поддерживаются две платы: ESP32-S3 4848S040 (ST7701
 RGB565 480x480, GT911), для неё есть и готовые пакеты, и VIEWE
 UEDX48480040E-WB-A (GC9503 RGB565 480x480, FT6336U), проверенная на устройстве
-и собираемая из исходников. `YOVERSION` в `core/options.h` обозначает текущую локальную
-инженерную сборку, не GitHub Release или приёмку на устройстве. Документ не
+и собираемая из исходников. `YOVERSION` в `core/options.h` — опубликованная
+строка версии `night_build` (beta.3.10), не GitHub Release. Документ не
 заявляет plug-and-play поддержку других плат.

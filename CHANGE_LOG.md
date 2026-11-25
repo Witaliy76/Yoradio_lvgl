@@ -12,7 +12,6 @@ Intermediate releases inside a major Beta. Major milestones stay in `README.md`.
 
 ## 0.9.434m-r2-lvgl-beta.3.09 — 2026-11-20
 
-- mbedTLS: large buffers use the default allocator (PSRAM above 4 KiB); retired obsolete `library!` / `yoradio_build` build notes. / mbedTLS: крупные буферы — аллокатор по умолчанию (PSRAM выше 4 КиБ); устаревшие заметки про `library!` / `yoradio_build` убраны.
 - Added MP3 and FLAC playback from FAT and exFAT SD cards on the 4848S040.
 - Added a Media Library to WebUI and LVGL for browsing stations and folders without interrupting playback.
 - Added folder playback with automatic track advance, repeat modes and shuffle.

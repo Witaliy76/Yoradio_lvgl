@@ -5,48 +5,50 @@ Author: Witaliy76 - https://github.com/Witaliy76
 ## English
 
 `platform/storage/` implements the compile-time contract, Storage Owner and
-read-only FS bridge used by the existing Audio MP3/FLAC path. On this branch
-that behavior is locally accepted and is not a published release.
+read-only FS bridge used by the existing Audio MP3/FLAC path. That behavior is
+published on `night_build` as part of beta.3.10 (FAT/exFAT SD playback).
 `SDC_CS` stays 255 and legacy `USE_SD` / SDManager stay off. The ordinary
-`4848S040` build compiles the Storage Owner through the internal flag
+`S3_N16R8` build compiles the Storage Owner through the internal flag
 `YORADIO_STORAGE_OWNER_ENABLED`. The user switch is `YORADIO_SD_ENABLE` in
 `src/myoptions.h`: `1` permits SD, `0` skips early and runtime mount and does
-not reserve GPIO 41/42. BoardProfile still only records that the slot exists.
-`StorageOwner::status()` reports whether the card is actually ready. Those
-three facts meet in `kResolvedStorageConfig.enabled`. Do not turn SD on with
-`USE_SD`, `SDC_CS`, or another PlatformIO environment.
+not reserve the BoardProfile SD GPIO lines. `BoardProfile.storage` holds both
+slot presence and the SD pin map (`sd_cs` / `sd_clk` / `sd_cmd` / `sd_dat0`);
+`storage_boot_config.cpp` binds those pins when enabled.
+`StorageOwner::status()` reports whether the card is actually ready. Owner
+build, user flag and slot presence meet in `kResolvedStorageConfig.enabled`.
+Do not turn SD on with `USE_SD`, `SDC_CS`, or another PlatformIO environment.
 
-### S07 working build
+### Working build (beta.3.10)
 
-The Git branch stays `feature/s07-storage-shared-resources`. The working
-PlatformIO environment is ordinary `4848S040` (`default_envs`).
+<a id="working-build-beta-310"></a>
 
-The build output is `.pio/build/4848S040/firmware.bin`. FATFS LFN/UTF-8 for
+Published sources live on `night_build` (`YOVERSION`
+`0.9.434m-r2-lvgl-beta.3.10`). The PlatformIO environment is `S3_N16R8`
+(`default_envs`). Select the board with `YORADIO_BOARD` in `src/myoptions.h`
+(`YORADIO_BOARD_4848S040` or `YORADIO_BOARD_UEDX48480040`).
+
+The build output is `.pio/build/S3_N16R8/firmware.bin`. FATFS LFN/UTF-8 for
 this environment comes from `sdkconfig.defaults.storage_owner`.
 
-- Build: `pio run -e 4848S040`
-- Flash: `pio run -e 4848S040 -t upload`
+- Build: `pio run -e S3_N16R8`
+- Flash: `pio run -e S3_N16R8 -t upload`
 
 IDE Build and Upload follow the status-bar environment. It must show
-`4848S040`. The locally accepted image is
-`0.9.434m-r2-lvgl-beta.3.08-S07.B083` with WebUI cache tag `webnav6`.
-That acceptance is not a publication. Earlier images, including B045
-(2732960 bytes, SHA256
-`0406a7125f21de3484f6c6bffd0724a783be95d55b9f2c3d0b6fe91764c9428c`)
-and B046 (`.pio/artifacts/s07-b046/firmware.bin`, 2731392 bytes, SHA256
-`6e816f114b84ba2843282c65a8dee7abd3e336a73ce1d6096cda11dcb24f38b6`),
-remain historical records.
+`S3_N16R8`.
 
 `index.html` and `script.js` are replaced by `POST /webboard` with the form
 field `www`. A successful upload reboots the device. That path is not
 `uploadfs` and does not write a whole `littlefs.bin`. Playback is
 `POST /sd/play`. The general `POST /` does not accept `s07_sd_path`.
 
+S07 engineering images and the former `4848S040` env name are kept under
+[Historical S07 / B083](#s07-working-build).
+
 ### Components and entry points
 
 | Component | Responsibility / entry points |
 |---|---|
-| `BoardProfile.storage.onboard_sd_present` | Factory slot-presence fact; no SD GPIO fields yet |
+| `BoardProfile.storage` | Slot presence plus SD GPIO (`sd_cs_gpio`, `sd_clk_gpio`, `sd_cmd_gpio`, `sd_dat0_gpio`) and evidence level; pins differ by board |
 | `ResolvedStorageConfig` / `storage_validate.h` | Owner build, `YORADIO_SD_ENABLE` and the board slot; `SDC_CS != 255` and legacy `USE_SD` are refused |
 | `storage_boot_config.cpp` | Owner binding; `kResolvedStorageConfig.enabled == false` leaves the candidate pins disconnected |
 | `storage_owner.h/.cpp` | `StorageOwner::instance()` owns mount lifecycle and operation/handle accounting |
@@ -66,7 +68,8 @@ returns FatFs 13 (`FR_NO_FILESYSTEM`) after a clean release, it tries once at
 10 MHz. The earlier 1 MHz runtime result remains historical evidence in the
 S07 stage plan; it is not the current setting. When
 `kResolvedStorageConfig.enabled` is false this IO stays disconnected.
-DisplayCommand protection is enforced by the ST7701 backend.
+DisplayCommand protection is enforced by the Rgb3Wire backend
+(`rgb_3wire_backend`).
 `status()` copies metadata under a short critical section; `refreshSpace()`
 samples free/total only on the lifecycle task. No driver/FS call runs under
 the metadata lock. `Absent` means no usable card response, not physical detection:
@@ -93,7 +96,7 @@ there is no card-detect GPIO.
   both zero; it does not wait for clients to drain. Teardown itself is synchronous.
   Ordinary STOP/source selection keeps SD mounted. No automatic remount exists.
 - `YORADIO_SD_SSR_TIMEOUT_FALLBACK` in `src/myoptions.h` is compiled into
-  `storage_sdspi.cpp`. The ordinary `4848S040` Owner build links
+  `storage_sdspi.cpp`. The ordinary `S3_N16R8` Owner build links
   `--wrap=sdmmc_init_sd_ssr`. The real call runs first. `1` continues our
   SDSPI mount after `ESP_ERR_TIMEOUT` from that step, then clears the
   erase-timing fields. `0`, any other error, and a call outside our mount
@@ -302,67 +305,86 @@ stay DisplayCommand lines and are shared with TF CMD/CLK only across the
 early release and the later runtime mount. The check does not prove the wire.
 
 The disposable SDSPI probe and its PlatformIO environment were removed after
-the Owner moved into `4848S040`. FATFS LFN heap, UTF-8 and `MAX_LFN=255` for
-that build come from `sdkconfig.defaults.storage_owner`. The mirrored
-`ffconf.h` sets `FF_LFN_BUF` to 768 and `FF_FS_EXFAT` to 1, so the owner
-build includes FAT12/16/32 and exFAT. One successful card is not a general
-filesystem proof. Directories of 100/500/2000 entries and a listing name
-longer than 255 UTF-8 bytes are not measured on the device.
+the Owner moved into the ordinary family build (now `S3_N16R8`). FATFS LFN
+heap, UTF-8 and `MAX_LFN=255` for that build come from
+`sdkconfig.defaults.storage_owner`. The mirrored `ffconf.h` sets `FF_LFN_BUF`
+to 768 and `FF_FS_EXFAT` to 1, so the owner build includes FAT12/16/32 and
+exFAT. One successful card is not a general filesystem proof. Directories of
+100/500/2000 entries and a listing name longer than 255 UTF-8 bytes are not
+measured on the device.
 
 Targeted tests: `test/s07_4a2_storage_owner/`, `test/s07_4a3_single_file/`
 (bridge) and `test/s07_4a4a_source_transitions/` (current Player transitions).
 Numeric IDs remain Radio-only; mode-only SD needs an explicit path. Commands,
 seek and EOF run on the Player owner without Wi-Fi or legacy SD index/scanning.
-B003–B005 remain the early mount evidence; they are not the current image.
+B003–B005 remain early mount evidence; they are not the current image.
 WebUI, LVGL and folder-queue search are the three Directory Service consumers.
-Legacy `USE_SD` stays off. Local acceptance of this behavior is not a
-publication.
+Legacy `USE_SD` stays off.
+
+### Historical S07 / B083
+
+<a id="s07-working-build"></a>
+
+S07 brought Storage onto the product line on branch
+`feature/s07-storage-shared-resources` with PlatformIO env `4848S040` (later
+renamed to `S3_N16R8` in S07_bis-6). The locally accepted engineering image
+was `0.9.434m-r2-lvgl-beta.3.08-S07.B083` with WebUI cache tag `webnav6`.
+Earlier images, including B045 (2732960 bytes, SHA256
+`0406a7125f21de3484f6c6bffd0724a783be95d55b9f2c3d0b6fe91764c9428c`) and
+B046 (`.pio/artifacts/s07-b046/firmware.bin`, 2731392 bytes, SHA256
+`6e816f114b84ba2843282c65a8dee7abd3e336a73ce1d6096cda11dcb24f38b6`),
+remain historical records. B083 was later published with S07 as beta.3.09 and
+carried forward into beta.3.10 on `night_build`. Do not use the retired env
+name `4848S040` for new builds.
 
 ## Русский
 
 `platform/storage/` реализует контракт при сборке, Storage Owner и адаптер FS
-только для чтения существующим Audio MP3/FLAC. На этой ветке такое поведение
-принято локально и не является публикацией. `SDC_CS` остаётся 255, legacy
-`USE_SD` / SDManager выключены. Штатная сборка `4848S040` компилирует Storage
-Owner внутренним флагом `YORADIO_STORAGE_OWNER_ENABLED`. Пользовательский
-переключатель — `YORADIO_SD_ENABLE` в `src/myoptions.h`: `1` разрешает SD,
-`0` пропускает ранний и runtime mount и не резервирует GPIO 41/42.
-BoardProfile по-прежнему только отмечает наличие слота.
-`StorageOwner::status()` сообщает, готова ли карта. Эти три факта сходятся в
+только для чтения существующим Audio MP3/FLAC. Это поведение опубликовано на
+`night_build` в составе beta.3.10 (воспроизведение с SD FAT/exFAT).
+`SDC_CS` остаётся 255, legacy `USE_SD` / SDManager выключены. Штатная сборка
+`S3_N16R8` компилирует Storage Owner внутренним флагом
+`YORADIO_STORAGE_OWNER_ENABLED`. Пользовательский переключатель —
+`YORADIO_SD_ENABLE` в `src/myoptions.h`: `1` разрешает SD, `0` пропускает
+ранний и runtime mount и не резервирует линии SD из BoardProfile.
+`BoardProfile.storage` хранит и наличие слота, и карту пинов SD (`sd_cs` /
+`sd_clk` / `sd_cmd` / `sd_dat0`); `storage_boot_config.cpp` привязывает их
+при включении. `StorageOwner::status()` сообщает, готова ли карта. Сборка
+Owner, пользовательский флаг и слот сходятся в
 `kResolvedStorageConfig.enabled`. Не включайте SD через `USE_SD`, `SDC_CS`
 или другое окружение PlatformIO.
 
-### Рабочая сборка S07
+### Рабочая сборка (beta.3.10)
 
-Ветка Git остаётся `feature/s07-storage-shared-resources`. Рабочее окружение
-PlatformIO — обычный `4848S040` (`default_envs`).
+<a id="рабочая-сборка-beta-310"></a>
 
-Результат сборки — `.pio/build/4848S040/firmware.bin`. FATFS LFN/UTF-8 для
+Опубликованные исходники — ветка `night_build` (`YOVERSION`
+`0.9.434m-r2-lvgl-beta.3.10`). Окружение PlatformIO — `S3_N16R8`
+(`default_envs`). Плату выбирают `YORADIO_BOARD` в `src/myoptions.h`
+(`YORADIO_BOARD_4848S040` или `YORADIO_BOARD_UEDX48480040`).
+
+Результат сборки — `.pio/build/S3_N16R8/firmware.bin`. FATFS LFN/UTF-8 для
 этого окружения берётся из `sdkconfig.defaults.storage_owner`.
 
-- Сборка: `pio run -e 4848S040`
-- Прошивка: `pio run -e 4848S040 -t upload`
+- Сборка: `pio run -e S3_N16R8`
+- Прошивка: `pio run -e S3_N16R8 -t upload`
 
 Кнопки Build и Upload в IDE берут окружение из строки состояния. Там должно
-быть `4848S040`. Локально принятый образ —
-`0.9.434m-r2-lvgl-beta.3.08-S07.B083`, метка кэша WebUI `webnav6`.
-Эта приёмка не является публикацией. Прежние образы, включая B045
-(2732960 байт, SHA256
-`0406a7125f21de3484f6c6bffd0724a783be95d55b9f2c3d0b6fe91764c9428c`)
-и B046 (`.pio/artifacts/s07-b046/firmware.bin`, 2731392 байт, SHA256
-`6e816f114b84ba2843282c65a8dee7abd3e336a73ce1d6096cda11dcb24f38b6`),
-остаются историческими записями.
+быть `S3_N16R8`.
 
 `index.html` и `script.js` заменяются запросом `POST /webboard` с полем
 формы `www`. Успешная загрузка перезагружает устройство. Это не `uploadfs`
 и не запись целого `littlefs.bin`. Воспроизведение — `POST /sd/play`.
 Общий `POST /` не принимает `s07_sd_path`.
 
+Инженерные образы S07 и прежнее имя env `4848S040` — в разделе
+[История S07 / B083](#рабочая-сборка-s07).
+
 ### Компоненты и точки входа
 
 | Компонент | Ответственность / точки входа |
 |---|---|
-| `BoardProfile.storage.onboard_sd_present` | Заводской факт наличия слота; полей GPIO SD пока нет |
+| `BoardProfile.storage` | Наличие слота плюс GPIO SD (`sd_cs_gpio`, `sd_clk_gpio`, `sd_cmd_gpio`, `sd_dat0_gpio`) и уровень evidence; пины зависят от платы |
 | `ResolvedStorageConfig` / `storage_validate.h` | Сборка Owner, `YORADIO_SD_ENABLE` и слот платы; `SDC_CS != 255` и legacy `USE_SD` отвергаются |
 | `storage_boot_config.cpp` | Привязка Owner; при `kResolvedStorageConfig.enabled == false` кандидатные пины отключены |
 | `storage_owner.h/.cpp` | `StorageOwner::instance()` владеет монтированием и учётом операций/дескрипторов |
@@ -383,7 +405,7 @@ Type9, `mountAfterDisplay(display_ready)` после него, `processFault()` 
 остаётся историческим свидетельством в stage-plan S07 и не является текущей
 настройкой. При `kResolvedStorageConfig.enabled == false` этот IO не
 занимается. Защиту DisplayCommand обеспечивает
-ST7701 backend. `status()` копирует метаданные под короткой критической секцией;
+бэкенд Rgb3Wire (`rgb_3wire_backend`). `status()` копирует метаданные под короткой критической секцией;
 `refreshSpace()` получает free/total только в задаче владельца. Под блокировкой
 метаданных нет драйверных/FS-вызовов. `Absent` означает отсутствие ответа
 пригодной карты, а не физическое обнаружение: отдельного CD GPIO нет.
@@ -410,7 +432,7 @@ ST7701 backend. `status()` копирует метаданные под коро
   завершения клиентов. Само освобождение ресурсов синхронное. Обычный STOP и
   выбор источника сохраняют SD смонтированной. Автоматического remount нет.
 - `YORADIO_SD_SSR_TIMEOUT_FALLBACK` в `src/myoptions.h` собирается в
-  `storage_sdspi.cpp`. Штатная сборка Owner `4848S040` линкует
+  `storage_sdspi.cpp`. Штатная сборка Owner `S3_N16R8` линкует
   `--wrap=sdmmc_init_sd_ssr`. Сначала выполняется настоящий вызов. `1`
   продолжает наш SDSPI mount после `ESP_ERR_TIMEOUT` этого шага и обнуляет
   поля времени стирания. `0`, любая другая ошибка и вызов вне нашего mount
@@ -620,12 +642,12 @@ GPIO 41/42 на конфликт с дисплеем, тачем, I2S, IR, MUTE 
 раннее освобождение и последующий runtime mount. Проверка не доказывает провод.
 
 Одноразовый SDSPI probe и его окружение PlatformIO удалены после переноса
-Owner в `4848S040`. FATFS LFN heap, UTF-8 и `MAX_LFN=255` для этой сборки
-берутся из `sdkconfig.defaults.storage_owner`. Зеркальный `ffconf.h` задаёт
-`FF_LFN_BUF` 768 и `FF_FS_EXFAT` 1, поэтому сборка Owner включает
-FAT12/16/32 и exFAT. Успех одной карты не является общим доказательством
-файловой системы. Каталоги 100/500/2000 и имя из списка длиннее 255 байт
-UTF-8 на плате не измерены.
+Owner в штатную сборку семейства (сейчас `S3_N16R8`). FATFS LFN heap, UTF-8 и
+`MAX_LFN=255` для этой сборки берутся из `sdkconfig.defaults.storage_owner`.
+Зеркальный `ffconf.h` задаёт `FF_LFN_BUF` 768 и `FF_FS_EXFAT` 1, поэтому
+сборка Owner включает FAT12/16/32 и exFAT. Успех одной карты не является
+общим доказательством файловой системы. Каталоги 100/500/2000 и имя из
+списка длиннее 255 байт UTF-8 на плате не измерены.
 
 Адресные тесты: `test/s07_4a2_storage_owner/`, `test/s07_4a3_single_file/`
 (адаптер FS) и `test/s07_4a4a_source_transitions/` (переходы Player). Числовые
@@ -633,5 +655,20 @@ station IDs остаются Radio-only; для SD нужен явный пут�
 Управление/seek/EOF выполняет Player без зависимости от Wi-Fi и legacy SD index.
 B003–B005 остаются ранним свидетельством mount; это не текущий образ.
 WebUI, LVGL и поиск folder-queue — три потребителя Directory Service.
-Legacy `USE_SD` выключен. Локальная приёмка этого поведения не является
-публикацией.
+Legacy `USE_SD` выключен.
+
+### История S07 / B083
+
+<a id="рабочая-сборка-s07"></a>
+
+S07 вывел Storage на продуктовую линию на ветке
+`feature/s07-storage-shared-resources` с env PlatformIO `4848S040` (позже
+переименован в `S3_N16R8` в S07_bis-6). Локально принятый инженерный образ —
+`0.9.434m-r2-lvgl-beta.3.08-S07.B083`, метка кэша WebUI `webnav6`.
+Прежние образы, включая B045 (2732960 байт, SHA256
+`0406a7125f21de3484f6c6bffd0724a783be95d55b9f2c3d0b6fe91764c9428c`) и
+B046 (`.pio/artifacts/s07-b046/firmware.bin`, 2731392 байт, SHA256
+`6e816f114b84ba2843282c65a8dee7abd3e336a73ce1d6096cda11dcb24f38b6`),
+остаются историческими записями. B083 затем вошёл в публикацию S07 как
+beta.3.09 и перешёл в beta.3.10 на `night_build`. Для новых сборок не
+используйте устаревшее имя env `4848S040`.
