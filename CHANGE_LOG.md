@@ -2,6 +2,14 @@
 
 Intermediate releases inside a major Beta. Major milestones stay in `README.md`.
 
+## 0.9.434m-r2-lvgl-beta.3.10 — 2026-11-25
+
+- Added VIEWE UEDX48480040E-WB-A (GC9503 4" 480×480, FT6336U touch) as a second supported board, built from source: display, touch, SD playback and an external I2S DAC; wiring guide in `README_UEDX48480040.md`.
+- Reworked the hardware layer for several boards: board profiles with tested defaults and declared shared pins, one place that maps a board to its display and touch drivers; retired the `DSP_MODEL` / `TS_MODEL` selectors.
+- Renamed the build environment to `S3_N16R8` (one environment for the ESP32-S3 N16R8 family) and started tracking `dependencies.lock`.
+- Renamed the RGB panel driver to `display_rgb_panel`; the Serial log tag `[ST7701]` is now `[rgb_panel]`.
+- Verified on hardware: 4848S040 unchanged (display, touch, HTTPS radio, SD); VIEWE display, touch, SD and audio.
+
 ## 0.9.434m-r2-lvgl-beta.3.09 — 2026-11-20
 
 - mbedTLS: large buffers use the default allocator (PSRAM above 4 KiB); retired obsolete `library!` / `yoradio_build` build notes. / mbedTLS: крупные буферы — аллокатор по умолчанию (PSRAM выше 4 КиБ); устаревшие заметки про `library!` / `yoradio_build` убраны.

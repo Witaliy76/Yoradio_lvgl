@@ -4,7 +4,7 @@
 
 Hardware guide for ESP32-4848S040, the board supported in the public YoRadio LVGL beta: specifications, audio, configuration, ready-to-flash packages, and wiring notes. Interface, themes, and Web UI are described in the [main English README](readme_english.md).
 
-Stable version on `main`: `0.9.434m-r2-lvgl-beta.3.01`. `night_build` sources: `0.9.434m-r2-lvgl-beta.3.06` (the `YOVERSION` string, not a GitHub Release). The packages below are the historical beta.3 line.
+Stable version on `main`: `0.9.434m-r2-lvgl-beta.3.01`. `night_build` sources: `0.9.434m-r2-lvgl-beta.3.10` (the `YOVERSION` string, not a GitHub Release). The packages below are the historical beta.3 line.
 
 <p align="center">
   <img src="readme/english/device-front.jpg" alt="ESP32-4848S040 with the YoRadio interface" width="450">
