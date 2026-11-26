@@ -8,9 +8,12 @@ Besides the on-device UI there is a Web UI for playback, the Media Library (the 
 
 The project is based on [e2002/yoradio](https://github.com/e2002/yoradio); the current repository is [Yoradio_lvgl](https://github.com/Witaliy76/Yoradio_lvgl).
 
+> **Latest version:** `0.9.434m-r2-lvgl-beta.3.10` (2026-11-25) — `night_build` sources, not a GitHub Release. What changed: [CHANGE_LOG.md](CHANGE_LOG.md).
+>
 > **Stable version on `main`:** `0.9.434m-r2-lvgl-beta.3.01`
-> **`night_build` sources:** `0.9.434m-r2-lvgl-beta.3.10` (`YOVERSION`; this is not a GitHub Release)
-> **Ready packages in `build_bin/`:** historical beta.3 line packages, not a build of the current sources
+>
+> **Ready packages in `build_bin/`:** `0.9.434m-r2-lvgl-beta.3.01` for ESP32-4848S040; they do not include the beta.3.02–beta.3.10 changes
+>
 > **Validated boards:** ESP32-4848S040; VIEWE UEDX48480040E-WB-A (build from source only)
 
 **Open observation `WEBUI-STALL`:** serving HTTP static files sometimes takes
@@ -51,6 +54,8 @@ Different pages have different roles: Main is for listening, Visual for atmosphe
 - AI Layer — optional quiet information layer over music. Requires an API key. Configured through the Web UI.
 
 ## Change history
+
+Major milestones are listed here. Every intermediate beta.3.xx version, including the latest beta.3.10, is described in [CHANGE_LOG.md](CHANGE_LOG.md).
 
 ### 21.09.2026 — 0.9.434m-r2-lvgl-beta.3
 
